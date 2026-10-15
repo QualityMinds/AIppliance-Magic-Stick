@@ -101,7 +101,7 @@ export default class SafeReporter implements Reporter {
     const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>();
     // A primary assertion/timeout must not hide a secondary teardown fence.
     const recoveryReasons=['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'];
-    const cleanupFailures=result.status === 'passed' ? [] : [...recorded.keys()].filter(step=>step.category === 'test.step')
+    const cleanupFailures=result.status === 'passed' ? [] : [...recorded.keys()].filter(step=>['test.step','hook'].includes(step.category))
       .map(step=>harnessFailure(step.error?.message)).filter(value=>value&&recoveryReasons.includes(value.code));
     const failure=failures.find(value=>value?.outcome === 'Failed') ?? cleanupFailures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
     const recoveryRequired=[...failures,...cleanupFailures].some(value=>value&&recoveryReasons.includes(value.code));

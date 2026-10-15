@@ -19,6 +19,15 @@ import {permittedUiAction} from './ui-actions.ts';
 import {AdministrationApi,AdministrationRejected} from '../core/administration-api.ts';
 
 /** Exercise Create in the actual shared form, retaining exact intent and UID-bound cleanup. */
+export async function selectRealtimeCompute(dialog:import('@playwright/test').Locator,fixture:RuntimeModelFixture) {
+  const options=await dialog.getByLabel('Compute node').locator('option').evaluateAll(items=>items.map(item=>({value:(item as HTMLOptionElement).value,
+    node:(item as HTMLOptionElement).dataset.node,target:(item as HTMLOptionElement).dataset.computeTarget,disabled:(item as HTMLOptionElement).disabled})));
+  const matches=options.filter(item=>item.node===fixture.realtime!.gpuNode&&item.target===fixture.computeTarget);
+  requireSafe(matches.length===1&&!matches[0]!.disabled,'CAPABILITY');
+  await dialog.getByLabel('Compute node').selectOption(matches[0]!.value);
+  if(fixture.computeTarget!=='cpu')await dialog.getByRole('combobox',{name:'GPUs',exact:true}).selectOption(String(fixture.realtime!.gpuCount));
+  else await expect(dialog.getByRole('combobox',{name:'GPUs',exact:true})).toHaveCount(0);
+}
 async function createRealtimeThroughForm(live:LiveFoundation,suffix:string,fixture:RuntimeModelFixture) {
   requireSafe(fixture.realtime && !fixture.realtime.restartNonce,'CONFIG');
   const name=live.journal.prefix+suffix;
@@ -34,24 +43,27 @@ async function createRealtimeThroughForm(live:LiveFoundation,suffix:string,fixtu
     await dialog.getByLabel('Name',{exact:true}).fill(name);
     await dialog.getByLabel('Model source').selectOption('direct');
     await dialog.getByLabel('Hugging Face URL').fill(fixture.url);
-    await dialog.getByLabel('Compute node').selectOption(fixture.realtime.gpuNode);
-    await dialog.getByLabel('GPUs',{exact:true}).selectOption(String(fixture.realtime.gpuCount));
+    await selectRealtimeCompute(dialog,fixture);
     await dialog.getByLabel('Context Size',{exact:true}).fill(String(fixture.contextWindow));
     await dialog.getByLabel('Concurrent sessions').fill('1');
     await dialog.getByLabel('System RAM (MiB)').fill(String(fixture.realtime.systemMemoryMi));
-    await selectRange(dialog.getByLabel('GPU memory budget'),fixture.realtime.gpuMemoryFraction);
+    if(fixture.computeTarget!=='cpu')await selectRange(dialog.getByLabel('GPU memory budget'),fixture.realtime.gpuMemoryFraction);
     await dialog.getByText('Advanced',{exact:true}).click();
-    await dialog.getByLabel('Thinker CPU offload (GiB)').fill(String(fixture.realtime.thinkerCpuOffloadGiB));
+    if(fixture.computeTarget!=='cpu')await dialog.getByLabel('Thinker CPU offload (GiB)').fill(String(fixture.realtime.thinkerCpuOffloadGiB));
     if(fixture.realtime.runtimeImage)await dialog.getByLabel('Runtime image (optional)').fill(fixture.realtime.runtimeImage);
     await expect(dialog.getByLabel('CPU reservation (cores)')).toHaveValue('');
     await expect(dialog.getByLabel('CPU limit (cores, 0 = unlimited)')).toHaveValue('');
     await live.journal.requested('model',name);
-    let accepted:ModelActivation;
+    let accepted:ModelActivation|undefined;
     try {
-      const response=await browserMutation(page,{url:live.config.dashboardUrl+'/api/models/local',method:'POST',body:client.payload(),
-        timeoutMs:live.config.requestTimeoutMs,guard:live.guard,stage:'model-create'},
+      await browserMutation(page,{url:live.config.dashboardUrl+'/api/models/local',method:'POST',body:client.payload(),
+        timeoutMs:live.config.requestTimeoutMs,guard:live.guard,stage:'model-create',acknowledge:async response=>{
+          const value=await response.json() as ModelActivation;
+          requireSafe(value?.metadata?.name===name&&value.metadata.namespace===live.config.expected.applianceNamespace&&
+            value.metadata.uid&&Number.isSafeInteger(value.metadata.generation)&&Number(value.metadata.generation)>0,'API');
+          await live.journal.owned('model',name,value.metadata.uid,value.metadata.generation);accepted=value;
+        }},
         ()=>dialog.getByRole('button',{name:'Add Realtime Model',exact:true}).click());
-      try {accepted=await response.json() as ModelActivation;}catch {accepted=await live.cleaner.find(name) as ModelActivation;}
     }catch(error) {
       if(error instanceof MutationNotSubmitted && !await live.cleaner.find(name))await live.journal.rejected('model',name);
       throw error;
@@ -59,7 +71,7 @@ async function createRealtimeThroughForm(live:LiveFoundation,suffix:string,fixtu
     requireSafe(accepted?.metadata?.name === name && accepted.metadata.namespace === live.config.expected.applianceNamespace &&
       accepted.metadata.uid && Number.isSafeInteger(accepted.metadata.generation) && Number(accepted.metadata.generation) > 0,'API');
     const uid=accepted.metadata.uid,generation=Number(accepted.metadata.generation);
-    await live.journal.owned('model',name,uid,generation);client.adopt(uid);
+    client.adopt(uid);
     return {client,uid,generation};
   }finally{await page.close();}
 }
@@ -102,7 +114,8 @@ export async function realtimeWorkflow(live:LiveFoundation) {
         const card=modelCard(page,created.client.name);
         await card.getByRole('button',{name:'Edit '+created.client.name,exact:true}).click();
         await expect(page.getByLabel('Realtime profile')).toHaveValue(row.fixture.realtime!.profile);
-        await expect(page.getByLabel('Compute node')).toHaveValue(row.fixture.realtime!.gpuNode);
+        await expect(page.getByLabel('Compute node').locator('option:checked')).toHaveAttribute('data-node',row.fixture.realtime!.gpuNode);
+        await expect(page.getByLabel('Compute node').locator('option:checked')).toHaveAttribute('data-compute-target',row.fixture.computeTarget);
         await expect(page.getByLabel('KV Cache')).toHaveCount(0);await expect(page.getByRole('button',{name:'Save changes',exact:true})).toBeDisabled();
         const context=row.fixture.contextWindow === 256 ? 512 : 256;
         await page.getByRole('dialog').getByLabel('Context Size',{exact:true}).fill(String(context));

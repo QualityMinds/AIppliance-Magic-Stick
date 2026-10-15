@@ -16,7 +16,7 @@ test('HAR-10 remaining P0 selections are finite, unique and require their exact 
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Blocked'}]).complete).toBe(false);
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Skipped'}]).complete).toBe(false);
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Flaky'}]).complete).toBe(false);
-    expect(remainingIds(mode)?.length).toBe(Object.values(remainingVariants).filter(item=>remainingVariantEnabled(item) && item.phase === phase).length+1);
+    expect(remainingIds(mode)?.length).toBe(new Set(Object.values(remainingVariants).filter(item=>remainingVariantEnabled(item) && item.phase === phase).map(item=>item.id)).size+1);
     expect(remainingCoverage(mode,passed.filter(item=>item.variant !== 'final-idle')).complete).toBe(false);
     const fast=remainingRequirements(mode+'-fast')!;
     expect(fast.every(item=>['U','C'].includes(item.layer) && item.environment === 'fixture')).toBe(true);
@@ -29,6 +29,10 @@ test('HAR-10 every remaining variant retains its stable P0 catalogue ID and exac
   const rows=Object.fromEntries([...catalog.matchAll(/^\| ([A-Z0-9]+-\d{2}) \| .*? \| ([UCBAEON+]+) \| P0[^\n]*$/gm)]
     .map(match=>[match[1],match[2]!.split('+').sort().join('')]));
   // CACHE-07 was retired with FreeToken; keep the remaining finite matrix intact.
-  expect(Object.keys(remainingVariants)).toHaveLength(98);
-  for(const item of Object.values(remainingVariants))expect(rows[item.id],item.id).toBe([...item.layers].sort().join(''));
+  expect(Object.keys(remainingVariants)).toHaveLength(100);
+  for(const item of Object.values(remainingVariants))for(const layer of item.layers)expect(rows[item.id],item.id).toContain(layer);
+  for(const id of new Set(Object.values(remainingVariants).map(item=>item.id))) {
+    const layers=[...new Set(Object.values(remainingVariants).filter(item=>item.id===id).flatMap(item=>item.layers))].sort().join('');
+    expect(rows[id],id).toBe(layers);
+  }
 });

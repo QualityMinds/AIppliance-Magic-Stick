@@ -43,13 +43,13 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-04 HAR-07 HAR-10 U
       writes.push('recovery');requested=true;return {};
     },'/api/regression/runs':()=>{writes.push('unexpected-suite');return {};}});
   await page.goto(origin+'/#/system/regression');
-  const recover=page.getByRole('button',{name:'Recover stale lock',exact:true});
+  const recover=page.getByRole('button',{name:'Clean up previous test run',exact:true});
   await expect(recover).toBeEnabled();await page.reload();expect(writes).toEqual([]);
   await recover.focus();await page.keyboard.press('Enter');
-  const dialog=page.getByRole('dialog',{name:'Recover stale regression lock'});
+  const dialog=page.getByRole('dialog',{name:'Clean up previous test run'});
   await expect(dialog.getByText(/No new regression tests will start/)).toBeVisible();expect(writes).toEqual([]);
-  await dialog.getByRole('button',{name:'Recover lock',exact:true}).click();
-  await expect(page.getByText('Lock recovery',{exact:true})).toBeVisible();
+  await dialog.getByRole('button',{name:'Clean up previous run',exact:true}).click();
+  await expect(page.getByText('Previous run cleanup',{exact:true})).toBeVisible();
   await expect(page.getByText(/No test phases are selected/)).toBeVisible();expect(writes).toEqual(['recovery']);
   requested=false;external=true;await page.getByRole('button',{name:'Refresh tests',exact:true}).click();
   await expect(recover).toBeDisabled();await expect(page.getByText('The old lock needs its external runner journal.')).toBeVisible();

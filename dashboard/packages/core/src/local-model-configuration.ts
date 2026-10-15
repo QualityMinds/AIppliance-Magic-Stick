@@ -50,8 +50,9 @@ export const initialLocalModelDraft = (models: ModelsPayload, engineChoice: stri
   const savedRealtime = record(local.realtime);
   const profileId = String(savedRealtime.profile ?? Object.keys(profiles)[0] ?? '');
   const profile = profiles[profileId];
-  const device = models.computeTargets.realtimeDevices?.find((item) => item.profile === profileId && item.node === savedRealtime.gpuNode)
-    ?? models.computeTargets.realtimeDevices?.find((item) => item.profile === profileId && item.supported && item.freeGpuCount > 0);
+  const device = models.computeTargets.realtimeDevices?.find((item) => item.profile === profileId && item.node === savedRealtime.gpuNode &&
+    (!local.computeTarget || item.computeTarget === local.computeTarget))
+    ?? models.computeTargets.realtimeDevices?.find((item) => item.profile === profileId && item.supported && (item.computeTarget === 'cpu' || item.freeGpuCount > 0));
   const target = models.computeTargets.targets.find((item) => item.available
     && (item.engineAvailability?.[engine]?.available ?? item.engines?.includes(engine)) && (item.slots?.free ?? 1) > 0);
   const computeTarget = String(local.computeTarget ?? status.computeTarget ?? (omni ? device?.computeTarget ?? profile?.computeTargets?.[0] ?? 'nvidia-gpu' : target?.id ?? ''));

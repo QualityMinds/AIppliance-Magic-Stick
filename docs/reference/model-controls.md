@@ -266,6 +266,11 @@ Single-GPU models without CPU offloading retain their existing resource profile
 and show advisory RAM figures rather than claiming that a new limit was applied.
 Unverified capacity or missing weight metadata stays Unknown.
 
+Opening Edit keeps the saved RAM/VRAM budgets visible while the estimate loads.
+A failed estimate shows an actionable error and blocks saving; it does not
+replace the saved budget with a guessed value. Realtime compute choices identify
+both the node and CPU/GPU target, including when both are advertised on one node.
+
 vLLM GPU cache estimates use local tensor-rank heads (including GQA/MLA
 replication) or pipeline-local layers. Recurrent state and QSA side caches are
 itemized. Ollama uses an estimated whole-layer placement envelope. Per-worker

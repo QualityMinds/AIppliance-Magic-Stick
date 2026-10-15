@@ -262,6 +262,7 @@ class Qwen4ExpPLEPinnedHostEmbedding:
                 self.assertEqual(raised.exception.code, 2)
 
     def test_unequal_card_capacities_use_a_native_worker_and_the_smallest_physical_ceiling(self):
+        self.wrapper["collective_probe"] = lambda *_: True
         group = ["GPU-0", "GPU-1"]
         self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": group[i], "totalMi": capacity} for i, capacity in enumerate((24576, 49152))],
             "heads": 8, "hidden": 1024, "layers": 32, "pipeline": True}
@@ -313,7 +314,8 @@ class Qwen4ExpPLEPinnedHostEmbedding:
         self.assertIn("--tensor-parallel-size=2", args)
 
     def test_two_and_four_gpu_tensor_pipeline_and_auto_are_runtime_validated(self):
-        for count in (2, 4):
+        self.wrapper["collective_probe"] = lambda *_: True
+        for count in (1, 2, 4):
             for strategy in ("auto", "tensor", "pipeline"):
                 group = [f"GPU-{i}" for i in range(count)]
                 self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": uuid, "totalMi": 24000} for uuid in group],
@@ -329,6 +331,58 @@ class Qwen4ExpPLEPinnedHostEmbedding:
                 self.assertIn("--gpu-memory-utilization=0.5000", args)
                 self.assertIn("--cpu-offload-gb=1.000000", args)
                 self.assertNotIn("99", args)
+
+    def test_collective_fallback_requires_same_group_native_success_and_preserves_explicit_policy(self):
+        group = ["GPU-0", "GPU-1", "GPU-2", "GPU-3"]
+        calls = []
+        def probe(expected, environment):
+            calls.append((list(expected), environment.get("NCCL_P2P_DISABLE")))
+            return environment.get("NCCL_P2P_DISABLE") == "1"
+        self.wrapper["collective_probe"] = probe
+        os.environ.pop("NCCL_P2P_DISABLE", None)
+        result = self.wrapper["qualify_collectives"](["--model=fixture"], group)
+        self.assertEqual(calls, [(group, None), (group, "1")])
+        self.assertEqual(os.environ["NCCL_P2P_DISABLE"], "1")
+        self.assertIn("--disable-custom-all-reduce", result)
+        os.environ["NCCL_P2P_DISABLE"] = "0"
+        calls.clear()
+        with self.assertRaises(SystemExit): self.wrapper["qualify_collectives"]([], group)
+        self.assertEqual(calls, [(group, "0")])
+        os.environ.pop("NCCL_P2P_DISABLE")
+        self.wrapper["collective_probe"] = lambda *_: False
+        with self.assertRaises(SystemExit): self.wrapper["qualify_collectives"]([], group)
+        self.assertNotIn("NCCL_P2P_DISABLE", os.environ)
+        self.wrapper["collective_probe"] = lambda *_: self.fail("Independent copies do not use collectives")
+        self.assertEqual(self.wrapper["qualify_collectives"](["fixture"], group[:1]), ["fixture"])
+
+    def test_collective_success_keeps_native_transport_and_probe_has_hard_process_group_deadline(self):
+        self.wrapper["collective_probe"] = lambda *_: True
+        os.environ.pop("NCCL_P2P_DISABLE", None)
+        self.assertEqual(self.wrapper["qualify_collectives"](["fixture"], ["GPU-0", "GPU-1"]), ["fixture"])
+        self.assertNotIn("NCCL_P2P_DISABLE", os.environ)
+        wrapper = load_wrapper()
+        wrapper["__file__"] = "/fixture/wrapper.py"
+        from unittest.mock import MagicMock
+        process = MagicMock(pid=12345)
+        process.communicate.side_effect = [subprocess.TimeoutExpired("probe", 75), ("", None)]
+        with patch.object(subprocess, "Popen", return_value=process) as launch, patch.object(os, "killpg") as kill:
+            self.assertFalse(wrapper["collective_probe"](["GPU-0", "GPU-1"], {}))
+            self.assertTrue(launch.call_args.kwargs["start_new_session"])
+            self.assertEqual(launch.call_args.kwargs["env"]["MAGICSTICK_VLLM_WRAPPER_ENABLED"], "false")
+            kill.assert_called_once()
+            self.assertEqual(process.communicate.call_args_list[0].kwargs["timeout"], 75)
+
+    def test_replicated_single_gpu_rejects_wrong_visible_identity_and_count(self):
+        self.wrapper["os"].environ.update(MAGICSTICK_GPU_UUIDS="GPU-0", MAGICSTICK_GPU_COUNT="1",
+            MAGICSTICK_COMPUTE_TARGET="nvidia-gpu", MAGICSTICK_VLLM_VRAM_LIMIT="12000Mi")
+        self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": "GPU-1", "totalMi": 24000}],
+            "heads": 16, "hidden": 2048, "layers": 32, "pipeline": True}
+        self.wrapper["sys"].argv[:] = ["wrapper.py", "--model=fixture/small"]
+        with self.assertRaises(SystemExit):
+            self.wrapper["configure_argv"]()
+        self.wrapper["os"].environ["MAGICSTICK_GPU_COUNT"] = "2"
+        with self.assertRaises(SystemExit):
+            self.wrapper["configure_argv"]()
 
     def test_group_probe_rejects_partial_cuda_placement_and_unsupported_models(self):
         good = {"devices": [{"uuid": "GPU-0", "totalMi": 24000}, {"uuid": "GPU-1", "totalMi": 24000}],

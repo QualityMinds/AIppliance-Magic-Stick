@@ -4,7 +4,8 @@ import type {LiveFoundation} from './live-foundation.ts';
 import type {ExactDashboardRequest} from './auth.ts';
 import {AdministrationApi} from './administration-api.ts';
 import {KubectlObserver,verifyObserverRules,type KubeObject} from './observer.ts';
-import {requireSafe} from './errors.ts';
+import {HarnessError,requireSafe} from './errors.ts';
+import {bounded} from './run-lifecycle.ts';
 import {readPrivate} from './private-files.ts';
 import {ownedJournalName,type JournalEntry} from './journal.ts';
 import {poll} from './poll.ts';
@@ -81,36 +82,70 @@ export class OwnedAppClient {
     requireSafe(appTypes.includes(type) && model.startsWith(this.live.journal.prefix),'OWNERSHIP');
     const requestedName=this.live.journal.prefix+suffix,name=type+'-'+requestedName;
     requireSafe(!await this.read(name) && !await this.cleaner.find(name),'OWNERSHIP');
-    await this.live.journal.requested('app',name);
+    const modules=await this.api.api.modules(),required=modules.catalogJson?.applications?.[type]?.requiredModules;
+    requireSafe(required?.length && required.every(id=>modules.modules[id]?.enabled && modules.modules[id]?.status?.phase==='Ready'),'PREREQUISITE');
     await page.goto(this.live.config.dashboardUrl+'/#/services');
     await page.getByRole('button',{name:'Create Instance',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Create Instance',exact:true});
-    await dialog.getByRole('combobox',{name:'Application',exact:true}).selectOption(type);
+    const application=dialog.getByRole('combobox',{name:'Application',exact:true});
+    const available=await application.locator('option').evaluateAll((options,type)=>options.some(option=>
+      (option as HTMLOptionElement).value===type&&!(option as HTMLOptionElement).disabled),type);
+    requireSafe(available,'CAPABILITY');await application.selectOption(type);
     await dialog.getByLabel('Name',{exact:true}).fill(requestedName);
     const modelField=dialog.getByRole('combobox',{name:type === 'paperclip' ? 'Default Model' : 'Model',exact:true});await modelField.selectOption(model);
     await expect(dialog.getByRole('combobox',{name:'Access',exact:true})).toHaveValue('sso');
     if(publicAccess) await dialog.getByRole('combobox',{name:'Access',exact:true}).selectOption('none');
     await dialog.getByRole('combobox',{name:'Exposure',exact:true}).selectOption('local');
-    const responsePromise=page.waitForRequest(request=>request.method() === 'POST' && new URL(request.url()).pathname === '/api/instances/'+type);
+    const item=await this.submitCreate(page,type,requestedName,model,publicAccess,()=>dialog.getByRole('button',{name:/^Create (?!Instance$)/}).click());
+    await expect(dialog).toHaveCount(0);
+    const observed=await this.cleaner.find(name);
+    requireSafe(item?.metadata?.uid&&observed?.metadata.uid===item.metadata.uid&&item.metadata.generation===observed.metadata.generation,'OWNERSHIP');
+    requireSafe(item.spec?.application === type && item.spec?.targetNamespace === 'ai' && item.spec.values?.model === model &&
+      item.spec.access?.authentication === (publicAccess ? 'none' : 'sso'),'API');return name;
+  }
+  /** Acknowledged identity is durable before any later UI/observer assertion. */
+  async submitCreate(page:Page,type:AppType,requestedName:string,model:string,publicAccess:boolean,action:()=>Promise<void>) {
+    const name=type+'-'+requestedName;
+    requireSafe(appTypes.includes(type)&&ownedJournalName('app',name,this.live.journal.prefix)&&model.startsWith(this.live.journal.prefix),'OWNERSHIP');
     // Exact bytes come from the reviewed form (not arbitrary fixture JSON). The
     // form's create request is fenced by name/type/model/access/namespace below.
-    let uses=0;
+    let uses=0,forwarded=false,deny:(error:unknown)=>void=()=>{};
+    const denied=new Promise<never>((_resolve,reject)=>{deny=reject;});
     const handler=async(route:import('@playwright/test').Route)=>{
+      try {
       const request=route.request(),body=request.postDataJSON();
       requireSafe(++uses === 1 && request.method() === 'POST' && body.name === requestedName && body.model === model && body.namespace === 'ai' &&
         body.enabled === true && body.access.authentication === (publicAccess ? 'none' : 'sso') && body.access.exposure === 'local','MUTATION');
-      await this.live.guard();await route.continue();
+      await this.live.guard();
+      // Form preparation is read-only. Journal only the exact fenced request
+      // immediately before forwarding, never merely opening a disabled form.
+      await this.live.journal.requested('app',name);forwarded=true;await route.continue();
+      }catch(error){deny(error);await route.abort('blockedbyclient').catch(()=>{});}
     };
     await page.route(this.live.config.dashboardUrl+'/api/instances/'+type,handler);
-    try {await dialog.getByRole('button',{name:/^Create (?!Instance$)/}).click();await responsePromise;await expect(dialog).toHaveCount(0);}
-    finally {await page.unroute(this.live.config.dashboardUrl+'/api/instances/'+type,handler);}
-    const item=await poll(()=>this.read(name),value=>Boolean(value?.metadata?.uid),{timeoutMs:30_000,intervalMs:1000,stage:'model-update'});
-    const observed=await this.cleaner.find(name);
-    requireSafe(item?.metadata?.uid && observed?.metadata.uid === item.metadata.uid && item.metadata.generation === observed.metadata.generation,'OWNERSHIP');
-    await this.live.journal.owned('app',name,item.metadata.uid,item.metadata.generation);
-    this.owned.set(name,{uid:item.metadata.uid,generation:Number(item.metadata.generation)});
-    requireSafe(item.spec?.application === type && item.spec?.targetNamespace === 'ai' && item.spec.values?.model === model &&
-      item.spec.access?.authentication === (publicAccess ? 'none' : 'sso'),'API');return name;
+    let item:AppInstance|undefined;
+    try {await bounded(async()=>{
+      const receipt=page.waitForResponse(response=>response.request().method()==='POST' &&
+        response.url()===this.live.config.dashboardUrl+'/api/instances/'+type,{timeout:this.live.config.requestTimeoutMs}).then(async response=>{
+        if(!response.ok()) {
+          if([400,401,403,404,409,422].includes(response.status())&&!await this.read(name)&&!await this.cleaner.find(name))
+            await this.live.journal.rejected('app',name);
+          throw new HarnessError('API','Failed','model-create');
+        }
+        const value=await response.json() as AppInstance;
+        requireSafe(value?.metadata?.name===name&&value.metadata.namespace==='ai-system'&&value.metadata.uid&&
+          Number.isSafeInteger(value.metadata.generation)&&Number(value.metadata.generation)>0,'OWNERSHIP');
+        await this.live.journal.owned('app',name,value.metadata.uid,value.metadata.generation);
+        this.owned.set(name,{uid:value.metadata.uid,generation:Number(value.metadata.generation)});item=value;
+      });
+      const click=action().catch(async error=>{
+        if(forwarded)await receipt.catch(()=>{});throw error;
+      });
+      await Promise.race([Promise.all([receipt,click]),denied]);
+    },this.live.config.requestTimeoutMs+1000,'model-create',()=>page.close());}
+    catch(error){await page.close().catch(()=>{});throw error;}
+    finally {if(!page.isClosed())await page.unroute(this.live.config.dashboardUrl+'/api/instances/'+type,handler);}
+    requireSafe(item,'API');return item;
   }
   async ready(name:string) {
     const owned=this.owned.get(name);requireSafe(owned,'OWNERSHIP');

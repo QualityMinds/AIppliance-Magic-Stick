@@ -103,6 +103,10 @@ the next run to reuse that exact original account after Pod termination and
 Lease drain, before ordinary tests. It never substitutes the human's account or
 clears a lock. Successful recovery cleans the whole credential lineage.
 
+Normal start performs the same old-run cleanup before a fresh test execution;
+no successful rows or test progress are resumed. The separate cleanup action
+keeps its existing `/recover-lock` route and `operation: recover-lock` contract.
+
 `lock` contains `state: free|active|stale|blocked`, `canRecover`, a fixed public
 `message`, and an optional opaque `revision`. Only a terminated, installation-
 bound Kubernetes run with a known journal owner can offer recovery; external
@@ -128,6 +132,10 @@ rows were blocked. Older responses remain compatible; absent cause evidence is
 shown as unavailable/unknown. JUnit keeps blocked rows as `<skipped>` and adds
 `blockedKind` and recorded `blockedByCase`, `blockedByReason`, `blockedByStage`,
 `blockedByExecution`, and `blockedByRun` properties.
+New reports mark a missing required execution/layer record with
+`MISSING_EVIDENCE` at `report-evidence` as a harness failure. A recorded cleanup
+failure retains its original case, step and trace across child and phase
+boundaries. Historical reports are read without synthesizing new outcomes.
 
 `result.preparation` is optional. When present, it exposes the sanitized
 automatic preparation outcome, fixed reason/stage/detail, a public explanation

@@ -6,7 +6,7 @@ import {LiveFoundation} from '../core/live-foundation.ts';
 import {gpuWorkerJournal} from '../core/gpu-scenario.ts';
 import {AdministrationApi} from '../core/administration-api.ts';
 import {OwnedIdentityClient} from '../core/owned-identity.ts';
-import {HarnessError,requireSafe} from '../core/errors.ts';
+import {HarnessError,requireSafe,atStage} from '../core/errors.ts';
 import {readPrivate} from '../core/private-files.ts';
 import {realLogin,openInferenceSession} from '../core/auth.ts';
 import {InferenceProbe} from '../core/inference.ts';
@@ -15,7 +15,7 @@ import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants,remainingVariantEnabled,type P0Definition} from '../profiles/remaining-p0.ts';
 import {runHostDrill} from '../core/host-drill.ts';
 import {realtimeWorkflow} from './realtime-live.ts';
-import {gpuMemoryDraft,settingsDrafts} from './form-checks.ts';
+import {gpuMemoryDraft,settingsDrafts,meshDraft,gpuSharingDrafts} from './form-checks.ts';
 import {kubernetesWorkflow} from './kubernetes-live.ts';
 import {applicationsWorkflow} from './apps-live.ts';
 import {modulesWorkflow,moduleProfileWorkflow} from './modules-live.ts';
@@ -165,9 +165,12 @@ async function repeatWorkflow() {
   return new Set(['PERF-02']);
 }
 async function sample() {
-  const [models,pods,intents,claims,routes,hosts,keys]=await Promise.all([live!.api.models(),live!.observer.list('pods','ai'),
-    live!.observer.list('modelactivations.appliance.magicstick.dev','ai-system'),live!.observer.list('resourceclaims.resource.k8s.io','ai'),
-    live!.observer.list('httproutes.gateway.networking.k8s.io','identity-system'),client.api.hostManagement(),live!.keys.list()]);
+  const [models,pods,intents,claims,routes,hosts,keys]=await Promise.all([
+    atStage('baseline-models',()=>live!.api.models()),atStage('baseline-pods',()=>live!.observer.list('pods','ai')),
+    atStage('baseline-intents',()=>live!.observer.list('modelactivations.appliance.magicstick.dev','ai-system')),
+    atStage('baseline-claims',()=>live!.observer.list('resourceclaims.resource.k8s.io','ai')),
+    atStage('baseline-routes',()=>live!.observer.list('httproutes.gateway.networking.k8s.io','identity-system')),
+    atStage('baseline-host',()=>client.api.hostManagement()),atStage('baseline-keys',()=>live!.keys.list())]);
   const cpu=models.computeMemory?.devices?.find(item=>item.computeTarget === 'cpu');
   const host=hosts.nodes.find(item=>config.expected.nodes.some(node=>node.uid === item.nodeUid));
   requireSafe(Number.isFinite(cpu?.freeMi) && Number.isFinite(host?.modelCache?.freeBytes) && Array.isArray(host?.modelCache?.caches),'PREREQUISITE');
@@ -234,7 +237,17 @@ async function runCase(definition:P0Definition,browser:Browser) {
   if(id === 'UX-02') {
     const page=await live!.context.newPage(),host=(await live!.api.hostManagement()).nodes.find(item=>item.available);
     requireSafe(host,'PREREQUISITE');
-    try{await settingsDrafts(page,config.dashboardUrl,host.name);checked(writesBlocked === 0);}finally{await page.close();}
+    try {
+      if(definition.group==='mesh-form') {
+        const mesh=await client.api.mesh();requireSafe(mesh.configured&&mesh.relay,'PREREQUISITE');
+        await meshDraft(page,config.dashboardUrl);
+      } else if(definition.group==='gpu-form') {
+        const providers=(await live!.api.gpuSharing()).providers.filter(p=>p.nodeUid===host.nodeUid&&p.available).map(p=>p.provider.toUpperCase());
+        requireSafe(providers.length>0,'CAPABILITY');await page.goto(config.dashboardUrl+'/#/system/hardware');
+        await gpuSharingDrafts(page,host.name,providers);
+      } else await settingsDrafts(page,config.dashboardUrl,host.name,{mesh:false,hardware:false});
+      checked(writesBlocked === 0);
+    }finally{await page.close();}
     return;
   }
   if(id.startsWith('RT-')) return oneWorkflow('realtime',()=>realtimeWorkflow(live!),id);

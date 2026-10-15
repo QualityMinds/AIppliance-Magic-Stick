@@ -30,6 +30,8 @@ beforeEach(() => {
 describe('In-Appliance regression tests', () => {
   it('opens and refreshes without starting tests or changing the server', async () => {
     mount(); expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeEnabled();
+    expect(screen.getByRole('button',{name:'Clean up previous test run'})).toBeDisabled();
+    expect(screen.getByText(/No previous test run needs cleanup/)).toBeVisible();
     await userEvent.click(screen.getByRole('button', {name: 'Refresh tests'}));
     expect(api.startRegression).not.toHaveBeenCalled(); expect(api.enableModule).not.toHaveBeenCalled(); expect(api.registerRegression).not.toHaveBeenCalled();
     expect(api.recoverRegressionLock).not.toHaveBeenCalled();
@@ -38,41 +40,55 @@ describe('In-Appliance regression tests', () => {
     data.lock = {state: 'stale', canRecover: true, revision: '11111111-2222-3333-4444-555555555555:42',
       message: 'The old run has terminated; cleanup will be verified.'};
     vi.mocked(api.recoverRegressionLock).mockResolvedValue({...run(), operation: 'recover-lock', phases: []});
-    mount(); await userEvent.click(await screen.findByRole('button', {name: 'Recover stale lock'}));
+    mount(); await userEvent.click(await screen.findByRole('button', {name: 'Clean up previous test run'}));
     expect(api.recoverRegressionLock).not.toHaveBeenCalled();
-    const dialog = screen.getByRole('dialog', {name: 'Recover stale regression lock'});
+    const dialog = screen.getByRole('dialog', {name: 'Clean up previous test run'});
     expect(within(dialog).getByText(/No new regression tests will start/)).toBeVisible();
-    await userEvent.click(within(dialog).getByRole('button', {name: 'Recover lock'}));
+    await userEvent.click(within(dialog).getByRole('button', {name: 'Clean up previous run'}));
     await waitFor(() => expect(api.recoverRegressionLock).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{32}$/), data.lock!.revision));
     expect(api.startRegression).not.toHaveBeenCalled();
+  });
+  it('normal Start requests a fresh suite after automatic cleanup and preserves the failed historical report', async () => {
+    data.lock={state:'stale',canRecover:true,revision:'fixture:42',message:'Owned previous run can be cleaned up.'};
+    data.recoveryAvailable=true;
+    data.runs=[{...run(),phase:'Failed',reportAvailable:true,credentialsCleaned:false,message:'Original failed result'}];
+    mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    expect(screen.getByText(/automatically clean up the previous run first/)).toBeVisible();
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:/^Start tests$/}));
+    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledTimes(1));
+    const requestId=vi.mocked(api.startRegression).mock.calls[0]![0];
+    expect(requestId).toMatch(/^[a-f0-9]{32}$/);expect('regression-'+requestId).not.toBe(data.runs[0]!.id);
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+    expect(screen.getByText('Original failed result')).toBeVisible();
+    expect(screen.getByRole('button',{name:'Download report'})).toBeEnabled();
   });
   it('explains external, active and ambiguous locks without allowing unsafe release', async () => {
     data.lock = {state: 'stale', canRecover: false, revision: 'fixture:42', message: 'The exact private journal is on the external runner.'};
     const client = mount();
-    expect(await screen.findByRole('button', {name: 'Recover stale lock'})).toBeDisabled();
+    expect(await screen.findByRole('button', {name: 'Clean up previous test run'})).toBeDisabled();
     expect(screen.getByText(/exact private journal is on the external runner/)).toBeVisible();
     expect(screen.getByRole('button', {name: 'Start regression tests'})).toBeDisabled();
     for (const state of ['active', 'blocked'] as const) {
       data = {...data, lock: {...data.lock!, state, message: 'This lock cannot be recovered yet.'}};
       await act(async () => {await client.refetchQueries({queryKey: ['regression']});});
-      expect(screen.getByRole('button', {name: 'Recover stale lock'})).toBeDisabled();
+      expect(screen.getByRole('button', {name: 'Clean up previous test run'})).toBeDisabled();
     }
     expect(api.recoverRegressionLock).not.toHaveBeenCalled();
   });
   it('refuses a lock that changes after opening its recovery dialog', async () => {
     data.lock = {state: 'stale', canRecover: true, revision: 'fixture:42', message: 'Ready for recovery.'};
     const client = mount();
-    await userEvent.click(await screen.findByRole('button', {name: 'Recover stale lock'}));
+    await userEvent.click(await screen.findByRole('button', {name: 'Clean up previous test run'}));
     data = {...data, lock: {...data.lock, revision: 'fixture:43'}};
     await act(async () => {await client.refetchQueries({queryKey: ['regression']});});
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Recover lock'}));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Clean up previous run'}));
     expect(await screen.findAllByRole('alert')).not.toHaveLength(0);
     expect(api.recoverRegressionLock).not.toHaveBeenCalled();
   });
   it('shows recovery as zero-phase work and keeps failure reports accessible', async () => {
     data.runs = [{...run(), operation: 'recover-lock', phases: [], phase: 'Failed',
       message: 'Cleanup could not be verified; the lock was retained.', progress: {percent: 100, totalPhases: 0}, reportAvailable: true}];
-    mount(); expect(await screen.findByText('Lock recovery')).toBeVisible();
+    mount(); expect(await screen.findByText('Previous run cleanup')).toBeVisible();
     expect(screen.getByText(/No test phases are selected/)).toBeVisible();
     expect(screen.getByRole('button', {name: 'Download report'})).toBeEnabled();
     expect(api.startRegression).not.toHaveBeenCalled();
@@ -230,7 +246,7 @@ describe('In-Appliance regression tests', () => {
   it('can start verified recovery without asking for the original credentials or clearing a lock', async () => {
     data.runs = [{...run(), phase: 'Cancelled', credentialsCleaned: false}]; data.recoveryAvailable = true;
     mount(); expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeEnabled();
-    expect(screen.getByText(/recover the interrupted setup with its retained test identity/)).toBeVisible();
+    expect(screen.getByText(/automatically clean up the previous run first/)).toBeVisible();
     expect(api.startRegression).not.toHaveBeenCalled();
   });
 });

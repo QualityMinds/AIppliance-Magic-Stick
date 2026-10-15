@@ -16,7 +16,7 @@ import {junitReport} from './junit.ts';
 import {blockerDescription} from './blocker-description.ts';
 import type {RegressionBlocker, RegressionBlockedKind} from '@magicstick/dashboard-contracts';
 import {regressionBlockedKind,regressionBlockedLabel, regressionBlockedSummary} from '../../../../packages/core/src/regression-blocking.ts';
-import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses} from './blocking.ts';
+import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses,recoveryCause} from './blocking.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
@@ -59,6 +59,7 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
     const root=peers.find(item=>['Failed','Flaky'].includes(item.outcome)) ?? peers.find(item=>item.outcome==='Blocked');
     return reason==='PREREQUISITE' ? root ? checkedBlocker(root.blockedBy) ?? blockerFrom(root) : {kind:'unknown'} : {kind:regressionBlockedKind(reason),reason};
   };
+  const missingEnvironments=new Set<TestEnvironment>();
   const absent=(id:string,variant:string|undefined,environment:TestEnvironment)=>{
     const cause=missingCause(id,variant);
     // This phase entered with a recorded recovery fence, so its live steps
@@ -66,7 +67,11 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
     // later in the phase, or attribute absent fixture layers to that fence.
     const guard=cases.find(item=>item.outcome==='Blocked' && item.reason==='RECOVERY');
     if(environment==='live' && recoveryFenceAtStart && reason==='PREREQUISITE' && cause.kind==='unknown' && guard) {
-      return {reason:'RECOVERY' as const,blockedBy:blockerFrom(guard)};
+      return {reason:'RECOVERY' as const,blockedBy:checkedBlocker(guard.blockedBy)??blockerFrom(guard)};
+    }
+    if(reason==='PREREQUISITE'&&cause.kind==='unknown') {
+      missingEnvironments.add(environment);
+      return {reason:'DEPENDENCY' as const,blockedBy:{kind:'failure' as const,caseId:'HAR-10',reason:'MISSING_EVIDENCE',stage:'report-evidence'}};
     }
     return {reason,blockedBy:cause};
   };
@@ -85,6 +90,9 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
         layer:'A',environment:'live',outcome:'Blocked',durationMs:0,...absent(id,variant,'live')});
   }
   for(const id of required)if(!result.some(item=>item.id === id))result.push({id,layer:'A',environment:'live',outcome:'Blocked',durationMs:0,...absent(id,undefined,'live')});
+  for(const environment of missingEnvironments)if(!result.some(item=>item.reason==='MISSING_EVIDENCE'&&item.environment===environment))
+    result.push({id:'HAR-10',layer:environment==='live'?'A':'U',environment,outcome:'Failed',durationMs:0,
+      reason:'MISSING_EVIDENCE',stage:'report-evidence'});
   return result;
 }
 const phase0IdsForReport=Array.from({length:11},(_,index)=>`HAR-${String(index+1).padStart(2,'0')}`);
@@ -93,6 +101,7 @@ export function reportExitCode(cases:Array<{outcome:Outcome}>) {
     !cases.length || cases.some(item=>terminalOutcome(item.outcome) === 'Blocked') ? 2 : 0;
 }
 export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionBlockedKind) {
+  if(reason==='MISSING_EVIDENCE')return 'Repair the runner selection/evidence mapping or interrupted child report. Do not configure a prerequisite or reuse an older result to fill this gap.';
   if(kind==='unknown'&&reason==='PREREQUISITE')return 'Inspect the missing evidence and preceding runner steps; no causal prerequisite or failure was recorded.';
   if(reason === 'UNEXPECTED')return 'Inspect the filtered scenario/step trace and runner status, correct the failing assertion or harness error, then repeat the suite.';
   if(reason === 'COMPONENT')return 'Inspect the archived owning component diagnostic and its source test, then repeat the isolated component check.';
@@ -194,6 +203,8 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
         {blockedBy:checkedBlocker({kind:'failure',caseId:'HAR-02',reason:prepared.reason ?? 'PREPARATION_FAILED'})} :
         item.outcome==='Blocked' && environment==='live' && prepared?.outcome==='Blocked' && reason==='PREREQUISITE' ?
         {blockedBy:checkedBlocker({kind:regressionBlockedKind(prepared.reason ?? 'PREREQUISITE'),reason:prepared.reason ?? 'PREREQUISITE'})} :
+        item.outcome==='Blocked'&&reason==='RECOVERY'&&recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)?
+          {blockedBy:recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)}:
         item.outcome==='Blocked' && checkedBlocker(item.blockedBy) ? {blockedBy:checkedBlocker(item.blockedBy)} :
         item.outcome==='Blocked'&&reason==='PREREQUISITE'?{blockedBy:{kind:'prerequisite' as const,reason}}:{}),
       ...(executionId&&item.traceRunId&&/^reg-[0-9a-f-]{36}$/.test(item.traceRunId)?{traceRunId:item.traceRunId}:{}),

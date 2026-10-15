@@ -6,8 +6,41 @@ import {AdministrationApi} from '../core/administration-api.ts';
 import {OwnedIdentityClient} from '../core/owned-identity.ts';
 import {realLogin} from '../core/auth.ts';
 import {readPrivate} from '../core/private-files.ts';
+import {join,dirname} from 'node:path';
+import {BorrowedModule} from '../core/borrowed-module.ts';
+import {applicationModuleIds,protectedModule} from '../core/application-modules.ts';
 import {poll} from '../core/poll.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
+
+/** Dependencies are prepared before opening Create. Borrow only a disabled
+ * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
+async function prepareApplications(live:LiveFoundation,api:AdministrationApi,fixtures:AppFixture[]) {
+  const modules=await api.api.modules();
+  for(const id of applicationModuleIds(modules,fixtures.map(f=>f.type))) {
+    if(!modules.modules[id]?.enabled) {
+      requireSafe(!protectedModule(id)&&modules.catalogJson?.modules?.[id]?.activationMode==='moduleactivation','PREREQUISITE');
+      const original=(await live.observer.list('moduleactivations.appliance.magicstick.dev','ai-system')).find(item=>item.spec?.module===id);
+      requireSafe(original?.spec?.enabled===false,'PREREQUISITE');
+      const parameters=(original.spec.parameters??{}) as Record<string,string>;
+      const borrowed=new BorrowedModule(original,join(dirname(live.journal.filename),`borrowed-module-${id}.json`),{
+        read:()=>live.observer.get('moduleactivations.appliance.magicstick.dev','ai-system',original.metadata.name!),
+        set:async(enabled,parameters)=>{
+          if(!enabled) {
+            const instances=Object.values((await api.api.instances()).instances).flat();
+            requireSafe(!instances.some(item=>modules.catalogJson?.applications?.[String(item.spec?.application)]?.requiredModules?.includes(id)),'CONFLICT');
+          }
+          const body=enabled&&!Object.keys(parameters).length?{}:{parameters};
+          return api.write({method:'POST',path:`/api/modules/${id}/${enabled?'enable':'disable'}`,body},
+            ()=>enabled?api.api.enableModule(id,parameters):api.api.disableModule(id,parameters));
+        },
+      },live.guard);
+      live.registerRestoration(()=>borrowed.restore());
+      await borrowed.change(true,parameters);
+    }
+    await poll(async()=>{await live.guard();return api.api.modules();},value=>value.modules[id]?.enabled===true&&value.modules[id]?.status?.phase==='Ready',
+      {timeoutMs:900_000,intervalMs:2000,stage:'module-ready'});
+  }
+}
 
 export function validateAppFixtures(value:unknown):AppFixture[] {
   const automatic=Array.isArray(value) && value.length > 0 && value.every(item=>item.adapter === 'semantic-chat-v1');
@@ -63,6 +96,7 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
   requireSafe(profile.identity?.approveDisposableUsers === true && profile.applications?.cleanerKubeconfig,'PREREQUISITE');
   const fixtures=validateAppFixtures(profile.applications.fixtures),cleaner=new AppCleaner(profile.applications.cleanerKubeconfig,live.config.requestTimeoutMs);
   await cleaner.verifyConfiguration();const apps=new OwnedAppClient(live,cleaner),users=new OwnedIdentityClient(live);
+  await prepareApplications(live,apps.api,fixtures);
   const before=(await apps.api.api.instances()).instances;
   const baseline=Object.values(before).flat().map(item=>`${item.metadata?.uid}:${item.metadata?.generation}`).sort().join(',');
   const model=await live.createModel('app-model');await live.waitReady(model.client,model.uid,model.generation);

@@ -4,6 +4,7 @@ import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
 import {gpuMemoryDraft,settingsDrafts,selectRange} from './form-checks.ts';
 import type {ModelActivation,ModelsPayload} from '@magicstick/dashboard-contracts';
+import {selectRealtimeCompute} from './realtime-live.ts';
 
 const host=()=>({name:'fixture-node',nodeUid:'fixture-node-uid',bootId:'fixture-boot',kernel:'7.0-fixture',available:true,message:'Fixture worker ready.',
   plan:{id:'f'.repeat(64),state:'ready',profileId:'strix-halo-ubuntu-26.04',profileVersion:'1',gpuProfile:'strix-halo',experimental:true,packages:{},rebootRequired:false,message:'Driver is ready.',displayGpus:['1002:1586']},
@@ -149,8 +150,8 @@ async function browserProof(page:Page,group:string,id:string) {
       await expect(page.getByRole('button',{name:'Enable',exact:true})).toBeDisabled();
       await expect(chat.locator('option')).toHaveText(['Use catalog default','removed-chat · unavailable','chat-a','chat-b']);
       await expect(embedding.locator('option')).toHaveText(['Use catalog default','embedding-a','embedding-b']);
-      await chat.focus();await chat.press('End');await expect(chat).toHaveValue('chat-b');
-      await embedding.focus();await embedding.press('End');await expect(embedding).toHaveValue('embedding-b');
+      await chat.selectOption('chat-b');await expect(chat).toHaveValue('chat-b');
+      await embedding.selectOption('embedding-b');await expect(embedding).toHaveValue('embedding-b');
       await expect(page.getByRole('button',{name:'Enable',exact:true})).toBeEnabled();
       expect(saved).toBeUndefined();
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -191,9 +192,10 @@ async function browserProof(page:Page,group:string,id:string) {
       const models:ModelsPayload={activations:[],models:[],presets:{},computeTargets:{targets:[
         {id:'nvidia-gpu',kind:'gpu',available:true,engines:['VLLM']}],engineCatalog:{VLLM:{realtimeProfiles:{'fixture-omni':{
           displayName:'Fixture Omni',model:'fixture/omni',description:'Explicit isolated fixture',gpuCounts:[1,2],defaultContextWindow:8192,
-          defaultSystemMemoryMi:16384,sourceRevision:'fixture'}}}},realtimeDevices:[{profile:'fixture-omni',node:'fixture-node',name:'Fixture CUDA GPU',
+          defaultSystemMemoryMi:16384,sourceRevision:'fixture',computeTargets:['nvidia-gpu','cpu']}}}},realtimeDevices:[{profile:'fixture-omni',node:'fixture-node',name:'Fixture CUDA GPU',computeTarget:'nvidia-gpu',
             supported:true,reason:'',gpuCount:2,freeGpuCount:2,gpuMemoryMi:81920,systemMemoryMi:131072},
-            {profile:'fixture-omni',node:'unsupported-node',name:'Unsupported GPU fixture',supported:false,reason:'No compatible runtime.',
+            {profile:'fixture-omni',node:'fixture-node',name:'Fixture CPU',computeTarget:'cpu',supported:true,reason:'',gpuCount:0,freeGpuCount:0,gpuMemoryMi:0,systemMemoryMi:131072},
+            {profile:'fixture-omni',node:'unsupported-node',name:'Unsupported GPU fixture',computeTarget:'nvidia-gpu',supported:false,reason:'No compatible runtime.',
               gpuCount:1,freeGpuCount:1,gpuMemoryMi:0,systemMemoryMi:0}]}};
       let createdBody:unknown,updatedBody:unknown;
       const writes=await mount(page,'models',{'/api/models':()=>models,
@@ -220,7 +222,16 @@ async function browserProof(page:Page,group:string,id:string) {
       await expect(dialog.getByRole('combobox',{name:'Realtime profile',exact:true})).toHaveValue('fixture-omni');
       await expect(dialog.getByRole('option',{name:/unsupported-node/})).toHaveAttribute('disabled','');
       const compute=dialog.getByRole('combobox',{name:'Compute node',exact:true});
-      await compute.press('End');await expect(compute).toHaveValue('fixture-node');
+      const fixture={engine:'VLLM',computeTarget:'cpu',url:'hf://fixture/omni',contextWindow:1024,maxNumSeqs:1,memoryRequiredMi:16384,
+        realtime:{profile:'fixture-omni',gpuNode:'fixture-node',gpuCount:1,systemMemoryMi:16384,gpuMemoryFraction:.8,thinkerCpuOffloadGiB:0}} as const;
+      await selectRealtimeCompute(dialog,fixture);
+      await expect(compute).toHaveValue('fixture-node:cpu');
+      await expect(dialog.getByLabel('GPU memory budget')).toHaveCount(0);
+      await expect(dialog.getByRole('button',{name:'Add Realtime Model',exact:true})).toBeEnabled();
+      await selectRealtimeCompute(dialog,{...fixture,computeTarget:'nvidia-gpu'});
+      await expect(compute).toHaveValue('fixture-node:nvidia-gpu');
+      await expect(selectRealtimeCompute(dialog,{...fixture,computeTarget:'nvidia-gpu',realtime:{...fixture.realtime,gpuNode:'unsupported-node'}}))
+        .rejects.toMatchObject({code:'CAPABILITY'});
       await expect(dialog.getByLabel('KV Cache')).toHaveCount(0);
       await expect(dialog.getByText('Advanced',{exact:true}).locator('..')).not.toHaveAttribute('open');
       await dialog.getByLabel('Name',{exact:true}).fill('fixture-omni');

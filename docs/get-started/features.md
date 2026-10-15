@@ -50,8 +50,9 @@
   with the original blocking check and trace when recorded.
   Automatic preparation failures show their setup stage and next action; fixture
   and live evidence counts are displayed separately.
-  Recover a terminated run's stale lock without starting another suite;
-  recovery verifies the exact retained journal rather than forcing an unlock.
+  Each start cleans up the previous run and begins again with a fresh test ID.
+  **Clean up previous test run** is also available for diagnosis; cleanup
+  verifies the retained resource identities and revisions.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
 

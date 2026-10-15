@@ -17,7 +17,7 @@ import {newRunId} from '../core/journal.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {writePrivate} from '../core/private-files.ts';
 import {parsePreparationDiagnostic, preparationDescription,requirePreparation} from '../core/preparation-diagnostic.ts';
-import {blockedCounts,checkedBlocker,withBlockedCauses} from '../core/blocking.ts';
+import {blockedCounts,checkedBlocker,withBlockedCauses,inheritRecoveryCause,recoveryCause} from '../core/blocking.ts';
 import {regressionBlockedKind} from '../../../../packages/core/src/regression-blocking.ts';
 import {saveExecutionTrace} from '../core/execution-trace.ts';
 import type {ExecutionTrace} from '../core/execution-trace.ts';
@@ -165,8 +165,9 @@ test('HAR-10 fresh explicit prerequisites remain distinct from synthesized missi
     await saveReport(directory,newRunId(),[{id:'HW-01',outcome:'Blocked',layer:'A',environment:'live',durationMs:0,reason:'PREREQUISITE'}],
       ['HW-01','HAR-10'],'unknown','all',{version:1,outcome:'Passed'});
     const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
-    expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy.kind).toBe('unknown');
-    expect(json.blockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
+    expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy).toMatchObject({kind:'failure',reason:'MISSING_EVIDENCE'});
+    expect(json.blockedCounts).toEqual({prerequisite:1,failure:1,cancelled:0,unknown:0});
+    expect(json.cases.some((row:CaseResult)=>row.outcome==='Failed'&&row.reason==='MISSING_EVIDENCE')).toBe(true);
   }finally{await rm(directory,{recursive:true,force:true});}
 });
 
@@ -182,8 +183,8 @@ test('HAR-10 synthetic prerequisite reports are isolated from inherited live pre
           ['HW-01','HAR-10'],'unknown','all',{version:1,outcome:'Passed'});
         const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
         expect(json.automaticPreparation).toEqual({version:1,outcome:'Passed'});
-        expect(json.blockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
-        expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy.kind).toBe('unknown');
+        expect(json.blockedCounts).toEqual({prerequisite:1,failure:1,cancelled:0,unknown:0});
+        expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy.reason).toBe('MISSING_EVIDENCE');
         expect(process.env.REGRESSION_PREPARATION_FAILED).toBe(inherited);
         expect(process.env.REGRESSION_PREPARATION_DIAGNOSTIC).toBe('synthetic-private-diagnostic-must-not-be-read');
       } finally {await rm(directory,{recursive:true,force:true});}
@@ -199,13 +200,27 @@ test('HAR-10 missing live tuples inherit a recovery fence present before the pha
   const before=completeCases('phase4',[guard],[],'PREREQUISITE',true);
   expect(before.filter(row=>row.environment==='live' && row.id!=='HAR-10').every(row=>
     row.reason==='RECOVERY' && row.blockedBy?.kind==='failure' && row.blockedBy.reason==='RECOVERY')).toBe(true);
-  expect(before.filter(row=>row.environment==='fixture').every(row=>row.blockedBy?.kind==='unknown')).toBe(true);
+  expect(before.filter(row=>row.environment==='fixture'&&row.outcome==='Blocked').every(row=>row.blockedBy?.reason==='MISSING_EVIDENCE')).toBe(true);
+  expect(before.some(row=>row.environment==='fixture'&&row.outcome==='Failed'&&row.reason==='MISSING_EVIDENCE')).toBe(true);
   const later=completeCases('phase4',[guard],[]);
-  expect(later.filter(row=>row.id!=='HAR-10').every(row=>row.reason==='PREREQUISITE' && row.blockedBy?.kind==='unknown')).toBe(true);
+  expect(later.filter(row=>row.id!=='HAR-10').every(row=>row.reason==='DEPENDENCY' && row.blockedBy?.reason==='MISSING_EVIDENCE')).toBe(true);
   const cancelled=completeCases('phase4',[guard],[],'CANCELLED',true);
   expect(cancelled.filter(row=>row.id!=='HAR-10').every(row=>row.reason==='CANCELLED' && row.blockedBy?.kind==='cancelled')).toBe(true);
   const unobserved=completeCases('phase4',[],[],'PREREQUISITE',true);
-  expect(unobserved.every(row=>row.blockedBy?.kind==='unknown')).toBe(true);
+  expect(unobserved.filter(row=>row.outcome==='Blocked').every(row=>row.blockedBy?.reason==='MISSING_EVIDENCE')).toBe(true);
+  expect(unobserved.some(row=>row.outcome==='Failed'&&row.reason==='MISSING_EVIDENCE')).toBe(true);
+});
+
+test('HAR-10 cleanup cause survives later phase guards and only verified restoration clears it',()=>{
+  const environment:Record<string,string|undefined>={},traceRunId=newRunId(),executionId='a'.repeat(24);
+  const root:CaseResult={id:'MOD-04',outcome:'Failed',layer:'E',durationMs:1,reason:'CONFLICT',stage:'recovery-module',traceRunId,executionId};
+  inheritRecoveryCause(environment,[root],true);
+  inheritRecoveryCause(environment,[{id:'HAR-10',outcome:'Blocked',reason:'RECOVERY'}],true);
+  expect(recoveryCause(environment.REGRESSION_RECOVERY_CAUSE)).toEqual({kind:'failure',caseId:'MOD-04',reason:'CONFLICT',stage:'recovery-module',traceRunId,executionId});
+  const rows=completeCases('phase4',[{id:'HAR-10',outcome:'Blocked',reason:'RECOVERY',durationMs:0,layer:'A',
+    blockedBy:recoveryCause(environment.REGRESSION_RECOVERY_CAUSE)}],[],'PREREQUISITE',true);
+  expect(rows.filter(row=>row.outcome==='Blocked'&&row.environment==='live').every(row=>row.blockedBy?.caseId==='MOD-04')).toBe(true);
+  inheritRecoveryCause(environment,[],false);expect(environment).toEqual({});expect(root.outcome).toBe('Failed');
 });
 
 test('HAR-10 exact blocked variants retain a known missing prerequisite instead of an invented failure',()=>{
@@ -488,7 +503,7 @@ test('HAR-10 reports complete every finite phase variant and use only three term
   const cases=completeCases('phase2',[{id:'LIFE-01',layer:'A',outcome:'Passed',durationMs:1}],['LIFE-01']);
   expect(cases.length).toBeGreaterThan(20);expect(cases.some(item=>item.outcome === 'Blocked')).toBe(true);
   expect(cases.every(item=>['Passed','Failed','Blocked'].includes(item.outcome))).toBe(true);
-  expect(reportExitCode(cases)).toBe(2);
+  expect(reportExitCode(cases)).toBe(1); // Missing execution evidence is a runner defect, not missing equipment.
   expect(reportExitCode([...cases,{outcome:'Failed'}])).toBe(1);
   expect(reportExitCode([{outcome:'Passed'}])).toBe(0);
   expect(completeCases(undefined,[{id:'HAR-10',layer:'U',outcome:'Flaky',durationMs:1}],[])[0]?.outcome).toBe('Failed');

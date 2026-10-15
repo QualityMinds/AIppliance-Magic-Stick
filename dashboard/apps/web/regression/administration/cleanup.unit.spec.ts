@@ -3,7 +3,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {User} from '@magicstick/dashboard-contracts';
-import type {LiveFoundation} from '../core/live-foundation.ts';
+import {LiveFoundation} from '../core/live-foundation.ts';
 import type {CleanupAdapter,ResourceKind} from '../core/journal.ts';
 import {ResourceJournal,newRunId} from '../core/journal.ts';
 import {OwnedIdentityClient,ownedLocalIdentity} from '../core/owned-identity.ts';
@@ -11,8 +11,56 @@ import {BorrowedModule} from '../core/borrowed-module.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {AdministrationRejected} from '../core/administration-api.ts';
+import {MutationNotSubmitted} from '../core/browser-action.ts';
+import {HarnessError} from '../core/errors.ts';
+import {readPrivate} from '../core/private-files.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('HAR-07 GPU restoration failure still cleans independent journals, stops heartbeat and retains its precise stage',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'restoration-fence-'));
+  try {
+    const journal=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'appliance'),events:string[]=[];
+    const live=Object.assign(Object.create(LiveFoundation.prototype),{acquired:true,journal,journals:[journal],
+      restorations:[async()=>{events.push('restore');throw new HarnessError('BUSY','Blocked','gpu-validation');}],
+      cleanup:async()=>{events.push('owned-cleanup');},heartbeat:{stop:async()=>{events.push('heartbeat-stop');}},
+      lease:{release:async()=>{events.push('lease-release');}},context:{close:async()=>{events.push('context-close');}}}) as LiveFoundation;
+    await expect(live.close()).rejects.toMatchObject({code:'CLEANUP',stage:'gpu-validation'});
+    expect(events).toEqual(['owned-cleanup','restore','heartbeat-stop','context-close']);
+    expect(JSON.parse(await readPrivate(join(directory,'cleanup-failure.json'))).failures).toEqual([{reason:'BUSY',stage:'gpu-validation'}]);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+test('HAR-10 module cleanup distinguishes unsent, acknowledged and lost responses across process restarts',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'module-recovery-'));
+  try {
+    for(const outcome of ['unsent','acknowledged','lost'] as const) {
+      const original:KubeObject={metadata:{name:'optional',uid:'exact-uid',generation:1},spec:{enabled:false,parameters:{}}};
+      let current=structuredClone(original),writes=0;
+      const adapter={read:async()=>structuredClone(current),set:async(enabled:boolean,parameters:Record<string,string>)=>{
+        writes++;current={metadata:{...current.metadata,generation:current.metadata.generation!+1},spec:{enabled,parameters}};
+      }},receipt=join(directory,outcome+'.json'),guard=async()=>{};
+      const borrowed=new BorrowedModule(original,receipt,adapter,guard);
+      await expect(borrowed.change(true,{},async acknowledge=>{
+        if(outcome==='unsent')throw new MutationNotSubmitted('DEADLINE');
+        await adapter.set(true,{});
+        if(outcome==='acknowledged')await acknowledge();
+        throw new Error('Synthetic lost response or postcondition failure');
+      })).rejects.toThrow();
+      const recovered=await BorrowedModule.resume(receipt,adapter,guard);
+      if(outcome==='lost') {
+        await expect(recovered.reconcileUnchanged()).rejects.toThrow('[CONFLICT]');
+        await expect(recovered.restore()).rejects.toThrow('[CLEANUP]');
+        expect(writes).toBe(1);continue;
+      }
+      await recovered.reconcileUnchanged();await recovered.restore();
+      expect(current.spec).toEqual(original.spec);
+      const again=await BorrowedModule.resume(receipt,adapter,guard);
+      await again.reconcileUnchanged();await again.restore();
+      expect(writes).toBe(outcome==='unsent'?0:2);
+      current.metadata.generation!++;
+      await expect(again.restore()).rejects.toThrow('[CONFLICT]');
+    }
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
 test('HAR-10 acknowledged local users are journaled before postconditions and cleaned by exact UID',annotation,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'identity-cleanup-'));
   try {

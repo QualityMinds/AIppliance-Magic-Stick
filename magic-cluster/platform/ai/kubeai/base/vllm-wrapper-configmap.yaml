@@ -358,10 +358,15 @@ data:
 
         group = os.environ.get("MAGICSTICK_GPU_UUIDS", "").split(",") if os.environ.get("MAGICSTICK_GPU_UUIDS") else []
         if group:
-            if compute_target != "nvidia-gpu" or len(group) < 2 or len(set(group)) != len(group):
+            # Replicated deployments bind one exact DRA UUID per independent
+            # Pod. It is still a pinned assignment, not an invalid split group.
+            if compute_target != "nvidia-gpu" or not all(group) or len(set(group)) != len(group):
                 die("Invalid NVIDIA multi-GPU assignment")
+            if os.environ.get("MAGICSTICK_GPU_COUNT", str(len(group))) != str(len(group)):
+                die("NVIDIA GPU count does not match the requested DRA assignment")
             os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
             args, total_mib = configure_parallelism(args, group)
+            args = qualify_collectives(args, group)
         else:
             total_mib = gpu_total_mib(compute_target, device)
         if budget_mib > total_mib:
@@ -495,8 +500,93 @@ data:
         return filtered, min(capacities)
 
 
+    def collective_probe(expected, environment):
+        # A separate process group owns every CUDA context. A hung transport
+        # cannot outlive the probe or leave GPU workers behind in the Pod.
+        import signal
+        from pathlib import Path
+
+        command = [sys.executable, "-m", "torch.distributed.run", "--standalone",
+                   "--nnodes=1", f"--nproc-per-node={len(expected)}",
+                   str(Path(__file__).with_name("collective_probe.py")), ",".join(expected)]
+        process = subprocess.Popen(command, env={**environment, "MAGICSTICK_VLLM_WRAPPER_ENABLED": "false"},
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        try:
+            output, _ = process.communicate(timeout=75)
+            return process.returncode == 0 and "MAGICSTICK_COLLECTIVE_OK" in output.splitlines()
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate(timeout=10)
+            return False
+
+
+    def qualify_collectives(args, expected):
+        if len(expected) < 2:
+            return args
+        environment = dict(os.environ)
+        if collective_probe(expected, environment):
+            log("NVIDIA collective preflight passed for the complete assigned GPU group")
+            return args
+        # Explicit operator transport policy is never overwritten. Only a
+        # successful second probe on this very assignment qualifies fallback.
+        if "NCCL_P2P_DISABLE" not in environment and collective_probe(expected, {**environment, "NCCL_P2P_DISABLE": "1"}):
+            os.environ["NCCL_P2P_DISABLE"] = "1"
+            log("WARNING: direct GPU transport failed; verified host-mediated NCCL transport selected for this Pod only. Check PCIe/IOMMU topology; throughput may be lower")
+            # vLLM's custom CUDA collective bypasses NCCL's transport policy.
+            return [*args, "--disable-custom-all-reduce"] if "--disable-custom-all-reduce" not in args else args
+        die("NVIDIA collective preflight failed for the assigned GPU group (all-reduce or point-to-point). Check GPU/PCIe/IOMMU transport diagnostics; the model was not started")
+
+
     def main():
         configure_argv()
+
+
+    if __name__ == "__main__":
+        main()
+  collective_probe.py: |-
+    """Bounded small native NCCL check, not an inference acceptance result."""
+    import os
+    import sys
+    from datetime import timedelta
+    import torch
+    import torch.distributed as dist
+
+
+    def main():
+        expected = [value.lower().removeprefix("gpu-") for value in sys.argv[1].split(",")]
+        visible = [str(torch.cuda.get_device_properties(i).uuid).lower().removeprefix("gpu-")
+                   for i in range(torch.cuda.device_count())]
+        if len(visible) != len(expected) or set(visible) != set(expected):
+            raise RuntimeError("Collective probe GPU assignment changed")
+        rank = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(rank)
+        dist.init_process_group("nccl", timeout=timedelta(seconds=30))
+        size = dist.get_world_size()
+        if size != len(expected):
+            raise RuntimeError("Collective probe world size changed")
+        value = torch.full((1024,), float(rank + 1), device="cuda")
+        dist.all_reduce(value)
+        torch.cuda.synchronize()
+        if not torch.all(value == size * (size + 1) / 2).item():
+            raise RuntimeError("Collective probe all-reduce mismatch")
+        # Pipeline parallelism uses send/recv as well as collectives. Probe
+        # both directions for every pair after communicator initialization.
+        for source in range(size):
+            for target in range(size):
+                if source == target:
+                    continue
+                tensor = torch.full((1024,), float(source + 1) if rank == source else 0, device="cuda")
+                if rank == source:
+                    dist.send(tensor, target)
+                elif rank == target:
+                    dist.recv(tensor, source)
+                    if not torch.all(tensor == source + 1).item():
+                        raise RuntimeError("Collective probe point-to-point mismatch")
+                dist.barrier()
+        torch.cuda.synchronize()
+        dist.destroy_process_group()
+        if rank == 0:
+            print("MAGICSTICK_COLLECTIVE_OK", flush=True)
 
 
     if __name__ == "__main__":

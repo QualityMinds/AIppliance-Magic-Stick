@@ -25,6 +25,22 @@ export function blockerFrom(item: BlockingEvidence): RegressionBlocker {
     reason: item.reason, caseId: item.id, stage: item.stage, executionId: item.executionId, traceRunId: item.traceRunId})!;
 }
 
+export function recoveryCause(value:string|undefined):RegressionBlocker|undefined {
+  if(!value || value.length>2048)return;
+  try {const cause=checkedBlocker(JSON.parse(value));return cause?.kind==='failure'?cause:undefined;}catch{return;}
+}
+
+/** Carry the original cleanup failure across children/phases, not a later
+ * generic recovery guard. A verified recovery clears both fence and cause. */
+export function inheritRecoveryCause(environment:Record<string,string|undefined>,cases:BlockingEvidence[],active:boolean) {
+  if(!active){delete environment.REGRESSION_RECOVERY_FENCE;delete environment.REGRESSION_RECOVERY_CAUSE;return;}
+  environment.REGRESSION_RECOVERY_FENCE='1';
+  if(recoveryCause(environment.REGRESSION_RECOVERY_CAUSE))return;
+  const root=cases.find(item=>item.outcome==='Failed'&&['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason??'')) ??
+    cases.find(item=>item.outcome==='Failed');
+  if(root)environment.REGRESSION_RECOVERY_CAUSE=JSON.stringify(blockerFrom(root));
+}
+
 /** Dependency attribution stays within its recorded executable scenario. */
 export function withBlockedCauses<T extends BlockingEvidence>(cases: T[]): Array<T & {blockedBy?: RegressionBlocker}> {
   const groups = new Map<string, T[]>();

@@ -15,6 +15,7 @@ import {readPrivate} from '../core/private-files.ts';
 import {browserMutation,MutationNotSubmitted} from '../core/browser-action.ts';
 import {modelActionButton,modelLifecycleReceipt,modelCard} from '../core/model-ui.ts';
 import {withCleanup} from '../core/run-lifecycle.ts';
+import {proveRoutedInference,preserveRuntimeFailure} from '../core/runtime-evidence.ts';
 
 type Created = {client: OwnedModelClient; journal: ResourceJournal; name: string; uid: string; generation: number;
   fixture: LocalModelFixture; estimate: MemoryEstimate};
@@ -178,7 +179,10 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       });
       requireSafe(created,'OWNERSHIP');const model=created;
       await prove(['ENG-03'],async()=>{
-      const ready = await test.step('Wait for current CPU runtime generation',()=>live!.waitReady(model!.client, model!.uid, model!.generation));
+      const ready = await test.step('Wait for current CPU runtime generation',async()=>{
+        try{return await live!.waitReady(model.client,model.uid,model.generation);}
+        catch(error){await preserveRuntimeFailure(live!,model,'model-ready',error);throw error;}
+      });
       const readyItem = ready.item;
       requireSafe(readyItem && readyItem.status?.requestedKvCacheType === fixture.kvCacheType, 'API');
       requireSafe(typeof readyItem.status?.effectiveKvCacheType === 'string' &&
@@ -189,7 +193,7 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await expect(card.getByText(`KV active: ${readyItem.status.effectiveKvCacheType}`,{exact:true})).toBeVisible({timeout:60_000});
       });
       await prove(label==='ollama'?['ENG-02','ROUTE-02']:[],()=>test.step('Verify routed CPU model inference',async()=>{
-        requireSafe(await inference.advertised(model!.name), 'API'); await inference.chat(model!.name);
+        await proveRoutedInference(live!,inference,model);
       }));
       await prove(['LOG-01'],async()=>{
       const logs = await model.client.logs();

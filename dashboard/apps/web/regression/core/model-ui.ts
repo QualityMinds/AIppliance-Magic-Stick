@@ -3,6 +3,7 @@ import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {canonical} from './borrowed-sharing.ts';
 import {HarnessError,requireSafe} from './errors.ts';
 import {parseMemoryMi} from '../../../../packages/core/src/local-model-configuration.ts';
+import {poll} from './poll.ts';
 
 export function modelCard(page:Page,name:string) {
   return page.locator('.panel').filter({has:page.getByRole('heading',{name,exact:true})}).last();
@@ -52,10 +53,24 @@ export function savedGpuBudget(item:ModelActivation,uid:string,generation:number
     label:local.gpuDeployment==='replicated'?'VRAM budget (MiB)':'Total VRAM budget (MiB)'};
 }
 
+/** Exact read-only POST made by Edit for this confirmed GPU intent. This is
+ * not a general mutation allowance and cannot authorize a budget/device write. */
+export function gpuEditEstimateBody(item:ModelActivation) {
+  const local=item.spec?.local;
+  requireSafe(local&&Array.isArray(local.gpuDevices)&&local.gpuDevices.length&&local.computeTarget==='nvidia-gpu','OWNERSHIP');
+  return {modelType:local.modelType??'chat',contextWindow:local.contextWindow,maxOutputTokens:local.maxOutputTokens??null,
+    maxNumSeqs:local.maxNumSeqs,kvCacheType:local.kvCacheType,cpuOffloading:local.cpuOffloading??false,
+    vramMi:parseMemoryMi(local.vramMi??local.vram),gpuDevice:null,gpuDevices:local.gpuDevices,gpuDeployment:local.gpuDeployment,
+    ...(local.engine==='VLLM'?{vllm:local.gpuDeployment==='replicated'?null:{parallelism:local.vllm?.parallelism??'auto'}}:{})};
+}
+
 export async function gpuBudgetInput(dialog:Locator,budget:{label:string;displayedMi:number},timeoutMs=60_000) {
   const input=dialog.getByLabel(budget.label,{exact:true});
-  try {await expect(input).toBeVisible({timeout:timeoutMs});}
-  catch {throw new HarnessError('DEADLINE','Failed','model-estimate');}
+  try {await poll(async()=>{
+    if(await dialog.getByRole('alert').count())throw new HarnessError('API','Failed','model-estimate');
+    return await input.isVisible() && await input.isEditable() && await dialog.getByText('Recalculating memory…',{exact:true}).count()===0;
+  },Boolean,{timeoutMs,stage:'model-estimate'});}
+  catch(error) {if(error instanceof HarnessError)throw error;throw new HarnessError('DEADLINE','Failed','model-estimate');}
   await expect(input).toHaveValue(String(budget.displayedMi));
   return input;
 }

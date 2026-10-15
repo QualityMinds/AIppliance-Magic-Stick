@@ -23,6 +23,7 @@ export const reasons = {
   CONFLICT: 'An intervening revision prevents automatic restoration.',
   DEADLINE: 'The stage deadline expired without matching current-generation evidence.',
   UNEXPECTED: 'The harness failed unexpectedly; private diagnostics require review.',
+  MISSING_EVIDENCE: 'The runner did not record a required test/layer result or a causal prerequisite. This is a harness reporting failure, not a missing lab prerequisite.',
   LAB: 'This target is not the registered disposable regression appliance. Live writes were refused.',
   RECOVERY: 'A previous test did not prove restoration. Dependent live writes are fenced; independent tests continue.',
   CANCELLED: 'The run was stopped by the operator. Remaining tests were not executed.',
@@ -35,8 +36,16 @@ export type ReasonCode = keyof typeof reasons;
 export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
   'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
-  'model-estimate', 'model-create', 'model-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
-  'cleanup', 'recovery-barrier', 'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-inference', 'model-update'] as const;
+  'model-estimate', 'model-create', 'model-ready', 'module-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
+  'cleanup', 'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence',
+  'baseline-models', 'baseline-pods', 'baseline-intents', 'baseline-claims', 'baseline-routes', 'baseline-host', 'baseline-keys',
+  'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-route', 'model-inference', 'model-update'] as const;
+
+/** Fixed stage names expose which bounded operation failed, never its raw body. */
+export async function atStage<T>(stage:Stage,action:()=>Promise<T>):Promise<T> {
+  try{return await action();}catch(error){throw new HarnessError(error instanceof HarnessError?error.code:'UNEXPECTED',
+    error instanceof HarnessError?error.outcome:'Failed',error instanceof HarnessError&&error.stage?error.stage:stage);}
+}
 export type Stage = typeof stages[number];
 
 /** Messages are fixed, public-safe strings. Never include an upstream body/token. */

@@ -69,7 +69,7 @@ export async function changedReverted(input:Locator,button:Locator,value:string)
   await input.fill(original); await expect(button).toBeDisabled();
 }
 
-export async function settingsDrafts(page:Page,origin:string,nodeName:string,{domains=true,mesh=true}={}) {
+export async function settingsDrafts(page:Page,origin:string,nodeName:string,{domains=true,mesh=true,hardware=true}={}) {
   // These are real controls and product polling. No fetch mock or write permit
   // is used by the live caller; fixtures call the same browser interactions.
   await page.goto(origin+'/#/system/settings/network');
@@ -90,9 +90,17 @@ export async function settingsDrafts(page:Page,origin:string,nodeName:string,{do
   await expect(page.getByRole('button',{name:'Check channel',exact:true})).toBeDisabled();
   await commit.fill('a'.repeat(40));await expect(page.getByRole('button',{name:'Check channel',exact:true})).toBeEnabled();
   await expect(page.getByRole('button',{name:'Apply channel',exact:true})).toBeDisabled();
-  await page.goto(origin+'/#/system/hardware');await gpuMemoryDraft(page,nodeName);
+  if(hardware) {await page.goto(origin+'/#/system/hardware');await gpuMemoryDraft(page,nodeName);await gpuSharingDrafts(page,nodeName);}
+  if(mesh)await meshDraft(page,origin);
+  if(domains) {
+    await page.goto(origin+'/#/system/settings');
+    await changedReverted(page.getByLabel('Public Domain',{exact:true}),page.getByRole('button',{name:'Save Domains',exact:true}),'regression.example.invalid');
+  }
+}
+
+export async function gpuSharingDrafts(page:Page,nodeName:string,providers=['AMD','NVIDIA']) {
   const node=page.getByRole('article',{name:`GPU node ${nodeName}`,exact:true});
-  for(const provider of ['AMD','NVIDIA']) {
+  for(const provider of providers) {
     const region=node.locator('.gpu-configuration').filter({hasText:`GPU Configuration ${provider}`});
     requireSafe(await region.count() === 1,'PREREQUISITE');
     const root=region.locator(':scope > details'),summary=root.locator(':scope > summary');
@@ -107,14 +115,11 @@ export async function settingsDrafts(page:Page,origin:string,nodeName:string,{do
     await expect(apply).toBeEnabled();await mode.selectOption(saved);await expect(apply).toBeDisabled();
     await summary.click();await expect(root).not.toHaveAttribute('open');
   }
-  if(mesh) {
+}
+
+export async function meshDraft(page:Page,origin:string) {
     await page.goto(origin+'/#/mesh');await page.getByRole('tab',{name:'Network',exact:true}).click();
     const relay=page.getByRole('combobox',{name:'Relay mode',exact:true}),saved=await relay.inputValue(),save=page.getByRole('button',{name:'Save network',exact:true});
     await expect(save).toBeDisabled();await relay.selectOption(saved === 'public' ? 'auto' : 'public');
     await expect(save).toBeEnabled();await relay.selectOption(saved);await expect(save).toBeDisabled();
-  }
-  if(domains) {
-    await page.goto(origin+'/#/system/settings');
-    await changedReverted(page.getByLabel('Public Domain',{exact:true}),page.getByRole('button',{name:'Save Domains',exact:true}),'regression.example.invalid');
-  }
 }

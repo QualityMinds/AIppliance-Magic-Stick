@@ -126,6 +126,16 @@ model tensor/pipeline checks remain in the child probe. Upstream contracts:
 [memory request](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/v1/worker/utils.py),
 [GPU worker](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/v1/worker/gpu_worker.py).
 
+The NVIDIA wrapper accepts a one-card assignment for each independent copy.
+For a split group it first runs a bounded native NCCL all-reduce and bidirectional
+send/receive probe on the exact assigned UUIDs in a separate process group.
+If default transport fails, a second probe may qualify `NCCL_P2P_DISABLE=1`
+for this Pod; it also disables vLLM's custom all-reduce, which bypasses NCCL.
+An explicit operator transport setting is preserved. Both probes have deadlines;
+failure stops startup with a communication diagnosis. This qualification checks
+communication, and still requires model readiness and real inference acceptance.
+See [NVIDIA transport troubleshooting](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting/gpu_troubleshooting.html).
+
 ### Ordinary vLLM runtime upgrades
 
 NVIDIA, CPU, AMD ROCm and Intel XPU use the published 0.31.0 images with immutable

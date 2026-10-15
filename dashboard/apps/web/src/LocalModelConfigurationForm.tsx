@@ -76,7 +76,10 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
   const profile = profiles[profileId];
   const devices = (models.computeTargets.realtimeDevices ?? []).filter((item) => item.profile === profileId
     && (!editing || !item.computeTarget || item.computeTarget === initial.computeTarget));
-  const device = devices.find((item) => item.node === config?.gpuNode);
+  const device = devices.find((item) => item.node === config?.gpuNode && item.computeTarget === draft.computeTarget)
+    ?? devices.find((item) => item.node === config?.gpuNode);
+  const deviceChoice = (item: typeof devices[number]) => devices.filter((other) => other.node===item.node).length>1
+    ? `${item.node}:${item.computeTarget}` : item.node;
   const computeTarget = omni && !editing ? device?.computeTarget ?? profile?.computeTargets?.[0] ?? draft.computeTarget : draft.computeTarget;
   const policy = localModelConfigurationPolicy(models, draft.engine, profileId || undefined);
   const availableTargets = models.computeTargets.targets.filter((target) => target.available || editing && target.id === computeTarget);
@@ -226,8 +229,8 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
   const free = (item: RealtimeDevice) => item.computeTarget === 'cpu' ? 1 : Math.min(item.slotCount ?? item.gpuCount, item.freeGpuCount
     + (ownActive && initialConfig?.gpuNode === item.node ? initialConfig.gpuCount : 0));
   const shared = device?.allocationMode === 'time-slicing' || device?.allocationMode === 'dra-shared';
-  const maxGpuCount = device ? Math.min(free(device), device.maxGpuCount ?? device.gpuCount) : 0;
   const cpu = computeTarget === 'cpu';
+  const maxGpuCount = device ? cpu ? 1 : Math.min(free(device), device.maxGpuCount ?? device.gpuCount) : 0;
   const canonicalUrl = omni ? normalizeHuggingFaceReference(draft.url) : draft.url;
   const imageMissing = omni && !config?.runtimeImage && profile?.image === '';
   const integer = (value: number, minimum: number, maximum = 2147483647) => Number.isInteger(value) && value >= minimum && value <= maximum;
@@ -257,8 +260,9 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
     }, onSuccess: async () => {await onSaved(); onClose();},
   });
   const selectProfile = (id: string) => {
-    const nextProfile = profiles[id], nextDevice = models.computeTargets.realtimeDevices?.find((item) => item.profile === id && item.supported && item.freeGpuCount > 0);
-    setDraft((current) => current.kind === 'omni' ? {...current, contextWindow: nextProfile?.defaultContextWindow ?? 8192, maxNumSeqs: 1,
+    const nextProfile = profiles[id], nextDevice = models.computeTargets.realtimeDevices?.find((item) => item.profile === id && item.supported && free(item) > 0);
+    setDraft((current) => current.kind === 'omni' ? {...current, computeTarget: nextDevice?.computeTarget ?? current.computeTarget,
+      contextWindow: nextProfile?.defaultContextWindow ?? 8192, maxNumSeqs: 1,
       url: current.url === `hf://${profile?.model}` ? `hf://${nextProfile?.model ?? ''}` : current.url,
       realtime: {profile: id, gpuNode: nextDevice?.node ?? '', gpuCount: 1, systemMemoryMi: realtimeDefaultRam(nextProfile, nextDevice), gpuMemoryFraction: .9, thinkerCpuOffloadGiB: 0}} : current);
   };
@@ -295,9 +299,13 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
     {automaticGpuPool && <p className="notice" role="status">Automatic GPU assignment: this hardware choice selects a node scheduling pool, not an individual card. Enable NVIDIA DRA card selection in System &gt; Hardware to choose a specific card.</p>}
     {engineUnavailable && <p className="notice notice-warn" role="status">{selectedTarget?.engineAvailability?.[draft.engine]?.message ?? `${draft.engine} is not available on the selected hardware.`}</p>}
     {omni && config && <section className="stack compact" aria-label="Hardware configuration"><div className="form-grid">
-      <Field label="Compute node"><select value={config.gpuNode} onChange={(event) => updateRealtime({gpuNode: event.target.value, gpuCount: 1})}>
+      <Field label="Compute node"><select value={device ? deviceChoice(device) : config.gpuNode} onChange={(event) => {
+        const selected=devices.find((item)=>deviceChoice(item)===event.target.value);
+        if(selected)setDraft((current)=>current.kind==='omni'?{...current,computeTarget:selected.computeTarget??current.computeTarget,
+          realtime:{...current.realtime,gpuNode:selected.node,gpuCount:1}}:current);
+      }}>
         {!config.gpuNode && <option value="" disabled>Select a compute node</option>}
-        {devices.map((item, index) => <option key={item.node || `unavailable-${index}`} value={item.node} disabled={!item.supported || free(item) < 1}>{item.node} · {item.name} · {item.supported ? item.computeTarget === 'cpu' ? 'CPU' : `${free(item)} free GPU slot${free(item) === 1 ? '' : 's'}${item.allocationMode && item.allocationMode !== 'exclusive' ? ` · ${item.allocationMode === 'dra-shared' ? 'DRA' : 'Time-slicing'}` : ''}` : item.reason}</option>)}
+        {devices.map((item, index) => <option key={deviceChoice(item) || `unavailable-${index}`} value={deviceChoice(item)} data-node={item.node} data-compute-target={item.computeTarget} disabled={!item.supported || free(item) < 1}>{item.node} · {item.name} · {item.supported ? item.computeTarget === 'cpu' ? 'CPU' : `${free(item)} free GPU slot${free(item) === 1 ? '' : 's'}${item.allocationMode && item.allocationMode !== 'exclusive' ? ` · ${item.allocationMode === 'dra-shared' ? 'DRA' : 'Time-slicing'}` : ''}` : item.reason}</option>)}
       </select></Field>
       {!cpu && <Field label="GPUs"><select value={config.gpuCount} onChange={(event) => updateRealtime({gpuCount: Number(event.target.value)})}>{(profile?.gpuCounts ?? [1]).map((count) => <option key={count} value={count} disabled={count > maxGpuCount}>{count} GPU{count === 1 ? `${shared ? ' · shared slot' : ''} · all stages` : 's · thinker / audio stages'}</option>)}</select></Field>}
     </div>
@@ -322,6 +330,10 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
     {standard && <section className="stack compact" aria-label="Memory configuration">
       <p className="muted">{kvCacheOptions.find((option) => option.value === standard.kvCacheType)?.description} Attention-cache values are recalculated immediately; recurrent state and runtime reserve remain separate.</p>
       {editing && estimateQuery.isPending && <p role="status">Recalculating memory…</p>}
+      {editing && !estimate && <Field label={replicated || gpuCount===1 ? computeTarget==='cpu'?'RAM budget (MiB)':'VRAM budget (MiB)' : 'Total VRAM budget (MiB)'}>
+        <input type="number" value={selectedMi*(replicated?1:gpuCount)} readOnly aria-describedby="saved-memory-pending" />
+      </Field>}
+      {editing && !estimate && <p id="saved-memory-pending" role="status">Saved budget. {estimateQuery.isError ? 'Memory estimation failed; changes cannot be saved until a valid estimate is available.' : 'Waiting for the current memory estimate.'}</p>}
       {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total. The smallest selected card limits this control.</p>}
       <EstimatePanel estimate={activeEstimate ?? estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={(value) => updateStandard({selectedMi: value})}
         hideBreakdown={cpuOffloading} preserveSelectedMi={editing ? initialStandard?.selectedMi : undefined} budgetDevices={replicated ? 1 : gpuCount} />

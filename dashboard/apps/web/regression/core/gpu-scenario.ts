@@ -7,7 +7,7 @@ import {LiveFoundation} from './live-foundation.ts';
 import {ResourceJournal,newRunId} from './journal.ts';
 import {BorrowedSharing,canonical,SharingWriteRejected,type Provider,type SharingAdapter} from './borrowed-sharing.ts';
 import {requireGpuProfile} from '../profiles/gpu-p0.ts';
-import {HarnessError,requireSafe} from './errors.ts';
+import {HarnessError,requireSafe,atStage} from './errors.ts';
 import {poll,currentReady} from './poll.ts';
 import {InferenceProbe} from './inference.ts';
 import {activation,fixtureIsAdvertised,OwnedModelClient} from './owned-model.ts';
@@ -17,6 +17,8 @@ import {privateDirectory,readPrivate,writePrivate} from './private-files.ts';
 import {waitModelStopped} from './model-stop.ts';
 import {gpuSlotCapacity} from './model-ui.ts';
 import {runtimeDiagnostic} from './runtime-diagnostic.ts';
+import {AdministrationApi} from './administration-api.ts';
+import {gpuFixtureEstimateBody,sizedGpuFixture} from './gpu-fixture.ts';
 
 export interface GpuCreated {client:OwnedModelClient;fixture:RuntimeModelFixture;uid:string;generation:number}
 type Container = {name:string;image:string;args?:string[];env?:Array<{name:string;value?:string}>;
@@ -80,12 +82,17 @@ export class GpuScenario {
   readonly live:LiveFoundation;
   readonly allowed:ExactDashboardRequest[];
   readonly directory:string;
+  private fixtureBudgets=new Map<string,GpuModelFixture>();
   private constructor(live:LiveFoundation,sharing:BorrowedSharing,inference:InferenceProbe,
     allowed:ExactDashboardRequest[],directory:string) {
     this.live=live;this.allowed=allowed;this.directory=directory;
     this.config = live.config; this.sharing = sharing; this.inference = inference;
     this.originalModels = live.snapshot.models.activations.map(item => ({name:item.metadata!.name!,uid:item.metadata!.uid!,
       generation:item.metadata!.generation!,spec:structuredClone(item.spec)}));
+    // Restoration participates in the foundation teardown. A busy validation
+    // Job or failed backend check must not skip key cleanup, heartbeat shutdown
+    // and the durable CLEANUP fence.
+    live.registerRestoration(()=>this.restore());
   }
   static async open(browser:Browser,workerIndex=0) {
     requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RUN_DIR,'CONFIG');
@@ -214,6 +221,17 @@ export class GpuScenario {
   }
   async create(label:string,fixture:RuntimeModelFixture,allowMemoryRisk=false) {
     await this.inventory(); fixtureIsAdvertised(await this.live.api.models(),fixture);
+    if(fixture.computeTarget!=='cpu'&&fixture.automaticSizing) {
+      const body=gpuFixtureEstimateBody(fixture),key=canonical(body);
+      let sized=this.fixtureBudgets.get(key);
+      if(!sized) {
+        const api=new AdministrationApi(this.live.context.request,this.config.dashboardUrl,this.config.requestTimeoutMs,this.live.guard);
+        sized=await atStage('model-estimate',async()=>sizedGpuFixture(fixture as GpuModelFixture,
+          await api.write({method:'POST',path:'/api/models/estimate-memory',body},()=>api.api.estimateMemory(body))));
+        this.fixtureBudgets.set(key,sized);
+      }
+      fixture={...sized};
+    }
     const created = await this.live.createModel(label,this.live.journal,fixture,{allowMemoryRisk});
     return {...created,fixture};
   }
@@ -358,15 +376,18 @@ export class GpuScenario {
     },{timeoutMs:120_000,intervalMs:1000,stage:'gpu-slots'});
   }
   async openModels(page:Page) {await page.goto(this.config.dashboardUrl+'/#/models',{waitUntil:'domcontentloaded'});}
-  async close() {
+  async close() {await this.live.close();}
+  private async restore() {
     // Delete only recorded models before restoring backends; leave their cache
     // alone. Restoration is forbidden after any ambiguous or foreign spec write.
     for (const entry of this.live.journal.entries.filter(entry=>entry.kind === 'model' && entry.state !== 'removed'))
       await this.live.cleanup(this.live.journal,{kind:'model',name:entry.name});
     await this.inventory();
-    const jobs=[...await this.live.observer.list('jobs','ai'),...await this.live.observer.list('jobs',this.config.expected.applianceNamespace)];
-    requireSafe(!jobs.some(unfinishedJob),'BUSY');
-    await this.sharing.restore();
+    await atStage('gpu-validation',async()=>{
+      const jobs=[...await this.live.observer.list('jobs','ai'),...await this.live.observer.list('jobs',this.config.expected.applianceNamespace)];
+      requireSafe(!jobs.some(unfinishedJob),'BUSY');
+    });
+    await atStage('recovery-sharing',()=>this.sharing.restore());
     for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount,entry.originalBackend ?? 'device-plugin');
     const current = await this.live.api.models();
     for (const original of this.originalModels) {
@@ -374,7 +395,6 @@ export class GpuScenario {
       requireSafe(item?.metadata?.uid === original.uid && item.metadata.generation === original.generation &&
         canonical(item.spec) === canonical(original.spec),'CLEANUP');
     }
-    await this.live.close();
   }
 }
 

@@ -29,6 +29,8 @@ export interface GpuModelFixture {
   gpuDeployment?: 'split' | 'replicated';
   systemMemoryMi?: number;
   vllm?: VllmConfiguration;
+  /** Automatic catalog candidate: obtain fresh GPU/host budgets before use. */
+  automaticSizing?:true;
 }
 export type RuntimeModelFixture = LocalModelFixture | GpuModelFixture;
 export interface GpuLabProfile {
@@ -221,11 +223,12 @@ export function parseLabConfig(value: unknown, directory: string): LabConfig {
       requireSafe(m.engine === engine && m.computeTarget === target && m.maxNumSeqs === 1 &&
         Number.isSafeInteger(m.contextWindow) && Number(m.contextWindow) >= 256 && Number(m.contextWindow) <= 4096 &&
         Number.isSafeInteger(m.memoryRequiredMi) && Number(m.memoryRequiredMi) >= 1024 && Number(m.memoryRequiredMi) <= 32768 &&
-        Object.keys(m).every(key => ['engine','computeTarget','url','contextWindow','maxNumSeqs','memoryRequiredMi','kvCacheType'].includes(key)), 'CONFIG');
+        (m.automaticSizing===undefined||m.automaticSizing===true)&&
+        Object.keys(m).every(key => ['engine','computeTarget','url','contextWindow','maxNumSeqs','memoryRequiredMi','kvCacheType','automaticSizing'].includes(key)), 'CONFIG');
       const url = text(m.url, engine === 'OLlama' ? /^ollama:\/\/[a-zA-Z0-9._:/+-]{1,200}$/ : /^hf:\/\/[a-zA-Z0-9._/+-]{3,200}$/);
       requireSafe(['f16','q8_0','auto','fp8'].includes(String(m.kvCacheType)), 'CONFIG');
       return {engine,computeTarget:target,url,contextWindow:Number(m.contextWindow),maxNumSeqs:1,memoryRequiredMi:Number(m.memoryRequiredMi),
-        kvCacheType:String(m.kvCacheType)};
+        kvCacheType:String(m.kvCacheType),...(m.automaticSizing===true?{automaticSizing:true}:{})};
     };
     gpu = {acknowledgeSharingTransitions:true,nodeName:text(selection.nodeName),nodeUid:text(selection.nodeUid),bootId:text(selection.bootId),
       ...(available ? {selection:'available-providers' as const} : {}),

@@ -30,6 +30,16 @@ function snapshot():PreparationSnapshot {
     readableFiles:['/inputs/username.txt','/inputs/password.txt','/inputs/observer.yaml','/inputs/locker.yaml','/inputs/model-cleaner.yaml']};
 }
 
+test('MOD-03 automatic optional-module fixture is a disabled service, never an operator without a UI',()=>{
+  const observed=snapshot();
+  observed.modules={modules:{'agent-sandbox':{enabled:false},service:{enabled:false}},catalogJson:{modules:{
+    'agent-sandbox':{group:'operators',activationMode:'moduleactivation'},service:{group:'apps',activationMode:'moduleactivation'}}}};
+  const lab=prepareInputs(source(),observed,options,{}).parsed;
+  expect(automaticProfile(observed,{},lab).modules?.id).toBe('service');
+  observed.modules.modules.service!.enabled=true;
+  expect(automaticProfile(observed,{},lab).modules?.id).toBeUndefined();
+});
+
 test('HAR-10 registered lab policy is fixed and rejects replacement targets or a mutable server marker',()=>{
   expect(Object.isFrozen(labPolicy.scopes)).toBe(true);expect(labPolicy.phases).toEqual(options.phases);
   const lab=prepareInputs(source(),snapshot(),options,{}).parsed;

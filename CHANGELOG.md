@@ -8,6 +8,18 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Start every regression execution from the beginning after automatic,
+  UID/revision-bound cleanup; rename the diagnostic action to **Clean up previous
+  test run**. Preserve cleanup causes across phases and report missing execution
+  evidence as a harness failure. Retain historical failed reports.
+- Correct per-engine GPU fixture sizing, Edit estimate requests, CPU/GPU Realtime
+  selection, optional service preparation, repository-derived security checks
+  and capability-specific form checks. Retain first-inference and repeated-cycle
+  baseline diagnostics, including separate cache accounting.
+- Accept one-card vLLM assignments for independent copies and qualify split-group
+  NCCL transport with bounded native probes; a successful Pod-scoped fallback
+  disables direct P2P/custom all-reduce with a visible diagnostic.
+
 - Explicitly document license-free regression execution and report downloads;
   cover missing, expired, invalid and unavailable license states at the API and
   Dashboard, retaining administrator, disposable-lab and individual test gates.

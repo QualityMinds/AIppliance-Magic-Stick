@@ -8,6 +8,47 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ModelActivation} from '@magicstick/dashboard-contracts';
+import {OwnedAppClient,type AppCleaner} from '../core/owned-app.ts';
+import type {LiveFoundation} from '../core/live-foundation.ts';
+
+test('APP-02 HAR-07 app creation journals only forwarded requests and preserves acknowledged identity despite a failed UI action',async({browser})=>{
+  const directory=await mkdtemp(join(tmpdir(),'app-creation-receipt-'));
+  try {for(const fault of ['unsent','guard','rejected','lost','acknowledged'] as const) {
+    const journal=await ResourceJournal.create(join(directory,fault+'.json'),newRunId(),'appliance');
+    const requestedName=journal.prefix+'app',name='openclaw-'+requestedName,model=journal.prefix+'model';
+    let writes=0,received:()=>void=()=>{},stored:unknown;
+    const submitted=new Promise<void>(resolve=>{received=resolve;});
+    const server=createServer((request,response)=>{
+      if(request.url==='/'){response.end('<button>Create</button>');return;}
+      response.setHeader('Content-Type','application/json');
+      if(request.url==='/api/instances'){response.end(JSON.stringify({instances:{}}));return;}
+      writes++;received();
+      if(fault==='rejected'){response.statusCode=422;response.end('{}');return;}
+      stored={metadata:{name,namespace:'ai-system',uid:'created-app-uid',generation:1}};
+      if(fault==='lost')return;
+      setTimeout(()=>response.end(JSON.stringify(stored)),100);
+    });
+    await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const origin='http://127.0.0.1:'+(server.address() as {port:number}).port,page=await browser.newPage();
+    const live={journal,config:{dashboardUrl:origin,requestTimeoutMs:1000},guard:async()=>{},context:page.context(),
+      registerDomainCleanup:()=>{}} as unknown as LiveFoundation;
+    const client=new OwnedAppClient(live,{find:async()=>stored} as unknown as AppCleaner);
+    try {
+      await page.goto(origin);
+      await expect(client.submitCreate(page,'openclaw',requestedName,model,false,async()=>{
+        if(fault==='unsent')throw new HarnessError('DEADLINE','Failed','model-create');
+        await page.evaluate(body=>{void fetch('/api/instances/openclaw',{method:'POST',body:JSON.stringify(body)}).catch(()=>{});},
+          {name:requestedName,model:fault==='guard'?'foreign-model':model,namespace:'ai',enabled:true,access:{authentication:'sso',exposure:'local'}});
+        if(fault==='acknowledged'){await submitted;throw new HarnessError('DEADLINE','Failed','model-create');}
+      })).rejects.toThrow();
+      expect(writes).toBe(['unsent','guard'].includes(fault)?0:1);
+      const entries=(await ResourceJournal.resume(journal.filename,'appliance')).entries;
+      if(['unsent','guard'].includes(fault))expect(entries).toEqual([]);
+      else expect(entries).toEqual([expect.objectContaining(fault==='acknowledged'?{uid:'created-app-uid',generation:1,state:'owned'}:
+        {uid:null,state:fault==='lost'?'requested':'removed'})]);
+    }finally{await page.close();server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+  }}finally{await rm(directory,{recursive:true,force:true});}
+});
 
 test('HAR-09 bounded real-browser actions distinguish an unsent request, rejected guard and lost forwarded response',async({browser})=>{
   for(const fault of ['none','no-request','body','lease','response'] as const) {

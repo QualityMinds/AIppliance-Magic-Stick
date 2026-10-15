@@ -3,7 +3,7 @@ import {requireSafe} from '../core/errors.ts';
 
 export type RemainingPhase = 5 | 6 | 7 | 8;
 export type LiveGate = 'applications' | 'identity' | 'license' | 'federation' | 'maintenance' | 'network' | 'channel' | 'cache' | 'reboot' | 'mesh' | 'companion' | 'realtime' | 'repeat' | 'supply-chain';
-export interface P0Definition {id:string; phase:RemainingPhase; layers:TestLayer[]; group:string; gate?:LiveGate}
+export interface P0Definition {id:string; phase:RemainingPhase; layers:TestLayer[]; group:string; gate?:LiveGate; variantSuffix?:string}
 const row = (phase:RemainingPhase,id:string,layers:string,group:string,gate?:LiveGate):P0Definition =>
   ({phase,id,layers:layers.split('') as TestLayer[],group,...(gate ? {gate} : {})});
 
@@ -52,9 +52,11 @@ const definitions:P0Definition[] = [
 
   row(8,'SEC-01','UCA','security'), row(8,'SEC-02','UCB','security'), row(8,'SEC-03','UCA','supply-chain','supply-chain'),
   row(8,'SEC-04','CA','security'), row(8,'UX-02','UBE','forms'), row(8,'PERF-02','UCAN','repeat','repeat'),
+  {...row(8,'UX-02','E','mesh-form'),variantSuffix:'mesh'},
+  {...row(8,'UX-02','E','gpu-form'),variantSuffix:'gpu'},
 ];
 export const remainingVariants:Record<string,P0Definition> = Object.fromEntries(definitions.map(definition =>
-  [`p${definition.phase}-${definition.id.toLowerCase()}`,definition]));
+  [`p${definition.phase}-${definition.id.toLowerCase()}${definition.variantSuffix?'-'+definition.variantSuffix:''}`,definition]));
 /** Keep historical definitions readable, but do not execute or require an
  * experimental engine's dedicated cache scenario in the normal campaign. */
 export const remainingVariantEnabled=(definition:P0Definition)=>definitions.includes(definition);

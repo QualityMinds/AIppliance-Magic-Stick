@@ -78,9 +78,12 @@ qualifies every FP8 attention/cache kernel on older GPUs.
 A split model can receive every requested DRA claim and still hang before
 weight loading in NCCL. Compare the actual selected pair, topology and runtime
 logs; successful inference on four cards does not certify every two-card pair.
-A bounded synthetic collective with and without P2P can help isolate the
-transport. Keep debugging settings scoped to the test; do not silently change
-host IOMMU/ACS settings or disable P2P globally.
+The wrapper checks a split group's exact UUIDs with bounded native all-reduce
+and send/receive probes. When default transport fails and host-mediated transport
+passes, its startup log states that the Pod uses `NCCL_P2P_DISABLE=1` and disabled
+custom all-reduce. This may reduce throughput. If both checks fail, inspect
+PCIe/IOMMU topology and the retained Pod diagnostics. Operator-supplied transport
+settings are preserved; host configuration is not modified by these probes.
 See [NVIDIA's GPU communication troubleshooting](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting/gpu_troubleshooting.html).
 
 `OOMKilled` is a different failure. Inspect the **actual Pod RAM limit**, not

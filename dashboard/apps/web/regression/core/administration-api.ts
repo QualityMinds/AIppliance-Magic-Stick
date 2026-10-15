@@ -42,7 +42,11 @@ export class AdministrationApi {
       catch {throw new HarnessError('API');}
       const raw=await response.body();
       requireSafe(raw.length < 2*1024*1024 && (response.headers()['content-type'] ?? '').includes('application/json'),'API');
-      return new Response(raw.toString('utf8'),{status:response.status(),headers:response.headers()});
+      // Playwright's cookie jar has already consumed Set-Cookie. Its flattened
+      // headers may contain newline-separated cookies, which Fetch Headers
+      // correctly rejects. Never reserialize session cookies into this DTO
+      // adapter (or expose them in a TypeError/trace).
+      return new Response(raw.toString('utf8'),{status:response.status(),headers:{'Content-Type':'application/json'}});
     };
     this.api=new MagicStickApi({baseUrl:origin,fetch:transport});
   }

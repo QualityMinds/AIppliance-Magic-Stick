@@ -3,7 +3,10 @@ import type {ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
 import {validCompanionReport} from './companion-live.ts';
-import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules} from './security-live.ts';
+import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
+import {AdministrationApi} from '../core/administration-api.ts';
+import type {APIRequestContext} from '@playwright/test';
+import {atStage} from '../core/errors.ts';
 import {inspectOidcConfig} from '../core/oidc-exec.ts';
 import {verifyAppCleanerRules} from '../core/owned-app.ts';
 import {validateAppFixtures,catalogContext} from './apps-live.ts';
@@ -11,6 +14,29 @@ import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('HAR-10 administration reads ignore flattened session cookies and retain HTTP failures',annotation,async()=>{
+  let status=200;
+  const request={fetch:async()=>({status:()=>status,headers:()=>({'content-type':'application/json',
+    'set-cookie':'synthetic-session=one; HttpOnly\nsynthetic-session=two; HttpOnly'}),
+    body:async()=>Buffer.from(JSON.stringify(status===200?{modules:{},catalogJson:{modules:{}}}:{error:'denied'}))})} as unknown as APIRequestContext;
+  const api=new AdministrationApi(request,'https://dashboard.example.invalid',1000,async()=>{});
+  expect((await api.api.modules()).modules).toEqual({});
+  status=403;
+  await expect(atStage('baseline-models',()=>api.api.modules())).rejects.toThrow('[stage:baseline-models]');
+  await expect(api.write({method:'POST',path:'/api/modules/fixture/enable',body:{}},()=>api.api.enableModule('fixture')))
+    .rejects.toMatchObject({status:403});
+});
+
+test('SEC-04 shipped permissions include recursively referenced regression and log roles, not an obsolete file list',annotation,async()=>{
+  const rbac=await shippedDashboardRbac();
+  const roles=rbac.filter(item=>item.kind==='Role');
+  expect(roles.some(item=>item.metadata.name==='dashboard-regression-intent' && item.metadata.namespace==='ai-system' &&
+    item.rules?.some(r=>r.resources?.includes('regressionruns')))).toBe(true);
+  expect(roles.some(item=>item.metadata.name==='dashboard-model-log-ownership'&&item.metadata.namespace==='ai'&&
+    item.rules?.some(r=>r.apiGroups?.includes('kubeai.org')&&r.resources?.includes('models')))).toBe(true);
+  const expected=normalizeRules(roles[0]!.rules!);
+  expect(normalizeRules([...roles[0]!.rules!,{apiGroups:[''],resources:['secrets'],verbs:['get']}])).not.toEqual(expected);
+});
 test('HAR-10 app context proof rejects partial/stale/malformed generated consumer configurations',annotation,()=>{
   const name='reg-fixture',context=512;
   const data={

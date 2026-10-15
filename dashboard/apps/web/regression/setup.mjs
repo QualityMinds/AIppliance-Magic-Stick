@@ -24,6 +24,7 @@ import {parseRegistration} from './core/lab-policy.ts';
 import {AutomaticRecovery} from './core/automatic-recovery.ts';
 import {recoveryAdapters} from './core/recovery-adapters.ts';
 import {parseRecoveryLock} from './core/lock-recovery.ts';
+import {applicationModuleIds,protectedModule} from './core/application-modules.ts';
 
 process.umask(0o077);
 const directory = resolve(process.env.REGRESSION_INPUT_DIR ?? '/inputs');
@@ -146,7 +147,23 @@ async function prepareModuleFixture() {
     resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs'),facts.applianceUid);
   const {lease}=reservation;
   try {
-  const profile=JSON.parse(await readPrivate(join(directory,'remaining-p0.json'))),id=profile.modules?.id;
+  const profile=JSON.parse(await readPrivate(join(directory,'remaining-p0.json')));
+  const snapshot=await client.api.modules();
+  const candidates=new Set([profile.modules?.id,...applicationModuleIds(snapshot,(profile.applications?.fixtures??[]).map(f=>f.type))]);
+  const marker=join(directory,'.setup-module-fixture.json');
+  if(await exists(marker)) {
+    const pending=JSON.parse(await readPrivate(marker));
+    requireSafe(candidates.has(pending.id)&&!protectedModule(pending.id),'CONFLICT');
+    await prepareOneModuleFixture(pending.id,pending.id===profile.modules?.id?profile.modules.parameters??{}:snapshot.modules[pending.id]?.parameters??{},reservation);
+  }
+  for(const id of candidates) {
+    if(!id||protectedModule(id)||snapshot.modules[id]?.enabled===true)continue;
+    await prepareOneModuleFixture(id,id===profile.modules?.id?profile.modules.parameters??{}:snapshot.modules[id]?.parameters??{},reservation);
+  }
+  }finally {await reservation.close();}
+}
+async function prepareOneModuleFixture(id,parameters,reservation) {
+  const {lease}=reservation;
   requireSafe(typeof id === 'string' && /^[a-z0-9-]{1,63}$/.test(id) && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator/.test(id),'PREREQUISITE');
   const modules=await client.api.modules(),catalog=modules.catalogJson?.modules?.[id];
   requireSafe(catalog?.activationMode === 'moduleactivation' && modules.modules[id]?.enabled !== true,'PREREQUISITE');
@@ -156,7 +173,6 @@ async function prepareModuleFixture() {
   requireSafe((await observer.get('appliances.appliance.magicstick.dev','ai-system','local')).metadata.uid === facts.applianceUid,'IDENTITY');
   const matches=(await observer.list('moduleactivations.appliance.magicstick.dev','ai-system')).filter(item=>item.spec?.module === id);
   requireSafe(matches.length <= 1,'CONFLICT');
-  const parameters=profile.modules.parameters ?? {};
   requireSafe(parameters && typeof parameters === 'object' && !Array.isArray(parameters) && Object.entries(parameters).every(([key,value])=>
     typeof value === 'string' && value.length < 128 && catalog.parameters?.some(field=>field.name === key)),'CONFIG');
   const marker=join(directory,'.setup-module-fixture.json');
@@ -178,7 +194,6 @@ async function prepareModuleFixture() {
     {timeoutMs:30_000,intervalMs:1000,stage:'host-readiness'});
   requireSafe(created.metadata.uid,'OWNERSHIP');
   await writePrivate(join(directory,'setup-module-fixture.json'),{version:1,applianceUid:facts.applianceUid,id,uid:created.metadata.uid,state:'verified-disabled'});await rm(marker);
-  }finally {await reservation.close();}
 }
 
 try {

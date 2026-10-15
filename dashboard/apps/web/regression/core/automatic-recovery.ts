@@ -4,7 +4,7 @@ import {newRunId,ResourceJournal,type CleanupAdapter,type ResourceKind} from './
 import {LabLease,leaseHolderReason,type Lease,type LeaseStore} from './lease.ts';
 import {HeartbeatLoop,bounded} from './run-lifecycle.ts';
 import {readPrivate,writePrivate} from './private-files.ts';
-import {HarnessError,requireSafe} from './errors.ts';
+import {HarnessError,requireSafe,atStage} from './errors.ts';
 import type {LabRegistration} from './lab-policy.ts';
 import {BorrowedModule} from './borrowed-module.ts';
 import {BorrowedSharing,canonical,type SharingAdapter} from './borrowed-sharing.ts';
@@ -61,6 +61,9 @@ export class AutomaticRecovery {
     this.journals=journals;this.modules=modules;this.sharing=sharing;
   }
   static async prepare(root:string,lease:Lease,registration:LabRegistration,now=Date.now()) {
+    return atStage('recovery-journal',()=>this.prepareJournal(root,lease,registration,now));
+  }
+  private static async prepareJournal(root:string,lease:Lease,registration:LabRegistration,now:number) {
     requireSafe(lease.metadata.labels['regression.magicstick.dev/appliance-uid']===registration.applianceUid,'LAB');
     requireSafe(!lease.spec.holderIdentity||leaseHolderReason(lease,now)==='LOCK_STALE'&&
       now>=Date.parse(lease.spec.renewTime!)+lease.spec.leaseDurationSeconds!*1000+drainMs,'LOCK_STALE');
@@ -100,7 +103,7 @@ export class AutomaticRecovery {
           const auxiliary=await ResourceJournal.resume(filename,registration.applianceUid);
           requireSafe(auxiliary.runId===match[1]&&!journals.some(item=>item.runId===auxiliary.runId),'RECOVERY');
           journals.push(auxiliary);
-        } else if(name==='borrowed-module.json') {
+        } else if(/^borrowed-module(?:-[a-z0-9-]{1,63})?\.json$/.test(name)) {
           const value=JSON.parse(await readPrivate(filename));
           requireSafe(value.version===1&&value.original?.metadata?.namespace==='ai-system'&&
             value.original.spec?.enabled===false&&typeof value.original.spec?.module==='string'&&
@@ -158,18 +161,22 @@ export class AutomaticRecovery {
     // Validate every owned/borrowed object before claiming recovery or deleting
     // the first resource. A changed UID/generation never gets adopted.
     for(const journal of this.journals)for(const entry of journal.recoveryPlan()) {
-      const current=await adapters.cleanup(journal,readonly)[entry.kind].lookup(entry);
-      requireSafe(!current||entry.uid!==null&&entry.uid===current.uid,'OWNERSHIP');
+      await atStage('recovery-resource',async()=>{
+        const current=await adapters.cleanup(journal,readonly)[entry.kind].lookup(entry);
+        requireSafe(!current||entry.uid!==null&&entry.uid===current.uid,'OWNERSHIP');
+      });
     }
     for(const receipt of this.modules) {
+      await atStage('recovery-module',async()=>{
       const borrowed=await BorrowedModule.resume(receipt.filename,adapters.module(receipt.original,readonly),readonly);
       // Read-only comparison, without changing the ambiguous receipt.
       const current=await adapters.module(receipt.original,readonly).read(),expected=receipt.applied??receipt.original;
       requireSafe(current.metadata.uid===expected.metadata.uid&&current.metadata.generation===expected.metadata.generation&&
         canonical(current.spec)===canonical(expected.spec),'CONFLICT');void borrowed;
+      });
     }
-    for(const receipt of this.sharing)await (await BorrowedSharing.resume(receipt.filename,receipt.identity,
-      adapters.sharing(receipt.identity,readonly),readonly)).verifyRecoverable();
+    for(const receipt of this.sharing)await atStage('recovery-sharing',async()=> (await BorrowedSharing.resume(receipt.filename,receipt.identity,
+      adapters.sharing(receipt.identity,readonly),readonly)).verifyRecoverable());
     const filename=join(this.directory,'automatic-recovery.json'),receipt={version:1,runId:this.runId,targetUid:this.registration.applianceUid,
       leaseUid:this.expected.metadata.uid,recoveryOwner:owner,state:'verified',updatedAt:new Date().toISOString()};
     await lease.acquireRecovery(this.expected,this.runId);
@@ -189,16 +196,16 @@ export class AutomaticRecovery {
             await guard();requireSafe(!await cleanup[entry.kind].lookup(entry),'OWNERSHIP');
             requireSafe(await cleanup[entry.kind].verifyRemoved(entry),'CLEANUP');await journal.recoveredAbsent(entry.kind,entry.name);
           }
-          await journal.cleanup(cleanup,guard);
+          await atStage('recovery-resource',()=>journal.cleanup(cleanup,guard));
         }
         for(const item of this.modules) {
           const borrowed=await BorrowedModule.resume(item.filename,adapters.module(item.original,guard),guard);
-          await borrowed.reconcileUnchanged();await borrowed.restore();
+          await atStage('recovery-module',async()=>{await borrowed.reconcileUnchanged();await borrowed.restore();});
         }
         // Models/apps are gone before changing GPU backends.
         for(const item of this.sharing) {
           const adapter=adapters.sharing(item.identity,guard),borrowed=await BorrowedSharing.resume(item.filename,item.identity,adapter,guard);
-          await borrowed.reconcileUnchanged();await borrowed.restore();
+          await atStage('recovery-sharing',async()=>{await borrowed.reconcileUnchanged();await borrowed.restore();});
           for(const entry of borrowed.entries)await poll(()=>adapter.read(entry.provider),value=>value.object.metadata.uid===entry.uid&&
             value.state.phase==='Ready'&&value.state.mode===entry.originalMode&&value.state.maxModels===entry.originalCount,
           {timeoutMs:180_000,intervalMs:1000,stage:'gpu-backend'});
@@ -211,7 +218,8 @@ export class AutomaticRecovery {
       },600_000,'cleanup',async()=>{retired=true;await adapters.cancel();});
       return this.runId;
     } catch(error) {
-      await writePrivate(filename,{...receipt,state:'blocked',updatedAt:new Date().toISOString()});
+      await writePrivate(filename,{...receipt,state:'blocked',reason:error instanceof HarnessError?error.code:'RECOVERY',
+        stage:error instanceof HarnessError?error.stage??'cleanup':'cleanup',updatedAt:new Date().toISOString()});
       if(error instanceof HarnessError)throw error;throw new HarnessError('RECOVERY');
     } finally {retired=true;await heartbeat.stop();}
   }

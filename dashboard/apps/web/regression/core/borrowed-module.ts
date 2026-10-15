@@ -36,6 +36,12 @@ export class BorrowedModule {
         value.applied.metadata.generation>=value.original.metadata.generation&&value.applied.spec,'OWNERSHIP');
       borrowed.applied=value.applied;
     }
+    if(value.restored) {
+      requireSafe(value.restored.metadata?.uid===value.original.metadata.uid &&
+        Number.isSafeInteger(value.restored.metadata.generation) && value.restored.metadata.generation>=value.original.metadata.generation &&
+        canonical(value.restored.spec)===canonical(value.original.spec),'OWNERSHIP');
+      borrowed.restored=value.restored;
+    }
     borrowed.unresolved=['requested','ambiguous'].includes(value.state);
     return borrowed;
   }
@@ -55,37 +61,41 @@ export class BorrowedModule {
       canonical(current.spec) === canonical(expected.spec),'CONFLICT');
     return current;
   }
-  async change(enabled:boolean,parameters:Record<string,string>,action?:()=>Promise<unknown>) {
+  async change(enabled:boolean,parameters:Record<string,string>,action?:(acknowledge:()=>Promise<void>)=>Promise<unknown>) {
     const before=await this.current();
     this.unresolved=true;
-    await writePrivate(this.receipt,{version:1,original:this.original,applied:this.applied,state:'requested'});
+    await writePrivate(this.receipt,{version:1,original:this.original,applied:this.applied,restored:this.restored,state:'requested'});
     let acknowledged=false;
-    try {const result=await (action ?? (()=>this.adapter.set(enabled,parameters)))();acknowledged=true;return result;}
+    const acknowledge=async()=>{
+      await this.guard();const current=await this.adapter.read();
+      requireSafe(current.metadata.uid===before.metadata.uid,'CONFLICT');
+      const expected={...before.spec,enabled,parameters};
+      const merged={...expected,parameters:{...(before.spec?.parameters as Record<string,string>),...parameters}};
+      if(canonical(current.spec)!==canonical(before.spec)) {
+        requireSafe(current.metadata.generation===Number(before.metadata.generation)+1 &&
+          [canonical(expected),canonical(merged)].includes(canonical(current.spec)),'CONFLICT');
+        this.applied=structuredClone(current);
+      } else requireSafe(current.metadata.generation===before.metadata.generation,'CONFLICT');
+      await writePrivate(this.receipt,{version:1,original:this.original,applied:this.applied,restored:this.restored,state:this.applied?'applied':'unchanged'});
+      this.unresolved=false;acknowledged=true;
+    };
+    try {const result=await (action ? action(acknowledge) : this.adapter.set(enabled,parameters));if(!acknowledged)await acknowledge();return result;}
     catch(error) {
-      if(error instanceof MutationNotSubmitted || error instanceof AdministrationRejected && [400,403,409,422].includes(error.status))acknowledged=true;
+      if(error instanceof MutationNotSubmitted || error instanceof AdministrationRejected && [400,403,409,422].includes(error.status)) {
+        // A proven non-write cannot authorize adoption of any changed spec.
+        await this.current();this.unresolved=false;acknowledged=true;
+        await writePrivate(this.receipt,{version:1,original:this.original,applied:this.applied,restored:this.restored,state:this.applied?'applied':'unchanged'});
+      }
       throw error;
     }
     finally {
       // A timeout/transport error is never treated as absence or adoption proof.
-      if(!acknowledged)await writePrivate(this.receipt,{version:1,original:this.original,applied:this.applied,state:'ambiguous'});
-      else {
-        await this.guard(); const current=await this.adapter.read();
-        requireSafe(current.metadata.uid === before.metadata.uid,'CONFLICT');
-        if(canonical(current.spec) !== canonical(before.spec)) {
-          const expected={...before.spec,enabled,parameters};
-          const merged={...expected,parameters:{...(before.spec?.parameters as Record<string,string>),...parameters}};
-          requireSafe(current.metadata.generation === Number(before.metadata.generation)+1 &&
-            [canonical(expected),canonical(merged)].includes(canonical(current.spec)),'CONFLICT');
-          this.applied=structuredClone(current);
-          await writePrivate(this.receipt,{version:1,original:this.original,applied:this.applied,state:'applied'});
-        } else requireSafe(current.metadata.generation === before.metadata.generation,'CONFLICT');
-        this.unresolved=false;
-      }
+      if(!acknowledged)await writePrivate(this.receipt,{version:1,original:this.original,applied:this.applied,restored:this.restored,state:'ambiguous'});
     }
   }
   async restore() {
     requireSafe(!this.unresolved,'CLEANUP');
-    if(!this.applied){await this.current();await writePrivate(this.receipt,{version:1,original:this.original,state:'restored'});return;}
+    if(!this.applied){await this.current();await writePrivate(this.receipt,{version:1,original:this.original,restored:this.restored,state:'restored'});return;}
     const current=await this.current(),parameters=this.original.spec!.parameters as Record<string,string>;
     await this.adapter.set(false,parameters);
     const restored=await poll(async()=>{await this.guard();return this.adapter.read();},item=>
@@ -94,6 +104,6 @@ export class BorrowedModule {
     requireSafe(restored.metadata.uid === this.original.metadata.uid && canonical(restored.spec) === canonical(this.original.spec),'CLEANUP');
     this.applied=undefined;
     this.restored=structuredClone(restored);
-    await writePrivate(this.receipt,{version:1,original:this.original,state:'restored'});
+    await writePrivate(this.receipt,{version:1,original:this.original,restored:this.restored,state:'restored'});
   }
 }

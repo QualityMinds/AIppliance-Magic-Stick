@@ -14,8 +14,45 @@ import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {modelStopped,stopDiagnostic,waitModelStopped,type ModelStopState} from '../core/model-stop.ts';
 import {writePrivate} from '../core/private-files.ts';
+import {nvidiaValidationBinding} from './validation-workflow.ts';
+import type {GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
+import {gpuFixtureEstimateBody,sizedGpuFixture} from '../core/gpu-fixture.ts';
+import type {GpuModelFixture} from '../core/config.ts';
+import type {MemoryEstimate} from '@magicstick/dashboard-contracts';
 
 let directory:string;
+test('MGPU-01 MGPU-02 GPU estimates replace CPU budgets and preserve per-card and per-copy scope',()=>{
+  for(const count of [2,4])for(const gpuDeployment of ['split','replicated'] as const)for(const engine of ['OLlama','VLLM'] as const) {
+    const fixture:GpuModelFixture={engine,computeTarget:'nvidia-gpu',gpuDeployment,automaticSizing:true,
+      gpuDevices:Array.from({length:count},(_,i)=>({uuid:`GPU-${i}`,nodeUid:'node',nodeName:'ai'})),
+      url:engine==='VLLM'?'hf://fixture/small':'ollama://fixture',memoryRequiredMi:4100,contextWindow:1024,maxNumSeqs:1};
+    const estimate={minimumMi:1500,recommendedMi:2301,maximumMi:24000,gpuCount:count,memoryBudgetScope:'per-device',
+      systemMemory:{scope:gpuDeployment==='replicated'?'per-copy':'per-pod',replicaCount:gpuDeployment==='replicated'?count:1,
+        minimumMi:4096,recommendedMi:8201,maximumMi:65000}} as MemoryEstimate;
+    expect(sizedGpuFixture(fixture,estimate)).toMatchObject({memoryRequiredMi:2400,systemMemoryMi:8300});
+    expect(gpuFixtureEstimateBody(fixture)).not.toHaveProperty('memoryRequiredMi');
+    for(const wrong of [{...estimate,gpuCount:1},{...estimate,memoryBudgetScope:undefined},
+      {...estimate,systemMemory:{...estimate.systemMemory!,replicaCount:9}}, {...estimate,recommendedMi:NaN}])
+      expect(()=>sizedGpuFixture(fixture,wrong)).toThrow('[API]');
+    expect(()=>sizedGpuFixture(fixture,{...estimate,maximumMi:2000})).toThrow('[CAPABILITY]');
+  }
+});
+test('HW-06 validation accepts legacy or exact DRA binding and rejects another identical NVIDIA card',()=>{
+  const device={vendor:'nvidia',node:'fixture-node',nodeUid:'fixture-uid',pciAddress:'0000:01:00.0'} as HardwareGpuDevice;
+  const card={uuid:'GPU-exact',name:'gpu-0',pool:'fixture-node',node:'fixture-node',nodeUid:'fixture-uid',pciAddress:device.pciAddress,claimName:'exact-claim'};
+  const state={backend:'dra',devices:[card]} as GpuSharingState;
+  const pod:KubeObject={metadata:{},spec:{nodeName:device.node,resourceClaims:[{name:'gpu',resourceClaimName:card.claimName}],
+    initContainers:[{name:'engine',resources:{claims:[{name:'gpu'}]}}]}};
+  const claim:KubeObject={metadata:{name:card.claimName,namespace:'ai'},status:{allocation:{devices:{results:[{driver:'gpu.nvidia.com',pool:card.pool,device:card.name}]}}}};
+  const slices:KubeObject[]=[{metadata:{},spec:{driver:'gpu.nvidia.com',nodeName:card.node,devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}}];
+  nvidiaValidationBinding(pod,device,state,claim,slices);
+  for(const patch of [{uuid:'GPU-other'},{name:'gpu-other'},{claimName:'other'},{pool:'other-node'},{pciAddress:'0000:02:00.0'}])
+    expect(()=>nvidiaValidationBinding(pod,device,{...state,devices:[{...card,...patch}]},claim,slices)).toThrow('[CAPABILITY]');
+  expect(()=>nvidiaValidationBinding(pod,device,state,claim,[])).toThrow('[CAPABILITY]');
+  const legacy:KubeObject={metadata:{},spec:{nodeName:device.node,initContainers:[{name:'engine',resources:{limits:{'nvidia.com/gpu':'1'}}}]}};
+  nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'});
+  expect(()=>nvidiaValidationBinding(legacy,device,state,claim,slices)).toThrow('[CAPABILITY]');
+});
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
 test.afterEach(async()=>{await rm(directory,{recursive:true,force:true});});
 function config():LabConfig {

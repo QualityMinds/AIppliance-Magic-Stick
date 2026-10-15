@@ -3,6 +3,34 @@ import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {gpuSlotCapacity,modelLifecycleReceipt,savedGpuBudget,slotFillCount} from '../core/model-ui.ts';
 import {parseRuntimeDiagnostic,runtimeDiagnostic} from '../core/runtime-diagnostic.ts';
 import type {KubeObject} from '../core/observer.ts';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {proveRoutedInference} from '../core/runtime-evidence.ts';
+import {HarnessError} from '../core/errors.ts';
+import {readPrivate} from '../core/private-files.ts';
+import type {LiveFoundation} from '../core/live-foundation.ts';
+import type {InferenceProbe} from '../core/inference.ts';
+import type {OwnedModelClient} from '../core/owned-model.ts';
+
+test('LIFE-02 first inference preserves route versus response failure even if diagnostic reads fail',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'inference-evidence-'));
+  try {
+    const live={journal:{filename:join(directory,'journal.json'),runId:'fixture-run'},
+      modelState:async()=>{throw new Error('synthetic-private-session');}} as unknown as LiveFoundation;
+    const model={uid:'fixture',generation:1,client:{name:'fixture-model',logs:async()=>{throw new Error('unavailable');}} as unknown as OwnedModelClient};
+    for(const advertised of [false,true]) {
+      let calls=0;
+      const probe={advertised:async()=>advertised,chat:async()=>{calls++;throw new HarnessError('DEADLINE','Failed');}} as unknown as InferenceProbe;
+      await expect(proveRoutedInference(live,probe,model)).rejects.toMatchObject({code:advertised?'DEADLINE':'API',
+        stage:advertised?'model-inference':'model-route',outcome:'Failed'});
+      expect(calls).toBe(advertised?1:0);
+      const diagnostic=JSON.parse(await readPrivate(join(directory,'runtime-failure-fixture-model.json')));
+      expect(diagnostic.stage).toBe(advertised?'model-inference':'model-route');
+      expect(JSON.stringify(diagnostic)).not.toContain('synthetic-private-session');
+    }
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 
 const model=():ModelActivation=>({metadata:{name:'reg-fixture-model',namespace:'ai-system',uid:'owned-uid',generation:2},
   spec:{enabled:false,targetNamespace:'ai',local:{engine:'OLlama',computeTarget:'nvidia-gpu',url:'ollama://fixture',vram:'1234Mi',

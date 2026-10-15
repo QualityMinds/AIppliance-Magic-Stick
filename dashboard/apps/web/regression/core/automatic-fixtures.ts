@@ -29,7 +29,7 @@ export function automaticGpuProfile(snapshot:PreparationSnapshot,_defaults:Recor
       const cache=caches.includes(preferred) ? preferred : caches.includes('auto') ? 'auto' : caches[0];if(!cache)continue;
       profile.models[`${provider}${engine === 'OLlama' ? 'Ollama' : 'Vllm'}` as keyof GpuLabProfile['models']]={...chosen,
         computeTarget:target,kvCacheType:cache,contextWindow:Math.min(1024,chosen.contextWindow),
-        memoryRequiredMi:Math.ceil(chosen.memoryRequiredMi/100)*100} as GpuModelFixture;
+        memoryRequiredMi:Math.ceil(chosen.memoryRequiredMi/100)*100,automaticSizing:true} as GpuModelFixture;
     }
   }
   return Object.keys(profile.devices).length ? profile : undefined;
@@ -39,7 +39,9 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   const options:PreparationOptions={phases:[...labPolicy.phases],approve:[...labPolicy.scopes] as PreparationOptions['approve'],independentRecovery:false};
   const profile=preparedProfile({},snapshot,options);
   profile.unmanagedKey={approveDisposableProbe:true,createDisposableFixture:true};
-  const optional=Object.entries(snapshot.modules.catalogJson?.modules ?? {}).filter(([id,item])=>item.activationMode === 'moduleactivation' &&
+  // MOD-03 proves a usable service URL; an operator-only module (for example
+  // Agent Sandbox) has no such UI and cannot be substituted for this fixture.
+  const optional=Object.entries(snapshot.modules.catalogJson?.modules ?? {}).filter(([id,item])=>item.activationMode === 'moduleactivation' && item.group==='apps' &&
     snapshot.modules.modules[id]?.enabled !== true && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(id))
     .sort(([a],[b])=>a.localeCompare(b))[0];
   if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:{}};
@@ -65,7 +67,7 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
     const context=Math.min(1024,capability.defaultContextWindow,capability.maxContextWindow ?? 1024);
     const fixture={engine:'VLLM',computeTarget:device.computeTarget,url:'hf://'+capability.model,memoryRequiredMi:capability.defaultSystemMemoryMi,
       contextWindow:context,maxNumSeqs:1,realtime:{profile:device.profile,gpuNode:device.node,gpuCount:1,
-        gpuMemoryMi:Math.floor(Number(device.gpuMemoryMi)*0.8),systemMemoryMi:capability.defaultSystemMemoryMi,cpuOffloadGiB:0}};
+        gpuMemoryFraction:0.8,systemMemoryMi:capability.defaultSystemMemoryMi,thinkerCpuOffloadGiB:0}};
     profile.realtime={approveGpuTransitions:true,fixtures:['exclusive','shared'].map(mode=>({mode,maxModels:2,fixture:structuredClone(fixture)}))};
   }
   return profile;

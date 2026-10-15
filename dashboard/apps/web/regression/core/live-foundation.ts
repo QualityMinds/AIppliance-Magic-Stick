@@ -11,7 +11,9 @@ import {ModelCreateRejected, OwnedModelClient, activation, ownedRuntimePods, rem
 import {verifyIdentity, verifyCapabilities, verifyIdle, verifyDeploymentPins} from './preflight.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {poll} from './poll.ts';
-import {requireSafe} from './errors.ts';
+import {requireSafe,HarnessError} from './errors.ts';
+import {dirname,join} from 'node:path';
+import {writePrivate} from './private-files.ts';
 import {registeredLab} from './lab-policy.ts';
 import {HeartbeatLoop,bounded} from './run-lifecycle.ts';
 
@@ -179,7 +181,12 @@ export class LiveFoundation {
   }
 
   async waitReady(client: OwnedModelClient, uid: string, generation: number) {
-    return poll(() => this.modelState(client, uid), value =>
+    return poll(async() => {
+      const value=await this.modelState(client,uid);
+      if(value.item?.metadata?.generation===generation&&value.item.status?.observedGeneration===generation&&
+        ['Degraded','Failed'].includes(value.item.status.phase??''))throw new HarnessError('CAPABILITY','Failed','model-ready');
+      return value;
+    }, value =>
       value.item?.metadata?.generation === generation && value.item.spec?.enabled === true && value.item.status?.phase === 'Ready' &&
       value.observed?.metadata.generation === generation && value.pods.some(pod =>
         pod.status?.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True')) &&
@@ -209,12 +216,19 @@ export class LiveFoundation {
     try {
       if (this.acquired) {
         await bounded(async()=>{
-          let failed=false;
-          for(const restore of [...this.restorations].reverse())try{await restore();}catch{failed=true;}
-          if(!failed)this.restorations=[];
-          // A failed borrowed restore must not skip independently owned cleanup.
-          for(const journal of [...this.journals].reverse())try{await this.cleanup(journal);}catch{failed=true;}
-          requireSafe(!failed,'CLEANUP');
+          const failures:Array<{reason:string;stage:string}>=[];
+          const record=(error:unknown)=>failures.push({reason:error instanceof HarnessError?error.code:'UNEXPECTED',
+            stage:error instanceof HarnessError?error.stage??'cleanup':'cleanup'});
+          // Owned workloads must be gone before borrowed modules/sharing can
+          // return to their disabled/idle baseline. Still attempt every cleanup
+          // domain when another domain fails; each retains its identity guard.
+          for(const journal of [...this.journals].reverse())try{await this.cleanup(journal);}catch(error){record(error);}
+          for(const restore of [...this.restorations].reverse())try{await restore();}catch(error){record(error);}
+          if(!failures.length)this.restorations=[];
+          if(failures.length) {
+            await writePrivate(join(dirname(this.journal.filename),'cleanup-failure.json'),{version:1,runId:this.journal.runId,failures}).catch(()=>{});
+            throw new HarnessError('CLEANUP','Failed',failures[0]!.stage as import('./errors.ts').Stage);
+          }
           await this.guard();
           const currentIds = new Set((await this.keys.list()).items.map(item => item.id));
           requireSafe([...this.baselineKeyIds].every(id => currentIds.has(id)) && this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');

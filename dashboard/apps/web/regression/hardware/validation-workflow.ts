@@ -1,5 +1,5 @@
 import {expect,type Page} from '@playwright/test';
-import type {GpuValidationRequest} from '@magicstick/dashboard-contracts';
+import type {GpuValidationRequest,GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {GpuScenario,podSpec} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {writePrivate} from '../core/private-files.ts';
@@ -9,6 +9,31 @@ import {join} from 'node:path';
 
 export async function validationJobs(s:GpuScenario) {
   return [...await s.live.observer.list('jobs','ai'),...await s.live.observer.list('jobs',s.config.expected.applianceNamespace)];
+}
+
+/** A DRA validation must consume the exact inventoried physical card, not a
+ * node-wide extended-resource token. Check both the Pod reference and the
+ * independently observed allocation; sharing does not relax UUID identity. */
+export function nvidiaValidationBinding(pod:KubeObject,device:HardwareGpuDevice,sharing:GpuSharingState,
+  claim?:KubeObject,slices:KubeObject[]=[]) {
+  const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;resources?:{
+    limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
+  const engine=spec.initContainers?.find(c=>c.name==='engine');
+  requireSafe(engine && (!spec.nodeName||spec.nodeName===device.node),'CAPABILITY');
+  if(sharing.backend!=='dra') {
+    requireSafe(Number(engine.resources?.limits?.['nvidia.com/gpu'])===1&&!spec.resourceClaims?.length,'CAPABILITY');return;
+  }
+  const card=sharing.devices?.find(d=>d.nodeUid===device.nodeUid&&d.node===device.node&&d.pciAddress===device.pciAddress);
+  requireSafe(card&&spec.resourceClaims?.length===1&&spec.resourceClaims[0]?.resourceClaimName===card.claimName&&
+    engine.resources?.claims?.length===1&&engine.resources.claims[0]?.name===spec.resourceClaims[0].name&&
+    !engine.resources.limits?.['nvidia.com/gpu']&&claim?.metadata.name===card.claimName&&claim.metadata.namespace==='ai','CAPABILITY');
+  const results=(claim.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
+  requireSafe(results?.length===1&&results[0]!.driver==='gpu.nvidia.com'&&results[0]!.pool===card.pool&&results[0]!.device===card.name,'CAPABILITY');
+  const matches=slices.flatMap(slice=>{
+    const value=slice.spec as {driver?:string;nodeName?:string;devices?:Array<{name:string;attributes?:Record<string,{string?:string}>}>};
+    return value.driver==='gpu.nvidia.com'&&value.nodeName===card.node ? (value.devices??[]).filter(d=>d.name===card.name) : [];
+  });
+  requireSafe(matches.length===1&&matches[0]?.attributes?.uuid?.string===card.uuid,'CAPABILITY');
 }
 /** Deterministic *request identity only*: the browser still uses the real
  * confirmation, authenticated API, controller and GPU diagnostic. No result,
@@ -58,7 +83,15 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
         const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;image:string;resources?:{limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
         if (spec.nodeName) requireSafe(spec.nodeName === s.config.gpu!.nodeName,'CAPABILITY');
         const engine=spec.initContainers?.find(c=>c.name === 'engine');requireSafe(engine,'CAPABILITY');
-        if (device.vendor === 'nvidia') requireSafe(Number(engine.resources?.limits?.['nvidia.com/gpu']) === 1 && !spec.resourceClaims?.length,'CAPABILITY');
+        if (device.vendor === 'nvidia') {
+          const sharing=await s.state('nvidia'),card=sharing.devices?.find(d=>d.nodeUid===device.nodeUid&&d.pciAddress===device.pciAddress);
+          // Allocation is asynchronous. Before scheduling, check at the next
+          // observation instead of failing a legitimately pending DRA claim.
+          if(sharing.backend==='dra'&&!spec.nodeName)continue;
+          nvidiaValidationBinding(pod,device,sharing,sharing.backend==='dra'&&card?
+            await s.live.observer.get('resourceclaims.resource.k8s.io','ai',card.claimName):undefined,
+            sharing.backend==='dra'?await s.live.observer.list('resourceslices.resource.k8s.io'):[]);
+        }
         else {
           const sharing=await s.state('amd');
           requireSafe(sharing.mode === 'shared' ? spec.resourceClaims?.some(c=>c.resourceClaimName === sharing.claimName) &&

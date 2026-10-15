@@ -7,7 +7,7 @@ import {installedReadyUi, logsUi} from './live-ui.ts';
 import {matchingNvidiaCards} from '../../src/NvidiaGpuSelection.ts';
 import type {GpuModelFixture} from '../core/config.ts';
 import {activation} from '../core/owned-model.ts';
-import {savedGpuBudget,gpuBudgetInput} from '../core/model-ui.ts';
+import {savedGpuBudget,gpuBudgetInput,gpuEditEstimateBody} from '../core/model-ui.ts';
 import {withCleanup} from '../core/run-lifecycle.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-sharing' ? 4 : 3;
@@ -31,7 +31,7 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
       const cards = (baseline.computeMemory?.devices ?? []).filter(d => d.gpuDevice?.nodeUid === s.config.gpu!.nodeUid && d.slots?.scope === 'device');
       const compatible = cards.filter(d => cards[0] && matchingNvidiaCards(cards[0], d)).slice(0, count);
       requireSafe(compatible.length === count && compatible.every(d => d.metricsAvailable && Number(d.freeMi) > 0 && (d.slots?.free ?? 0) > 0), 'CAPABILITY');
-      const runtime: GpuModelFixture = {...fixture, gpuDevices: compatible.map(d => d.gpuDevice!), systemMemoryMi: 16400,
+      const runtime: GpuModelFixture = {...fixture, gpuDevices: compatible.map(d => d.gpuDevice!),automaticSizing:true,
         gpuDeployment:deployment, ...(engine === 'VLLM' && !replicated ? {vllm: {parallelism: 'auto'}} : {vllm:undefined})};
       const first = await s.create(`mg${count}-${engine === 'VLLM' ? 'v' : 'o'}`, runtime, true);
       await s.ready(first); // independently resolves every ResourceClaim against current ResourceSlices, then routes inference
@@ -41,7 +41,8 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
       const budget=savedGpuBudget(intent,first.uid,first.generation);
       // First prove that admission retained the requested per-card budget; a
       // wrong stored value must not be hidden by comparing the UI only to it.
-      expect(budget.perCardMi).toBe(runtime.memoryRequiredMi);
+      expect(budget.perCardMi).toBe(first.fixture.memoryRequiredMi);
+      s.allowed.push({method:'POST',path:`/api/models/${first.client.name}/estimate-memory`,body:gpuEditEstimateBody(intent),mutating:false});
       await page.getByRole('button',{name:`Edit ${first.client.name}`}).click();
       const dialog=page.getByRole('dialog',{name:`Edit Model · ${first.client.name}`});
       // Edit mounts this input only after its asynchronous memory estimate.
@@ -49,6 +50,7 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
       await gpuBudgetInput(dialog,budget);
       await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
       await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+      s.allowed.length=0;
       await logsUi(s, page, first);
       if(replicated) {
         const logs=await first.client.logs(); expect(logs.replicas).toHaveLength(count);

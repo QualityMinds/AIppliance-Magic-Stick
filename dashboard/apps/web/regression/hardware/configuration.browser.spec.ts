@@ -9,8 +9,8 @@ import {savedGpuBudget,gpuBudgetInput} from '../core/model-ui.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fixtures' ? 4 : 3;
 
-for(const engine of ['VLLM','OLlama'] as const)for(const deployment of ['split','replicated'] as const)
-test(`MGPU-01 MGPU-02 ${engine} ${deployment} Edit waits for its estimate and retains exact saved MiB`,evidenceAnnotations(
+for(const engine of ['VLLM','OLlama'] as const)for(const deployment of ['split','replicated'] as const)for(const failed of [false,true])
+test(`MGPU-01 MGPU-02 ${engine} ${deployment} Edit ${failed?'failed':'pending'} estimate retains exact saved MiB`,evidenceAnnotations(
   {id:deployment==='split'?'MGPU-01':'MGPU-02',variant:`p${phase}-${deployment==='split'?'multigpu':'replicated'}-config`,layer:'B'}),async({page})=>{
   const data=fourNvidiaCards(),name='saved-budget-fixture',devices=[0,1,2,3].map(i=>nvidiaSelection(i));
   data.activations=[{metadata:{name,namespace:'ai-system',uid:'saved-uid',generation:2},
@@ -22,10 +22,18 @@ test(`MGPU-01 MGPU-02 ${engine} ${deployment} Edit waits for its estimate and re
   await fixturePage(page,{'/api/models':data,'/api/model-discovery/popular':{results:[]},
     [`/api/models/${name}/estimate-memory`]:async()=>{await estimateReady;return {detectedModelType:'chat',minimumMi:1000,recommendedMi:2000,
       maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'};}});
+  if(failed)await page.route(origin+`/api/models/${name}/estimate-memory`,async route=>{
+    await estimateReady;await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Estimate unavailable'})});
+  });
   await page.goto(origin+'/#/models');await page.getByRole('button',{name:`Edit ${name}`}).click();
   const dialog=page.getByRole('dialog',{name:`Edit Model · ${name}`}),budget=savedGpuBudget(data.activations[0]!,'saved-uid',2);
-  await expect(dialog.getByLabel(budget.label,{exact:true})).toHaveCount(0);
-  const ready=gpuBudgetInput(dialog,budget,10_000);resolveEstimate();await ready;
+  await expect(dialog.getByLabel(budget.label,{exact:true})).toHaveValue(String(budget.displayedMi));
+  await expect(dialog.getByLabel(budget.label,{exact:true})).toHaveAttribute('readonly','');
+  const ready=gpuBudgetInput(dialog,budget,10_000);resolveEstimate();
+  if(failed) {
+    await expect(ready).rejects.toMatchObject({code:'API',stage:'model-estimate'});
+    await expect(dialog.getByRole('alert')).toContainText('Estimate unavailable');
+  }else await ready;
   await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
   expect(budget.displayedMi).toBe(1234*(deployment==='split'?4:1));
 });

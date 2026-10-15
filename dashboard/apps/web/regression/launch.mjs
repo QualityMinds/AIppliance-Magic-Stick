@@ -23,7 +23,7 @@ import {verifyHostContinuation} from './core/setup-suite.ts';
 import {preparationDiagnostic, requirePreparation, preparationDescription} from './core/preparation-diagnostic.ts';
 import {runnerSession} from './core/runner-session.ts';
 import {progressEvent} from './core/progress.ts';
-import {blockedCounts} from './core/blocking.ts';
+import {blockedCounts,inheritRecoveryCause} from './core/blocking.ts';
 import {regressionBlockedSummary} from '../../../packages/core/src/regression-blocking.ts';
 
 process.umask(0o077);
@@ -171,7 +171,7 @@ try {
       const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:`phase${phase}`,required:ids ?? [],
         fixture:false,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
       const cases=stepCases(report.cases,code,report.acceptable === true,false);
-      if(recoveryFence)environment.REGRESSION_RECOVERY_FENCE='1';else delete environment.REGRESSION_RECOVERY_FENCE;
+      inheritRecoveryCause(environment,cases,recoveryFence);
       recoveryAttempts.push(...report.recoveryAttempts);
       if(result.continuation) {
         try {
@@ -229,7 +229,7 @@ try {
       const exit=await waitChild(child);
       const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:step,required:[],fixture,
         sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
-      if(recoveryFence)environment.REGRESSION_RECOVERY_FENCE='1';
+      if(recoveryFence)inheritRecoveryCause(environment,report.cases,true);
       collected.push(...stepCases(report.cases.map(item => index === stepsToRun.length - 1 && item.variant === 'idle-baseline' ?
         {...item, variant: 'final-idle'} : item), exit, report.acceptable === true,
       fixture));
@@ -257,7 +257,7 @@ try {
           required:['HAR-07'],fixture:false,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
         collected.push(...stepCases(recovered.report.cases,recoveryExit,recovered.report.acceptable,false));
         const restored=recoveryExit===0&&recovered.report.acceptable&&!recovered.recoveryFence;
-        if(restored)delete environment.REGRESSION_RECOVERY_FENCE;
+        if(restored)inheritRecoveryCause(environment,[],false);
         const reason=recovered.report.cases.find(item=>item.outcome!=='Passed'&&item.reason)?.reason;
         recoveryAttempts.push({runId:result.runId,state:restored?'restored':'blocked',...(reason?{reason}:{} )});
         await writePrivate(join(directory,'campaign-recovery-attempts.json'),{version:1,recoveryAttempts});
