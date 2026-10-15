@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "d59b413b565991a0f2447950f402303f9869e39cb167be6ab1f8273eba218f67",
+  "deploymentReferencesSha256": "18fbc1c75f6f96e71ef7d4b75b7f8c25ab84677f041f58b1f9eb745526986764",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2501,7 +2501,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-5f8ece8a723d609f71190e84029bae796adbebbd@sha256:2e5a5412da7a24bd60d9aeb1864023833541de185568d0c4148b3a2509714de4"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-5583079c4596ca5035e6d1728ab7de8ac9882be7@sha256:57fee1065f999d72dea19ed4aca92664128291b539c92597500f1abffbb58039"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2521,7 +2521,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-5f8ece8a723d609f71190e84029bae796adbebbd@sha256:4d7f5350cbb820eb402ee8f47d313f62ec5bdce4e89e3380861a60eb4ab38469"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-5583079c4596ca5035e6d1728ab7de8ac9882be7@sha256:a5332d45618486e2ac792b5708270761cabcbfcafbe869291ae611aa83b9d857"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
