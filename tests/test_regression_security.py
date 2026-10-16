@@ -136,6 +136,21 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertLess(import_check, publish)
         self.assertLess(check, publish)
 
+    def test_ci_loads_both_native_kubernetes_entrypoints_without_private_inputs_or_network(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())
+        steps = workflow['jobs']['regression-image']['steps']
+        check = next(index for index, step in enumerate(steps)
+                     if step.get('name') == 'Verify native Kubernetes test and cleanup entrypoints before private access')
+        command = steps[check]['run']
+        for required in ('--network none', '--entrypoint node', '-e REGRESSION_RUN_UID=',
+                         'for entrypoint in kubernetes.mjs kubernetes-recovery.mjs',
+                         '"regression/$entrypoint"', 'test "$status" -eq 1', 'Error: Invalid run identity.'):
+            self.assertIn(required, command)
+        self.assertNotIn('--experimental-transform-types', command)
+        self.assertNotIn('--volume', command)
+        publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
+        self.assertLess(check, publish)
+
     def test_shipped_runtime_keeps_certificate_verification(self):
         paths = list((ROOT / 'core').rglob('*.py')) + list((ROOT / 'dashboard/packages').rglob('*.ts')) + list((ROOT / 'dashboard/apps/cli/src').rglob('*.ts'))
         checked = 0

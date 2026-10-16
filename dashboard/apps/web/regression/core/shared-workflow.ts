@@ -14,8 +14,11 @@ export const executionIdentity=(runId:string,testId:string)=>createHash('sha256'
  * Dependent cases must not repeat a 15-minute failed shared setup nine times. */
 export class SharedWorkflow {
   private running=new Map<string,Promise<Set<string>>>();
-  constructor(private directory:string,private scope:Scope) {
+  private readonly directory:string;
+  private readonly scope:Scope;
+  constructor(directory:string,scope:Scope) {
     requireSafe(/^reg-[a-f0-9-]{36}$/.test(scope.runId) && scope.targetUid.length>0,'CONFIG');
+    this.directory=directory;this.scope=scope;
   }
   async execute(name:'applications'|'modules',id:string,info:Info,action:()=>Promise<Set<string>>) {
     const filename=join(this.directory,`workflow-${name}-failure.json`);

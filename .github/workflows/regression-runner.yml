@@ -68,6 +68,19 @@ jobs:
           printf 'Packaged setup probe: exit=%s, code=%s, target=%s\n' "$status" "${safe_code:-unclassified}" "$safe_target"
           test "$status" -eq 2
           printf '%s\n' "$result" | grep -Fq '[PRIVATE_FILE]'
+      - name: Verify native Kubernetes test and cleanup entrypoints before private access
+        run: |
+          for entrypoint in kubernetes.mjs kubernetes-recovery.mjs; do
+            set +e
+            result=$(docker run --rm --network none --entrypoint node \
+              -e REGRESSION_RUN_UID= magicstick-regression:local "regression/$entrypoint" 2>&1)
+            status=$?
+            set -e
+            safe_code=$(printf '%s\n' "$result" | grep -oE 'Invalid run identity\.|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX|SyntaxError|TypeError' | head -1 || true)
+            printf 'Packaged Kubernetes probe: entrypoint=%s, exit=%s, code=%s\n' "$entrypoint" "$status" "${safe_code:-unclassified}"
+            test "$status" -eq 1
+            printf '%s\n' "$result" | grep -Fq 'Error: Invalid run identity.'
+          done
       - name: Verify fixture reporting with a failed live preparation context
         run: |
           docker run --rm --network none --entrypoint node \

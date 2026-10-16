@@ -552,6 +552,15 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+17 October 2026 runner-start follow-up: HAR-02/10 execute both real Kubernetes
+entrypoints in an untranspiled Node subprocess and require the invalid-run-ID
+guard before any private access. The same probes run without network or private
+mounts in the built CI image before publication. This rejects the unsupported
+TypeScript parameter property that terminated the first installed `97098c9`
+Phase 5 attempt before setup/reporting; the shared failure receipt now uses
+erasable declarations. The failed attempt is retained, not relabelled; installed
+acceptance requires the corrected CI image and a new run.
+
 16 October 2026 Phase 5 follow-up: MOD-03/04 verify services through strict HTTPS;
 the gateway certificate now covers the actual local service routes and
 catalogued instance subdomains. APP-02/09 automatically select a separate small

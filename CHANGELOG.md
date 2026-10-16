@@ -8,6 +8,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep shared regression-workflow receipts compatible with native Node type
+  stripping. CI loads both real Kubernetes test/cleanup entrypoints without
+  network or private inputs before allowing runner publication.
+
 - Cover local service and application-instance hostnames with the appliance
   gateway certificate. Report incompatible application model context per
   instance instead of aborting the controller round. Phase 5 selects a separate

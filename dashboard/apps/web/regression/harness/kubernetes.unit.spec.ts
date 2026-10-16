@@ -8,7 +8,8 @@ import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.t
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {execFileSync,spawnSync} from 'node:child_process';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
 
 test('HAR-07 recovery accepts only fixed setup stage/detail markers',()=>{
@@ -42,6 +43,15 @@ test('HAR-10 Kubernetes progress loads in Node strip-only mode and binds the run
      progress.consume({version:1,event:'owner-start',targetUid:'appliance-fixture',runId});
      assert.deepEqual(progress.snapshot().ownedRunIds,[runId]);`],
     {stdio:'pipe',timeout:10_000,env:{...process.env,NODE_OPTIONS:''}});
+});
+test('HAR-02 HAR-10 Kubernetes test and cleanup entrypoints import in native strip-only mode before private access',()=>{
+  for(const entrypoint of ['kubernetes.mjs','kubernetes-recovery.mjs']) {
+    const result=spawnSync(process.execPath,['--experimental-strip-types',fileURLToPath(new URL('../'+entrypoint,import.meta.url))],
+      {encoding:'utf8',timeout:10_000,env:{...process.env,NODE_OPTIONS:'',REGRESSION_RUN_UID:''}});
+    expect(result.error).toBeUndefined();expect(result.signal).toBeNull();expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Error: Invalid run identity.');
+    expect(result.stderr).not.toMatch(/SyntaxError|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX/);
+  }
 });
 test('HAR-10 a Phase 3-only run counts one selected phase and exports no other phase results',()=>{
   const progress=new KubernetesProgress([3]);
