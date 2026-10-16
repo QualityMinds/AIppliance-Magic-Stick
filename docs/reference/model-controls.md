@@ -519,6 +519,10 @@ remote service. Realtime also provides a **Restart** action.
 The button follows the desired enabled state, prevents duplicate requests, and
 waits for runtime removal before allowing Start. Writes carry the current
 configuration revision; errors remain visible without removing the model card.
+For ordinary Ollama/vLLM runtimes, `Removing` continues until the KubeAI Model
+and remaining runtime Pods are gone. A terminal Pod or a withdrawn catalog
+entry alone is not proof of completed cleanup; runtime shutdown errors must
+be investigated rather than hidden by removing finalizers or extending every timeout.
 See [stopping and resuming models](../administration/troubleshooting/models.md#stop-and-resume-models).
 
 Operators can open **Edit** on every managed installed model. Local edits keep

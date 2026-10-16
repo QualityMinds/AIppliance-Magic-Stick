@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep ordinary Ollama/vLLM models in Removing until their runtime Pods have
+  disappeared, including terminal or terminating Pods left by older deletion.
+  Delete owned KubeAI Models in the foreground with UID/revision preconditions;
+  never force-delete Pods, claims or caches to report a successful Stop.
+
 - Repair ready-service DNS for both browser and API regression probes without
   changing HTTPS origins or certificate verification. Observe application
   HelmReleases in their control-plane namespace and detect gateway process

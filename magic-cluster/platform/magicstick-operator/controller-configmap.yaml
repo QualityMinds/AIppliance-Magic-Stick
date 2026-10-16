@@ -4472,17 +4472,39 @@ data:
         return deleted
 
 
-    def delete_local_runtime(name, namespace, engine):
+    def delete_local_runtime(name, namespace, engine, activation_uid=None):
         # The Dashboard keeps an activation's engine immutable.  Only inspect
         # the backend that this activation actually owns: otherwise every
         # vLLM/Ollama reconciliation would make needless API calls for a
         # same-named FreeToken Deployment.
         if str(engine).strip().upper() == "FREETOKEN":
             return delete_freetoken_runtime(name, namespace)
-        if get_resource("kubeai.org", "v1", "models", namespace, name):
-            delete_kubeai_model(name, namespace)
+        model = get_resource("kubeai.org", "v1", "models", namespace, name)
+        if model:
+            metadata = model.get("metadata") or {}
+            labels = metadata.get("labels") or {}
+            if (labels.get("app.kubernetes.io/managed-by") != FIELD_MANAGER
+                    or labels.get("appliance.magicstick.dev/modelactivation") != name
+                    or activation_uid and labels.get("appliance.magicstick.dev/activation-uid") not in (None, activation_uid)):
+                raise ValueError("A foreign runtime occupies this model name; its identity was not changed")
+            if not metadata.get("uid") or not metadata.get("resourceVersion"):
+                raise ValueError("Cannot retire a model without its current Kubernetes identity")
+            if not metadata.get("deletionTimestamp"):
+                # Background deletion can remove the Model before its Pods. Keep
+                # its exact identity until garbage collection drains dependents.
+                delete_json(f"/apis/kubeai.org/v1/namespaces/{namespace}/models/{name}", {
+                    "apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Foreground",
+                    "preconditions": {"uid": metadata["uid"], "resourceVersion": metadata["resourceVersion"]}})
             return True
-        return False
+        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + name})
+        # Also fence Pods left by an older background deletion. Even Succeeded
+        # Pods can still hold a container task, volumes or a GPU claim. Waiting
+        # does not adopt or delete a same-named foreign Pod; no claim/cache or
+        # Pod is force-deleted to make Stop appear complete.
+        return any(p.get("metadata", {}).get("namespace") == namespace
+                   and p.get("metadata", {}).get("labels", {}).get("app") == "model"
+                   and p.get("metadata", {}).get("labels", {}).get("model") == name
+                   for p in list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}"))
 
 
     def kubeai_model_resource(activation, presets, compute_catalog=None):
@@ -4638,6 +4660,7 @@ data:
                 "labels": {
                     "app.kubernetes.io/managed-by": "magicstick-operator",
                     "appliance.magicstick.dev/modelactivation": name,
+                    **({"appliance.magicstick.dev/activation-uid": metadata["uid"]} if metadata.get("uid") else {}),
                     "appliance.magicstick.dev/compute-target": compute_target,
                     "appliance.magicstick.dev/engine": engine.lower(),
                 },
@@ -4957,6 +4980,8 @@ data:
             previous_realtime = str((activation.get("status") or {}).get("modelRef") or "").startswith("vllm-omni/")
             if is_realtime or previous_realtime:
                 return delete_realtime_runtime(name, namespace)
+            if metadata.get("uid"):
+                return delete_local_runtime(name, namespace, requested_engine_name, metadata["uid"])
             return delete_local_runtime(name, namespace, requested_engine_name)
 
         if metadata.get("deletionTimestamp"):

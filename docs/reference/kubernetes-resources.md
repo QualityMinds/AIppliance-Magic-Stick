@@ -150,6 +150,14 @@ count. `minReplicas`/`maxReplicas` must remain 1; they apply to each internal
 KubeAI Model, not to the parent count. The parent is still one ModelActivation
 and one public LiteLLM model alias.
 
+Ordinary single/split runtimes also bind new KubeAI Models to the activation UID.
+Stop/removal verifies the current Model's managed labels and UID/resource version,
+requests foreground deletion and waits for all matching runtime Pods, including
+terminal/terminating Pods, before reporting Disabled or releasing the activation
+finalizer. Legacy Models without an activation-UID label retain their managed
+name-label compatibility; conflicting UID labels are refused. An orphan Pod from
+older background deletion fences completion without being adopted or force-deleted.
+
 The operator owns one internal `msr-<hash>` KubeAI Model per parent UID/GPU UUID.
 Labels bind it to the parent name and UID (`appliance.magicstick.dev/modelactivation`,
 `activation-uid`, `model-replica` under the same prefix); annotations bind the
