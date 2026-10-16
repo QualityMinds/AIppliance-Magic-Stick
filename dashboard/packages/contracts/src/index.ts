@@ -13,6 +13,10 @@ export const sessionSchema = z.object({
 export type Session = z.infer<typeof sessionSchema>;
 
 export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
+export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export interface RegressionStartRequest {
+  requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[];
+}
 export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
 export type RegressionBlockedKind = 'prerequisite' | 'failure' | 'cancelled' | 'unknown';
 export interface RegressionBlockedCounts {prerequisite: number; failure: number; cancelled: number; unknown: number}

@@ -83,11 +83,18 @@ No request accepts a runner image, URL, script, command, manifest or credential.
 | --- | --- |
 | `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results, lock state and external-runner limitations. Read-only. |
 | `POST /api/regression/register` | Exact `confirmation: "DISPOSABLE TEST SERVER"`, `acknowledgeDisruption: true`; immutable Appliance/Node-bound test marker, no production fallback. |
-| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`; idempotent `RegressionRun` intent and generated private test account. All P0 phases; no UI Job writes. |
+| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`, optional `phases` array of distinct integers 0–8 (1–9 entries; default all). Idempotent `RegressionRun` intent and generated private test account; no UI Job writes. |
 | `POST /api/regression/recover-lock` | 32-lowercase-hex `requestId`, reviewed `expectedLockRevision: "<Lease UID>:<resource version>"`, `acknowledgeCleanup: true`; idempotent recovery-only intent. No test phases or forced Lease deletion. |
 | `GET /api/regression/runs/<id>` | Durable run status. |
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
 | `GET /api/regression/runs/<id>/archive`, `/html`, `/junit` | Allowlisted completed report attachment, at most 64 MiB; never private input/journal/log download. |
+
+Phase selections are sorted and immutable. Repeating a request ID with a
+different selection returns 409; empty, duplicate or invalid phases return 400
+before account creation. For example, `phases: [3]` starts only Phase 3, with the
+same automatic previous-run cleanup and baseline checks. Unselected phases are
+not executed or credited as passed. The saved `phases` and selected-phase
+progress/results remain available after reload.
 
 Run IDs are `regression-<32 hex characters>`. The operator, not the browser/API,
 creates Jobs in `magicstick-regression`. Phases are `Queued`, `Preparing`,

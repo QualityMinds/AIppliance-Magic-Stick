@@ -43,6 +43,16 @@ test('HAR-10 Kubernetes progress loads in Node strip-only mode and binds the run
      assert.deepEqual(progress.snapshot().ownedRunIds,[runId]);`],
     {stdio:'pipe',timeout:10_000,env:{...process.env,NODE_OPTIONS:''}});
 });
+test('HAR-10 a Phase 3-only run counts one selected phase and exports no other phase results',()=>{
+  const progress=new KubernetesProgress([3]);
+  progress.consume({version:1,event:'phase-start',phase:3});
+  expect(progress.snapshot()).toMatchObject({totalPhases:1,currentPhase:3,completedPhases:0});
+  progress.consume({version:1,event:'phase-end',phase:3,outcome:'Passed'});
+  expect(progress.snapshot(true)).toMatchObject({totalPhases:1,completedPhases:1,percent:100});
+  const value=publicResult({counts:{Passed:1},executionCounts:{Passed:1},cases:[]},
+    {phases:[{phase:3,state:'Passed',counts:{Passed:1},executionCounts:{Passed:1}}]});
+  expect(value.phases.map(phase=>phase.phase)).toEqual([3]);
+});
 test('HAR-10 blocked results retain source phase, stage, variant and filtered trace location',()=>{
   const value=publicResult({counts:{Blocked:1},executionCounts:{Blocked:1},cases:[{id:'BOOT-02',layer:'O',variant:'p6-boot',outcome:'Blocked',reason:'EXTERNAL_RUNNER',
     stage:'host-boot',durationMs:0,traceRunId:'reg-11111111-2222-3333-4444-555555555555',executionId:'a'.repeat(24),message:'synthetic-secret'}]},

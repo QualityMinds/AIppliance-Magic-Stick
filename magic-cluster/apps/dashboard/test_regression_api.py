@@ -314,6 +314,40 @@ class RegressionApiTests(unittest.TestCase):
         saved = self.objects[RUNS + "/" + run["id"]]
         self.assertEqual(saved["metadata"]["annotations"]["regression.magicstick.dev/credentials-ready"], UID)
 
+    def test_selected_phases_are_canonical_immutable_and_idempotent(self):
+        payload = {"requestId": "1"*32, "acknowledgeDisruption": True, "phases": [5, 3]}
+        run = self.service.start(ACTOR, payload)
+        self.assertEqual(run["phases"], [3, 5])
+        self.assertEqual(self.objects[RUNS + "/" + run["id"]]["spec"]["phases"], [3, 5])
+        writes = copy.deepcopy(self.writes)
+        self.assertEqual(run, self.service.start(ACTOR, {**payload, "phases": [3, 5]}))
+        self.assertEqual(self.writes, writes)
+        for phases in ([3], list(range(9))):
+            with self.subTest(phases=phases), self.assertRaisesRegex(RequestError, "different phases") as error:
+                self.service.start(ACTOR, {**payload, "phases": phases})
+            self.assertEqual(error.exception.status, 409)
+        with self.assertRaisesRegex(RequestError, "different phases"):
+            self.start()
+        self.assertEqual(self.writes, writes)
+
+    def test_phase_three_start_retains_the_previous_run_cleanup_reference(self):
+        previous = self.stale_run()
+        run = self.service.start(ACTOR, {"requestId": "2"*32, "acknowledgeDisruption": True, "phases": [3]})
+        spec = self.objects[RUNS + "/" + run["id"]]["spec"]
+        self.assertEqual(run["phases"], [3])
+        self.assertEqual(spec["phases"], [3])
+        self.assertEqual(spec["accountRunName"], previous["id"])
+        self.assertEqual(spec["accountRunUid"], previous["uid"])
+        self.assertEqual(self.objects[RUNS + "/" + previous["id"]]["status"]["phase"], "Failed")
+
+    def test_invalid_phase_selection_is_rejected_before_any_writes_or_account_creation(self):
+        for phases in ([], [3, 3], [-1], [9], [True], [False], [3.0], ["3"], [None], [[3]], {}, None, "3", 3, list(range(10))):
+            with self.subTest(phases=phases), self.assertRaises(RequestError) as error:
+                self.service.start(ACTOR, {"requestId": "1"*32, "acknowledgeDisruption": True, "phases": phases})
+            self.assertEqual(error.exception.status, 400)
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.users, {})
+
     def test_no_parallel_ui_or_external_lease_owner_or_unknown_image(self):
         self.start()
         with self.assertRaisesRegex(RequestError, "Another regression"):

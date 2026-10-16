@@ -174,8 +174,59 @@ describe('In-Appliance regression tests', () => {
     expect(api.startRegression).not.toHaveBeenCalled();
     const dialog = screen.getByRole('dialog', {name: 'Start regression tests'});
     expect(within(dialog).getByText(/Existing models may be stopped/)).toBeVisible();
+    expect(within(dialog).getAllByRole('checkbox',{checked:true})).toHaveLength(9);
     await userEvent.click(within(dialog).getByRole('button', {name: 'Start tests'}));
-    await waitFor(() => expect(api.startRegression).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{32}$/)));
+    await waitFor(() => expect(api.startRegression).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{32}$/),[0,1,2,3,4,5,6,7,8]));
+  });
+  it('requires a nonempty selection, preserves it during polling and starts only Phase 3',async()=>{
+    const client=mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    const dialog=screen.getByRole('dialog'),start=within(dialog).getByRole('button',{name:'Start tests'});
+    await userEvent.click(within(dialog).getByRole('button',{name:'Clear selection'}));
+    expect(start).toBeDisabled();expect(within(dialog).getByRole('alert')).toHaveTextContent('Select at least one test phase.');
+    await userEvent.click(start);expect(api.startRegression).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole('checkbox',{name:/^Phase 3 ·/}));
+    await act(async()=>{await client.refetchQueries({queryKey:['regression']});});
+    expect(within(dialog).getAllByRole('checkbox',{checked:true})).toHaveLength(1);
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Selected phases: 3.');
+    await userEvent.click(start);
+    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[3]));
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  it('keeps a cancelled draft without starting tests and offers all phases again',async()=>{
+    mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    let dialog=screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button',{name:'Clear selection'}));
+    await userEvent.click(within(dialog).getByRole('checkbox',{name:/^Phase 5 ·/}));
+    await userEvent.click(within(dialog).getByRole('checkbox',{name:/^Phase 3 ·/}));
+    await userEvent.click(within(dialog).getByRole('button',{name:'Cancel'}));
+    expect(api.startRegression).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button',{name:'Start regression tests'}));dialog=screen.getByRole('dialog');
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Selected phases: 3, 5.');
+    await userEvent.click(within(dialog).getByRole('button',{name:'Select all'}));
+    expect(within(dialog).getAllByRole('checkbox',{checked:true})).toHaveLength(9);
+  });
+  it('freezes a submitted selection and retains it when starting fails',async()=>{
+    let reject!:(error:Error)=>void;
+    vi.mocked(api.startRegression).mockImplementationOnce(()=>new Promise((_resolve,fail)=>{reject=fail;}));
+    mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    const dialog=screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button',{name:'Clear selection'}));
+    await userEvent.click(within(dialog).getByRole('checkbox',{name:/^Phase 5 ·/}));
+    await userEvent.click(within(dialog).getByRole('checkbox',{name:/^Phase 3 ·/}));
+    const start=within(dialog).getByRole('button',{name:'Start tests'});await userEvent.click(start);
+    expect(start).toBeDisabled();expect(within(dialog).getByRole('checkbox',{name:/^Phase 3 ·/})).toBeDisabled();
+    expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[3,5]);
+    await act(async()=>{reject(new Error('Synthetic start failure'));});
+    await waitFor(()=>expect(start).toBeEnabled());
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Synthetic start failure');
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Selected phases: 3, 5.');
+    expect(api.startRegression).toHaveBeenCalledTimes(1);
+  });
+  it('shows the saved subset after reload and uses its phase count before runner progress arrives',async()=>{
+    data.runs=[{...run(),phases:[3],phase:'Queued',progress:{}}];mount();
+    expect(await screen.findByLabelText('Selected test phases')).toHaveTextContent('Selected phases: 3.');
+    expect(screen.getByText(/0 \/ 1 phase finished/)).toBeVisible();
+    expect(screen.queryByText(/0 \/ 9 phases finished/)).toBeNull();
   });
   it('recovers progress from the API and blocks parallel starts while cancellation remains possible', async () => {
     data.runs = [run()]; const client = mount();

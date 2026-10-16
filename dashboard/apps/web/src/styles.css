@@ -105,6 +105,9 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem; }
 .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.regression-phase-selection { min-width: 0; margin: 0; padding: .8rem; border: 1px solid var(--line); border-radius: 10px; }
+.regression-phase-selection legend { padding: 0 .35rem; }
+.regression-phase-selection input { flex-shrink: 0; }
 .field { display: flex; flex-direction: column; gap: .38rem; color: #bcc9db; font-size: .83rem; }
 .field input, .field select, .field textarea, .search-row input, td select { width: 100%; min-height: 42px; padding: .58rem .72rem; border: 1px solid #314766; border-radius: 10px; outline: none; color: var(--text); background: #0b1527; }
 .field textarea { min-height: 6rem; resize: vertical; overflow-wrap: anywhere; }

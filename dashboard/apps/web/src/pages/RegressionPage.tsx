@@ -1,11 +1,23 @@
 import {useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import type {RegressionBlockedCounts,RegressionResult,RegressionRun} from '@magicstick/dashboard-contracts';
+import type {RegressionBlockedCounts,RegressionPhase,RegressionResult,RegressionRun} from '@magicstick/dashboard-contracts';
 import {regressionBlockedKind,regressionBlockedLabel,regressionBlockedSummary} from '@magicstick/dashboard-core';
 import {api} from '../api';
 import {Button, ConfirmDialog, Empty, ErrorNotice, Loading, Panel, StatusBadge} from '../components';
 
 const terminal = new Set(['Passed', 'Failed', 'Blocked', 'Cancelled']);
+const phaseOptions = [
+  {phase: 0, name: 'Runner and safety'},
+  {phase: 1, name: 'Core dashboard workflows'},
+  {phase: 2, name: 'Model configuration and lifecycle'},
+  {phase: 3, name: 'GPUs and multi-GPU models'},
+  {phase: 4, name: 'GPU sharing and slots'},
+  {phase: 5, name: 'Services and administration'},
+  {phase: 6, name: 'Host maintenance'},
+  {phase: 7, name: 'Mesh and Realtime'},
+  {phase: 8, name: 'Security, usability and performance'},
+] as const;
+const allPhases = phaseOptions.map(option => option.phase);
 const timestamp = (value?: string) => value ? new Date(value).toLocaleString() : '—';
 const BlockedBreakdown = ({counts,total}: {counts?: RegressionBlockedCounts;total: number}) =>
   total===0 ? null : counts ? <small>{regressionBlockedSummary(counts)}</small> : <small>Cause breakdown unavailable for this older run.</small>;
@@ -18,6 +30,7 @@ const Result = ({run}: {run: RegressionRun}) => {
   const [downloadError, setDownloadError] = useState<unknown>();
   const [downloading, setDownloading] = useState(false);
   const percent = Math.max(0, Math.min(100, run.progress.percent ?? 0));
+  const totalPhases = run.progress.totalPhases ?? run.phases.length;
   const counts = run.result?.executionCounts ?? run.progress.executionCounts;
   const executionBlockedCounts=run.result ? run.result.executionBlockedCounts : run.progress.executionBlockedCounts;
   const preparation=run.result?.preparation;
@@ -31,6 +44,7 @@ const Result = ({run}: {run: RegressionRun}) => {
   };
   return <Panel title={run.operation === 'recover-lock' ? 'Previous run cleanup' : timestamp(run.createdAt)} meta={`${run.operation === 'recover-lock' ? timestamp(run.createdAt) + ' · ' : ''}Runner revision ${run.sourceRevision.slice(0, 12)}`} actions={<StatusBadge phase={run.phase} />}>
     <p role="status">{run.message}</p>
+    {run.operation !== 'recover-lock' && <p aria-label="Selected test phases">Selected phases: {run.phases.join(', ')}.</p>}
     {preparation&&preparation.outcome!=='Passed'&&<div className="notice notice-error" role={preparation.outcome==='Failed'?'alert':'status'} aria-label="Automatic preparation result">
       <strong>Automatic preparation {preparation.outcome.toLowerCase()}</strong>
       <p>{preparation.message}</p>
@@ -41,7 +55,7 @@ const Result = ({run}: {run: RegressionRun}) => {
       <div className="progress-label"><span>{run.progress.currentPhase !== undefined ? `Phase ${run.progress.currentPhase} P0` : run.phase}</span><span>{percent}%</span></div>
       <div className="progress-track"><span style={{width: `${percent}%`}} /></div>
     </div>
-    <p className="muted">{run.operation === 'recover-lock' ? 'Cleanup only: verify the old journal, restore owned resources and release its exact lock. No test phases are selected.' : `${run.progress.completedPhases ?? 0} / ${run.progress.totalPhases ?? 9} phases finished. Progress reflects completed test steps, not an estimated time.`}</p>
+    <p className="muted">{run.operation === 'recover-lock' ? 'Cleanup only: verify the old journal, restore owned resources and release its exact lock. No test phases are selected.' : `${run.progress.completedPhases ?? 0} / ${totalPhases} ${totalPhases === 1 ? 'phase' : 'phases'} finished. Progress reflects completed test steps, not an estimated time.`}</p>
     {run.progress.step && <p>Current step: <code>{run.progress.step}</code> · {run.progress.testIndex ?? 0} / {run.progress.testTotal ?? 0} scenarios</p>}
     {!terminal.has(run.phase) && run.progress.currentTest && <p aria-live="polite">{run.progress.currentTest}</p>}
     {counts && <div className="metric-grid" aria-label={run.operation === 'recover-lock' ? 'Cleanup check results' : 'Executable scenario results'}>
@@ -78,6 +92,7 @@ const Result = ({run}: {run: RegressionRun}) => {
 export const RegressionPage = () => {
   const client = useQueryClient(), [confirm, setConfirm] = useState<'register' | 'start' | 'cancel' | 'recover' | null>(null);
   const [reviewedLock, setReviewedLock] = useState<string>();
+  const [selectedPhases, setSelectedPhases] = useState<RegressionPhase[]>(allPhases);
   const [refreshing, setRefreshing] = useState(false);
   const query = useQuery({queryKey: ['regression'], queryFn: () => api.regression(), refetchInterval: 2000});
   const refresh = async () => {
@@ -92,7 +107,10 @@ export const RegressionPage = () => {
   const mutation = useMutation({mutationFn: async (action: 'enable' | 'register' | 'start' | 'cancel' | 'recover') => {
     if (action === 'enable') return api.enableModule('regression');
     if (action === 'register') return api.registerRegression();
-    if (action === 'start') return api.startRegression(crypto.randomUUID().replaceAll('-', ''));
+    if (action === 'start') {
+      if (!selectedPhases.length) throw new Error('Select at least one test phase.');
+      return api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases);
+    }
     if (action === 'recover') {
       if (!reviewedLock || cleanup.revision !== reviewedLock || !cleanup.available) throw new Error('The lock changed after review. Refresh and review it again.');
       return api.recoverRegressionLock(crypto.randomUUID().replaceAll('-', ''), reviewedLock);
@@ -105,7 +123,7 @@ export const RegressionPage = () => {
     mutation.reset(); setReviewedLock(value === 'recover' ? cleanup.revision : undefined); setConfirm(value);
   };
   return <div className="stack">
-    <div className="section-title"><div><h2>Regression tests</h2><p>Run all Phase 0–8 P0 tests inside this Magic Stick's Kubernetes cluster.</p></div><Button variant="ghost" onClick={() => void refresh()} disabled={query.isPending || refreshing}>Refresh tests</Button></div>
+    <div className="section-title"><div><h2>Regression tests</h2><p>Run all or selected Phase 0–8 P0 tests inside this Magic Stick's Kubernetes cluster.</p></div><Button variant="ghost" onClick={() => void refresh()} disabled={query.isPending || refreshing}>Refresh tests</Button></div>
     <ErrorNotice error={query.error ?? mutation.error} />{query.isPending && <Loading />}
     {data && <Panel title="Run the suite">
       <p>No license is required to run regression tests or download reports. Sign in as an administrator and register this disposable test server once; this is not license registration.</p>
@@ -127,9 +145,29 @@ export const RegressionPage = () => {
     {data && !data.runs.length && <Empty>No regression runs yet.</Empty>}
     <ConfirmDialog open={Boolean(confirm)} title={confirm === 'register' ? 'Register disposable test Appliance' : confirm === 'cancel' ? 'Cancel regression tests' : confirm === 'recover' ? 'Clean up previous test run' : 'Start regression tests'}
       expectedValue={confirm === 'register' ? 'DISPOSABLE TEST SERVER' : undefined}
-      description={confirm === 'register' ? 'This permanently binds the destructive test policy to this Appliance and its Node identities. Do not register a production server.' : confirm === 'cancel' ? 'Stop further tests and allow bounded cleanup. Interrupted operations retain their recovery journal; cancellation does not mean restoration succeeded.' : confirm === 'recover' ? 'Restore retained setup access and verify the old run’s exact resources and unchanged borrowed settings, even if its lock is already free. Active owners and missing or changed journals are not bypassed. No new regression tests will start; historical results remain unchanged.' : 'Run every implemented P0 phase. Existing models may be stopped; settings, services, licenses and caches may be changed on this dedicated test Appliance. Failures and unavailable prerequisites remain visible.'}
+      description={confirm === 'register' ? 'This permanently binds the destructive test policy to this Appliance and its Node identities. Do not register a production server.' : confirm === 'cancel' ? 'Stop further tests and allow bounded cleanup. Interrupted operations retain their recovery journal; cancellation does not mean restoration succeeded.' : confirm === 'recover' ? 'Restore retained setup access and verify the old run’s exact resources and unchanged borrowed settings, even if its lock is already free. Active owners and missing or changed journals are not bypassed. No new regression tests will start; historical results remain unchanged.' : 'Run the selected P0 phases from the beginning after automatic cleanup and baseline checks. Existing models may be stopped; settings, services, licenses and caches may be changed on this dedicated test Appliance. Failures and unavailable prerequisites remain visible.'}
       confirmLabel={confirm === 'register' ? 'Register test Appliance' : confirm === 'cancel' ? 'Cancel tests' : confirm === 'recover' ? 'Clean up previous run' : 'Start tests'}
       busy={mutation.isPending} error={mutation.error} onClose={() => {if (!mutation.isPending) setConfirm(null);}}
-      onConfirm={() => {if (confirm) mutation.mutate(confirm);}} />
+      confirmDisabled={confirm === 'start' && selectedPhases.length === 0}
+      onConfirm={() => {if (confirm) mutation.mutate(confirm);}}>
+      {confirm === 'start' && <>
+        <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending} aria-describedby="regression-phase-hint">
+          <legend>Test phases</legend>
+          <div className="actions">
+            <Button type="button" variant="ghost" disabled={mutation.isPending} onClick={() => setSelectedPhases(allPhases)}>Select all</Button>
+            <Button type="button" variant="ghost" disabled={mutation.isPending} onClick={() => setSelectedPhases([])}>Clear selection</Button>
+          </div>
+          <div className="form-grid">{phaseOptions.map(option => <label className="check-field" key={option.phase}>
+            <input type="checkbox" checked={selectedPhases.includes(option.phase)} onChange={event => {
+              const checked = event.target.checked;
+              setSelectedPhases(previous => checked ? [...previous, option.phase].sort((a, b) => a - b) : previous.filter(phase => phase !== option.phase));
+            }} />
+            Phase {option.phase} · {option.name}
+          </label>)}</div>
+          <p id="regression-phase-hint" className="muted">Preparation and cleanup run automatically for your selection. Other test phases are not executed or counted as passed.</p>
+        </fieldset>
+        {selectedPhases.length ? <p role="status">Selected phases: {selectedPhases.join(', ')}.</p> : <p role="alert">Select at least one test phase.</p>}
+      </>}
+    </ConfirmDialog>
   </div>;
 };

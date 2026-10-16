@@ -30,6 +30,18 @@ describe('Shared regression API contract',()=>{
     const [url,options]=fetch.mock.calls[0]!;expect(url).toBe('/api/regression/runs/regression-'+'a'.repeat(32)+'/archive');
     expect(options.headers.get('Authorization')).toBe('Bearer synthetic-test-token');expect(options.cache).toBe('no-store');
   });
+  it('sends an explicit single or non-consecutive phase selection without changing the normal start transport',async()=>{
+    const fetch=vi.fn().mockImplementation(async()=>new Response('{}',{headers:{'content-type':'application/json'}}));
+    const client=new MagicStickApi({fetch});
+    await client.startRegression('a'.repeat(32),[3]);
+    await client.startRegression('b'.repeat(32),[3,5]);
+    for(const [index,phases] of [[0,[3]],[1,[3,5]]] as const) {
+      const [url,options]=fetch.mock.calls[index]!;
+      expect(url).toBe('/api/regression/runs');expect(options.method).toBe('POST');
+      expect(options.headers.get('X-MagicStick-CSRF')).toBe('dashboard');
+      expect(JSON.parse(options.body)).toEqual({requestId:(index?'b':'a').repeat(32),acknowledgeDisruption:true,phases});
+    }
+  });
   it('keeps same-origin cookies for the Web client and returns a safe unavailable-report error',async()=>{
     const fetch=vi.fn().mockResolvedValue(new Response('private upstream body',{status:409}));
     const client=new MagicStickApi({fetch});

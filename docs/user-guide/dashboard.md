@@ -47,8 +47,12 @@ cache or regression page. Use arrow keys, Home and End within the status tab bar
 On a dedicated disposable test server, open **System → System Status → Regression tests** as an
 administrator. **No license is required**, including report downloads.
 Enable the optional runner and register the Appliance once, then choose
-**Start regression tests**. The suite runs in Kubernetes and survives leaving or
-reloading the page. It can stop models and change test-server state; never
+**Start regression tests**. All phases are selected by default. To run only GPU
+tests, choose **Clear selection**, check **Phase 3**, then **Start tests**. You
+can also select several phases. The saved selection appears beside progress
+and limits the report to those phases.
+The suite runs in Kubernetes and survives leaving or reloading the page.
+It can stop models and change test-server state; never
 register a production Appliance.
 This test-server registration is not license activation. License/SSO cases use
 test fixtures; missing prerequisites block those checks, not the whole suite.

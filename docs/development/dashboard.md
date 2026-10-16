@@ -71,6 +71,10 @@ test identity, exposes sanitized artifacts and reclaims the identity after exact
 Pod termination and verified setup recovery. Interrupted runs retain their exact
 generated identity and private restoration receipt for the next run. It never
 receives a user-supplied test script or image.
+The start dialog selects one or more P0 phases (0–8, all by default) through the
+shared start API. The API validates and sorts the immutable selection; the
+existing operator passes it to the Kubernetes runner. Subset runs keep automatic
+cleanup and baseline checks, and show only their selected-phase progress/results.
 Enabling, registering, starting, cancelling and downloading reports are core
 functions with no license prerequisite. Test registration binds a disposable
 installation, not a licensing edition; keep license queries out of that control

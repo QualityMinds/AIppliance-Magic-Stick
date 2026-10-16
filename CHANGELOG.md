@@ -13,6 +13,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   Delete owned KubeAI Models in the foreground with UID/revision preconditions;
   never force-delete Pods, claims or caches to report a successful Stop.
 
+- Select one or more regression phases in the Dashboard start dialog, including
+  Phase 3 alone. Keep all phases as the default, automatic previous-run cleanup,
+  and selection-bound progress/reports; reject empty or invalid selections and
+  changes to an existing run's selection.
+
 - Repair ready-service DNS for both browser and API regression probes without
   changing HTTPS origins or certificate verification. Observe application
   HelmReleases in their control-plane namespace and detect gateway process

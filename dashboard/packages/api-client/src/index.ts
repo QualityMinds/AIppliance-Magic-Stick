@@ -26,6 +26,7 @@ import {
   type Session,
   type RegressionStatus,
   type RegressionRun,
+  type RegressionStartRequest,
   type LicenseStatus,
   type LicensePreview,
   type LicenseRequestInput,
@@ -106,8 +107,11 @@ export class MagicStickApi {
   regression() { return this.request<RegressionStatus>('/api/regression'); }
   registerRegression() { return this.request<RegressionStatus>('/api/regression/register', {method: 'POST',
     body: JSON.stringify({confirmation: 'DISPOSABLE TEST SERVER', acknowledgeDisruption: true})}); }
-  startRegression(requestId: string) { return this.request<RegressionRun>('/api/regression/runs', {method: 'POST',
-    body: JSON.stringify({requestId, acknowledgeDisruption: true})}); }
+  startRegression(requestId: string, phases?: RegressionStartRequest['phases']) {
+    const body: RegressionStartRequest = {
+      requestId, acknowledgeDisruption: true, ...(phases === undefined ? {} : {phases})};
+    return this.request<RegressionRun>('/api/regression/runs', {method: 'POST', body: JSON.stringify(body)});
+  }
   recoverRegressionLock(requestId: string, expectedLockRevision: string) {
     return this.request<RegressionRun>('/api/regression/recover-lock', {method: 'POST',
       body: JSON.stringify({requestId, expectedLockRevision, acknowledgeCleanup: true})});

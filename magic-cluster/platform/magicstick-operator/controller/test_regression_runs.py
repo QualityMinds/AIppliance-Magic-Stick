@@ -75,6 +75,17 @@ class RegressionRunsTests(unittest.TestCase):
             "uid": UID, "resourceVersion": "42", "runId": "reg-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
         self.run["metadata"]["annotations"] = {"regression.magicstick.dev/recovery-credentials-ready": UID}
 
+    def test_single_or_nonconsecutive_phase_selection_reaches_the_existing_runner_unchanged(self):
+        for phases in ([3], [0], [3, 5]):
+            with self.subTest(phases=phases):
+                self.setUp()
+                self.run["spec"]["phases"] = phases
+                self.assertTrue(self.controller.reconcile(self.run))
+                container = self.writes[0][2]["spec"]["template"]["spec"]["containers"][0]
+                self.assertEqual(container["command"], ["node", "regression/kubernetes.mjs"])
+                env = {item["name"]: item["value"] for item in container["env"]}
+                self.assertEqual(env["REGRESSION_PHASES"], ",".join(map(str, phases)))
+
     def test_recovery_uses_distinct_entrypoint_and_exact_snapshot_without_test_phases(self):
         self.recovery()
         self.assertTrue(self.controller.reconcile(self.run))

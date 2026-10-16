@@ -48,6 +48,8 @@
 - Run the existing P0 suite from **System → System Status → Regression tests** on a dedicated,
   registered test Appliance **without a license**; see progress, Passed/Failed/Blocked results and
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
+  Run all phases by default or select one or more, such as Phase 3 only; progress
+  and reports retain that selection without crediting unselected phases.
   Clean up the previous run separately, including retained setup access when its
   lock is already free; disabled actions explain their blocking condition.
   Distinguish missing prerequisites from checks blocked by an earlier failure,

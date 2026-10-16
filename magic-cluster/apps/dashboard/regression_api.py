@@ -250,9 +250,16 @@ class RegressionApi:
 
     def start(self, principal, payload):
         self.f["live_admin_actor"](principal)
-        if set(payload) != {"requestId", "acknowledgeDisruption"} or payload.get("acknowledgeDisruption") is not True or not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
+        if (not {"requestId", "acknowledgeDisruption"} <= set(payload) <= {"requestId", "acknowledgeDisruption", "phases"}
+                or payload.get("acknowledgeDisruption") is not True
+                or not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", "")))):
             self.error(400, "A unique request and disruption confirmation are required.")
-        return self.enqueue(principal, payload, "tests")
+        phases = payload.get("phases", list(range(9)))
+        if (not isinstance(phases, list) or not 1 <= len(phases) <= 9
+                or any(type(phase) is not int or not 0 <= phase <= 8 for phase in phases)
+                or len(set(phases)) != len(phases)):
+            self.error(400, "Select one or more distinct test phases from 0 to 8.")
+        return self.enqueue(principal, {**payload, "phases": sorted(phases)}, "tests")
 
     def recover_lock(self, principal, payload):
         self.f["live_admin_actor"](principal)
@@ -276,6 +283,8 @@ class RegressionApi:
                         or existing.get("spec", {}).get("operation", "tests") != operation
                         or operation == "recover-lock" and existing["spec"]["lockRecovery"]["uid"] + ":" + existing["spec"]["lockRecovery"]["resourceVersion"] != payload["expectedLockRevision"]):
                     self.error(409, "This request ID is already owned by another administrator.")
+                if operation == "tests" and existing.get("spec", {}).get("phases") != payload["phases"]:
+                    self.error(409, "This request ID already selects different phases. Use a new request ID for a new run.")
                 return self.view(existing)
             runs = self.f["list_resource"](RUNS)
             recovery = self.recovery_candidate(runs)
@@ -319,7 +328,7 @@ class RegressionApi:
             run = self.write("POST", RUNS, {"apiVersion": "appliance.magicstick.dev/v1alpha1", "kind": "RegressionRun",
                 "metadata": {"name": name, "namespace": "ai-system"},
                 "spec": {"applianceUid": registration["applianceUid"], "nodeUids": registration["nodeUids"],
-                    "phases": [] if operation == "recover-lock" else list(range(9)), "requestedBy": principal["subject"], "image": image,
+                    "phases": [] if operation == "recover-lock" else payload["phases"], "requestedBy": principal["subject"], "image": image,
                     "sourceRevision": revision, "cancelRequested": False, **recovery_spec}})
             try:
                 if recovery:
