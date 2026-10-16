@@ -25,17 +25,24 @@ GitHub Pages only redirects to it.
 | `assets/fonts/` ([bricolage-grotesque-qm-600-800.woff2](../assets/fonts/bricolage-grotesque-qm-600-800.woff2), [OFL.txt](../assets/fonts/OFL.txt)) | Bricolage Grotesque (variable, weights 600–800) for headings on the landing pages, the legal pages and the handbook, with its SIL Open Font License text; see [Heading font](#heading-font) |
 | [site.js](../site.js) | Mobile navigation and keyboard-accessible dashboard screenshot tabs |
 | `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
-| `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg) and two WebP backgrounds) | Hero illustration and two blurred section backgrounds; see [Artwork provenance](#artwork-provenance) |
+| `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg), two WebP backgrounds and four `commander-tob-*.webp` character illustrations) | Hero illustration, two blurred section backgrounds and the Commander Tob guide character; see [Artwork provenance](#artwork-provenance) |
 | [assets/favicon.svg](../assets/favicon.svg) | Picture mark: brandmark on a light rounded tile |
 | [imprint.html](../imprint.html), [impressum.html](../impressum.html) | Imprint in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
 | [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
 
 The homepage follows the October 2026 pitch mockup. It moves from a full-width
-hero illustration through the product section (intro, dashboard screenshot
+hero illustration and the "Meet Commander Tob" welcome band through the product section (intro, dashboard screenshot
 switcher, application catalog cards), a "where would you like to start" choice
 for individuals and teams, the four deployment environments with a GPU note, a
 three-step first-use section, a team-pilot section with the licensing note, the
-FAQ and a closing call to action. Readers without Kubernetes experience are the
+FAQ and a closing call to action. The guide character Commander Tob appears in
+three places from the marketing concept of 16 October 2026: the welcome band
+below the hero, the "Commander Tob explains" question picker at the top of the
+FAQ and the closing call to action. The question picker answers three FAQ topics
+(GPU, data flows, operational responsibility); the other questions stay in the
+`details` accordion below it. The concept's video placeholders ("Video in
+preparation") are not published: the poster is an illustration, not a video, until
+actual videos exist. Readers without Kubernetes experience are the
 audience: technical components (Kubernetes, Flux, Magic Stick Operator, LiteLLM,
 KubeAI, engines, Keycloak/Envoy) are named in the FAQ and linked to the
 architecture and compatibility references instead of being drawn on the page.
@@ -43,6 +50,12 @@ Every deployment environment links its installation guide; there are no
 "documentation pending" placeholders from the mockup. The mockup's Typekit fonts
 are not used; body text keeps the system font stack and only headings use the
 local heading font.
+
+The screenshot switcher and the Commander Tob question picker use the same
+progressively enhanced tab pattern (`data-tabs` in `site.js`). The question picker
+is a vertical tablist (`aria-orientation="vertical"`, ArrowUp/ArrowDown) whose
+selected question also replaces the poster caption (`data-tab-caption`). Without
+JavaScript, all three answers show with their question as a heading.
 
 The screenshot switcher is the progressively enhanced tab pattern: three
 `div` panels (not `figure`, which may not carry the `tabpanel` role) with
@@ -224,6 +237,7 @@ They are illustrations and brand assets, not product evidence.
 | `brand/logo.svg`, `brand/brandmark.svg`, `brand/core.svg` | Illustrator exports from the mockup; editor IDs removed, `<title>` added. |
 | `favicon.svg` | Picture mark (`MagicStick_picture-mark.svg`) supplied by QualityMinds, October 2026; XML declaration and editor IDs removed, `<title>` added. |
 | `artwork/command-centre.jpg` | Hero background and social preview, 1670 × 942. Unchanged mockup file (Adobe Photoshop 27.10 export of 2 October 2026 with an Adobe Content Credentials/C2PA manifest, which a re-encode would strip). Decorative (`alt=""`). The screen in the scene shows third-party service marks (among them OpenAI and Kubernetes); review this before a wider campaign use and replace the file if brand clearance is not available. |
+| `artwork/commander-tob-standing.webp` (560 × 812), `artwork/commander-tob-avatar.webp` (200 × 247), `artwork/commander-tob-working.webp` (800 × 519), `artwork/commander-tob-sitting.webp` (900 × 659) | Commander Tob character illustrations from the QualityMinds marketing concept of 16 October 2026 (`C-Tob_standing_cut_01_single.png`, `Avatar_Commander_Tob_Frontal_Base.png`, `Commander_Tob_working_01_single.png`, `C-Tob_Fullcolor_sitting_V1.png`). Transparent margins trimmed, scaled down and converted with Pillow at WebP quality 80; no other pixel changes. Decorative (`alt=""`), loaded lazily. Creator rights and the likeness release belong to the collateral review in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md). |
 | `artwork/side-workstation.webp`, `artwork/entrance.webp` | Blurred backgrounds of the first-use and closing sections, converted from the mockup PNGs (1672 × 941) with Pillow at WebP quality 78. Used as CSS backgrounds only. |
 
 The generation prompts of the artwork are not part of this repository; the
@@ -250,13 +264,15 @@ Before publishing:
 1. Check all four pages at desktop, tablet and mobile widths, including 320px.
    Check actual document width as well as visual layout; the full-width hero
    illustration must not make the page scroll horizontally.
-2. Exercise every screenshot tab by mouse and ArrowLeft/ArrowRight/Home/End. Confirm
+2. Exercise every screenshot tab by mouse and ArrowLeft/ArrowRight/Home/End, and
+   every Commander Tob question by mouse and ArrowUp/ArrowDown/Home/End. Confirm
    selected state, visible panel and focus agree. Check the mobile menu, link-close
    behavior and Escape-to-close with focus returned to its button.
 3. Check language switching, installation routes, licensing/contact, FAQ and
    full-size screenshots. Confirm the built page links into the handbook correctly.
 4. Disable JavaScript and reload: navigation and all three screenshot panels must
-   remain readable; FAQ uses native details/summary. Restore browser settings.
+   remain readable, as must all three Commander Tob answers; FAQ uses native
+   details/summary. Restore browser settings.
 5. Check missing images, browser errors, visible focus and reduced-motion behavior.
    Accessibility conventions: every EN/DE switch link keeps its visible text at the
    start of its `aria-label` ("EN, English"), body links in the handbook stay

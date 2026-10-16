@@ -130,16 +130,19 @@ class WebsiteTests(unittest.TestCase):
         for name in ('index.html', 'de.html'):
             with self.subTest(page=name):
                 page = self.markup(name)
+                # Two tab groups: the screenshot tour and Commander Tob's questions.
                 controls = page.matching(role='tablist')
-                self.assertEqual(len(controls), 1)
-                self.assertIn('hidden', controls[0])
-                tabs = page.matching(role='tab')
-                panels = page.matching(role='tabpanel')
-                self.assertEqual(len(tabs), 3)
-                self.assertEqual(len(panels), 3)
-                self.assertEqual(sum(t['aria-selected'] == 'true' for t in tabs), 1)
-                self.assertEqual({t['aria-controls'] for t in tabs}, {p['id'] for p in panels})
-                self.assertTrue(all('hidden' not in p for p in panels))
+                self.assertEqual(len(controls), 2)
+                self.assertTrue(all('hidden' in c for c in controls))
+                for prefix in ('tour-', 'tob-'):
+                    tabs = [t for t in page.matching(role='tab') if t['aria-controls'].startswith(prefix)]
+                    panels = [p for p in page.matching(role='tabpanel') if p['id'].startswith(prefix)]
+                    self.assertEqual(len(tabs), 3)
+                    self.assertEqual(len(panels), 3)
+                    self.assertEqual(sum(t['aria-selected'] == 'true' for t in tabs), 1)
+                    self.assertEqual({t['aria-controls'] for t in tabs}, {p['id'] for p in panels})
+                    self.assertTrue(all('hidden' not in p for p in panels))
+                self.assertEqual(len(page.matching(role='tab')), 6)
                 menu = page.matching('button', **{'class': 'menu-toggle'})[0]
                 self.assertIn('hidden', menu)
                 self.assertEqual(menu['aria-expanded'], 'false')
@@ -198,7 +201,9 @@ class WebsiteTests(unittest.TestCase):
                 self.assertTrue(page.matching('a', href='get-started/requirements.md'))
                 for route in ('bare-metal', 'cloud-init-vm', 'existing-vm', 'existing-kubernetes'):
                     self.assertTrue(page.matching('a', href=f'installation/{route}.md'), route)
-                self.assertGreaterEqual(len(page.matching('details')), 6)
+                # Commander Tob answers three questions; the rest stay in the accordion.
+                self.assertGreaterEqual(len(page.matching('details')), 5)
+                self.assertEqual(len(page.matching('div', **{'class': 'tob-answer'})), 3)
                 text = (docs.DOCS / name).read_text()
                 for component in ('Magic Stick Operator', 'LiteLLM', 'KubeAI', 'Ollama', 'vLLM',
                                   'FreeToken', 'Flux', 'Keycloak', 'Envoy'):
