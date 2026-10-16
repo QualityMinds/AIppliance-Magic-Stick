@@ -227,6 +227,29 @@ class UserAdminIdentityTests(unittest.TestCase):
             certificate["spec"]["dnsNames"],
         )
 
+    def test_gateway_certificate_covers_local_services_and_catalogued_instances(self):
+        certificate = next(document for document in load_documents("pilot-certificate.yaml")
+                           if document and document["kind"] == "Certificate"
+                           and document["metadata"]["name"] == "identity-pilot")
+        names = certificate["spec"]["dnsNames"]
+        cluster = IDENTITY_DIR.parent.parent
+        # Read actual routes, not a second list of services maintained by tests.
+        for filename in (cluster / "apps").rglob("*gateway.yaml"):
+            for document in yaml.safe_load_all(filename.read_text(encoding="utf-8")):
+                if not document or document.get("kind") != "HTTPRoute":
+                    continue
+                for hostname in document["spec"].get("hostnames", []):
+                    if "${AI_APPLIANCE_MDNS_DOMAIN:=" in hostname:
+                        with self.subTest(route=document["metadata"]["name"]):
+                            self.assertIn(hostname, names)
+        catalog = yaml.safe_load((cluster / "platform" / "magicstick-operator" / "app-catalog.yaml").read_text())
+        for application in json.loads(catalog["data"]["applications.json"])["applications"]:
+            with self.subTest(application=application):
+                self.assertIn("*." + application + ".${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)
+        # A single-label wildcard cannot cover <instance>.<application>.<domain>.
+        # Do not broaden the certificate to arbitrary neighbouring appliances.
+        self.assertNotIn("*.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)
+
     def test_kubernetes_group_bindings_have_distinct_least_privilege_levels(self):
         documents = [document for document in load_documents("kubernetes-access-rbac.yaml") if document]
         bindings = {document["metadata"]["name"]: document for document in documents if document["kind"] == "ClusterRoleBinding"}

@@ -94,7 +94,7 @@ export class OwnedModelClient {
         const revision = /^generation:([^:]+):([1-9]\d*)$/.exec(String(body.expectedRevision));
         requireSafe(revision?.[1] === this.ownedUid && Object.keys(body).sort().join(',') === 'expectedRevision,local' &&
           Object.keys(body.local ?? {}).join(',') === 'contextWindow' && Number.isSafeInteger(body.local.contextWindow) &&
-          body.local.contextWindow >= 256 && body.local.contextWindow <= 4096, 'MUTATION');
+          body.local.contextWindow >= 256 && body.local.contextWindow <= Math.max(4096,fixture.contextWindow), 'MUTATION');
       } else throw new HarnessError('MUTATION');
       const headers = new Headers(init.headers);
       if (method !== 'GET') { await this.assertMutationAllowed(); headers.set('Origin', origin); }

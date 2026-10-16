@@ -20,8 +20,71 @@ import {licenseUiRequestAllowed} from './license-live.ts';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
+import type {MemoryEstimate,ModelsPayload,ModulesPayload} from '@magicstick/dashboard-contracts';
+import {applicationModel,applicationContexts,applicationEditContext} from '../core/application-model.ts';
+import {catalogFixture} from '../core/input-preparation.ts';
+import {HarnessError} from '../core/errors.ts';
+import {OwnedModelClient} from '../core/owned-model.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+
+function applicationInputs() {
+  const models={activations:[],presets:{small:{variants:[
+    {engine:'OLlama',computeTarget:'cpu',url:'ollama://tiny:latest',memoryRequiredMi:2048,contextWindow:2048},
+    {engine:'OLlama',computeTarget:'cpu',url:'ollama://long-context:latest',memoryRequiredMi:3072,contextWindow:32768},
+  ]}},computeTargets:{targets:[{id:'cpu',available:true,engines:['OLlama'],kvCacheTypes:{OLlama:[{value:'f16',label:'FP16'}]}}]},
+    computeMemory:{devices:[{id:'cpu',computeTarget:'cpu',unreservedMi:64000,freeMi:48000}]}} as unknown as ModelsPayload;
+  const modules={modules:{},catalogJson:{applications:{hermes:{minimumModelContextTokens:64000},openclaw:{}}}} as ModulesPayload;
+  return {models,modules};
+}
+test('APP-02 selects a small application-specific model using native context and the larger edit RAM estimate',annotation,async()=>{
+  const {models,modules}=applicationInputs(),original=structuredClone(models),requests:Array<{url:string;contextWindow:number}>=[];
+  const fixture=await applicationModel(models,modules,['hermes','openclaw'],async model=>{
+    requests.push({url:model.url,contextWindow:model.contextWindow});
+    return {modelMaxContext:model.url.includes('tiny')?32768:262144,contextWindow:model.contextWindow,
+      minimumMi:3400,recommendedMi:3601};
+  });
+  expect(fixture).toMatchObject({url:'ollama://long-context:latest',contextWindow:64256,memoryRequiredMi:3700,maxNumSeqs:1});
+  expect(requests).toEqual([{url:'ollama://tiny:latest',contextWindow:2048},
+    {url:'ollama://long-context:latest',contextWindow:2048},{url:'ollama://long-context:latest',contextWindow:64256}]);
+  expect(models).toEqual(original);
+  expect(catalogFixture(models,'OLlama','cpu')).toMatchObject({url:'ollama://tiny:latest',contextWindow:2048,memoryRequiredMi:2048});
+  expect(applicationEditContext(modules,['hermes','openclaw'],fixture.contextWindow)).toBe(64000);
+  expect(applicationEditContext(modules,['hermes','openclaw'],64000)).toBe(64256);
+  expect(()=>applicationEditContext(modules,['hermes'],256)).toThrow('[CONFLICT]');
+});
+test('APP-02 missing native context or RAM blocks before creating resources; API and inconsistent estimates fail',annotation,async()=>{
+  const {models,modules}=applicationInputs();
+  for(const modelMaxContext of [undefined,32768,64000])await expect(applicationModel(models,modules,['hermes'],async model=>
+    ({modelMaxContext,contextWindow:model.contextWindow,minimumMi:2000,recommendedMi:3000})))
+    .rejects.toMatchObject({code:'APPLICATION_MODEL',outcome:'Blocked',stage:'model-estimate'});
+  const estimate=async(model:{contextWindow:number}):Promise<MemoryEstimate>=>
+    ({modelMaxContext:262144,contextWindow:model.contextWindow,minimumMi:40000,recommendedMi:50000});
+  await expect(applicationModel(models,modules,['hermes'],estimate)).rejects.toMatchObject({code:'APPLICATION_MODEL',outcome:'Blocked'});
+  await expect(applicationModel(models,modules,['hermes'],async()=>{throw new HarnessError('API');}))
+    .rejects.toMatchObject({code:'API',outcome:'Failed',stage:'model-estimate'});
+  await expect(applicationModel(models,modules,['hermes'],async()=>({modelMaxContext:262144,contextWindow:2048,minimumMi:1,recommendedMi:2})))
+    .rejects.toMatchObject({code:'API',outcome:'Failed'});
+  expect(()=>applicationContexts(modules,['missing'])).toThrow('[PREREQUISITE]');
+});
+test('APP-09 context edits stay within the individually sized application fixture and retain UID/revision fencing',annotation,async()=>{
+  const prefix='reg-aabbccddeeff-',name=prefix+'app-model',uid='model-uid';let writes=0;
+  const current={metadata:{name,uid,generation:1},spec:{type:'local',enabled:true,local:{contextWindow:64256}}} as import('@magicstick/dashboard-contracts').ModelActivation;
+  const request={fetch:async(_url:string,options:{data:string})=>{
+    writes++;const body=JSON.parse(options.data);
+    expect(body.expectedRevision).toBe('generation:model-uid:1');
+    return {status:()=>200,headers:()=>({'content-type':'application/json'}),body:async()=>Buffer.from(JSON.stringify(
+      {...current,metadata:{...current.metadata,generation:2},spec:{...current.spec,local:{contextWindow:body.local.contextWindow}}}))};
+  }} as unknown as APIRequestContext;
+  const fixture={engine:'OLlama' as const,computeTarget:'cpu' as const,url:'ollama://long-context:latest',contextWindow:64256,memoryRequiredMi:4000,maxNumSeqs:1 as const};
+  const client=new OwnedModelClient(request,'https://dashboard.example.invalid',1000,name,fixture,prefix,async()=>{});client.adopt(uid);
+  expect(await client.editContext(current,64000)).toEqual({uid,generation:2});
+  for(const context of [64257,262144,Number.NaN])await expect(client.editContext(current,context)).rejects.toMatchObject({code:'MUTATION'});
+  await expect(client.editContext({...current,metadata:{...current.metadata,uid:'foreign'}},64000)).rejects.toMatchObject({code:'OWNERSHIP'});
+  const smoke=new OwnedModelClient(request,'https://dashboard.example.invalid',1000,name,{...fixture,contextWindow:2048},prefix,async()=>{});smoke.adopt(uid);
+  await expect(smoke.editContext(current,64000)).rejects.toMatchObject({code:'MUTATION'});
+  expect(writes).toBe(1);
+});
 test('APP-02 observes the current controller-owned HelmRelease in the Appliance namespace, never its workload namespace',annotation,async()=>{
   const item:AppInstance={metadata:{name:'hermes-fixture',uid:'instance-uid',generation:3},
     spec:{application:'hermes',enabled:true,targetNamespace:'ai'},status:{phase:'Ready',observedGeneration:3,

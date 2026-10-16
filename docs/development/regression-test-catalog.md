@@ -552,6 +552,21 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+16 October 2026 Phase 5 follow-up: MOD-03/04 verify services through strict HTTPS;
+the gateway certificate now covers the actual local service routes and
+catalogued instance subdomains. APP-02/09 automatically select a separate small
+CPU Ollama fixture whose native context and current RAM estimate satisfy every
+selected application's minimum, including the context edit. CPU smoke and GPU
+fixtures keep their own smaller contexts. Controller counterexamples require an
+incompatible AppInstance to report its current-generation `InvalidModelContext`
+without provisioning its key/routes or preventing other instances from
+reconciling. Shared application/service setup failures retain their originating
+case, stage and trace across browser-worker replacement within the same run;
+dependent cases do not repeat the failed setup or borrow passing results from
+another run. These changes have local owning, fast and harness coverage; matching
+published images and a fresh installed Phase 5 run are still required. Old
+reports and UID/revision-bound cleanup checks are unchanged.
+
 15 October 2026 runner follow-up: HAR-02/06/07/10, MOD-03/04, APP-02,
 HW-06, SHR-02/04, SLOT-03 and MGPU-01 have targeted counterproofs for shared
 browser/API local DNS with verified TLS, fixed cleanup-operation diagnostics,

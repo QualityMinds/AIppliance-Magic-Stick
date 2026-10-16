@@ -35,6 +35,19 @@ function result(status: TestResult['status'] = 'passed', message?: string): Test
   return {status, duration: 1250, retry: 0, errors: message ? [{message}] : []} as TestResult;
 }
 
+test('HAR-10 an explicit shared-workflow dependency retains its root case and trace after worker replacement',()=>{
+  const old=process.env.REGRESSION_RUN_ID,runId=newRunId();process.env.REGRESSION_RUN_ID=runId;
+  try {
+    const cause={kind:'failure',caseId:'APP-02',reason:'DEADLINE',stage:'app-ready',executionId:'a'.repeat(24),traceRunId:runId};
+    const selected=specimen('APP-05',[{type:'regression-dependency',description:JSON.stringify(cause)}]);
+    const reporter=new SafeReporter();capture(()=>reporter.onTestEnd(selected,result('failed',new HarnessError('DEPENDENCY','Blocked','app-ready').message)));
+    expect((reporter as unknown as {cases:CaseResult[]}).cases[0]).toMatchObject({id:'APP-05',outcome:'Blocked',reason:'DEPENDENCY',blockedBy:cause});
+    const other=new SafeReporter(),foreign=specimen('MOD-04',[{type:'regression-dependency',description:JSON.stringify({...cause,traceRunId:newRunId()})}]);
+    capture(()=>other.onTestEnd(foreign,result('failed',new HarnessError('DEPENDENCY','Blocked').message)));
+    expect((other as unknown as {cases:CaseResult[]}).cases[0]!.blockedBy?.caseId).not.toBe('APP-02');
+  }finally{if(old===undefined)delete process.env.REGRESSION_RUN_ID;else process.env.REGRESSION_RUN_ID=old;}
+});
+
 test('HAR-06 HAR-09 HAR-10 primary scenario failure retains the separately recorded cleanup fence', () => {
   const selected = specimen('HAR-09'), primary = result('failed', new HarnessError('DEADLINE', 'Failed', 'model-ready').message);
   const step = {title: 'Verify owned foundation cleanup', category: 'test.step', duration: 1,

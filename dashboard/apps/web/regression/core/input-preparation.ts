@@ -70,19 +70,24 @@ export function preparationArguments(args:string[]):PreparationOptions & {accept
 /** Select the smallest advertised text fixture, not a parallel model catalog.
  * It remains a test candidate, not proof of inference or memory adequacy. */
 export function catalogFixture(models:ModelsPayload,engine:'OLlama'|'VLLM',target:'cpu'|'amd-gpu'|'nvidia-gpu'):RuntimeModelFixture|undefined {
+  return catalogFixtures(models,engine,target)[0];
+}
+
+export function catalogFixtures(models:ModelsPayload,engine:'OLlama'|'VLLM',target:'cpu'|'amd-gpu'|'nvidia-gpu'):RuntimeModelFixture[] {
   const capability=models.computeTargets.targets.find(item=>item.id === target);
-  if(!capability?.available || !capability.engines?.includes(engine) || capability.engineAvailability?.[engine]?.available === false)return;
+  if(!capability?.available || !capability.engines?.includes(engine) || capability.engineAvailability?.[engine]?.available === false)return [];
   const candidates=Object.values(models.presets).flatMap(item=>item.variants ?? []).filter(item=>
     item.engine === engine && item.computeTarget === target && (!item.modelType || item.modelType === 'chat') &&
     Number.isSafeInteger(item.memoryRequiredMi) && Number(item.memoryRequiredMi) >= 1024 && Number(item.memoryRequiredMi) <= (target === 'cpu' ? 8192 : 32768) &&
     (engine === 'OLlama' ? /^ollama:\/\// : /^hf:\/\//).test(item.url ?? '')).sort((a,b)=>Number(a.memoryRequiredMi)-Number(b.memoryRequiredMi) || String(a.url).localeCompare(String(b.url)));
-  const chosen=candidates[0];if(!chosen)return;
-  const artifact=chosen.artifacts?.find(item=>item.id === chosen.defaultArtifact);
   const cache=(capability.kvCacheTypes?.[engine] ?? []).map(item=>item.value);
   const preferred=engine === 'OLlama' ? target === 'cpu' ? 'f16' : 'q8_0' : target === 'cpu' ? 'auto' : 'fp8';
-  if(!cache.includes(preferred))return;
-  return {engine,computeTarget:target,url:artifact?.url ?? chosen.url!,memoryRequiredMi:Number(artifact?.memoryRequiredMi ?? chosen.memoryRequiredMi),
-    contextWindow:Math.min(2048,Number(chosen.contextWindow ?? 1024)),maxNumSeqs:1,kvCacheType:preferred} as RuntimeModelFixture;
+  if(!cache.includes(preferred))return [];
+  return candidates.map(chosen=>{
+    const artifact=chosen.artifacts?.find(item=>item.id === chosen.defaultArtifact);
+    return {engine,computeTarget:target,url:artifact?.url ?? chosen.url!,memoryRequiredMi:Number(artifact?.memoryRequiredMi ?? chosen.memoryRequiredMi),
+      contextWindow:Math.min(2048,Number(chosen.contextWindow ?? 1024)),maxNumSeqs:1,kvCacheType:preferred} as RuntimeModelFixture;
+  });
 }
 
 function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:PreparationOptions,_defaults:Json):{profile?:Json;issues:GpuInputIssue[]} {

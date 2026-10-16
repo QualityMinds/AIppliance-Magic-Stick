@@ -1,7 +1,7 @@
 import type {FullConfig, FullResult, Reporter, Suite, TestCase, TestResult,TestStep} from '@playwright/test/reporter';
-import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {HarnessError, reasons, stages, blockedReasons, type ReasonCode, type Stage} from './core/errors.ts';
+import {executionIdentity} from './core/shared-workflow.ts';
 import {phase1FastVariants, phase1FixtureVariants, phase1LiveVariants} from './profiles/phase1-p0.ts';
 import {phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases} from './profiles/phase2-p0.ts';
 import {gpuModeIds} from './profiles/gpu-p0.ts';
@@ -110,6 +110,10 @@ export default class SafeReporter implements Reporter {
     // is a failure dependency, not a newly missing fixture. Explicit skips keep
     // their own prerequisite/unknown meaning; unrelated suites are not adopted.
     let predecessor:ReturnType<typeof checkedBlocker>;
+    if(failure?.code==='DEPENDENCY')for(const annotation of test.annotations.filter(item=>item.type==='regression-dependency'))try {
+      const cause=checkedBlocker(JSON.parse(annotation.description ?? ''));
+      if(cause && cause.traceRunId===process.env.REGRESSION_RUN_ID && cause.caseId && cause.executionId)predecessor=cause;
+    }catch{this.unexpected=true;}
     if(result.status==='skipped' && !test.annotations.some(item=>['skip','fixme'].includes(item.type)))
       for(let suite:Suite|undefined=test.parent;suite;suite=suite.parent) {
         predecessor=this.suiteFailures.get(suite);if(predecessor)break;
@@ -130,8 +134,7 @@ export default class SafeReporter implements Reporter {
       }
       for(const item of step.items)progressed.set(key(item),step);
     }catch{this.unexpected=true;}
-    const executionId=createHash('sha256').update(process.env.REGRESSION_RUN_ID ?? 'fixture')
-      .update(String(test.id ?? test.title)).digest('hex').slice(0,24);
+    const executionId=executionIdentity(process.env.REGRESSION_RUN_ID ?? 'fixture',String(test.id ?? test.title));
     const runId=process.env.REGRESSION_RUN_ID,traceRunId=this.positions.has(test)?runId:undefined,
       source=safeTraceSource(test.location),scenario=publicScenarioTitle(test.title,test.location.file);
     const steps:TraceStep[]=[...recorded].map(([step,entry])=>{

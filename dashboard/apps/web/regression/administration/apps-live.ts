@@ -14,6 +14,8 @@ import {requireProof as requireSafe} from '../core/errors.ts';
 import {gatewaySnapshot,assertGatewayStable} from '../core/gateway-stability.ts';
 import {withCleanup} from '../core/run-lifecycle.ts';
 import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
+import {applicationModel,applicationEditContext} from '../core/application-model.ts';
+import {preparationApi,estimateInput} from '../core/preparation-api.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
  * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
@@ -102,11 +104,17 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
   const gateway=await gatewaySnapshot(live.observer),actors:BrowserContext[]=[];
   const checkGateway=()=>test.step('Verify gateway process stability',async()=>assertGatewayStable(gateway,await gatewaySnapshot(live.observer)));
   return withCleanup(async()=>{
+    const modules=await apps.api.api.modules(),models=await apps.api.api.models(),types=fixtures.map(fixture=>fixture.type);
+    const fixture=await test.step('Select and size a native-context-compatible application model',()=>
+      applicationModel(models,modules,types,async model=>{
+        await live.guard();
+        return preparationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,[model]).estimateMemory(estimateInput(model));
+      }));
     await prepareApplications(live,apps.api,fixtures);
     await checkGateway();
     const before=(await apps.api.api.instances()).instances;
     const baseline=Object.values(before).flat().map(item=>`${item.metadata?.uid}:${item.metadata?.generation}`).sort().join(',');
-    const model=await live.createModel('app-model');await live.waitReady(model.client,model.uid,model.generation);
+    const model=await live.createModel('app-model',live.journal,fixture);await live.waitReady(model.client,model.uid,model.generation);
     const allowed=await users.create('app-allowed','user'),denied=await users.create('app-denied','user');
     for(const actor of [allowed,denied]) actors.push(await realLogin(browser,live.config,{actor:{username:actor.user.username,password:actor.password,
       initialPassword:actor.initialPassword,subject:actor.user.id,role:'magicstick-user'}}));
@@ -181,7 +189,7 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
           ()=>apps.api.api.updateInstanceAccess(name!,restore,current.revision));await apps.recordGeneration(name);
         // Stop/start the catalog model and inspect freshly reconciled consumer
         // Helm values. No Secret is read; public-safe values carry model/context.
-        const state=await live.modelState(model.client,model.uid),context=Number(state.item!.spec?.local?.contextWindow) === 256 ? 512 : 256;
+        const state=await live.modelState(model.client,model.uid),context=applicationEditContext(modules,types,Number(state.item!.spec?.local?.contextWindow));
         const edited=await model.client.editContext(state.item!,context);await live.journal.modelGeneration(model.client.name,model.uid,Number(state.item!.metadata?.generation),edited.generation);
         await live.waitReady(model.client,model.uid,edited.generation);
         await poll(async()=>{

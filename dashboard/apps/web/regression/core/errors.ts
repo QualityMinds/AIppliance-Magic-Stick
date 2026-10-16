@@ -10,6 +10,7 @@ export const reasons = {
   COMPONENT: 'An owning UI component suite failed or timed out. A bounded component-failure.json diagnostic is retained when available.',
   IDENTITY: 'The appliance or node does not match the pinned lab identity.',
   CAPABILITY: 'An expected compute target or engine is unavailable.',
+  APPLICATION_MODEL: 'No small advertised CPU application model has verified native context for every selected application and its context edit within available RAM. The ordinary CPU smoke model is not a compatible substitute.',
   GPU_PROVIDER: 'This appliance has no physical GPU for the provider required by this scenario. Independent provider scenarios still run.',
   GPU_VALIDATION: 'The selected physical GPU and engine have not passed the required current-boot validation. Run Hardware verification for this exact GPU and engine.',
   REVISION: 'The requested deployed revision or image digest was not observed.',
@@ -35,7 +36,7 @@ export const reasons = {
 export type ReasonCode = keyof typeof reasons;
 /** Absence of a lab prerequisite is not a product failure. API/authentication,
  * invalid generated configuration, timeouts and assertions are failures. */
-export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY', 'GPU_PROVIDER', 'GPU_VALIDATION',
+export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY', 'APPLICATION_MODEL', 'GPU_PROVIDER', 'GPU_VALIDATION',
   'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
   'model-estimate', 'model-create', 'model-ready', 'module-ready', 'app-ready', 'gateway-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',

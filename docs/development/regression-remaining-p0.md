@@ -116,6 +116,13 @@ cause properties. The archive retains every row, even when the Dashboard limits
 its expanded list. Raw credentials, journals and runtime logs stay private.
 Tests skipped after a failed serial sibling link to that sibling's failure;
 they are not reported as newly missing prerequisites.
+Phase 5 shared application/service setup failures also retain their original
+case and trace after browser-worker replacement, instead of repeating the same
+failed setup. Application tests automatically choose and size a small model with
+verified native context for all selected applications and their context edits;
+the ordinary CPU smoke model remains separate. `APPLICATION_MODEL` means no
+compatible catalog candidate fits the currently available RAM. API/estimator
+errors remain failures, not missing prerequisites.
 Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
 exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
 Service API probes share the prepared local DNS mappings without disabling TLS;

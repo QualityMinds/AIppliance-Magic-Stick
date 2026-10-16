@@ -26,6 +26,7 @@ import {rbacWorkflow,unmanagedKeyWorkflow,securityCiWorkflow} from './security-l
 import {cacheProtection} from './cache-live.ts';
 import {companionWorkflow} from './companion-live.ts';
 import {workloadPodInventory,repeatInventoryChanges} from '../core/repeat-inventory.ts';
+import {SharedWorkflow} from '../core/shared-workflow.ts';
 
 type Profile={version:1;identity?:{approveDisposableUsers:true};repeat?:{cycles:number;maximumMemoryGrowthMi:number;maximumNonCacheDiskGrowthBytes:number}};
 let config:LabConfig,live:LiveFoundation|undefined,client:AdministrationApi;
@@ -33,6 +34,7 @@ const phase=remainingPhase(process.env.REGRESSION_MODE);
 const workflows=new Map<string,Promise<Set<string>>>();
 const contexts:BrowserContext[]=[];
 let writesBlocked=0;
+let shared:SharedWorkflow;
 async function privateProfile():Promise<Profile> {
   requireSafe(process.env.REGRESSION_REMAINING_PROFILE,'PREREQUISITE');
   try {
@@ -185,6 +187,7 @@ async function sample() {
     cacheBytes:host!.modelCache!.caches.reduce((sum,item)=>sum+Number(item.usedBytes ?? 0),0)};
 }
 async function oneWorkflow(name:string,execute:()=>Promise<Set<string>>,id:string) {
+  if(name==='applications' || name==='modules')return shared.execute(name,id,test.info(),execute);
   let running=workflows.get(name); if(!running) {running=execute();workflows.set(name,running);}
   requireSafe((await running).has(id),'PREREQUISITE');
 }
@@ -339,6 +342,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
 test.beforeAll(async({browser},testInfo)=>{
   requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RUN_DIR && process.env.REGRESSION_RUN_ID,'CONFIG');
   config=await loadLabConfig(process.env.REGRESSION_CONFIG);
+  shared=new SharedWorkflow(process.env.REGRESSION_RUN_DIR,{runId:process.env.REGRESSION_RUN_ID,targetUid:config.expected.applianceUid});
   const {journal}=await gpuWorkerJournal(process.env.REGRESSION_RUN_DIR,testInfo.workerIndex,config.expected.applianceUid);
   live=await LiveFoundation.open(browser,config,journal,{inferenceOrigin:config.inferenceUrl,onBlockedMutation:()=>writesBlocked++});
   client=new AdministrationApi(live.context.request,config.dashboardUrl,config.requestTimeoutMs,live.guard);

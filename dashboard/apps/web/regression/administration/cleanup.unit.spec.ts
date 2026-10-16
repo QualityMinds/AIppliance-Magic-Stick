@@ -16,8 +16,34 @@ import {HarnessError} from '../core/errors.ts';
 import {readPrivate,journalFile,privateDirectory,writePrivate} from '../core/private-files.ts';
 import {workloadPodInventory,repeatInventoryChanges} from '../core/repeat-inventory.ts';
 import {absentLicenseDocumentPatch} from '../core/license-baseline.ts';
+import {SharedWorkflow,executionIdentity} from '../core/shared-workflow.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('APP-02 dependent cases retain their exact shared failure across worker restarts without rerunning writes',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'shared-workflow-'));
+  try {
+    const scope={runId:newRunId(),targetUid:'appliance'},root={testId:'root-test',annotations:[]},error=new HarnessError('DEADLINE','Failed','app-ready');
+    let executions=0;
+    await expect(new SharedWorkflow(directory,scope).execute('applications','APP-02',root,async()=>{executions++;throw error;})).rejects.toBe(error);
+    const cause={kind:'failure',reason:'DEADLINE',caseId:'APP-02',stage:'app-ready',executionId:executionIdentity(scope.runId,root.testId),traceRunId:scope.runId};
+    for(const id of ['APP-05','APP-06','ACL-01']) {
+      const dependent={testId:id,annotations:[] as Array<{type:string;description?:string}>};
+      await expect(new SharedWorkflow(directory,scope).execute('applications',id,dependent,async()=>{executions++;return new Set([id]);}))
+        .rejects.toMatchObject({code:'DEPENDENCY',outcome:'Blocked',stage:'app-ready'});
+      expect(dependent.annotations).toEqual([{type:'regression-dependency',description:JSON.stringify(cause)}]);
+    }
+    expect(executions).toBe(1);
+    for(const changed of [{...scope,runId:newRunId()},{...scope,targetUid:'replacement'}])
+      await expect(new SharedWorkflow(directory,changed).execute('applications','APP-02',root,async()=>{executions++;return new Set(['APP-02']);}))
+        .rejects.toMatchObject({code:'CONFIG',outcome:'Failed'});
+    expect(executions).toBe(1);
+    // Independent workflows still run. No successful evidence is loaded from disk.
+    await new SharedWorkflow(directory,scope).execute('modules','MOD-03',root,async()=>{executions++;return new Set(['MOD-03']);});
+    expect(executions).toBe(2);
+    const receipt=await readPrivate(join(directory,'workflow-applications-failure.json'));
+    expect(receipt).not.toContain(error.stack!);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 test('LIC-02 LIC-04 first-activation cleanup removes only the exact test document and preserves the original installation',annotation,()=>{
   const encode=(text:string)=>Buffer.from(text).toString('base64');
   const original={metadata:{name:'magicstick-license',namespace:'identity-system',uid:'original-secret',resourceVersion:'1'},

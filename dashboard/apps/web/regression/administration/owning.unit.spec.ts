@@ -18,6 +18,7 @@ const proofs:Record<string,Proof>={
     [api,['test_module_parameters.ModuleParameterTests','test_gpu_sharing_api.GpuSharingApiTests']],
     ['../../../magic-cluster/apps/ai/tests',['test_anythingllm_litellm.AnythingLLMLiteLLMDeploymentTests']]],components:[['src/pages/ServicesPage.test.tsx',[]],['src/FeatureParity.test.tsx',['Services restores grouping, nested instances, credentials and every Paperclip field']]]},
   apps:{python:[[operator,['test_controller.HelmAppInstanceTests.test_generates_helmrelease_from_app_definition',
+    'test_app_instance_model_context.AppInstanceModelContextTests',
     'test_controller.HelmAppInstanceTests.test_generates_sso_protected_local_and_public_routes_by_default',
     'test_controller.HelmAppInstanceTests.test_paperclip_tenant_runtime_resources_are_instance_scoped',
     'test_controller.HelmAppInstanceTests.test_guard_is_bound_to_instance_uid_and_checks_before_backend_is_exposed']],

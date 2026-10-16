@@ -140,6 +140,7 @@ export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionB
   if(reason === 'LOCK_BUSY' || reason === 'BUSY')return 'Wait for the other run or host operation to finish; then repeat all.';
   if(reason === 'CAPABILITY')return 'Supply the missing real hardware/runtime; available providers are tested independently.';
   if(reason === 'GPU_PROVIDER')return 'Use an appliance with physical GPUs from this provider. No provider setting or approval can substitute absent hardware; independent provider cases continue.';
+  if(reason === 'APPLICATION_MODEL')return 'Check the deployed small CPU Ollama model catalog, native context metadata and available system RAM. The runner automatically sizes a separate application fixture; do not raise the ordinary smoke-model context or bypass memory admission.';
   if(reason === 'GPU_VALIDATION')return 'Open System → Hardware and verify this exact physical GPU and engine for the current boot. Inspect a failed verification; do not reuse another device or engine result.';
   return 'See the automatic preparation report for the missing external prerequisite; no approval form or manual test JSON is required.';
 }

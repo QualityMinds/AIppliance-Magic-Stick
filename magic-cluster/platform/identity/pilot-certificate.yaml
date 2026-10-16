@@ -42,6 +42,15 @@ spec:
     - "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "api.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "litellm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "anythingllm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    # Instances have their own label below the application, not the appliance.
+    - "*.openclaw.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "*.hermes.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "*.paperclip.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "*.kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "*.pi-coding.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "*.odysseus.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
   issuerRef:
     kind: Issuer

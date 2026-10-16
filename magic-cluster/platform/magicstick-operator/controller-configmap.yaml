@@ -5617,6 +5617,10 @@ data:
         return manager.ensure(identity, namespace, name, enabled=enabled)
 
 
+    class InvalidAppModelContext(ValueError):
+        pass
+
+
     def app_instance_helmrelease(instance, definition, source, suspend=False, litellm_key=None):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
@@ -5643,7 +5647,7 @@ data:
             minimum_context = positive_int(definition.get("minimumModelContextTokens")) or 1
             if configured_context is None or configured_context < minimum_context:
                 actual = str(configured_context) if configured_context is not None else "unknown"
-                raise ValueError(f"{definition.get('displayName') or application} requires a model with at least "
+                raise InvalidAppModelContext(f"{definition.get('displayName') or application} requires a model with at least "
                                  f"{minimum_context:,} context tokens; selected model context is {actual}. "
                                  f"Select a suitable model or set values.{context_field} to its actual supported context.")
             values[context_field] = configured_context
@@ -5741,8 +5745,11 @@ data:
             remove_app_instance_finalizer(instance)
             return "Disabled", target
 
-        ensure_app_instance_finalizer(instance)
         enabled = spec.get("enabled", True) is not False
+        # Validate model compatibility before provisioning keys or routes. One
+        # invalid instance must not abort reconciliation of all other objects.
+        release, url = app_instance_helmrelease(instance, definition, source) if enabled else (None, None)
+        ensure_app_instance_finalizer(instance)
         # Remove external access even if key revocation must retry during a
         # LiteLLM management outage. Enabling still waits for a registered key.
         if not enabled:
@@ -5750,7 +5757,11 @@ data:
         litellm_key = reconcile_service_key(instance, definition, enabled=enabled) if definition.get("litellmKey") else None
         if enabled:
             access_status = sync_app_instance_access(instance, definition, enabled=True)
-        release, url = app_instance_helmrelease(instance, definition, source, suspend=not enabled, litellm_key=litellm_key)
+        else:
+            release, url = app_instance_helmrelease(instance, definition, source, suspend=True)
+        if definition.get("litellmKey"):
+            release["spec"]["values"]["instance"]["litellmKey"] = litellm_key or {
+                "name": name + "-litellm", "key": "LITELLM_API_KEY", "revision": ""}
         apply_resource(release)
         if not enabled:
             patch_instance_status(instance, "Suspended", target, "Suspended", "Helm release is suspended and external routes are removed.", url=url, access=access_status, generation=generation)
@@ -5813,7 +5824,11 @@ data:
             patch_instance_status(instance, "WaitingForCRDs", target, "WaitingForCRDs", message, generation=generation)
             return "WaitingForCRDs", target
 
-        return reconcile_helm_app_instance(instance, definition, source)
+        try:
+            return reconcile_helm_app_instance(instance, definition, source)
+        except InvalidAppModelContext as error:
+            patch_instance_status(instance, "Degraded", target, "InvalidModelContext", str(error), generation=generation)
+            return "Degraded", target
 
 
     def patch_appliance_status(module_statuses, instance_statuses, model_statuses, hardware_statuses=None):
@@ -5822,6 +5837,7 @@ data:
             return
         hardware_statuses = hardware_statuses or {}
         degraded = any(item.get("phase") == "Degraded" for item in module_statuses.values())
+        degraded = degraded or any(item.get("phase") == "Degraded" for group in instance_statuses.values() for item in group.values())
         waiting = any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for item in module_statuses.values())
         waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for group in instance_statuses.values() for item in group.values())
         degraded = degraded or any(item.get("phase") == "Degraded" for item in model_statuses.values())

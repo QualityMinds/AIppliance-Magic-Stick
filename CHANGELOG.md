@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Cover local service and application-instance hostnames with the appliance
+  gateway certificate. Report incompatible application model context per
+  instance instead of aborting the controller round. Phase 5 selects a separate
+  native-context-compatible CPU fixture with a verified RAM budget and retains
+  shared setup failure causes across browser-worker restarts.
+
 - Keep ordinary Ollama/vLLM models in Removing until their runtime Pods have
   disappeared, including terminal or terminating Pods left by older deletion.
   Delete owned KubeAI Models in the foreground with UID/revision preconditions;
