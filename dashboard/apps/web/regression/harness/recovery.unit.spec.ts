@@ -102,6 +102,12 @@ test('HAR-09 missing response has a bounded deadline, cancellation and exact sta
   await expect(bounded(()=>new Promise(()=>{}),10,'model-update',async()=>{cancelled++;})).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-update'});
   expect(cancelled).toBe(1);
 });
+test('HAR-09 a cancellation-triggered page rejection cannot replace the known deadline',async()=>{
+  let rejectAction:(error:Error)=>void=()=>{};
+  await expect(bounded(()=>new Promise<void>((_resolve,reject)=>{rejectAction=reject;}),10,'kubeconfig-copy',async()=>{
+    rejectAction(new Error('Synthetic page was closed during cancellation'));
+  })).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'kubeconfig-copy'});
+});
 test('HAR-09 cancellation cannot hang the deadline or turn a late completion into success',async()=>{
   let resolveAction:()=>void=()=>{};
   await expect(bounded(()=>new Promise<void>(resolve=>{resolveAction=resolve;}),10,'model-update',async()=>{resolveAction();}))
@@ -189,6 +195,17 @@ test('HAR-07 both no-license baseline receipts must be restored before automatic
     await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).rejects.toMatchObject({code:'RECOVERY',stage:'recovery-journal'});
     expect(f.store.replacements).toBe(0);
     await writePrivate(filename,{version:1,state:'restored'});
+    await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+    expect(f.store.value.spec.holderIdentity).toBe('');
+  });
+});
+test('HAR-07 K8S-03 unremoved Kubernetes CRUD receipts fence recovery instead of being ignored',async()=>{
+  for(const plural of ['moduleactivations','modelactivations','appinstances'])await isolated(async directory=>{
+    const f=await fixture(directory),filename=join(f.path,'kube-'+plural+'.json');
+    await writePrivate(filename,{version:1,state:'owned',uid:'fixture-uid',generation:1},true);
+    await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).rejects.toMatchObject({code:'RECOVERY',stage:'recovery-journal'});
+    expect(f.store.replacements).toBe(0);
+    await writePrivate(filename,{version:1,state:'removed',uid:'fixture-uid',generation:1});
     await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
     expect(f.store.value.spec.holderIdentity).toBe('');
   });

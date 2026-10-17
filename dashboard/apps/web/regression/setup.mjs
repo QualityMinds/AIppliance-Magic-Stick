@@ -41,7 +41,7 @@ async function connect() {
   const config = {dashboardUrl: request.dashboardUrl, identityUrl: request.identityUrl,
     usernameFile: inputFile(request.usernameFile), passwordFile: inputFile(request.passwordFile),
     requestTimeoutMs: 15_000, loginTimeoutMs: 45_000, expected: {role: 'magicstick-admin'}};
-  context = await realLogin(browser, config);
+  context = await realLogin(browser, config, {httpsPurpose: 'certificate'});
   client = new AdministrationApi(context.request, config.dashboardUrl, config.requestTimeoutMs, async () => {
     const session = await client.api.session();
     requireSafe(session.subject === facts.subject && session.username === facts.username && session.roles.includes('magicstick-admin'), 'AUTH');

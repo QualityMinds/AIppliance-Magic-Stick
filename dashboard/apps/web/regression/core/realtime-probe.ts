@@ -2,6 +2,7 @@ import {request} from 'node:https';
 import {createHash,randomBytes} from 'node:crypto';
 import type {Duplex} from 'node:stream';
 import {HarnessError,requireSafe} from './errors.ts';
+import {functionalNodeTlsOptions} from './https-policy.ts';
 
 /** Minimal RFC6455 client for authenticated protocol acceptance, not a browser
  * or OpenAI feature-parity emulator. No extensions, audio capture or raw events
@@ -32,7 +33,7 @@ export async function realtimeSession(origin:string,model:string,key:string|unde
   return new Promise<void>((resolve,reject)=>{
     let socket:Duplex|undefined,settled=false,buffer=Buffer.alloc(0);
     const finish=(error?:Error)=>{if(settled)return;settled=true;clearTimeout(timer);socket?.destroy();req.destroy();error?reject(error):resolve();};
-    const req=request(url,{method:'GET',headers:{Connection:'Upgrade',Upgrade:'websocket','Sec-WebSocket-Version':'13','Sec-WebSocket-Key':handshakeKey,
+    const req=request(url,{...functionalNodeTlsOptions,method:'GET',headers:{Connection:'Upgrade',Upgrade:'websocket','Sec-WebSocket-Version':'13','Sec-WebSocket-Key':handshakeKey,
       'OpenAI-Beta':'realtime=v1',...(key?{Authorization:'Bearer '+key}:{}),Origin:origin}});
     const timer=setTimeout(()=>finish(new HarnessError('DEADLINE','Failed')),timeoutMs);
     req.on('response',response=>{response.resume();finish(expectDenied && [401,403].includes(response.statusCode ?? 0)?undefined:new HarnessError('API','Failed'));});

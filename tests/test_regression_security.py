@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def unsafe_tls(source):
-    return bool(re.search(r"rejectUnauthorized\s*:\s*false|ssl\._create_unverified_context\s*\(|verify\s*=\s*False|CERT_NONE|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['\"]?0", source))
+    return bool(re.search(r"rejectUnauthorized\s*:\s*false|ignoreHTTPSErrors\s*:\s*true|ssl\._create_unverified_context\s*\(|verify\s*=\s*False|CERT_NONE|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['\"]?0", source))
 
 
 class RegressionSecurityTests(unittest.TestCase):
@@ -100,7 +100,7 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertNotIn('magicstick-license-trust', source)
 
     def test_detector_rejects_disabled_tls_in_ts_and_python(self):
-        for source in ["new Agent({rejectUnauthorized: false})", "ssl._create_unverified_context()", "requests.get(url, verify=False)", "ctx.verify_mode = ssl.CERT_NONE"]:
+        for source in ["new Agent({rejectUnauthorized: false})", "newContext({ignoreHTTPSErrors: true})", "ssl._create_unverified_context()", "requests.get(url, verify=False)", "ctx.verify_mode = ssl.CERT_NONE"]:
             self.assertTrue(unsafe_tls(source))
         self.assertFalse(unsafe_tls("create_default_context(cafile=path); new Agent({ca: certificate})"))
 
@@ -160,6 +160,24 @@ class RegressionSecurityTests(unittest.TestCase):
             checked += 1
             self.assertFalse(unsafe_tls(path.read_text()), f'Unsafe TLS setting: {path.relative_to(ROOT)}')
         self.assertGreater(checked, 20)
+
+    def test_functional_tls_exception_is_local_to_the_runner_and_never_bootstrap_or_global(self):
+        directory = ROOT / 'dashboard/apps/web/regression'
+        exceptions = []
+        for path in [*directory.rglob('*.ts'), *directory.rglob('*.mjs')]:
+            if '.spec.' not in path.name and unsafe_tls(path.read_text()):
+                exceptions.append(path.relative_to(directory).as_posix())
+        self.assertEqual(exceptions, ['core/https-policy.ts'])
+        for filename in ['setup.mjs', 'prepare.mjs', 'harness/preflight.e2e.spec.ts']:
+            source = (directory / filename).read_text()
+            self.assertRegex(source, r"httpsPurpose\s*:\s*'certificate'")
+            self.assertIn('verifiedEndpoint(', source)
+        source = (directory / 'core/https-policy.ts').read_text()
+        self.assertNotRegex(source, r'process\.env\s*\[')
+        self.assertNotRegex(source, r'globalAgent\.')
+        self.assertIn("ignoreHTTPSErrors: purpose === 'functional'", source)
+        self.assertIn('rejectUnauthorized: true', (directory / 'core/setup-bootstrap.ts').read_text())
+        self.assertNotIn('functionalNodeTlsOptions', (directory / 'core/oidc-exec.ts').read_text())
 
     def test_known_undici_fixes_are_pinned_in_current_lock(self):
         lock = yaml.safe_load((ROOT / 'dashboard/pnpm-lock.yaml').read_text())

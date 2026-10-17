@@ -4,6 +4,7 @@ import type {Session} from '@magicstick/dashboard-contracts';
 import {readPrivate} from './private-files.ts';
 import {HarnessError, requireSafe, type Stage} from './errors.ts';
 import {DashboardSessionExpired, readOnlyApi} from './transport.ts';
+import {regressionContextOptions, type HttpsPurpose} from './https-policy.ts';
 
 export interface ExactDashboardRequest {
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -95,6 +96,10 @@ export function allowedOwnedEstimate(url: URL, method: string, body: unknown, da
 }
 
 export interface RealLoginOptions {
+  /** Only explicit certificate/preflight/bootstrap checks use strict TLS. */
+  httpsPurpose?: HttpsPurpose;
+  /** Only the private K8S-05 export context accepts and consumes downloads. */
+  allowPrivateDownloads?: true;
   /** Disposable run-owned actor; never stored in storageState or reports. */
   actor?: {username:string;password:string;initialPassword?:string;subject:string;role:'magicstick-admin'|'magicstick-operator'|'magicstick-viewer'|'magicstick-user'};
   allowedStopName?: () => string | undefined;
@@ -217,7 +222,8 @@ export async function openInferenceSession(context: BrowserContext, origin: stri
 export async function realLogin(browser: Browser, config: LabConfig, options: RealLoginOptions = {}): Promise<BrowserContext> {
   const username = options.actor?.username ?? (await readPrivate(config.usernameFile)).trim();
   requireSafe(username.length > 0, 'AUTH');
-  const context = await browser.newContext({serviceWorkers: 'block', acceptDownloads: false});
+  const context = await browser.newContext({...regressionContextOptions(options.httpsPurpose),
+    acceptDownloads: options.allowPrivateDownloads === true});
   const origins = new Set([config.dashboardUrl, config.identityUrl,
     ...(options.inferenceOrigin ? [options.inferenceOrigin] : [])]);
   // The opt-in live runs permit only exact run-owned lifecycle/edit requests.

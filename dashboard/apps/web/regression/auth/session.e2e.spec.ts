@@ -5,6 +5,7 @@ import {readOnlyApi} from '../core/transport.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {HarnessError, requireSafe} from '../core/errors.ts';
+import {regressionContextOptions} from '../core/https-policy.ts';
 
 test.describe.serial('installed session smoke', () => {
   let config: LabConfig, context: BrowserContext | undefined;
@@ -15,7 +16,7 @@ test.describe.serial('installed session smoke', () => {
   test.afterAll(async () => { await context?.close(); });
 
   test('AUTH-02 [p1:anonymous-api] [layer:A] fresh clients cannot read protected inventory', async ({browser}) => {
-    const anonymous = await browser.newContext({serviceWorkers: 'block'});
+    const anonymous = await browser.newContext(regressionContextOptions());
     try {
       for (const path of ['/api/session', '/api/models', '/api/status', '/api/api-access']) {
         const response = await anonymous.request.get(config.dashboardUrl + path,
@@ -31,7 +32,7 @@ test.describe.serial('installed session smoke', () => {
   });
 
   test('AUTH-02 [p1:anonymous-browser] protected model deep-link enters real local OIDC login', async ({browser}) => {
-    const anonymous = await browser.newContext({serviceWorkers: 'block'});
+    const anonymous = await browser.newContext(regressionContextOptions());
     const page = await anonymous.newPage();
     try {
       const loginPage = await page.goto(config.dashboardUrl + '/#/models', {waitUntil: 'domcontentloaded', timeout: config.loginTimeoutMs});

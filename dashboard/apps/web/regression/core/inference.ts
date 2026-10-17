@@ -1,5 +1,6 @@
 import type {APIRequestContext} from '@playwright/test';
 import {HarnessError, requireSafe} from './errors.ts';
+import {functionalHttpsRequestOptions} from './https-policy.ts';
 
 export interface InferenceObservation {
   httpStatus:number;hasContent:boolean;modelMatches:boolean;
@@ -21,7 +22,7 @@ export class InferenceProbe {
   private async call(path: '/v1/models' | '/v1/chat/completions', body?: unknown, credential: string | null = this.key,
     observe?: (value:InferenceObservation)=>Promise<void>) {
     let response;
-    try { response = await this.request.fetch(this.origin + path, {method: body ? 'POST' : 'GET',
+    try { response = await this.request.fetch(this.origin + path, {...functionalHttpsRequestOptions, method: body ? 'POST' : 'GET',
       headers: {...(credential ? {Authorization: `Bearer ${credential}`} : {}), Accept: 'application/json', ...(body ? {'Content-Type': 'application/json'} : {})},
       ...(body ? {data: JSON.stringify(body)} : {}), timeout: this.timeoutMs, maxRedirects: 0, failOnStatusCode: false}); }
     catch(error) {

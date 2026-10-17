@@ -54,6 +54,13 @@ its browser worker. Each GPU scenario also reserves its own recovery journal,
 even when consecutive successful cases share a worker. Kubernetes-access tests
 use the pinned plugin's actual local
 OAuth callback flow with verified IdP, client, PKCE and callback state.
+K8S-02–06 run independently: an export failure does not stand in for failed
+Viewer/Operator/admin permissions. Export waits for the actual copy and download,
+checks complete current-user contents privately, then clears/deletes them.
+Access-switch/revocation checks sign in afresh after the old session is ended.
+Only the administrator case requires the cluster-admin grant; export needs no
+exec plugin. `kubeconfig-copy`/`kubeconfig-download` identify export failures;
+`kubernetes-access`/`kubernetes-revoke` identify permission/revocation failures.
 License checks restore the original document or no-document baseline; a first
 test activation never leaves a test entitlement installed.
 
@@ -125,8 +132,14 @@ compatible catalog candidate fits the currently available RAM. API/estimator
 errors remain failures, not missing prerequisites.
 Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
 exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
-Service API probes share the prepared local DNS mappings without disabling TLS;
-new exact service names are retained only in the current private run directory.
+Functional browser, API, inference and Realtime probes use HTTPS but do not
+validate its certificate. Certificate acceptance belongs to HAR-01 and trusted
+credential setup; Kubernetes access still checks the downloaded CA contract.
+MOD-03 probes the registered connection's local/public/direct scope, not every
+advertised URL: a local run does not require public example-domain DNS. Missing
+local routes, DNS/connection failures and unexpected HTTP responses still fail.
+Service probes share prepared DNS mappings; new exact local service names remain
+only in the current private run directory, without capturing another appliance.
 Module/application route changes also check gateway process stability. GPU
 verification closes the request page during the native Job and uses a fresh
 page for the terminal result, without retries or weaker GPU checks.

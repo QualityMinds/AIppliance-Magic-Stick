@@ -101,6 +101,23 @@ function foundation(context: BrowserContext, config: LabConfig, assertHeld: () =
     {observer: {}, api: {}}, new Set()]), {lease: {assertHeld}});
 }
 
+test('HAR-01 K8S-05 only the explicit private export login accepts browser downloads', async ({browser}) => {
+  const fixture=await identityFixture();
+  try {for(const allowed of [false,true]) {
+    fixture.state.token=0;
+    const context=await realLogin(browser,fixture.config,allowed?{allowPrivateDownloads:true}:{});
+    try {
+      const page=await context.newPage();await page.goto(fixture.config.dashboardUrl);
+      await page.route(fixture.config.dashboardUrl+'/fixture-download',route=>route.fulfill({status:200,
+        headers:{'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="synthetic.txt"'},body:'synthetic'}));
+      await page.setContent('<a href="/fixture-download">Synthetic download</a>');
+      const received=page.waitForEvent('download');await page.getByRole('link',{name:'Synthetic download'}).click();
+      const download=await received;
+      expect(await download.failure()===null).toBe(allowed);await download.delete();
+    }finally{await context.close();}
+  }}finally{await fixture.close();}
+});
+
 test('HAR-01 HAR-09 gateway callback completes before the authenticated session is verified', async ({browser}) => {
   const fixture = await identityFixture(); fixture.state.callbackDelay = 250;
   let context: BrowserContext | undefined;

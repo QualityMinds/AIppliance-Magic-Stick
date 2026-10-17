@@ -94,7 +94,7 @@ dashboard to test a normal Services action.
 |---|---|---|---|
 | MOD-01 | Compare Services with the module catalog: names, groups, aliases, order, dependency reasons, parameters and actions. No parallel hardcoded inventory hides an entry. | C+B+A+E | P1 · functional |
 | MOD-02 | Switch Applications/AI Runtime/Platform filters and expand technical sections. Expansion survives polling; static modules never offer Enable/Disable. | U+B+E | P1 · functional |
-| MOD-03 | Enable an approved idle standalone optional service through UI; observe `ModuleActivation`, required dependencies, Flux/controller conditions and an actual usable service. Empty instance-provider bases are not substitutes. An enabled idle baseline may be borrowed and must be restored exactly. | A+E | P0 · functional |
+| MOD-03 | Enable an approved idle standalone optional service through UI; observe `ModuleActivation`, required dependencies, Flux/controller conditions and an actual usable service in the registered local/public/direct connection scope. A local run does not probe public example-domain URLs or another appliance's names. Certificate validity is checked by HAR-01, not this functional probe; missing routes, DNS/connection failures and unexpected HTTP status still fail. Empty instance-provider bases are not substitutes. An enabled idle baseline may be borrowed and must be restored exactly. | A+E | P0 · functional |
 | MOD-04 | Disable that module via API; observe teardown and Disabled in UI. Preserve dependent user data per module contract and restore any borrowed enabled/disabled baseline and optional parameters exactly. Receipts remain bound to the original worker, UID and confirmed revision. | A+E | P0 · functional |
 | MOD-05 | Repeat an in-progress action and conflicting/stale configuration write. Avoid duplicate intent/workloads; conflict or progress is clear and refreshable. | U+C+A+B | P1 · functional |
 | MOD-06 | Apply valid/invalid module parameters and a generic AMD profile change. Validate catalog-owned fields, persist/reload, and preserve separately configured GPU sharing. AnythingLLM offers separate typed initial model lists; stale choices block enable, saved parameters survive re-enable and native preferences/indexes take precedence at initialization. | U+C+B+A+E | P0 · functional |
@@ -345,8 +345,8 @@ See [the qualification boundary](model-integration.md#ordinary-vllm-runtime-upgr
 | K8S-02 | Assign Viewer to a disposable identity, log in through the kubeconfig's supported OIDC exec flow and read permitted objects. Secret read and workload mutation are denied. | C+A+E | P0 · identity |
 | K8S-03 | Assign Operator. Read plus CRUD of the three runtime-intent kinds in `ai-system` works; direct Pod/Deployment writes, unrelated namespace changes and Secrets do not. | C+A | P0 · identity |
 | K8S-04 | Review the explicit Cluster Administrator warning in fixtures; optional isolated live grant has actual cluster-admin semantics and is revoked immediately. Never use this role for routine observers. | U+C+B+O | P0 · maintenance |
-| K8S-05 | Download/copy kubeconfig. Correct control-plane address, cluster/identity CA and exec metadata; no token/password/refresh token/client secret. Contents are never uploaded as a test artifact. | U+C+A+E | P0 · identity |
-| K8S-06 | Switch/remove access; only one direct access group remains and audit output is sanitized. Protected/disabled users cannot gain grants and revoked identities cannot use old access after required session invalidation. | U+C+A+E | P0 · identity |
+| K8S-05 | Download/copy kubeconfig in its own private export context. Wait for the current user's API/copy acknowledgement, reject stale clipboard contents and compare the complete copy and actual downloaded file with the current export. Correct control-plane address, cluster/identity CA and exec metadata; no token/password/refresh token/client secret. Clear the clipboard, delete the private download and never upload contents as an artifact. Export needs neither the exec plugin nor a cluster-admin grant. | U+C+A+E | P0 · identity |
+| K8S-06 | Switch/remove access; only one direct access group remains and audit output is sanitized. Sign in afresh after each session-invalidating change and verify a fresh OIDC token is denied after revocation; do not mistake a stale session for successful revocation. Protected/disabled users cannot gain grants; disabled-user rejection must be the expected conflict, not an unrelated API outage. | U+C+A+E | P0 · identity |
 
 ## 20. Licenses, editions and offline notices
 
@@ -539,7 +539,7 @@ as unmeasured product performance. Existing security/release CI remains required
 |---|---|---|---|
 | SEC-01 | Enumerate public API reads/mutations and auth-negative cases. No hidden route bypasses role/CSRF/license/ownership checks; the frontend has no Kubernetes token/workload authority. | U+C+A | P0 · identity |
 | SEC-02 | Exercise discovery, external URL/metadata and model-log hostile input with controlled servers. Reject forbidden targets/redirects/path injection, bound reads and avoid XSS/log injection. | U+C+B | P0 · fast |
-| SEC-03 | Test pinned dependency vulnerabilities, secret scan, unsafe TLS disablement and unbounded parsing/input fixtures. Existing security checks fail actionable regressions without silently dismissing alerts. Full acceptance also requires fresh successful fixed-workflow advisory and redacted secret-scan CI runs for the exact installed commit; offline checks alone cannot certify current advisories. | U+C+A | P0 · fast + fresh CI |
+| SEC-03 | Test pinned dependency vulnerabilities, secret scan, unsafe product/global TLS disablement and unbounded parsing/input fixtures. The scoped functional regression certificate policy is not a product TLS exception; HAR-01 and credential bootstrap remain strict. Existing security checks fail actionable regressions without silently dismissing alerts. Full acceptance also requires fresh successful fixed-workflow advisory and redacted secret-scan CI runs for the exact installed commit; offline checks alone cannot certify current advisories. | U+C+A | P0 · fast + fresh CI |
 | SEC-04 | Inspect generated routes/policies/RBAC and credential references. No broader Secret read, public exposure or namespace ownership appears from an ordinary feature change. | C+A | P0 · identity |
 | UX-01 | Walk pages, dialogs, help and actions by keyboard/touch at desktop and narrow mobile widths. Labels, focus/return, Escape, error announcements, contrast and table/log overflow remain usable; status is not conveyed by color alone. | B+E+N | P1 · functional |
 | UX-02 | Verify accordions/defaults, loading/empty/error states and unchanged/changed/reverted fields across every settings form. Polling cannot erase drafts or trigger actions. | U+B+E | P0 · functional |
@@ -551,6 +551,41 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+17 October 2026 Kubernetes follow-up: K8S-02–06 execute independently with separate
+owned identities and cleanup, rather than repeatedly failing the Viewer export
+before reaching Operator, administrator or revocation assertions. The copy race
+was reproduced against the real bundled Dashboard with a delayed API response;
+stale same-cluster/different-user contents and a canceled browser download also
+exposed false-positive paths. The
+[export browser fixtures](../../dashboard/apps/web/regression/administration/kubeconfig-export.browser.spec.ts)
+now exercise the shared installed adapter with acknowledgement, exact full-content
+checks, bounded reads, private download deletion and clipboard clearing. The
+[workflow counterexamples](../../dashboard/apps/web/regression/administration/kubernetes-workflow.unit.spec.ts)
+separate roles/approval prerequisites, require fresh login after access changes,
+retain the original failure through cleanup and reject foreign intent UIDs.
+Operator CRUD pins acknowledged UID/generation/spec, accepts schema defaults and
+uses resource-version delete preconditions. Unremoved intent receipts fence later
+recovery instead of being ignored. Fixed `kubernetes-access`, `kubernetes-revoke`,
+`kubeconfig-export`, `kubeconfig-copy` and `kubeconfig-download` stages identify
+the failed operation without retaining credential contents. These fixtures are
+selected in selftest and the owning Phase 5 fast/browser profiles; fresh installed
+acceptance on the matching runner image is still required. Old reports are not
+rewritten, and no Kubernetes/SSO permissions or certificate checks are weakened.
+
+17 October 2026 MOD-03 follow-up: the installed Phase 5 report reached a ready
+local AnythingLLM service but then failed DNS lookup of its advertised public
+example-domain URL. MOD-03 now selects the registered connection's route scope,
+without public fallback or capturing nested peer hostnames. Functional browser,
+API, inference and Realtime checks use a runner-only certificate policy, separate
+from strict HAR-01/bootstrap and the real Kubernetes client's CA contract.
+[Route counterexamples](../../dashboard/apps/web/regression/harness/service-probes.unit.spec.ts)
+and [real HTTPS/browser/protocol fixtures](../../dashboard/apps/web/regression/harness/https-policy.browser.spec.ts)
+cover self-signed/wrong-host certificates, retained HTTP failures, redirects,
+DNS/timeout failures, missing local routes and independent strict verification.
+They are selected by selftest and the later-phase fast/browser profiles. Local
+coverage does not replace a fresh MOD-03/04 installed activation/cleanup result;
+old reports retain their original failures and blocked dependencies.
 
 17 October 2026 runner-start follow-up: HAR-02/10 execute both real Kubernetes
 entrypoints in an untranspiled Node subprocess and require the invalid-run-ID

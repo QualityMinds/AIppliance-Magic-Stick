@@ -12,6 +12,7 @@ import {withCleanup} from '../core/run-lifecycle.ts';
 import {requireGpuProvider} from '../hardware/prerequisites.ts';
 import {gatewaySnapshot,assertGatewayStable} from '../core/gateway-stability.ts';
 import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
+import {moduleProbeLinks,probeModuleServices} from '../core/service-probes.ts';
 const moduleSettings=(value:{enabled?:boolean;parameters?:unknown}|undefined)=>canonical({enabled:value?.enabled,parameters:value?.parameters??{}});
 const sharingSettings=(value:{providers:Array<{provider:string;mode:string;maxModels:number;backend:string;nodeUid:string}>})=>
   canonical(value.providers.map(({provider,mode,maxModels,backend,nodeUid})=>({provider,mode,maxModels,backend,nodeUid})).sort((a,b)=>a.provider.localeCompare(b.provider)));
@@ -81,10 +82,11 @@ export async function modulesWorkflow(live:LiveFoundation) {
     await checkGateway();
     const ready=(await api.api.modules()).modules[fixture.id]!,status=await live.api.status();
     requireSafe(canonical(ready.parameters ?? {}) === canonical(fixture.parameters) && sharingSettings(await api.api.gpuSharing()) === sharing,'API');
-    const links=moduleResourceLinks(fixture.id,catalog,status);requireSafe(links.length > 0,'API');
-    await registerRuntimeDnsOrigins(links.map(link=>new URL(link.url).origin),live.config.dashboardUrl);
-    for(const link of links){const url=new URL(link.url);requireSafe(url.protocol === 'https:' && !url.username && !url.password,'CONFIG');
-      const response=await live.context.request.get(url.href,{maxRedirects:0,timeout:live.config.requestTimeoutMs});requireSafe([200,302,303].includes(response.status()),'API');}
+    await test.step('Verify enabled service on the registered connection scope (not its TLS certificate)',async()=>{
+      const links=moduleProbeLinks(moduleResourceLinks(fixture.id,catalog,status),live.config.dashboardUrl);
+      await registerRuntimeDnsOrigins(links.map(link=>new URL(link.url).origin),live.config.dashboardUrl);
+      await probeModuleServices(live.context.request,links,live.config.requestTimeoutMs);
+    });
     await page.reload();await expect(card.getByRole('button',{name:'Disable',exact:true})).toBeVisible();
     await borrowed.change(false,fixture.parameters);
     await poll(()=>api.api.modules(),value=>value.modules[fixture.id]?.enabled === false &&

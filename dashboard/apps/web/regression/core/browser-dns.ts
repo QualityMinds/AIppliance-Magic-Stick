@@ -20,8 +20,8 @@ export function labDnsPlan(value:unknown):LabDnsPlan {
   return plan;
 }
 
-/** Shared private DNS plan. HTTPS URL, Host/SNI and certificate checks stay
- * intact. Never invent an appliance-wide wildcard: nested names can be peers. */
+/** Shared private DNS plan. Keep HTTPS URL and Host/SNI intact; the caller's
+ * test purpose chooses certificate policy. Never capture nested peer names. */
 export function labDnsAddress(value:unknown,hostname:string):string|undefined {
   const mappings=labDnsPlan(value).mappings;
   const host=hostname.toLowerCase().replace(/\.$/,'');

@@ -9,6 +9,7 @@ import {requireProof as requireSafe} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
 import {realLogin} from '../core/auth.ts';
+import {regressionContextOptions} from '../core/https-policy.ts';
 import {validateTestLicenseSigner,testLicenseDocument} from '../core/test-license-fixtures.ts';
 
 const stableProvider=({revision:_,enabled:__,...provider}:FederationProvider)=>canonical(provider);
@@ -52,7 +53,7 @@ export async function federationWorkflow(live:LiveFoundation,browser:Browser) {
       const actor=await upstream.create(entry.username,live.journal.runId,fixture.claim,'regression-user');entry.id=actor.id;
       await writePrivate(filename,{version:1,runId:live.journal.runId,state:'owned',actors:owned});
       const brokerLogin=async(actor:{username:string;password:string},mapped:boolean)=>{
-      const context=await browser.newContext({serviceWorkers:'block',acceptDownloads:false}),page=await context.newPage();
+      const context=await browser.newContext(regressionContextOptions()),page=await context.newPage();
       try {
         await context.route('**/*',async route=>{
           const url=new URL(route.request().url()),method=route.request().method();
@@ -102,7 +103,7 @@ export async function federationWorkflow(live:LiveFoundation,browser:Browser) {
       const local=await realLogin(browser,live.config);
       try{requireSafe((await new AdministrationApi(local.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard).api.session()).roles.includes('magicstick-admin'),'AUTH');}
       finally{await local.close();}
-      const fresh=await browser.newContext({serviceWorkers:'block',acceptDownloads:false}),login=await fresh.newPage();
+      const fresh=await browser.newContext(regressionContextOptions()),login=await fresh.newPage();
       try{await login.goto(live.config.dashboardUrl,{waitUntil:'domcontentloaded'});
         requireSafe(new URL(login.url()).origin === live.config.identityUrl,'AUTH');
         for(const actor of owned)await expect(login.getByRole('link',{name:actor.alias,exact:true})).toHaveCount(0);

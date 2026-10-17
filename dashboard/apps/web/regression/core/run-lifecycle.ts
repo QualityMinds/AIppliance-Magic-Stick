@@ -54,5 +54,8 @@ export async function bounded<T>(action:()=>Promise<T>,timeoutMs:number,stage:St
     void cancellation.then(()=>reject(expired));
   },timeoutMs);});
   try {const value=await Promise.race([action(),deadline]);if(expired)throw expired;return value;}
+  // cancel() can close a page and reject the action before the deadline
+  // promise settles. Preserve the known timeout, not a secondary closed-page error.
+  catch(error) {if(expired)throw expired;throw error;}
   finally {clearTimeout(timer);await cancellation;}
 }

@@ -1,4 +1,5 @@
 import {test,expect,type Browser,type BrowserContext} from '@playwright/test';
+import {regressionContextOptions} from '../core/https-policy.ts';
 import type {LabConfig} from '../core/config.ts';
 import {loadLabConfig} from '../core/config.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
@@ -229,7 +230,11 @@ async function runCase(definition:P0Definition,browser:Browser) {
   if(['USER-02','USER-03','USER-04','USER-05','AUTH-04','AUTH-08','LOG-03'].includes(id))
     return oneWorkflow('identity',()=>identityWorkflow(browser),id);
   if(id === 'MOD-10') return oneWorkflow('credentials',()=>credentialWorkflow(browser),id);
-  if(id.startsWith('K8S-')) return oneWorkflow('kubernetes',()=>kubernetesWorkflow(live!,browser),id);
+  if(id === 'K8S-02') return test.step('Verify Viewer OIDC and read-only Kubernetes RBAC',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-03') return test.step('Verify Operator Kubernetes RBAC and disabled intent CRUD',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-04') return test.step('Verify and immediately revoke the isolated Kubernetes administrator grant',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-05') return test.step('Verify real kubeconfig clipboard and private download exports',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-06') return test.step('Verify Kubernetes access switching and fresh-login revocation',()=>kubernetesWorkflow(live!,browser,id));
   if(id.startsWith('APP-') || id.startsWith('ACL-')) return oneWorkflow('applications',()=>applicationsWorkflow(live!,browser),id);
   if(['MOD-03','MOD-04'].includes(id)) return oneWorkflow('modules',()=>modulesWorkflow(live!),id);
   if(id === 'MOD-06')return moduleProfileWorkflow(live!);
@@ -307,7 +312,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
     },id==='SSO-01'?'sso-01':'lic-01');
   }
   if(['AUTH-03','AUTH-05','SEC-01'].includes(id)) {
-    const anonymous=await browser.newContext({serviceWorkers:'block',acceptDownloads:false});
+    const anonymous=await browser.newContext(regressionContextOptions());
     try {for(const path of ['/api/session','/api/users','/api/license','/api/api-access','/api/mesh']) {
       const response=await anonymous.request.get(config.dashboardUrl+path,{timeout:config.requestTimeoutMs,maxRedirects:0,
         headers:{'X-Auth-Request-User':'attacker','X-Auth-Request-Groups':'magicstick-admin'}});
@@ -324,7 +329,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
     const key=await live!.createKey('secrecy-'+id.toLowerCase());
     const listed=JSON.stringify(await live!.keys.list()); checked(!listed.includes(key.secret));
     if(id === 'KEY-05') {
-      const anonymous=await browser.newContext({serviceWorkers:'block',acceptDownloads:false});
+      const anonymous=await browser.newContext(regressionContextOptions());
       try {
         for(const path of ['/api/users','/api/license','/api/mesh']) {
           const response=await anonymous.request.get(config.dashboardUrl+path,{headers:{Authorization:'Bearer '+key.secret},timeout:config.requestTimeoutMs,maxRedirects:0});

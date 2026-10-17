@@ -49,16 +49,20 @@ test('HAR-02 Playwright API resolves ready mDNS service names but still rejects 
     const port=(server.address() as {port:number}).port;
     await writePrivate(join(directory,'browser-dns.json'),{version:1,mappings:[{suffix:'fixture.local',address:'127.0.0.1',exact:true}]});
     const register=new URL('../core/browser-dns.ts',import.meta.url).href;
+    const policy=new URL('../core/https-policy.ts',import.meta.url).href;
     const code=`import {request} from '@playwright/test';
       import {registerRuntimeDnsOrigins} from ${JSON.stringify(register)};
+      import {functionalHttpsRequestOptions} from ${JSON.stringify(policy)};
       await registerRuntimeDnsOrigins(['https://service.fixture.local','https://wrong.fixture.local','https://foreign.example.test'],'https://fixture.local');
-      const api=await request.newContext(); const results=[];
+      const api=await request.newContext(); const results=[],functional=[];
       for(const host of ['service.fixture.local','wrong.fixture.local']) {
         try {const result=await api.get('https://'+host+':'+${port},{timeout:5000});results.push(result.status()===200);}
         catch {results.push(false);}
-      } await api.dispose(); console.log(JSON.stringify(results));`;
-    expect(JSON.parse(await child(directory,code,cert))).toEqual([true,false]);
-    expect(JSON.parse(await child(directory,code))).toEqual([false,false]);
+        const result=await api.get('https://'+host+':'+${port},{...functionalHttpsRequestOptions,timeout:5000});
+        functional.push(result.status()===200);
+      } await api.dispose(); console.log(JSON.stringify({strict:results,functional}));`;
+    expect(JSON.parse(await child(directory,code,cert))).toEqual({strict:[true,false],functional:[true,true]});
+    expect(JSON.parse(await child(directory,code))).toEqual({strict:[false,false],functional:[true,true]});
     const original=JSON.parse(await readFile(join(directory,'browser-dns.json'),'utf8'));
     expect(original.mappings).toHaveLength(1);
     const plan=JSON.parse(await readFile(join(directory,'run','runtime-dns.json'),'utf8'));

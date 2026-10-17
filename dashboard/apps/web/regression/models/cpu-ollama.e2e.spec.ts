@@ -1,6 +1,5 @@
 import {test, expect, type BrowserContext} from '@playwright/test';
 import {join} from 'node:path';
-import {readFile} from 'node:fs/promises';
 import type {LabConfig} from '../core/config.ts';
 import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {loadLabConfig} from '../core/config.ts';
@@ -13,7 +12,7 @@ import {ResourceJournal} from '../core/journal.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
 import {OwnedModelClient, activation, editRevision, fixtureIsAdvertised, ownedRuntimePods, remainingModelResources} from '../core/owned-model.ts';
 import {InferenceProbe} from '../core/inference.ts';
-import {verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
+import {verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
 import {poll} from '../core/poll.ts';
 import {requireSafe} from '../core/errors.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
@@ -130,8 +129,6 @@ test.describe.serial('installed CPU model smoke', () => {
     config = await loadLabConfig(process.env.REGRESSION_CONFIG);
     if (phase1Run) requirePhase1Profile(config);
     requireSafe(config.lock && config.inferenceUrl && config.smokeModel && config.modelCleanupKubeconfig, 'CONFIG');
-    const ca = config.caFile ? await readFile(config.caFile, 'utf8') : undefined;
-    await verifiedEndpoint(config.inferenceUrl, config.requestTimeoutMs, ca);
     context = await realLogin(browser, config, {allowedStopName: () => name || undefined,
       allowedStopUid: () => uid || undefined, allowedStart: () => (modelEditRun || phase1Run) && allowedStart,
       allowedEditContextWindow: () => modelEditRun ? allowedEditContextWindow : undefined,

@@ -39,6 +39,7 @@ export type ReasonCode = keyof typeof reasons;
 export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY', 'APPLICATION_MODEL', 'GPU_PROVIDER', 'GPU_VALIDATION',
   'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
+  'kubernetes-access', 'kubernetes-revoke', 'kubeconfig-export', 'kubeconfig-copy', 'kubeconfig-download',
   'model-estimate', 'model-create', 'model-ready', 'module-ready', 'app-ready', 'gateway-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
   'cleanup', 'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence',
   'baseline-models', 'baseline-pods', 'baseline-intents', 'baseline-claims', 'baseline-routes', 'baseline-host', 'baseline-keys',

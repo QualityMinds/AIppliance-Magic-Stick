@@ -8,6 +8,18 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Isolate Kubernetes regression cases by role and owned test identity. Wait for
+  kubeconfig copy acknowledgement, reject stale same-cluster exports, and verify
+  actual private download contents instead of a success notice. Reauthenticate
+  after access changes, preserve cleanup/deadline causes and fence unfinished
+  UID-bound Kubernetes intent cleanup. Export does not require cluster-admin or
+  the OIDC exec plugin; product permissions and TLS contracts remain unchanged.
+
+- Separate functional regression HTTPS calls from explicit certificate checks.
+  MOD-03 tests service routes in the registered connection scope instead of
+  requiring public example-domain DNS during a local run. Preserve HTTP/network
+  failures, strict HAR-01/bootstrap verification and UID/revision-bound cleanup.
+
 - Keep shared regression-workflow receipts compatible with native Node type
   stripping. CI loads both real Kubernetes test/cleanup entrypoints without
   network or private inputs before allowing runner publication.
@@ -29,7 +41,7 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   changes to an existing run's selection.
 
 - Repair ready-service DNS for both browser and API regression probes without
-  changing HTTPS origins or certificate verification. Observe application
+  changing HTTPS origins. Observe application
   HelmReleases in their control-plane namespace and detect gateway process
   restarts during module/application route churn.
 - Use Envoy Gateway 1.8.5 with explicit Envoy 1.38.6 proxy overrides, including

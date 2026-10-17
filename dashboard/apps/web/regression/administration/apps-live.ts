@@ -16,6 +16,7 @@ import {withCleanup} from '../core/run-lifecycle.ts';
 import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
 import {applicationModel,applicationEditContext} from '../core/application-model.ts';
 import {preparationApi,estimateInput} from '../core/preparation-api.ts';
+import {regressionContextOptions} from '../core/https-policy.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
  * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
@@ -128,7 +129,7 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
         await registerRuntimeDnsOrigins([origin],live.config.dashboardUrl);
         const routes=(await live.observer.list('httproutes.gateway.networking.k8s.io','identity-system')).filter(item=>ownedChild(item,name!,ready.item.metadata!.uid!));
         requireSafe(routes.length > 0 && routes.every(item=>!JSON.stringify(item.spec).includes('NodePort')),'API');
-        const anonymous=await browser.newContext({serviceWorkers:'block'});
+        const anonymous=await browser.newContext(regressionContextOptions());
         try {
           const result=await anonymous.request.get(origin,{maxRedirects:0,timeout:live.config.requestTimeoutMs});
           requireSafe([302,303,401,403].includes(result.status()),'API');
@@ -219,7 +220,7 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
       const fixture=fixtures.find(item=>item.type === type)!,origin=new URL(fixture.originTemplate.replace('{name}',name.slice(type.length+1))).origin;
       requireSafe(instanceResourceLinks(ready.item,await live.api.status()).some(link=>new URL(link.url).origin===origin),'API');
       await registerRuntimeDnsOrigins([origin],live.config.dashboardUrl);
-      const anonymous=await browser.newContext({serviceWorkers:'block'});
+      const anonymous=await browser.newContext(regressionContextOptions());
       try{requireSafe((await anonymous.request.get(origin,{timeout:live.config.requestTimeoutMs,maxRedirects:0})).status() === 200,'API');}
       finally{await anonymous.close();await apps.remove(name);}
       // Restoration is an owned replacement with a fresh UID, never a blind

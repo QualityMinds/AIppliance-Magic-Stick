@@ -906,9 +906,14 @@ Optional local environment overrides:
 
 The container runs non-root, read-only, with dropped capabilities and a private
 temporary browser HOME; it has no Docker socket or published ports. Node and
-Chromium explicitly trust the supplied CA, including the isolated Chromium NSS
-database. Browser TLS verification is never bypassed. The container is for trusted
-tests/targets, not a security boundary for executing public fork code.
+Chromium trust the supplied CA, including the isolated Chromium NSS database,
+for explicit HAR-01 certificate checks and credential bootstrap. Functional
+browser/API, inference and Realtime checks deliberately exclude certificate
+validation through a runner-only, per-context/request policy; HTTPS and the real
+origin/authentication/ownership checks remain mandatory. No process-global TLS
+override is used. Kubernetes access keeps the downloaded CA/exec-plugin contract.
+The container is for trusted tests/targets, not a security boundary for executing
+public fork code.
 
 Each run writes mode-`0600` `summary.txt`, allowlisted `summary.json` and `junit.xml`
 under `.regression/private/runs/<run-id>/`. A configured live attempt creates an
@@ -1364,10 +1369,17 @@ token ID. App/identity adapters are not implemented. Preserve both the
 original failure and any cleanup failure.
 
 Resolve the configured dashboard, identity and inference hosts normally. Trust
-the appliance's CA explicitly in browser/HTTP clients, or use a valid trusted
-public certificate. Never accept `ignoreHTTPSErrors`, global TLS verification
-disablement, fabricated cookies or a host-admin kubeconfig as authentication
-success. Test local mDNS and public DNS routes separately where available.
+the appliance's CA explicitly for HAR-01 and credential bootstrap, or use a
+trusted public certificate. Functional checks use the shared
+[`https-policy.ts`](../../dashboard/apps/web/regression/core/https-policy.ts)
+without treating certificate validity as an application postcondition. They
+still require real login, correct origin/identity and safe owned-resource cleanup;
+neither fabricated cookies nor a host-admin kubeconfig prove authentication.
+Never disable process-global TLS verification. MOD-03 selects advertised routes
+in the registered local/public/direct connection scope; a local functional run
+does not require public example-domain DNS. Missing local routes, failed DNS,
+timeouts and unexpected HTTP status remain failures. Public exposure and
+certificate acceptance are separate checks, not silent fallbacks.
 
 Obtain a real OIDC login for each dedicated test role. For ordinary same-origin
 browser API tests, use the authenticated browser request context and the actual

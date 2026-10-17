@@ -164,9 +164,10 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
     [approved(profile.modules,'approveOptionalModule'),'The optional-module enable/disable test has not been approved.']],!approved(profile.modules,'approveOptionalModule'));
   add('applications','amd-profile',[[filled(profile.moduleProfile?.profileId),'No advertised alternate AMD profile fixture was selected.'],
     [approved(profile.moduleProfile,'approveTemporaryProfile'),'The temporary AMD profile change has not been approved.']],!approved(profile.moduleProfile,'approveTemporaryProfile'));
-  add('identity','oidc-plugin',[[file(profile.kubernetes?.plugin?.filename,snapshot) && /^[a-f0-9]{64}$/.test(profile.kubernetes?.plugin?.sha256 ?? ''),
-    'The executable Linux OIDC plugin and its verified SHA-256 are missing or unreadable.'],
-    [approved(profile.kubernetes,'approveAdminGrant'),'Kubernetes grants to disposable test users have not been approved.']],!approved(profile.kubernetes,'approveAdminGrant'));
+  add('kubernetes','oidc-plugin',[[file(profile.kubernetes?.plugin?.filename,snapshot) && /^[a-f0-9]{64}$/.test(profile.kubernetes?.plugin?.sha256 ?? ''),
+    'The executable Linux OIDC plugin and its verified SHA-256 are missing or unreadable.']]);
+  add('kubernetes-admin','oidc-plugin',[[approved(profile.kubernetes,'approveAdminGrant'),
+    'The isolated Kubernetes cluster-administrator grant has not been approved.']],!approved(profile.kubernetes,'approveAdminGrant'));
   add('license','licenses',[[file(profile.license?.validFile,snapshot) && profile.license?.invalidFiles?.length === 3 &&
     profile.license.invalidFiles.every((path:string)=>file(path,snapshot)),'The four private issuer/rejection license fixtures are incomplete or unreadable.'],
     [approved(profile.license,'approveLicenseReplacement'),'Temporary license replacement/restoration has not been approved.']],!approved(profile.license,'approveLicenseReplacement'));
@@ -226,6 +227,8 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
       if(item.gate && physicalGates.includes(item.gate) && hostDrillIds.includes(item.id) && recipes && !recipes.cases[item.id])needed.push({id:'physical-drill',
         missing:[`The reviewed typed recipe for ${item.id} was not completed in setup.`]});
       if(item.group === 'kubernetes')needed.push(...(gates.identity ?? []));
+      if(item.group === 'kubernetes' && item.id !== 'K8S-05')needed.push(...(gates.kubernetes ?? []));
+      if(item.id === 'K8S-04')needed.push(...(gates['kubernetes-admin'] ?? []));
       if(item.id === 'KEY-04' && (!approved(profile.unmanagedKey,'approveDisposableProbe') || !filled(profile.unmanagedKey?.id) && profile.unmanagedKey?.createDisposableFixture !== true))needed.push({id:'unmanaged-key',
         missing:[...(!filled(profile.unmanagedKey?.id) && profile.unmanagedKey?.createDisposableFixture !== true ? ['No real disposable unmanaged-key fixture or automatic fixture plan was supplied.'] : []),
           ...(!approved(profile.unmanagedKey,'approveDisposableProbe') ? ['The denied-delete probe on that disposable fixture has not been approved.'] : [])]});

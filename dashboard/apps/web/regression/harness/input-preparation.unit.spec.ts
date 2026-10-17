@@ -47,6 +47,20 @@ test('MOD-03 automatic optional-module fixture is a real service, never an opera
   expect(automaticProfile(observed,{},lab).modules).toEqual({approveOptionalModule:true,id:'service',parameters:{workspace:'existing-value'}});
 });
 
+test('K8S-05 export readiness is independent of exec-plugin and cluster-admin prerequisites',()=>{
+  const observed=snapshot(),lab=prepareInputs(source(),observed,options,{}).parsed;
+  const profile={identity:{approveDisposableUsers:true}};
+  const phase=inputReadiness(lab,profile,observed,{...options,phases:[5],automatic:true})[0]!;
+  const state=(id:string)=>phase.cases!.find(item=>item.id===id)!.state;
+  expect(state('K8S-05')).toBe('InputsReady');expect(state('USER-02')).toBe('InputsReady');
+  expect(state('K8S-02')).toBe('Blocked');expect(state('K8S-04')).toBe('Blocked');
+  observed.readableFiles.push('/inputs/kubectl-oidc_login');
+  const withPlugin={...profile,kubernetes:{plugin:{filename:'/inputs/kubectl-oidc_login',sha256:'a'.repeat(64)},approveAdminGrant:false}};
+  const checked=inputReadiness(lab,withPlugin,observed,{...options,phases:[5],automatic:true})[0]!;
+  for(const id of ['K8S-02','K8S-03','K8S-05','K8S-06'])expect(checked.cases!.find(item=>item.id===id)!.state).toBe('InputsReady');
+  expect(checked.cases!.find(item=>item.id==='K8S-04')!.state).toBe('Blocked');
+});
+
 test('HAR-10 registered lab policy is fixed and rejects replacement targets or a mutable server marker',()=>{
   expect(Object.isFrozen(labPolicy.scopes)).toBe(true);expect(labPolicy.phases).toEqual(options.phases);
   const lab=prepareInputs(source(),snapshot(),options,{}).parsed;

@@ -6,7 +6,7 @@ import type {BrowserContext} from '@playwright/test';
 import type {LabConfig} from './config.ts';
 import {HarnessError,requireSafe} from './errors.ts';
 
-interface OidcConfig {server:string;ca:Buffer;issuer:string;client:string;issuerCa:string}
+export interface OidcConfig {server:string;ca:Buffer;issuer:string;client:string;issuerCa:string}
 const loopback=/^http:\/\/(?:localhost|127\.0\.0\.1):(?:8000|18000)\/$/;
 
 /** Read only the completed instruction emitted by the pinned plugin, not an

@@ -125,7 +125,7 @@ async function discover(source,options) {
   const observedAppliance=pinned ? appliances.find(item=>item.metadata.name === pinned.applianceName && item.metadata.namespace === pinned.applianceNamespace) :
     appliances.length === 1 ? appliances[0] : undefined;
   requireSafe(observedAppliance,'IDENTITY');
-  preparationStage='login';context=await realLogin(browser,config);
+  preparationStage='login';context=await realLogin(browser,config,{httpsPurpose:'certificate'});
   preparationStage='discovery';
   const api=readOnlyApi(context.request,config.dashboardUrl,config.requestTimeoutMs);
   const [appliance,models,hostPayload,status,modules,nodes,pods,flux]=await Promise.all([

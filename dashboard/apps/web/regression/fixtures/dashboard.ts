@@ -27,7 +27,7 @@ const payloads: Record<string, unknown> = {
 };
 
 /** Render the real bundled application against isolated, public-safe API data. */
-export async function fixturePage(page: Page, extra: Record<string, unknown> = {}) {
+export async function fixturePage(page: Pick<Page, 'route'>, extra: Record<string, unknown> = {}) {
   const dist = resolve('dist');
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
