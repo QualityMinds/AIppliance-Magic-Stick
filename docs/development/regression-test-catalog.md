@@ -567,6 +567,14 @@ These are selected by selftest and Phase 5 fast/fixture profiles. Targeted insta
 LIC-02–04 acceptance and a new complete Phase 5 run remain separate gates; the
 earlier failed report is retained unchanged.
 
+The first targeted installed follow-up passed LIC-03 and LIC-04, including the
+API restart, exact original-document restoration and final preflight. LIC-02
+exposed an invalid Commercial fixture missing `commercial-production`. Both
+Commercial entitlements are now generated; a cross-language fixture contract
+calls the actual product verifier and rejects a correctly signed Commercial
+document missing that entitlement. The repeated installed run remains a
+separate acceptance gate; the failed fixture report is retained.
+
 17 October 2026 Kubernetes follow-up: K8S-02–06 execute independently with separate
 owned identities and cleanup, rather than repeatedly failing the Viewer export
 before reaching Operator, administrator or revocation assertions. The copy race

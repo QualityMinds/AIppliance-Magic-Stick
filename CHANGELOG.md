@@ -12,7 +12,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   cases. Remove the competing browser request handler, accept idempotent imports,
   retain UID/revision-bound restoration receipts before postconditions, and fence
   unfinished license cleanup. Add focused live-case diagnostics without claiming
-  full-phase acceptance; product license verification is unchanged.
+  full-phase acceptance. Commercial test fixtures include both signed edition
+  entitlements and are checked against the real verifier; product license
+  verification is unchanged.
 
 - Isolate Kubernetes regression cases by role and owned test identity. Wait for
   kubeconfig copy acknowledgement, reject stale same-cluster exports, and verify

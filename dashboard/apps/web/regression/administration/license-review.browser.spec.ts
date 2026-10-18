@@ -9,7 +9,7 @@ async function fixture(browser:Browser,options:{edition?:'free-registered'|'comm
   let current:LicenseStatus={edition:'free',state:'missing',message:'Free mode.',valid:false,installationId:'fixture-installation',revision:'1',checkedAt:1,
     hasDocument:false,trustedKeyIds:['fixture-key'],features:[]};
   const claims={edition:options.edition??'free-registered',version:1,product:'magicstick',issuer:'magicstick',licenseId:'fixture-license',customer:'Fixture',
-    installationId:'fixture-installation',features:['federated-sso'],issuedAt:1,notBefore:1,expiresAt:4_000_000_000} as const;
+    installationId:'fixture-installation',features:options.edition==='commercial'?['commercial-production','federated-sso']:['federated-sso'],issuedAt:1,notBefore:1,expiresAt:4_000_000_000} as const;
   const candidate={valid:true,state:'valid',message:'Fixture verified.',keyId:'fixture-key',claims:{...claims,features:[...claims.features]}} as LicensePreview['candidate'];
   let activations=0,validations=0,reads=0,acknowledged=false;
   await fixturePage(context,{'/api/license':async(request:Request)=>{
