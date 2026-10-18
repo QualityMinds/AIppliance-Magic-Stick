@@ -102,6 +102,19 @@ test('HAR-07 GPU restoration failure still cleans independent journals, stops he
     expect(JSON.parse(await readPrivate(join(directory,'cleanup-failure.json'))).failures).toEqual([{reason:'BUSY',stage:'gpu-validation'}]);
   }finally{await rm(directory,{recursive:true,force:true});}
 });
+test('HAR-07 a legacy unfinished license receipt cannot be reported clean or release the Lease',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'license-cleanup-fence-'));
+  try {
+    const journal=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'appliance');
+    await writePrivate(join(directory,'license-transaction.json'),{version:1,state:'reviewed'},true);
+    let released=false;
+    const live=Object.assign(Object.create(LiveFoundation.prototype),{acquired:true,journal,journals:[journal],restorations:[],
+      cleanup:async()=>{},heartbeat:{stop:async()=>{}},guard:async()=>{},
+      lease:{release:async()=>{released=true;}},context:{close:async()=>{}}}) as LiveFoundation;
+    await expect(live.close()).rejects.toMatchObject({code:'CLEANUP',outcome:'Failed'});expect(released).toBe(false);
+    expect(JSON.parse(await readPrivate(join(directory,'cleanup-failure.json'))).failures).toContainEqual({reason:'CLEANUP',stage:'cleanup'});
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 test('HAR-10 module cleanup distinguishes unsent, acknowledged and lost responses across process restarts',annotation,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'module-recovery-'));
   try {

@@ -199,6 +199,16 @@ test('HAR-07 both no-license baseline receipts must be restored before automatic
     expect(f.store.value.spec.holderIdentity).toBe('');
   });
 });
+test('HAR-07 unfinished case-specific license receipts also fence automatic recovery',async()=>{
+  for(const caseId of ['lic-02','lic-03','lic-04'])await isolated(async directory=>{
+    const f=await fixture(directory),filename=join(f.path,`license-transaction-${caseId}.json`);
+    await writePrivate(filename,{version:1,state:'applied'},true);
+    await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).rejects.toMatchObject({code:'RECOVERY',stage:'recovery-journal'});
+    expect(f.store.replacements).toBe(0);await writePrivate(filename,{version:1,state:'restored'});
+    await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+    expect(f.store.value.spec.holderIdentity).toBe('');
+  });
+});
 test('HAR-07 K8S-03 unremoved Kubernetes CRUD receipts fence recovery instead of being ignored',async()=>{
   for(const plural of ['moduleactivations','modelactivations','appinstances'])await isolated(async directory=>{
     const f=await fixture(directory),filename=join(f.path,'kube-'+plural+'.json');

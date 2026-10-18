@@ -255,7 +255,7 @@ try {
         }
         const signer=await exists(filename) ? validateTestLicenseSigner(JSON.parse(await readPrivate(filename)),facts.applianceUid,status.installationId) : createTestLicenseSigner(facts.applianceUid,status.installationId);
         if(!await exists(filename))await writePrivate(filename,signer,true);
-        for(const mode of ['valid','expired','wrong-installation','tampered','short-lived'])
+        for(const mode of ['valid','commercial','expired','wrong-installation','tampered','short-lived'])
           await writePrivate(join(directory,'license-'+mode+'.license'),testLicenseDocument(signer,mode));
         licenseFixture={kid:signer.kid,publicKey:signer.publicKey,fingerprint:signer.fingerprint,installationId:signer.installationId};
       }

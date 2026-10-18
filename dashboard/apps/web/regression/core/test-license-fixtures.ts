@@ -24,12 +24,12 @@ export function validateTestLicenseSigner(value:TestLicenseSigner,applianceUid:s
   }catch{throw new HarnessError('CONFIG');}
   return value;
 }
-export function testLicenseDocument(signer:TestLicenseSigner,mode:'valid'|'expired'|'wrong-installation'|'tampered'|'short-lived',now=Date.now()) {
+export function testLicenseDocument(signer:TestLicenseSigner,mode:'valid'|'commercial'|'expired'|'wrong-installation'|'tampered'|'short-lived',now=Date.now()) {
   validateTestLicenseSigner(signer,signer.applianceUid,signer.installationId);
-  requireSafe(['valid','expired','wrong-installation','tampered','short-lived'].includes(mode) && Number.isSafeInteger(now) && now > 0,'CONFIG');
+  requireSafe(['valid','commercial','expired','wrong-installation','tampered','short-lived'].includes(mode) && Number.isSafeInteger(now) && now > 0,'CONFIG');
   const seconds=Math.floor(now/1000),expired=mode === 'expired';
   const header=Buffer.from(JSON.stringify({alg:'EdDSA',typ:'magicstick-license+jwt',kid:signer.kid})).toString('base64url');
-  const claims={version:1,product:'magicstick',issuer:'magicstick',edition:'free-registered',features:['federated-sso'],
+  const claims={version:1,product:'magicstick',issuer:'magicstick',edition:mode==='commercial'?'commercial':'free-registered',features:['federated-sso'],
     licenseId:'regression-'+randomUUID(),customer:'Disposable regression test fixture',
     installationId:mode === 'wrong-installation' ? randomUUID() : signer.installationId,
     issuedAt:seconds-(expired ? 300 : 30),notBefore:seconds-(expired ? 300 : 30),

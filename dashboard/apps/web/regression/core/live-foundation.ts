@@ -16,6 +16,7 @@ import {dirname,join} from 'node:path';
 import {writePrivate} from './private-files.ts';
 import {registeredLab} from './lab-policy.ts';
 import {HeartbeatLoop,bounded} from './run-lifecycle.ts';
+import {assertLicenseReceiptsRestored} from './license-transaction.ts';
 
 /** Shared foundation adapter: no GPU, host-maintenance or product-setting writes. */
 export class LiveFoundation {
@@ -224,6 +225,8 @@ export class LiveFoundation {
           // domain when another domain fails; each retains its identity guard.
           for(const journal of [...this.journals].reverse())try{await this.cleanup(journal);}catch(error){record(error);}
           for(const restore of [...this.restorations].reverse())try{await restore();}catch(error){record(error);}
+          for(const directory of new Set(this.journals.map(journal=>dirname(journal.filename))))
+            try{await assertLicenseReceiptsRestored(directory);}catch(error){record(error);}
           if(!failures.length)this.restorations=[];
           if(failures.length) {
             await writePrivate(join(dirname(this.journal.filename),'cleanup-failure.json'),{version:1,runId:this.journal.runId,failures,

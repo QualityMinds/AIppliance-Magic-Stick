@@ -65,9 +65,10 @@ export function remainingPhase(mode?:string):RemainingPhase|undefined {
   return /^phase[5-8](?:-fast|-fixtures|-live)?$/.test(mode ?? '') || mode === 'phase6-drill' ? Number(mode![5]) as RemainingPhase : undefined;
 }
 export const hostDrillIds=definitions.filter(item=>item.phase === 6 && item.gate).map(item=>item.id);
-export function remainingRequirements(mode:string,selectedId=mode === 'phase6-drill' ? process.env.REGRESSION_REMAINING_CASE : undefined) {
+export function remainingRequirements(mode:string,selectedId=mode === 'phase6-drill'||/^phase[5-8]-live$/.test(mode) ? process.env.REGRESSION_REMAINING_CASE : undefined) {
   const phase = remainingPhase(mode); if (!phase) return undefined;
   if(mode === 'phase6-drill')requireSafe(selectedId && hostDrillIds.includes(selectedId),'CONFIG');
+  if(selectedId)requireSafe((mode==='phase6-drill'||/^phase[5-8]-live$/.test(mode))&&definitions.some(item=>item.phase===phase&&item.id===selectedId&&item.layers.some(layer=>'AEON'.includes(layer))),'CONFIG');
   const layers = mode.endsWith('-fast') ? ['U','C'] : mode.endsWith('-fixtures') ? ['B'] :
     mode.endsWith('-live') || mode === 'phase6-drill' ? ['A','E','O','N'] : undefined;
   const required=Object.entries(remainingVariants).filter(([,definition]) => remainingVariantEnabled(definition) && definition.phase === phase && (!selectedId || definition.id === selectedId))

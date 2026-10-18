@@ -62,7 +62,14 @@ Only the administrator case requires the cluster-admin grant; export needs no
 exec plugin. `kubeconfig-copy`/`kubeconfig-download` identify export failures;
 `kubernetes-access`/`kubernetes-revoke` identify permission/revocation failures.
 License checks restore the original document or no-document baseline; a first
-test activation never leaves a test entitlement installed.
+test activation must not leave a test entitlement installed. LIC-02 only previews
+the automatically generated Free Registered and Commercial fixtures; LIC-03
+rejects invalid documents independently; only LIC-04 activates and restarts the
+API Pod. An identical-document import need not change its revision. Confirmed
+revisions and private restoration receipts are saved before UI postconditions.
+An unfinished receipt fails cleanup and retains the safety lock. License stages
+are `license-review`, `license-reject`, `license-activate`, `license-restart` and
+`license-restore`; historical reports are not rewritten after repair.
 
 The in-Appliance runner cannot independently verify its own reboot, power loss,
 network disconnection or software replacement. Those checks report
@@ -97,6 +104,13 @@ and fixtures are prepared automatically. Rebuild after changing runner code.
 Optional subset: `all --phases 2-4`. Keep the private directory so automatic
 cleanup can verify old resources and restore recorded settings. Ctrl+C stops
 further tests and requests cleanup.
+
+For an individual diagnosis after preparation, use, for example,
+`bash tools/regression.sh phase5-live LIC-04`. Phases 5–8 accept one of their own
+live case IDs this way. The same registered-lab, identity, lock and cleanup rules
+apply. This creates a fresh **scoped** report, not a full-phase acceptance result.
+Rebuild the runner after source changes; do not run another test while the lab
+lock is owned by an active run.
 
 The lab lock renews independently of browser/model waits. Independent checks
 continue after failures; unproved cleanup blocks later live writes. A campaign

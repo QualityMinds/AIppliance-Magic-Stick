@@ -61,7 +61,7 @@ test('HAR-10 disposable license signer is Ed25519 and bound to the exact install
 });
 test('HAR-10 signed license fixtures prove real expiry, wrong installation and signature tampering',annotation,()=>{
   const signer=createTestLicenseSigner(uid,installation),now=Date.now();
-  for(const mode of ['valid','expired','wrong-installation','tampered','short-lived'] as const) {
+  for(const mode of ['valid','commercial','expired','wrong-installation','tampered','short-lived'] as const) {
     const document=JSON.parse(testLicenseDocument(signer,mode,now));
     const [header,payload,signature]=document.token.split('.');
     const claims=JSON.parse(Buffer.from(payload,'base64url').toString());
@@ -69,6 +69,7 @@ test('HAR-10 signed license fixtures prove real expiry, wrong installation and s
     expect(claims.installationId === installation).toBe(mode !== 'wrong-installation');
     expect(claims.expiresAt > Math.floor(now/1000)).toBe(mode !== 'expired');
     if(mode === 'short-lived')expect(claims.expiresAt-Math.floor(now/1000)).toBe(120);
+    expect(claims.edition).toBe(mode==='commercial'?'commercial':'free-registered');
     expect(claims.features).toEqual(['federated-sso']);expect(document).not.toHaveProperty('privateKey');
   }
 });

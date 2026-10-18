@@ -35,13 +35,14 @@ const gpuCase = ['phase3-gpu','phase4-sharing'].includes(mode) ? process.argv[3]
 const gpuCases=mode === 'phase3-gpu' ? phase3RuntimeCases : phase4SharingCases;
 const selectedGpuCase = gpuCase && Object.hasOwn(gpuCases,gpuCase) ? gpuCases[gpuCase] : undefined;
 const hostCase = mode === 'phase6-drill' ? process.argv[3] : undefined;
+const liveCase=/^phase[5-8]-live$/.test(mode)?process.argv[3]:undefined;
 const recoveryRunId=mode==='campaign-recover'?process.argv[3]:undefined;
 const output = resolve(process.env.REGRESSION_OUTPUT_DIR ?? '.regression/runs');
 const directory = join(output, runId);
 const playwrightCli = resolve('node_modules/@playwright/test/cli.js');
 const typeScriptCli = resolve('node_modules/typescript/bin/tsc');
 // Invalid drill arguments are handled by the redacted reporting path below.
-const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
+const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
   mode === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] : mode === 'phase2-readonly' ? ['DISC-03'] :
   mode === 'phase2-models' ? selectedModelCase?.ids ?? phase2ModelIds :
   mode === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
@@ -81,12 +82,13 @@ try {
   // Keep the same validated diagnostic scope in both processes.
   if(selectedGpuCase)process.env.REGRESSION_GPU_CASE=gpuCase;
   requireSafe(mode !== 'phase6-drill' || hostDrillIds.includes(hostCase),'CONFIG');
-  requireSafe(!process.env.REGRESSION_REMAINING_CASE || mode === 'phase6-drill','CONFIG');
-  if(hostCase)process.env.REGRESSION_REMAINING_CASE=hostCase;
+  requireSafe(!process.env.REGRESSION_REMAINING_CASE || mode === 'phase6-drill' || liveCase===process.env.REGRESSION_REMAINING_CASE,'CONFIG');
+  if(liveCase)requireSafe(remainingIds(mode,liveCase)?.includes(liveCase),'CONFIG');
+  if(hostCase||liveCase)process.env.REGRESSION_REMAINING_CASE=hostCase??liveCase;
   await privateDirectory(output); await privateDirectory(directory);
   const environment = {...process.env, REGRESSION_MODE: mode, REGRESSION_RUN_ID: runId, REGRESSION_RUN_DIR: directory,
     REGRESSION_MODEL_CASE: selectedModelCase ? modelCase : '', REGRESSION_GPU_CASE: selectedGpuCase ? gpuCase : '',
-    REGRESSION_REMAINING_CASE:hostCase ?? ''};
+    REGRESSION_REMAINING_CASE:hostCase ?? liveCase ?? ''};
   const dnsPreload=new URL('./core/lab-dns.mjs',import.meta.url).href;
   if(!(environment.NODE_OPTIONS??'').includes(dnsPreload))
     environment.NODE_OPTIONS=((environment.NODE_OPTIONS??'')+' --import='+dnsPreload).trim();

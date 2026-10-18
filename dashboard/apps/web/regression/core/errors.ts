@@ -41,7 +41,8 @@ export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATI
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
   'kubernetes-access', 'kubernetes-revoke', 'kubeconfig-export', 'kubeconfig-copy', 'kubeconfig-download',
   'model-estimate', 'model-create', 'model-ready', 'module-ready', 'app-ready', 'gateway-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
-  'cleanup', 'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence',
+  'cleanup', 'license-review', 'license-activate', 'license-reject', 'license-restart', 'license-restore',
+  'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence',
   'baseline-models', 'baseline-pods', 'baseline-intents', 'baseline-claims', 'baseline-routes', 'baseline-host', 'baseline-keys',
   'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-route', 'model-inference', 'model-update'] as const;
 

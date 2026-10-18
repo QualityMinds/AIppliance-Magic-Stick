@@ -4,7 +4,7 @@ import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
 import {validCompanionReport} from './companion-live.ts';
 import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
-import {AdministrationApi} from '../core/administration-api.ts';
+import {AdministrationApi,allowedAdministrationRead} from '../core/administration-api.ts';
 import type {APIRequestContext} from '@playwright/test';
 import {atStage} from '../core/errors.ts';
 import {inspectOidcConfig} from '../core/oidc-exec.ts';
@@ -16,7 +16,8 @@ import type {LiveFoundation} from '../core/live-foundation.ts';
 import {validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
-import {licenseUiRequestAllowed} from './license-live.ts';
+import {licenseUiPermits} from './license-live.ts';
+import {allowedExactDashboardRequest} from '../core/auth.ts';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -123,14 +124,17 @@ test('MOD-06 absent AMD hardware blocks profile mutation before reading its modu
     .rejects.toMatchObject({code:'GPU_PROVIDER',outcome:'Blocked',stage:'gpu-backend'});
 });
 test('HAR-10 license UI protection allows bodyless polling but rejects unrelated and stale writes',annotation,()=>{
-  const document='synthetic-license',revision='synthetic-revision';
-  expect(licenseUiRequestAllowed('GET','/api/license',null,document,revision)).toBe(true);
-  expect(licenseUiRequestAllowed('POST','/api/license/validate',{document},document,revision)).toBe(true);
-  expect(licenseUiRequestAllowed('PUT','/api/license',{document,expectedRevision:revision},document,revision)).toBe(true);
+  const document='synthetic-license',revision='synthetic-revision',origin='https://dashboard.example.local';
+  const allowed=(method:string,path:string,body:unknown,activate=true)=>Boolean(allowedExactDashboardRequest(new URL(origin+path),method,body,origin,licenseUiPermits(document,revision,activate)));
+  expect(allowedAdministrationRead(new URL(origin+'/api/license'),origin)).toBe(true);
+  expect(allowed('POST','/api/license/validate',{document})).toBe(true);
+  expect(allowed('PUT','/api/license',{document,expectedRevision:revision})).toBe(true);
+  expect(allowed('PUT','/api/license',{document,expectedRevision:revision},false)).toBe(false);
   for(const [method,path,body] of [['PUT','/api/license',null],['POST','/api/license',{document}],
     ['PUT','/api/license',{document:'other',expectedRevision:revision}],['PUT','/api/license',{document,expectedRevision:'old'}],
+    ['PUT','/api/license',{document,expectedRevision:revision,unexpected:true}],
     ['DELETE','/api/license',null],['POST','/api/license/validate',[]]] as const)
-    expect(licenseUiRequestAllowed(method,path,body,document,revision)).toBe(false);
+    expect(allowed(method,path,body)).toBe(false);
 });
 test('HAR-10 administration reads ignore flattened session cookies and retain HTTP failures',annotation,async()=>{
   let status=200;
@@ -143,6 +147,17 @@ test('HAR-10 administration reads ignore flattened session cookies and retain HT
   await expect(atStage('baseline-models',()=>api.api.modules())).rejects.toThrow('[stage:baseline-models]');
   await expect(api.write({method:'POST',path:'/api/modules/fixture/enable',body:{}},()=>api.api.enableModule('fixture')))
     .rejects.toMatchObject({status:403});
+});
+test('HAR-10 a durable forward receipt runs only after the guard and before the exact API write',annotation,async()=>{
+  for(const fault of ['none','guard','receipt'] as const) {
+    const events:string[]=[];
+    const request={fetch:async()=>{events.push('send');return {status:()=>200,headers:()=>({'content-type':'application/json'}),body:async()=>Buffer.from('{}')};}} as unknown as APIRequestContext;
+    const api=new AdministrationApi(request,'https://dashboard.example.invalid',1000,async()=>{events.push('guard');if(fault==='guard')throw new HarnessError('LOCK_LOST');});
+    const action=api.write({method:'PUT',path:'/api/license',body:{document:'synthetic',expectedRevision:'1'}},()=>api.api.importLicense('synthetic','1'),
+      async()=>{events.push('receipt');if(fault==='receipt')throw new HarnessError('PRIVATE_FILE');});
+    if(fault==='none'){await action;expect(events).toEqual(['guard','receipt','send']);}
+    else{await expect(action).rejects.toBeInstanceOf(HarnessError);expect(events).toEqual(fault==='guard'?['guard']:['guard','receipt']);}
+  }
 });
 
 test('SEC-04 shipped permissions include recursively referenced regression and log roles, not an obsolete file list',annotation,async()=>{

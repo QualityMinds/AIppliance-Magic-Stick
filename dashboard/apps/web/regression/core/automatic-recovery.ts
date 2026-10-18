@@ -116,7 +116,7 @@ export class AutomaticRecovery {
             registration.nodeUids.includes(value.nodeUid)&&typeof value.nodeName==='string'&&Array.isArray(value.entries),'RECOVERY');
           if(value.entries.some((entry:{state:string})=>entry.state!=='restored'))sharing.push({filename,
             identity:{runId:value.runId,targetUid:value.targetUid,nodeName:value.nodeName,nodeUid:value.nodeUid}});
-        } else if(/^(?:borrowed-amd-profile|license-transaction|license-baseline(?:-(?:lic-01|sso-01))?|federation|mesh-membership|unmanaged-key-fixture|network-baseline-restore|host-drill-[a-z0-9-]+|kube-(?:configmaps|secrets|moduleactivations|appinstances|modelactivations))\.json$/.test(name)) {
+        } else if(/^(?:borrowed-amd-profile|license-transaction(?:-lic-0[234])?|license-baseline(?:-(?:lic-01|sso-01))?|federation|mesh-membership|unmanaged-key-fixture|network-baseline-restore|host-drill-[a-z0-9-]+|kube-(?:configmaps|secrets|moduleactivations|appinstances|modelactivations))\.json$/.test(name)) {
           const value=JSON.parse(await readPrivate(filename));
           requireSafe(value.version===1&&['restored','removed','verified'].includes(value.state),'RECOVERY');
         }

@@ -238,7 +238,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
   if(id.startsWith('APP-') || id.startsWith('ACL-')) return oneWorkflow('applications',()=>applicationsWorkflow(live!,browser),id);
   if(['MOD-03','MOD-04'].includes(id)) return oneWorkflow('modules',()=>modulesWorkflow(live!),id);
   if(id === 'MOD-06')return moduleProfileWorkflow(live!);
-  if(['LIC-02','LIC-03','LIC-04'].includes(id)) return oneWorkflow('license',()=>licensingWorkflow(live!),id);
+  if(id==='LIC-02'||id==='LIC-03'||id==='LIC-04')return licensingWorkflow(live!,id);
   if(['SSO-02','SSO-04','SSO-05'].includes(id)) return oneWorkflow('federation',()=>federationWorkflow(live!,browser),id);
   if(['MESH-03','MESH-04','MESH-05','MESH-06','MESH-07'].includes(id)) return oneWorkflow('mesh',()=>meshWorkflow(live!,browser),id);
   if(id === 'PERF-02') return oneWorkflow('repeat',repeatWorkflow,id);

@@ -99,7 +99,7 @@ export async function bootstrapTestLicenses(directory:string,registration:LabReg
   const signer=await present(filename) ? validateTestLicenseSigner(JSON.parse(await readPrivate(filename)),registration.applianceUid,installationId) :
     createTestLicenseSigner(registration.applianceUid,installationId);
   if(!await present(filename))await writePrivate(filename,signer,true);
-  for(const kind of ['valid','expired','wrong-installation','tampered','short-lived'] as const)
+  for(const kind of ['valid','commercial','expired','wrong-installation','tampered','short-lived'] as const)
     await writePrivate(join(directory,`license-${kind}.license`),testLicenseDocument(signer,kind));
   const command=(args:string[],data?:unknown)=>bootstrapCommand(join(directory,'.setup-bootstrap.kubeconfig'),args,data);
   const map=await command(['get','configmap','magicstick-license-trust','-n','identity-system','-o','json']);

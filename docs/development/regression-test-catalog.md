@@ -552,6 +552,21 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+18 October 2026 license follow-up: LIC-02 previews both supported editions without
+activation; LIC-03 independently verifies invalid-document rejection and unchanged
+active state; LIC-04 alone tests activation, stale CAS and API-restart persistence.
+The installed adapter uses the normal context request guard instead of racing a
+second page route against polling/teardown. Equal-document imports may retain the
+same resource version. A registered, document-only restoration binds the Secret
+UID, installation, confirmed revision, original/candidate hashes and preserved
+unknown fields. Unsent, confirmed and lost-response paths, interrupted restoration,
+foreign edits and unfinished legacy receipts have focused counterexamples in the
+[transaction tests](../../dashboard/apps/web/regression/administration/license-workflow.unit.spec.ts)
+and [real-UI fixtures](../../dashboard/apps/web/regression/administration/license-review.browser.spec.ts).
+These are selected by selftest and Phase 5 fast/fixture profiles. Targeted installed
+LIC-02–04 acceptance and a new complete Phase 5 run remain separate gates; the
+earlier failed report is retained unchanged.
+
 17 October 2026 Kubernetes follow-up: K8S-02–06 execute independently with separate
 owned identities and cleanup, rather than repeatedly failing the Viewer export
 before reaching Operator, administrator or revocation assertions. The copy race

@@ -257,7 +257,7 @@ test('HAR-10 missing external fixtures remain blocked after consent; satisfied a
   expect(inputHash(profile)).toBe(before);
   expect(phase5.measures.some(measure=>measure.id === 'users')).toBe(false);
   expect(phase5.measures.find(measure=>measure.id === 'licenses')?.missing).toEqual([
-    'The four private issuer/rejection license fixtures are incomplete or unreadable.',
+    'The private issuer/rejection license fixtures are incomplete or unreadable.',
     'Repeatable no-license tests need the separately scoped license-document reset/restore credential and explicit baseline consent.',
   ]);
   for(const id of ['licenses','oidc-plugin','api-restarter','optional-module','amd-profile','federation'])

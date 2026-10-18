@@ -169,7 +169,8 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
   add('kubernetes-admin','oidc-plugin',[[approved(profile.kubernetes,'approveAdminGrant'),
     'The isolated Kubernetes cluster-administrator grant has not been approved.']],!approved(profile.kubernetes,'approveAdminGrant'));
   add('license','licenses',[[file(profile.license?.validFile,snapshot) && profile.license?.invalidFiles?.length === 3 &&
-    profile.license.invalidFiles.every((path:string)=>file(path,snapshot)),'The four private issuer/rejection license fixtures are incomplete or unreadable.'],
+    (!profile.license.commercialFile||file(profile.license.commercialFile,snapshot))&&
+    profile.license.invalidFiles.every((path:string)=>file(path,snapshot)),'The private issuer/rejection license fixtures are incomplete or unreadable.'],
     [approved(profile.license,'approveLicenseReplacement'),'Temporary license replacement/restoration has not been approved.']],!approved(profile.license,'approveLicenseReplacement'));
   add('license','api-restarter',[[file(profile.license?.restart?.kubeconfig,snapshot),'The distinct narrow API-Pod restarter credential is missing or unreadable.'],
     [approved(profile.license?.restart,'approveApiRestart'),'The API-Pod restart has not been approved separately.']],!approved(profile.license?.restart,'approveApiRestart'));
@@ -268,6 +269,7 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
     invalidFiles:['/inputs/license-expired.license','/inputs/license-wrong-installation.license','/inputs/license-tampered.license'],
     restart:{approveApiRestart:false,kubeconfig:'/inputs/api-restarter.kubeconfig'}};
   profile.license.baseline ??= {approveNoFileBaseline:false,kubeconfig:'/inputs/license-resetter.kubeconfig'};
+  profile.license.commercialFile ??= '/inputs/license-commercial.license';
   profile.cache ??= {};
   profile.repeat ??= {cycles:3,maximumMemoryGrowthMi:1024,maximumNonCacheDiskGrowthBytes:268435456};
   const flags:Record<string,[string,string][]>={identity:[['identity','approveDisposableUsers']],kubernetes:[['kubernetes','approveAdminGrant']],

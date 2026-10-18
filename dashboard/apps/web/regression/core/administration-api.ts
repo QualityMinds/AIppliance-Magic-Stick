@@ -21,6 +21,7 @@ export class AdministrationApi {
   readonly timeoutMs:number;
   readonly guard:()=>Promise<void>;
   private permits:ExactDashboardRequest[]=[];
+  private beforeSend?:()=>Promise<void>;
   constructor(request:APIRequestContext,origin:string,timeoutMs:number,guard:()=>Promise<void>) {
     this.request=request;this.origin=origin;this.timeoutMs=timeoutMs;this.guard=guard;
     const transport:typeof fetch=async(input,init={})=>{
@@ -34,7 +35,7 @@ export class AdministrationApi {
           JSON.stringify(item.body) === JSON.stringify(body));
         requireSafe(url.origin === origin && !url.search && !url.hash && permit,'MUTATION');
         this.permits.splice(this.permits.indexOf(permit),1);
-        await guard(); headers.set('Origin',origin);
+        await guard();await this.beforeSend?.();headers.set('Origin',origin);
       }
       let response;
       try {response=await request.fetch(url.href,{method,headers:Object.fromEntries(headers.entries()),
@@ -50,13 +51,13 @@ export class AdministrationApi {
     };
     this.api=new MagicStickApi({baseUrl:origin,fetch:transport});
   }
-  async write<T>(permit:ExactDashboardRequest,action:()=>Promise<T>):Promise<T> {
-    requireSafe(this.permits.length === 0,'MUTATION'); this.permits.push(permit);
+  async write<T>(permit:ExactDashboardRequest,action:()=>Promise<T>,beforeSend?:()=>Promise<void>):Promise<T> {
+    requireSafe(this.permits.length === 0,'MUTATION'); this.permits.push(permit);this.beforeSend=beforeSend;
     try {return await action();} catch(error) {
       if(error instanceof ApiError) throw new AdministrationRejected(error.status);
       if(error instanceof HarnessError) throw error;
       throw new HarnessError('API');
-    } finally {this.permits=[];}
+    } finally {this.permits=[];this.beforeSend=undefined;}
   }
 }
 export class AdministrationRejected extends HarnessError {

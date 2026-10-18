@@ -168,6 +168,9 @@ function xml(value: string) { return value.replace(/[&<>"']/g, char => ({'&': '&
 
 export function liveReportScope(mode?: string) {
   const phase=remainingPhase(mode);
+  const selected=/^phase[5-8]-live$/.test(mode??'')?process.env.REGRESSION_REMAINING_CASE:undefined;
+  if(selected&&remainingRequirements(mode!)?.some(item=>item.id===selected))
+    return `Phase ${phase} diagnostic subset: ${selected} only on the registered disposable lab; normal lock, identity and cleanup rules; not full-phase acceptance`;
   if(phase) return `Phase ${phase} P0 catalogue/layer matrix on the registered disposable lab; fixed lab policy permits owned resources and bounded host operations; missing real prerequisites are Blocked, not passes`;
   if(mode === 'all')return 'All implemented Phase 0–8 P0 scenarios on the registered disposable lab; independent tests continue, missing prerequisites are Blocked and unproved recovery fences later live writes';
   if(mode === 'campaign-recover')return 'Automatic restoration of the exact finished campaign child after real lease expiry and drain; owned UID receipts only; no new workloads or rewritten test outcomes';

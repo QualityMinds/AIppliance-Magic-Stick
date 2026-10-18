@@ -7,7 +7,7 @@ import {AdministrationApi} from './administration-api.ts';
 import {poll} from './poll.ts';
 import {canonicalInput} from './input-preparation.ts';
 
-type LicenseSecret=KubeObject & {data:Record<string,string>};
+export type LicenseSecret=KubeObject & {data:Record<string,string>};
 const fingerprint=(value:string)=>createHash('sha256').update(value).digest('hex');
 export function absentLicenseDocumentPatch(original:LicenseSecret,current:LicenseSecret,installationId:string,document:string) {
   requireSafe(!original.data['license.json'] && current.metadata.uid===original.metadata.uid &&
@@ -33,7 +33,7 @@ export function licenseDocumentPatch(secret:LicenseSecret,installationId:string,
   } else operations.push({op:Object.hasOwn(secret.data,'license.json') ? 'replace' : 'add',path:'/data/license.json',value:Buffer.from(document).toString('base64')});
   return operations;
 }
-class LicenseResetter extends KubectlObserver {
+export class LicenseResetter extends KubectlObserver {
   async verifyScope(namespaces:string[]) {
     await readPrivate(this.kubeconfig);
     const config=JSON.parse(await this.command(['config','view','--raw','--minify','-o','json']));
