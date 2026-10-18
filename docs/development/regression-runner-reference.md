@@ -805,6 +805,15 @@ updated suite remains the lab owner's next step.
 
 ## Experimental engine test scope
 
+Omni/Realtime regression is temporarily excluded while that product path remains
+experimental. `lab-policy.ts` lists `VLLM-Omni`; `engine-policy.ts` applies it to
+RT case selection, owning/fixture/live coverage and automatic preparation. Phase
+7 retains Mesh/companion. Direct `phase7-live RT-xx` selection is rejected before
+live setup rather than producing an empty pass. Reports disclose the exclusion;
+ordinary Ollama/vLLM and the product's Omni feature are unchanged. Keep the
+retained RT cases and re-enable the policy only after Realtime is ready, with
+matching CI images and fresh focused acceptance. Old reports are not rewritten.
+
 FreeToken has been removed from the product and active regression profiles.
 The retired IDs remain documented for historical report interpretation; removal
 and legacy-model cleanup are covered by the owning lifecycle suites.

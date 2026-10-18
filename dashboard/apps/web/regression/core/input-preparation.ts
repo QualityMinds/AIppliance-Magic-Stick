@@ -4,7 +4,7 @@ import {parseLabConfig, type LabConfig, type RuntimeModelFixture} from './config
 import type {KubeObject} from './observer.ts';
 import {requireSafe} from './errors.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle} from './preflight.ts';
-import {engineRegressionEnabled} from './engine-policy.ts';
+import {engineRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
@@ -283,6 +283,9 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
   }
   if(snapshot.ci?.securityCi)profile.securityCi={...profile.securityCi,...snapshot.ci.securityCi};
   if(snapshot.ci?.companion)profile.companion={...profile.companion,...snapshot.ci.companion};
+  // Old accepted inputs must not resurrect a temporarily excluded scenario.
+  // Existing recovery journals remain intact and are still cleaned normally.
+  if(!realtimeRegressionEnabled())delete profile.realtime;
   return profile;
 }
 

@@ -793,6 +793,9 @@ def suite_consent(facts, previous=None):
         ('unmanaged-key', [5, 8], 'Create a one-hour disposable unmanaged LiteLLM key for the denied-delete probe, then remove ONLY that fixture; master key stays in memory'),
         ('host-drills', [6], 'DESTRUCTIVE host drills: reboots, GPU memory, network rollback, updates, channel changes and model-cache deletion'),
     ]
+    # The Node inventory applies the repository's experimental-engine policy.
+    # Do not ask for or reuse permission for an excluded/unavailable Omni fixture.
+    descriptions = [row for row in descriptions if row[0] != 'realtime' or inventory.get('realtime')]
     scopes = []
     old_scopes = previous.get('scopes', []) if matching else []
     reuse = matching and yes_no('Reuse previously reviewed per-scope answers for this unchanged installation?', True)

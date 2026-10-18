@@ -24,6 +24,12 @@ Reloading the page does not stop the Kubernetes Job.
 **Refresh tests** remains available during automatic updates. **Cancel tests**
 requests bounded cleanup.
 
+Experimental **Omni/Realtime tests are temporarily excluded** (`RT-01`–`RT-08`).
+Phase 7 still runs Mesh/companion checks. Setup does not prepare Omni models or
+GPU transitions for these excluded tests; reports list `VLLM-Omni` as excluded,
+not passed or blocked. Ordinary Ollama/vLLM tests and product Omni support stay
+unchanged. Re-enable the retained cases after Realtime is ready for acceptance.
+
 <a id="if-cleanup-is-blocked"></a>
 
 ### Clean up without starting tests

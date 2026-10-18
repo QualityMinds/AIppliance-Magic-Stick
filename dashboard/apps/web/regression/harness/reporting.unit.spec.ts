@@ -10,8 +10,8 @@ import {caseDescription, caseDescriptions, durationDescription, layerDescription
 import {HarnessError,reasons} from '../core/errors.ts';
 import {evidenceAnnotations,evidenceStep} from '../core/evidence.ts';
 import {phase3Requirements,gpuModeIds} from '../profiles/gpu-p0.ts';
-import {remainingRequirements} from '../profiles/remaining-p0.ts';
-import {disabledExperimentalEngines} from '../core/engine-policy.ts';
+import {remainingRequirements,remainingIds,remainingVariants,remainingVariantEnabled} from '../profiles/remaining-p0.ts';
+import {disabledExperimentalEngines,engineRegressionEnabled} from '../core/engine-policy.ts';
 import {completeCases,guardedLiveCases,blockedAction,reportExitCode,reportVariants, saveReport, type CaseResult} from '../core/report.ts';
 import {newRunId} from '../core/journal.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
@@ -461,7 +461,7 @@ test('HAR-10 reporter shows test progress, exact public scenario, layer, goal an
     reporter.onTestEnd(second, result());
   });
   expect(output).toContain('Selected 2 executable tests');
-  expect(output).not.toContain('Excluded experimental engine tests:');
+  expect(output).toContain('Excluded experimental engine tests: VLLM-Omni. Product engines remain enabled.');
   expect(output).toContain('[1/2] START HAR-10');
   expect(output).toContain(`Scenario: ${title}`);
   expect(output).toContain(`HAR-10 catalogue goal: ${caseDescription('HAR-10')}`);
@@ -522,13 +522,45 @@ test('HAR-10 late Stop failure preserves inference evidence and blocks only unre
 });
 
 test('HAR-10 retired FreeToken cases are absent from executable coverage',()=>{
-  expect(disabledExperimentalEngines).toEqual([]);
+  expect(disabledExperimentalEngines).not.toContain('FREETOKEN');
   expect(phase3Requirements.some(item=>item.variant.startsWith('p3-ft-'))).toBe(false);
   expect(gpuModeIds('phase3-gpu')?.some(id=>id.startsWith('FT-') || id === 'DISC-08')).toBe(false);
   expect(remainingRequirements('phase6')?.some(item=>item.id === 'CACHE-07')).toBe(false);
   expect(completeCases('phase3',[],gpuModeIds('phase3')!).some(item=>item.id.startsWith('FT-') || item.id === 'DISC-08')).toBe(false);
   expect(phase3Requirements.some(item=>item.variant === 'p3-nvidia-vllm')).toBe(true);
   expect(phase3Requirements.some(item=>item.variant === 'p3-amd-ollama')).toBe(true);
+});
+
+test('HAR-10 experimental Omni cases remain documented but are excluded at every regression layer and direct live selection',()=>{
+  expect(disabledExperimentalEngines).toEqual(['VLLM-Omni']);
+  expect(engineRegressionEnabled('VLLM')).toBe(true);expect(engineRegressionEnabled('OLlama')).toBe(true);
+  const omni=Object.values(remainingVariants).filter(item=>item.gate==='realtime');
+  expect(omni.map(item=>item.id)).toEqual(['RT-01','RT-02','RT-03','RT-04','RT-08']);
+  expect(omni.every(item=>!remainingVariantEnabled(item))).toBe(true);
+  for(const mode of ['phase7','phase7-fast','phase7-fixtures','phase7-live']) {
+    expect(remainingRequirements(mode)!.some(item=>item.id.startsWith('RT-'))).toBe(false);
+    expect(remainingIds(mode)).toContain('MESH-01');
+    expect(completeCases(mode,[],remainingIds(mode)!).some(item=>item.id.startsWith('RT-'))).toBe(false);
+  }
+  for(const item of omni)expect(()=>remainingRequirements('phase7-live',item.id)).toThrow('[CONFIG]');
+});
+
+test('HAR-10 Omni exclusions are report metadata, never synthetic passed or blocked tests',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-omni-exclusion-'));
+  try {
+    const required=remainingRequirements('phase7-fast')!,cases:CaseResult[]=required.map(item=>({...item,
+      variant:item.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
+    await saveReport(directory,newRunId(),cases,remainingIds('phase7-fast')!,'unknown','phase7-fast');
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.excludedEngineTests).toEqual(['VLLM-Omni']);expect(json.counts).toEqual({Passed:cases.length,Failed:0,Blocked:0,
+      Skipped:0,'Not run':0,Flaky:0});
+    expect(json.cases.some((item:{id:string})=>item.id.startsWith('RT-'))).toBe(false);
+    for(const file of ['summary.html','summary.txt'])expect(await readFile(join(directory,file),'utf8'))
+      .toContain('Excluded experimental engine tests: VLLM-Omni. Product engines are unchanged.');
+    const junit=await readFile(join(directory,'junit.xml'),'utf8');
+    expect(junit).toContain('<property name="excludedExperimentalEngines" value="VLLM-Omni"/>');
+    expect(junit).not.toMatch(/<testcase[^>]*name="RT-/);
+  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
 test('HAR-10 reports count executable scenarios independently of their case variant layer evidence',async()=>{

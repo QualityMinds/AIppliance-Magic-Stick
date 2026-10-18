@@ -4,6 +4,7 @@ import {editRevision} from './owned-model.ts';
 import {approvals,type Approval,type PreparationOptions,type PreparationSnapshot} from './input-preparation.ts';
 import {canonicalInput} from './input-preparation.ts';
 import type {LabConfig} from './config.ts';
+import {realtimeRegressionEnabled} from './engine-policy.ts';
 
 /** Owner consent is data, not an administrator credential or a preflight bypass.
  * Boots may change during a reviewed drill; physical installation IDs may not. */
@@ -53,7 +54,7 @@ export function suiteInventory(models:ModelsPayload,modules:ModulesPayload,statu
   const amd=status.hardwareOperators?.['amd-gpu']?.compatibility;
   const profiles=Object.entries(models.computeTargets.engineCatalog?.VLLM?.realtimeProfiles ?? {});
   const realtime=profiles.flatMap(([id,profile])=>(models.computeTargets.realtimeDevices ?? []).filter(device=>
-    device.profile === id && device.supported && profile.gpuCounts.includes(1) && ['nvidia-gpu','amd-gpu'].includes(device.computeTarget ?? ''))
+    realtimeRegressionEnabled() && device.profile === id && device.supported && profile.gpuCounts.includes(1) && ['nvidia-gpu','amd-gpu'].includes(device.computeTarget ?? ''))
     .map(device=>({id,model:profile.model,node:device.node,computeTarget:device.computeTarget,
       contextWindow:Math.min(2048,profile.defaultContextWindow,profile.maxContextWindow ?? 2048),
       maxContextWindow:profile.maxContextWindow ?? profile.defaultContextWindow,

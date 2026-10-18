@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Temporarily exclude experimental Omni/Realtime cases from regular regression
+  selection and automatic fixture preparation. Keep their definitions for later
+  reactivation and preserve historical results. Reports disclose the exclusion;
+  product Omni support and ordinary Ollama/vLLM regression remain unchanged.
+
 - Separate license regression preview, rejection and activation/persistence
   cases. Remove the competing browser request handler, accept idempotent imports,
   retain UID/revision-bound restoration receipts before postconditions, and fence

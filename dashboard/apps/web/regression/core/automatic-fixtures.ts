@@ -5,6 +5,7 @@ import {labPolicy} from './lab-policy.ts';
 import type {HostDrillRecipes} from './host-drill-recipes.ts';
 import {requireSafe} from './errors.ts';
 import {moduleResourceLinks} from '@magicstick/dashboard-core';
+import {realtimeRegressionEnabled} from './engine-policy.ts';
 
 /** Choose test fixtures from the deployed product catalog, including its small
  * CPU text fixtures for compatible GPU runtimes. No user-maintained model list. */
@@ -69,7 +70,7 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   if(previous.mesh?.peerConfig)profile.mesh={...previous.mesh,approveTwoAppliances:true,approveGpuTransitions:true};
   for(const key of ['securityCi','companion'])if(snapshot.ci?.[key])profile[key]={...snapshot.ci[key],...(previous[key]?.tokenFile ? {tokenFile:previous[key].tokenFile} : {})};
   const profiles=snapshot.models.computeTargets.engineCatalog?.VLLM?.realtimeProfiles ?? {};
-  const candidates=(snapshot.models.computeTargets.realtimeDevices ?? []).filter(d=>d.supported && d.node === lab.gpu?.nodeName &&
+  const candidates=(snapshot.models.computeTargets.realtimeDevices ?? []).filter(d=>realtimeRegressionEnabled() && d.supported && d.node === lab.gpu?.nodeName &&
     profiles[d.profile]?.gpuCounts.includes(1) && ['nvidia-gpu','amd-gpu'].includes(d.computeTarget ?? '')).sort((a,b)=>
     Number(profiles[a.profile]?.defaultSystemMemoryMi)-Number(profiles[b.profile]?.defaultSystemMemoryMi));
   const device=candidates[0],capability=device && profiles[device.profile];

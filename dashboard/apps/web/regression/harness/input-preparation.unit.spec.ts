@@ -8,6 +8,7 @@ import {automaticPreparationMeasure,readinessLines} from '../core/preparation-me
 import {hostDrillIds} from '../profiles/remaining-p0.ts';
 import {automaticGpuProfile,automaticHostRecipes,automaticProfile} from '../core/automatic-fixtures.ts';
 import {labPolicy,parseRegistration,verifyRegistration} from '../core/lab-policy.ts';
+import {suiteInventory} from '../core/setup-suite.ts';
 
 const digest='sha256:'+'a'.repeat(64),revision='develop@sha1:'+'b'.repeat(40);
 const options:PreparationOptions={phases:[0,1,2,3,4,5,6,7,8],approve:[],independentRecovery:false};
@@ -59,6 +60,25 @@ test('K8S-05 export readiness is independent of exec-plugin and cluster-admin pr
   const checked=inputReadiness(lab,withPlugin,observed,{...options,phases:[5],automatic:true})[0]!;
   for(const id of ['K8S-02','K8S-03','K8S-05','K8S-06'])expect(checked.cases!.find(item=>item.id===id)!.state).toBe('InputsReady');
   expect(checked.cases!.find(item=>item.id==='K8S-04')!.state).toBe('Blocked');
+});
+
+test('HAR-10 excluded Omni never generates preparation fixtures or inherits old Realtime approvals',()=>{
+  const observed=snapshot(),original=structuredClone(observed.models);
+  Object.assign(observed.models.computeTargets,{engineCatalog:{VLLM:{realtimeProfiles:{omni:{model:'example/omni',gpuCounts:[1],
+    defaultContextWindow:1024,maxContextWindow:4096,defaultSystemMemoryMi:4096}}}},
+    realtimeDevices:[{profile:'omni',node:'lab-node',supported:true,computeTarget:'nvidia-gpu',gpuMemoryMi:49152,systemMemoryMi:64000}]});
+  const models=structuredClone(observed.models),lab=prepareInputs(source(),observed,options,{}).parsed;
+  lab.gpu={selection:'available-providers',acknowledgeSharingTransitions:true,nodeName:'lab-node',nodeUid:'node-uid',
+    bootId:'boot-uid',sharedSlots:2,devices:{},models:{}};
+  const previous={realtime:{approveGpuTransitions:true,fixtures:[{mode:'exclusive',maxModels:2}]}};
+  expect(preparedProfile(previous,observed,{...options,approve:['realtime']})).not.toHaveProperty('realtime');
+  const profile=automaticProfile(observed,previous,lab);expect(profile).not.toHaveProperty('realtime');
+  expect(previous.realtime.approveGpuTransitions).toBe(true);
+  expect(suiteInventory(observed.models,observed.modules,observed.status,observed.hosts).realtime).toEqual([]);
+  const phase=inputReadiness(lab,profile,observed,{...options,phases:[7],automatic:true})[0]!;
+  expect(phase.cases!.some(item=>item.id.startsWith('RT-'))).toBe(false);
+  expect(phase.measures.some(item=>item.id==='realtime')).toBe(false);
+  expect(observed.models).toEqual(models);expect(observed.models.presets).toEqual(original.presets);
 });
 
 test('HAR-10 registered lab policy is fixed and rejects replacement targets or a mutable server marker',()=>{
@@ -245,7 +265,7 @@ test('HAR-10 every preparation blocker has concrete saved/printed measures and b
   expect(lines).toContain('Phase 3: Blocked');expect(lines).toContain('Missing: Temporary AMD/NVIDIA sharing transitions have not been approved');
   expect(lines).toContain('No unambiguous managed node');expect(lines).toContain('bash tools/regression.sh setup');
   expect(lines).toContain('build-mesh-companion.yml');expect(lines).toContain('dependency-security.yml');
-  expect(lines).toContain('both exclusive and shared');expect(lines).toContain('manual --api-restart');
+  expect(lines).not.toContain('both exclusive and shared');expect(lines).toContain('manual --api-restart');
   expect(lines).toContain('automatic one-hour fixture');expect(lines).not.toContain('--approve all');
 });
 

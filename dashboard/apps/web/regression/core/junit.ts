@@ -8,8 +8,9 @@ import {regressionBlockedLabel} from '../../../../packages/core/src/regression-b
 const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]!));
 type Entry={name:string;classname:string;outcome:string;durationMs:number;detail:string;properties:Record<string,string>;
   source?:{file:string;line:number};output?:string};
-function suite(name:string,entries:Entry[]) {
+function suite(name:string,entries:Entry[],excludedEngines:readonly string[]=[]) {
   return `<testsuite name="${name}" tests="${entries.length}" failures="${entries.filter(item=>item.outcome==='Failed').length}" skipped="${entries.filter(item=>item.outcome==='Blocked').length}">\n`+
+    (excludedEngines.length ? `<properties><property name="excludedExperimentalEngines" value="${xml(excludedEngines.join(', '))}"/></properties>\n` : '')+
     entries.map(item=>`<testcase classname="${xml(item.classname)}" name="${xml(item.name)}" time="${(item.durationMs/1000).toFixed(3)}"`+
       (item.source?` file="${xml(item.source.file)}" line="${item.source.line}"`:'')+'>'+
       '<properties>'+Object.entries(item.properties).map(([name,value])=>`<property name="${xml(name)}" value="${xml(value)}"/>`).join('')+'</properties>'+
@@ -18,7 +19,7 @@ function suite(name:string,entries:Entry[]) {
 }
 /** Keep case/layer evidence, executable scenarios and steps as distinct suites.
  * Relative attachments work after extracting the sanitized report archive. */
-export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[]) {
+export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],excludedEngines:readonly string[]=[]) {
   const lookup=new Map(artifacts.map(item=>[item.trace.executionId,item]));
   const evidence:Entry[]=cases.map(item=>{
     const artifact=item.executionId?lookup.get(item.executionId):undefined;
@@ -56,6 +57,6 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[]) {
     properties:{executionId:trace.executionId,stepIndex:String(step.index),category:step.category,outcome:step.outcome,trace:path,
       ...(step.parentIndex?{parentStep:String(step.parentIndex)}:{}),...(step.reason?{reason:step.reason}:{}),...(step.stage?{stage:step.stage}:{}),
       ...(step.handledError?{handledError:'true'}:{} )},output:JSON.stringify(step)})));
-  return '<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>\n'+suite('magicstick-selected-regression',evidence)+'\n'+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>\n'+suite('magicstick-selected-regression',evidence,excludedEngines)+'\n'+
     suite('magicstick-executable-scenarios',scenarios)+'\n'+suite('magicstick-test-steps',steps)+'\n</testsuites>\n';
 }

@@ -3,6 +3,7 @@ import {componentSuite,pythonSuite} from '../components/owning.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants,remainingVariantEnabled,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
 import {HarnessError} from '../core/errors.ts';
+import {realtimeRegressionEnabled} from '../core/engine-policy.ts';
 
 const api='../../../magic-cluster/apps/dashboard';
 const identity='../../../magic-cluster/platform/identity/tests';
@@ -71,9 +72,10 @@ const proofs:Record<string,Proof>={
   'supply-chain':{python:[['../../../tests',['test_release.ReleaseTests','test_runtime_image_updates.RuntimeImageTests','test_license_release.ReleaseMetadataTests','test_license_ci','test_regression_security','test_regression_launcher','test_regression_inputs']]],components:[['src/CoreSafety.test.ts',[]]]},
   forms:{components:[['src/pages/GpuSharingControls.test.tsx',[]],['src/pages/SoftwareChannelEditor.test.tsx',[]],
     ['src/pages/HostGpuMemory.test.tsx',[]],['src/pages/NetworkPage.test.tsx',[]],['src/pages/UpdatesPage.test.tsx',[]],
-    ['src/FeatureParity.test.tsx',['Settings retains both editable domains']],['src/pages/MeshPage.test.tsx',[]],['src/RealtimeModelForm.test.tsx',[]]]},
+    ['src/FeatureParity.test.tsx',['Settings retains both editable domains']],['src/pages/MeshPage.test.tsx',[]],
+    ...(realtimeRegressionEnabled() ? [['src/RealtimeModelForm.test.tsx',[]] as [string,string[]]] : [])]},
   repeat:{python:[[operator,['test_model_lifecycle.ModelLifecycleTests',
-    'test_realtime_runtime.RealtimeRuntimeTests']], [api,['test_model_update.ModelUpdateTests']]]},
+    ...(realtimeRegressionEnabled() ? ['test_realtime_runtime.RealtimeRuntimeTests'] : [])]], [api,['test_model_update.ModelUpdateTests']]]},
 };
 const cache=new Map<string,Promise<void>>();
 function execute(group:string) {

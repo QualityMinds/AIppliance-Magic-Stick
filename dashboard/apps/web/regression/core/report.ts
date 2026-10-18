@@ -278,7 +278,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     ...(mode === 'phase2' ? {phase2Coverage: controlCoverage} : {}),
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
     ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
-  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts));
+  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines));
   await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+

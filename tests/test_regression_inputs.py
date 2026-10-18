@@ -299,6 +299,19 @@ class RegressionInputTests(unittest.TestCase):
         with patch('builtins.input', side_effect=['0', 'foreign']), patch('sys.stdout', io.StringIO()), self.assertRaises(setup.SetupError):
             setup.suite_consent(facts, approved)
 
+    def test_setup_does_not_ask_for_or_reuse_excluded_realtime_scope(self):
+        facts = {'applianceUid': 'appliance-uid', 'inventory': {'nodes': [{'nodeUid': 'node-uid'}], 'realtime': []}}
+        saved = {'applianceUid': 'appliance-uid', 'nodeUids': ['node-uid'], 'phases': [7],
+                 'scopes': ['gpu', 'mesh', 'realtime'], 'reviewedScopes': ['gpu', 'mesh', 'realtime']}
+        def answer(prompt):
+            return 'appliance-uid' if prompt.startswith('Type that UID') else ''
+        output = io.StringIO()
+        with patch('builtins.input', side_effect=answer), patch('sys.stdout', output):
+            consent = setup.suite_consent(facts, saved)
+        self.assertEqual(consent['scopes'], ['gpu', 'mesh'])
+        self.assertNotIn('realtime', consent['reviewedScopes'])
+        self.assertNotIn('Omni', output.getvalue())
+
     def test_complete_setup_runs_all_forms_reviewed_bootstrap_and_final_acceptance_without_pre_activation(self):
         facts, args = self.auto_inputs()
         args.minimal = False

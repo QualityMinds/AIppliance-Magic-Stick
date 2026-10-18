@@ -1,7 +1,7 @@
 import {test,expect,type Page,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
-import {remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
+import {remainingPhase,remainingVariants,remainingVariantEnabled} from '../profiles/remaining-p0.ts';
 import {gpuMemoryDraft,settingsDrafts,selectRange} from './form-checks.ts';
 import type {ModelActivation,ModelsPayload} from '@magicstick/dashboard-contracts';
 import {selectRealtimeCompute} from './realtime-live.ts';
@@ -274,7 +274,7 @@ async function browserProof(page:Page,group:string,id:string) {
   }
   throw new Error(`No browser oracle for ${id}`);
 }
-for(const [variant,definition] of Object.entries(remainingVariants).filter(([,item])=>item.phase === remainingPhase(process.env.REGRESSION_MODE) && item.layers.includes('B'))) {
+for(const [variant,definition] of Object.entries(remainingVariants).filter(([,item])=>remainingVariantEnabled(item) && item.phase === remainingPhase(process.env.REGRESSION_MODE) && item.layers.includes('B'))) {
   test(`${definition.id} bundled ${definition.group} failure/confirmation boundary`,evidenceAnnotations({id:definition.id,variant,layer:'B'}),
     ({page})=>browserProof(page,definition.group,definition.id));
 }

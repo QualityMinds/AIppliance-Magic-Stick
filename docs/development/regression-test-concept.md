@@ -14,6 +14,13 @@ matrices and findings below retain their original wider scope. Current reports
 list the excluded engine tests and distinguish executable scenarios from their
 case/variant/layer evidence rows.
 
+Scope update, 18 October 2026: experimental Omni/Realtime cases are temporarily
+excluded from regular regression selection and automatic preparation by
+`core/engine-policy.ts`. Retain their specifications and old reports for later
+reactivation after Realtime implementation. Phase 7 continues with Mesh and
+companion; ordinary vLLM/Ollama and product Omni remain unchanged. New reports
+name the exclusion without manufacturing Passed or Blocked Realtime evidence.
+
 Design baseline: 1 October 2026; evidence reviewed through 5 October 2026.
 Status: **Phase 0 and finite Phase 1 P0 accepted on 4 October; finite Phase 2 P0
 accepted on 5 October 2026**.
