@@ -10,6 +10,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Changed
 
+- Initial setup accepts the displayed console code repeatedly, including in
+  independent browsers, until successful completion. Expired/lost sessions no
+  longer strand the wizard in `Claimed`. Partial retries prefill non-secret
+  settings and administrator fields; completed installations remain closed even
+  after a disconnected response or retryable credential-cleanup failure.
+
 - The English legal notice is now `imprint.html` with the heading "Imprint",
   matching the landing page footer; the former `legal-notice.html` address is gone.
   The handbook footer links only the English imprint and privacy policy, since

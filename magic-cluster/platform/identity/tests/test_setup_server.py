@@ -198,7 +198,8 @@ class HandoffReadinessTests(unittest.TestCase):
               patch.object(setup, "dashboard_handoff_ready", return_value=True),
               patch.object(setup, "delete_resource") as delete):
             setup.reconcile_once()
-            delete.assert_not_called()
+            self.assertEqual([item.args[0] for item in delete.call_args_list],
+                             [setup.CLAIM_SECRET_PATH, setup.SESSION_SECRET_PATH])
 
         resource["status"]["completedAt"] = "2026-01-01T00:00:00Z"
         with (patch.object(setup, "setup_resource", return_value=resource),
@@ -206,7 +207,8 @@ class HandoffReadinessTests(unittest.TestCase):
               patch.object(setup, "dashboard_handoff_ready", return_value=False),
               patch.object(setup, "delete_resource") as delete):
             setup.reconcile_once()
-            delete.assert_not_called()
+            self.assertEqual([item.args[0] for item in delete.call_args_list],
+                             [setup.CLAIM_SECRET_PATH, setup.SESSION_SECRET_PATH])
 
         setup.COMPLETION_IN_PROGRESS.set()
         try:
@@ -215,7 +217,8 @@ class HandoffReadinessTests(unittest.TestCase):
                   patch.object(setup, "dashboard_handoff_ready", return_value=True),
                   patch.object(setup, "delete_resource") as delete):
                 setup.reconcile_once()
-                delete.assert_not_called()
+                self.assertEqual([item.args[0] for item in delete.call_args_list],
+                                 [setup.CLAIM_SECRET_PATH, setup.SESSION_SECRET_PATH])
         finally:
             setup.COMPLETION_IN_PROGRESS.clear()
 
@@ -504,7 +507,7 @@ class RecoveryUserMigrationTests(unittest.TestCase):
             setup.current_settings = original_settings
             setup.dashboard_handoff_ready = original_handoff
 
-        self.assertEqual(deleted, setup.DYNAMIC_PATHS)
+        self.assertEqual(deleted, [setup.CLAIM_SECRET_PATH, setup.SESSION_SECRET_PATH] + setup.DYNAMIC_PATHS)
         self.assertEqual(migrated, [resource])
 
 

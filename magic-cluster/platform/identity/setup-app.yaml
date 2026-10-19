@@ -20,6 +20,10 @@ metadata:
     configmap.reloader.stakater.com/reload: magicstick-setup
 spec:
   replicas: 1
+  # Completion is serialized by the single setup server. Do not overlap old
+  # and new servers during a ConfigMap reload; all browser sessions are durable.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: magicstick-setup
