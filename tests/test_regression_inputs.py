@@ -7,10 +7,12 @@ import importlib.util
 import io
 import json
 import os
+import ssl
 import stat
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('regression_input_setup', ROOT / 'tools/regression_inputs.py')
@@ -19,6 +21,36 @@ spec.loader.exec_module(setup)
 
 
 class RegressionInputTests(unittest.TestCase):
+    def test_keychain_ca_probe_requires_tls12_before_handshake_and_preserves_hostname(self):
+        certificate = '-----BEGIN CERTIFICATE-----\nsynthetic-public-ca\n-----END CERTIFICATE-----'
+        context = MagicMock()
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+
+        def handshake(*args, **kwargs):
+            self.assertGreaterEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+            self.assertEqual(kwargs['server_hostname'], 'lab.example.test')
+            return MagicMock()
+
+        context.wrap_socket.side_effect = handshake
+        with patch.object(setup.sys, 'platform', 'darwin'), \
+                patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=certificate)), \
+                patch.object(setup.ssl, 'SSLContext', return_value=context) as factory, \
+                patch.object(setup.socket, 'create_connection', return_value=MagicMock()):
+            self.assertEqual(setup.keychain_appliance_ca('https://lab.example.test'), certificate + '\n')
+        factory.assert_called_once_with(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations.assert_called_once_with(cadata=certificate)
+        context.wrap_socket.assert_called_once()
+
+    def test_keychain_ca_probe_rejects_failed_certificate_verification(self):
+        certificate = '-----BEGIN CERTIFICATE-----\nsynthetic-public-ca\n-----END CERTIFICATE-----'
+        context = MagicMock()
+        context.wrap_socket.side_effect = ssl.SSLCertVerificationError('synthetic verification failure')
+        with patch.object(setup.sys, 'platform', 'darwin'), \
+                patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=certificate)), \
+                patch.object(setup.ssl, 'SSLContext', return_value=context), \
+                patch.object(setup.socket, 'create_connection', return_value=MagicMock()):
+            self.assertIsNone(setup.keychain_appliance_ca('https://lab.example.test'))
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='regression private inputs ')
         self.addCleanup(self.directory.cleanup)

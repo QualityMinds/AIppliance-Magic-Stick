@@ -210,6 +210,49 @@ class RegressionSecurityTests(unittest.TestCase):
         for unsafe in ['|| true', '--fix', '--ignore-registry-errors', '--ignore-unfixable']:
             self.assertNotIn(unsafe, audit)
 
+    def test_python_jwt_fixes_are_consistent_and_audited_for_both_products(self):
+        manifests = ['dashboard/apps/api/requirements.txt', 'magic-cluster/apps/ai/private-mesh/requirements.txt']
+        versions = []
+        for path in manifests:
+            version, = re.findall(r'^PyJWT\[crypto\]==(\d+\.\d+\.\d+)$', (ROOT / path).read_text(), re.M)
+            versions.append(version)
+            self.assertGreaterEqual(tuple(map(int, version.split('.'))), (2, 15, 0))
+        self.assertEqual(len(set(versions)), 1)
+        workflow = yaml.safe_load((ROOT / '.github/workflows/dependency-security.yml').read_text())
+        triggers = workflow.get('on', workflow.get(True))
+        for event in ['push', 'pull_request']:
+            for path in manifests:
+                self.assertIn(path, triggers[event]['paths'])
+        job = workflow['jobs']['python-advisories']
+        self.assertIs(job['strategy']['fail-fast'], False)
+        self.assertEqual(job['strategy']['matrix']['requirements'], manifests)
+        audit = next(item for item in job['steps'] if item.get('name') == 'Query current Python advisories')
+        self.assertIn('pip_audit --strict', audit['run'])
+        self.assertEqual(audit['env']['REQUIREMENTS'], '${{ matrix.requirements }}')
+        for unsafe in ['|| true', '--ignore-vuln', '--disable-pip', '--no-deps']:
+            self.assertNotIn(unsafe, audit['run'])
+
+    def test_runtime_update_policy_fallback_retains_checked_patch_not_a_fake_pr(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/runtime-image-updates.yml').read_text())
+        steps = workflow['jobs']['updates']['steps']
+        proposal = next(item for item in steps if item.get('id') == 'proposal')
+        self.assertIn('git diff --binary --', proposal['run'])
+        for path in ['magic-cluster/apps/instances/odysseus/files/runtime-images.json', 'licenses/dependency-inventory.json']:
+            self.assertIn(path, proposal['run'])
+        archive = next(item for item in steps if item.get('name') == 'Archive the reviewed patch')
+        self.assertEqual(archive['with']['if-no-files-found'], 'error')
+        self.assertEqual(archive['with']['name'], 'runtime-image-update-proposal')
+        automatic = next(item for item in steps if item.get('name') == 'Propose a reviewed update on develop')
+        self.assertEqual(automatic['if'], "steps.proposal.outputs.changed == 'true' && vars.RUNTIME_IMAGE_PR_ENABLED == 'true'")
+        manual = next(item for item in steps if item.get('name') == 'Explain the policy-compatible manual proposal')
+        self.assertIn("vars.RUNTIME_IMAGE_PR_ENABLED != 'true'", manual['if'])
+        self.assertIn('::warning::', manual['run'])
+        self.assertIn('No image has been promoted', manual['run'])
+        for step in steps:
+            self.assertNotIn('continue-on-error', step)
+            self.assertNotIn('|| true', step.get('run', ''))
+        self.assertLess(steps.index(archive), steps.index(automatic))
+
     def test_cli_and_hostname_parsers_have_adversarial_owning_tests(self):
         source = (ROOT / 'dashboard/packages/core/src/index.ts').read_text()
         self.assertIn('while (start < end', source)

@@ -57,7 +57,7 @@ remain part of any artifact-specific inventory. See
 | `quay.io/keycloak/keycloak:26.6.3` | https://www.keycloak.org | Local OIDC identity provider and identity broker | Referenced only |
 | `ghcr.io/berriai/litellm:v1.101.0` | https://github.com/BerriAI/litellm | LiteLLM and its Realtime Playground | Referenced by multi-platform digest `sha256:d295634e09c648dcdb72c4cc2dd226f5fb87823a73e88cbbed6f205e4deb044b`; review database migration before rollout |
 | `ghcr.io/qualityminds/magicstick-mesh:v0.76.2-ms1` | https://github.com/Mesh-LLM/mesh-llm | Optional Private Mesh transport/control plane | Builds exact upstream v0.76.2 commit `a0c1e66b0ac037dd56544b9e2d94969ea43d694f` with the bounded native policy under `core/magicstick_core/private_mesh/native`; Apache-2.0 LICENSE retained; Magic Stick portions are BUSL-1.1. The final image digest and resolved Cargo/Python/native notices must be verified for publication. No model weights/native inference libraries bundled. |
-| `python:3.13-slim-bookworm`, `rust:1.98.1-bookworm` | https://hub.docker.com/_/python and https://hub.docker.com/_/rust | Private Mesh runtime/build stages | Final Python runtime adds `cryptography==50.0.1` and `PyJWT[crypto]==2.13.0`; Rust is build-only and pinned by digest. |
+| `python:3.13-slim-bookworm`, `rust:1.98.1-bookworm` | https://hub.docker.com/_/python and https://hub.docker.com/_/rust | Private Mesh runtime/build stages | Final Python runtime adds `cryptography==50.0.1` and `PyJWT[crypto]==2.15.0`; Rust is build-only and pinned by digest. |
 | `vllm/vllm-openai:v0.31.0` (digest pinned) | https://github.com/vllm-project/vllm | NVIDIA-backed local vLLM model serving through KubeAI | Image referenced. The optional wrapper backport derives from upstream [#60142](https://github.com/vllm-project/vllm/commit/b0b23a48d466712d18d390e73b62b169842f65e2), Apache-2.0, Copyright contributors to the vLLM project. It adapts only the PLE raw-byte lookup/caller and no-Triton type placeholders to the exact 0.31.0 files. The [retained license and modification notice](licenses/third-party/vllm-ple-backport.txt) cover these upstream portions; Magic Stick orchestration keeps its own license. Disabled by default, container-local and not an upstream release. |
 | `vllm/vllm-openai-cpu:v0.31.0` (digest pinned) | https://github.com/vllm-project/vllm | CPU-backed local vLLM model serving through KubeAI | Referenced only |
 | `vllm/vllm-openai-rocm:v0.31.0` (digest pinned) | https://github.com/vllm-project/vllm | AMD ROCm-backed local vLLM model serving through KubeAI | Referenced only |
@@ -103,7 +103,7 @@ SSO is feature-gated.
 
 | Package | Version | Upstream license/source | Usage |
 |---|---|---|---|
-| PyJWT | 2.13.0 | MIT; [PyPI](https://pypi.org/project/PyJWT/2.13.0/) | Standard JWS signing/verification |
+| PyJWT | 2.15.0 | MIT; [PyPI](https://pypi.org/project/PyJWT/2.15.0/) | Standard JWS signing/verification |
 | cryptography | 50.0.1 | Apache-2.0 OR BSD-3-Clause; [PyPI](https://pypi.org/project/cryptography/50.0.1/) | Ed25519 and PEM key handling |
 | cffi | 2.1.1 in the audit environment | MIT-0; original installed license in the Python notices | Native FFI dependency; verify target-platform resolution |
 | pycparser | 3.0 in the audit environment | BSD-3-Clause; original installed license in the Python notices | cffi dependency; verify target-platform resolution |

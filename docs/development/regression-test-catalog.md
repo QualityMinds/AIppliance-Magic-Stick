@@ -68,7 +68,7 @@ without dashboard-management grants. Follow the current shared role contract.
 | AUTH-06 | Log out and revisit/reload a protected page with old session state. No stale privileged content/action is treated as authenticated. | B+A+E | P0 · smoke |
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
-| AUTH-09 | Open the setup-to-dashboard handoff with stale browser state; reload and use a new tab/context. No redirect loop, blank screen or persistent protocol failure; recovery link remains usable. | C+B+E | P1 · functional |
+| AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
 | AUTH-10 | Simulate Keycloak/API unavailability. Distinguish authentication service failure from bad credentials; do not allow cached privilege or an unauthenticated fallback. | U+C+B | P0 · fast |
 
 ## 3. Navigation, Overview and System Status
@@ -561,6 +561,25 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+v0.1.3 preparation: existing SEC-02/03 owning security checks now reject old or
+divergent PyJWT pins and missing Python advisory coverage for the API and Mesh
+graphs. The runtime-update workflow contract requires a retained, validated patch
+and an explicit manual-review warning when enterprise policy prevents automatic
+PRs; resolver/test/render failures remain fatal. Private setup tests exercise the
+macOS CA probe's TLS 1.2 floor, hostname binding and certificate rejection. These
+are isolated owning-layer checks, not a new full campaign or hardware acceptance.
+
+AUTH-09 initial-setup retry coverage (19 October 2026): the actual setup server's
+independent sessions, expiry, legacy-session compatibility, partial completion,
+credential-cleanup failures and serialized completion have isolated owning tests
+in [test_setup_sessions.py](../../magic-cluster/platform/identity/tests/test_setup_sessions.py).
+[Setup browser fixtures](../../dashboard/apps/web/e2e/setup.spec.ts) exercise its
+real embedded HTML/JS at desktop/mobile widths, including the `Claimed` screen
+without a cookie, another browser, a lost response and retained draft fields.
+Both files are selected by existing identity-unit and dashboard-browser CI.
+First-run setup remains outside the installed Phase 0–8 P0 campaign; this does
+not claim full AUTH-09 live handoff or physical installer acceptance.
 
 18 October 2026 license follow-up: LIC-02 previews both supported editions without
 activation; LIC-03 independently verifies invalid-document rejection and unchanged

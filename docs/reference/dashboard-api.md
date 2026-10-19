@@ -264,6 +264,22 @@ check. Setting one selection representation replaces the other. Stop retains the
 configuration; a terminating Pod keeps its slots until allocation release.
 See the [resource contract](kubernetes-resources.md) and
 [administrator workflow](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
+### Initial setup API
+
+The temporary local setup service is separate from the authenticated Dashboard
+API. `POST /setup/api/claim` accepts the displayed `claimToken` for any incomplete
+setup phase and issues an independent cookie session; it does not consume the
+code or evict another session. `GET /setup/api/config` requires that session and
+returns current settings plus the non-secret draft from a previous completion
+attempt. `POST /setup/api/complete` additionally checks its CSRF binding and
+configuration, configures settings and users, then closes setup access.
+Completed and legacy-completed installations cannot be reopened by either an
+old code or cookie, even if credential deletion must be retried.
+
+The public status/handoff endpoints never return saved administrator fields,
+passwords or recovery codes. Passwords must be resubmitted after reopening a
+partial setup; recovery credentials are returned only by successful completion.
+See [first administrator setup](../installation/first-run-setup.md).
 
 ### Module parameters and local identities
 

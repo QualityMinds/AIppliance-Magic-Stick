@@ -61,7 +61,10 @@ installation. Product release notes can link an existing installer candidate.
 [Review runtime image updates](../../.github/workflows/runtime-image-updates.yml)
 runs every Monday at **05:23 UTC**, or manually. It resolves the public supplier
 tags for Odysseus, Chroma and ntfy, verifies the manifest digest and Linux/amd64
-availability, and opens or updates one PR targeting `develop`. The runtime
+availability, and retains a validated patch as the
+`runtime-image-update-proposal` workflow artifact when changes are found. If
+automatic PR creation is explicitly enabled, it also opens or updates one PR
+targeting `develop`. The runtime
 chart consumes the immutable digests in its
 [image lock](../../magic-cluster/apps/instances/odysseus/files/runtime-images.json).
 The supplier's `latest` tag is only a discovery input, never a runtime reference.
@@ -72,11 +75,27 @@ automatically upgrade main. Review supplier release notes and backup/migration
 requirements, exercise an existing instance on develop, then promote the tested
 change in a release. Digest identity is reproducibility, not compatibility proof.
 
-One-time setup after publishing these workflow files:
+Automatic PR creation is opt-in because enterprise policy can forbid it even
+when a repository administrator has requested permission. Without that
+permission, the scheduled job still resolves, tests, renders and archives the
+candidate, and reports the manual review action in its summary. It does not
+claim that a PR exists or that the update has been installed. Registry, test,
+render and upload errors still fail the job; no error is globally ignored.
+
+To review a manual proposal, download the artifact from the workflow run, apply
+`runtime-image-updates.patch` to a clean branch based on its checked `develop`
+revision, rerun the focused tests, and open a PR targeting `develop`. If develop
+has advanced, resolve and revalidate the patch; do not overwrite its inventory
+with an older copy. Artifacts expire after 30 days; rerun discovery for a fresh
+proposal rather than treating an expired patch as current evidence.
+
+One-time setup for automatic PR creation after publishing these workflow files:
 
 1. Ensure the remote `develop` branch exists and uses this workflow/tooling.
-2. Allow GitHub Actions to create pull requests in repository settings.
-3. Run the update workflow manually once and inspect its proposal.
+2. Allow GitHub Actions to create pull requests in enterprise/organization and
+   repository settings. A repository cannot override a parent-policy denial.
+3. Set the repository Actions variable `RUNTIME_IMAGE_PR_ENABLED` to `true`,
+   then run the update workflow manually once and inspect its proposal.
 4. Approve the pending PR workflows, or run **Public release checks** manually
    on the proposal branch before merging. According to
    [GitHub's workflow-trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow),

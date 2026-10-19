@@ -280,14 +280,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 
-pycparser==3.0
+pycparser==3.11
 ========================================================================
 
-pycparser-3.0.dist-info/licenses/LICENSE
+pycparser-3.11.dist-info/licenses/LICENSE
 
 pycparser -- A C parser in Python
 
-Copyright (c) 2008-2022, Eli Bendersky
+Copyright (c) 2008-2027, Eli Bendersky
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -315,10 +315,10 @@ OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 
-PyJWT==2.13.0
+PyJWT==2.15.0
 ========================================================================
 
-pyjwt-2.13.0.dist-info/licenses/AUTHORS.rst
+pyjwt-2.15.0.dist-info/licenses/AUTHORS.rst
 
 Authors
 =======
@@ -329,7 +329,7 @@ Originally written and maintained by `Jeff Lindsay <https://github.com/progrium>
 A full list of contributors can be found on GitHub’s `overview <https://github.com/jpadilla/pyjwt/graphs/contributors>`_.
 
 
-pyjwt-2.13.0.dist-info/licenses/LICENSE
+pyjwt-2.15.0.dist-info/licenses/LICENSE
 
 The MIT License (MIT)
 

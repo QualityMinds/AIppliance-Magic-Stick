@@ -8,6 +8,19 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+Planned next release: **v0.1.3 Early Access**. Its actual first-public-distribution
+date and immutable license record are finalized separately before tagging.
+
+- Update PyJWT to 2.15.0 in the Dashboard API and Private Mesh/companion, and
+  audit both Python dependency graphs in scheduled and change-triggered CI.
+  Require TLS 1.2 or newer for the optional macOS keychain CA probe without
+  disabling certificate or hostname verification.
+
+- Retain validated runtime image update patches as CI artifacts. Automatic PR
+  creation is explicitly enabled only where enterprise policy permits it;
+  otherwise the workflow reports the required manual review without bypassing
+  policy or suppressing resolver, test, rendering or upload failures.
+
 - Temporarily exclude experimental Omni/Realtime cases from regular regression
   selection and automatic fixture preparation. Keep their definitions for later
   reactivation and preserve historical results. Reports disclose the exclusion;
@@ -119,6 +132,16 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 - Disable saving unchanged, reverted or invalid domain settings and retain
   unsaved edits across refetches; the full browser regression caught the old
   always-enabled Save action.
+- Initial setup accepts the displayed console code repeatedly, including in
+  independent browsers, until successful completion. Expired/lost sessions no
+  longer strand the wizard in `Claimed`. Partial retries prefill non-secret
+  settings and administrator fields; completed installations remain closed even
+  after a disconnected response or retryable credential-cleanup failure.
+
+- The English legal notice is now `imprint.html` with the heading "Imprint",
+  matching the landing page footer; the former `legal-notice.html` address is gone.
+  The handbook footer links only the English imprint and privacy policy, since
+  the handbook is English only; both pages keep their EN/DE switch.
 
 ### Added
 

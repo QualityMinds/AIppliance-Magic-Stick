@@ -59,6 +59,31 @@ The React implementation retains the established tab-by-tab feature contract:
 contracts independently of the smaller application-shell tests. Catalog and
 API behavior remain covered by the existing Python dashboard tests.
 
+## First-run setup sessions
+
+The separate local setup application is defined in
+`magic-cluster/platform/identity/setup-configmap.yaml`. Its console code remains
+valid throughout `Pending`, `Claimed`, `Applying`, and `Failed`; `Claimed` is not
+an exclusive-browser reservation. Each successful code entry issues an
+independent, expiring, signed session and CSRF binding. The signing key persists
+in the existing setup-session Secret; older hashed sessions remain valid until
+expiry. Retries and a setup-service restart do not evict other browsers.
+
+Validated completion attempts retain only non-secret configuration fields for
+prefilling; no human password or recovery code is stored. A single setup replica
+serializes completion and uses `Recreate` during upgrades. Only after settings
+and both users are configured does the service mark setup `Completed`, close
+code/session authorization, and remove setup credentials. Credential cleanup is
+retryable; an HTTP disconnect or cleanup error cannot demote `Completed`.
+The existing dashboard handoff readiness/grace checks remain in effect.
+
+Backend retry/expiry/concurrency counterexamples are in
+`magic-cluster/platform/identity/tests/test_setup_sessions.py`; desktop/mobile
+browser fixtures run the actual embedded setup assets in
+`dashboard/apps/web/e2e/setup.spec.ts`. These isolated checks do not prove a
+fresh physical installation or live Keycloak/Gateway convergence. See
+[first administrator setup](../installation/first-run-setup.md) for the user flow.
+
 ## Updating The Dashboard
 
 The dashboard may read Kubernetes status and create or patch

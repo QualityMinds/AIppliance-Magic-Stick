@@ -521,6 +521,7 @@ def keychain_appliance_ca(dashboard):
         for certificate in certificates:
             try:
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
                 context.load_verify_locations(cadata=certificate)
                 with socket.create_connection((parsed.hostname, parsed.port or 443), timeout=2) as connection:
                     with context.wrap_socket(connection, server_hostname=parsed.hostname):

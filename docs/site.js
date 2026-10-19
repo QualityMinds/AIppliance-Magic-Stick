@@ -32,6 +32,8 @@
     const panels = tabs.map((tab) => document.getElementById(tab.getAttribute('aria-controls')));
     // Leave every panel readable if the markup is incomplete or JavaScript is off.
     if (!tabs.length || panels.some((panel) => !panel || !tour.contains(panel))) continue;
+    const caption = tour.querySelector('[data-tab-caption]');
+    const vertical = controls.getAttribute('aria-orientation') === 'vertical';
     const selectTab = (tab, focus = false) => {
       tabs.forEach((candidate, index) => {
         const selected = candidate === tab;
@@ -39,6 +41,7 @@
         candidate.tabIndex = selected ? 0 : -1;
         panels[index].hidden = !selected;
       });
+      if (caption && tab.dataset.caption) caption.textContent = tab.dataset.caption;
       if (focus) tab.focus();
     };
     controls.hidden = false;
@@ -47,8 +50,8 @@
       tab.addEventListener('click', () => selectTab(tab));
       tab.addEventListener('keydown', (event) => {
         let next;
-        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-        if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+        if (event.key === (vertical ? 'ArrowDown' : 'ArrowRight')) next = (index + 1) % tabs.length;
+        if (event.key === (vertical ? 'ArrowUp' : 'ArrowLeft')) next = (index - 1 + tabs.length) % tabs.length;
         if (event.key === 'Home') next = 0;
         if (event.key === 'End') next = tabs.length - 1;
         if (next !== undefined) {

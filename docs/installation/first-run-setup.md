@@ -43,9 +43,21 @@ addresses. No setup route is created for the public dashboard hostname.
 
 ## Complete the Wizard
 
+Enter the eight-character code shown on the physical console. It stays valid
+until setup completes successfully: using it does not consume it or reserve the
+Appliance for one browser. You can enter the same code again after a reload,
+lost response, expired session, or in a second browser. Existing browser sessions
+remain usable; no console command is needed for an ordinary retry.
+
 The wizard asks for appliance name, `.local` name, timezone, language, optional
 public domain, and the first administrator. Passwords are sent directly to
 Keycloak and are neither stored in Kubernetes nor written to logs.
+
+If a completion attempt fails after some steps succeeded, reopen setup with the
+same code. The last submitted settings and administrator name, display name and
+email are prefilled. Enter the password again; passwords and recovery codes are
+never part of that saved draft. An expired session in an open form prompts for
+the code again without discarding that browser's unsaved fields.
 
 On completion, save the one-time recovery username and code before leaving the
 page. They cannot be displayed again after a reload. Both the primary and
@@ -82,8 +94,9 @@ magicstick setup reissue
 ```
 
 `show` prints the same concise status, URLs, claim code, and certificate
-fingerprint in the current shell without clearing it. `reissue` invalidates the
-previous claim and browser session and refreshes the physical console. It is
+fingerprint in the current shell without clearing it. `reissue` is an optional
+code rotation, not the normal way to resume setup: it invalidates the previous
+claim and all browser sessions and refreshes the physical console. It is
 available only before setup completes. A completed appliance cannot be
 reopened with these commands; factory reset is intentionally a separate future
 workflow.
@@ -107,5 +120,8 @@ sudo k3s kubectl -n identity-system get gateway,httproute,securitypolicy
 Phases are `Pending`, `Claimed`, `Applying`, `Completed`, `Failed`, and
 `CompletedLegacy`. A restart during `Applying` is safe: submitting the same
 form again updates the same Keycloak users rather than creating duplicates.
-Use `magicstick setup reissue` after an abandoned claim or failed browser
-session.
+`Claimed` means setup has been opened, not that another browser is locked out.
+For `Claimed`, `Applying`, or `Failed`, use the still displayed console code to
+open the form again. Only `Completed` or `CompletedLegacy` closes setup access.
+Session expiry does not consume the console code. A failed credential cleanup
+is retried without changing a completed installation back to `Failed`.

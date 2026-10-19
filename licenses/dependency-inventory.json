@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "5ab4f9d7bc3a9276143ee1aad4c5c812a2dc057ac312101f6865a4bfd61b1d8e",
+  "deploymentReferencesSha256": "5ed5773852594b3c955b4bf4061dc9cc277c6d8ab4ba2fbf2e6dc160187b967d",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1877,20 +1877,6 @@
   ],
   "python": [
     {
-      "name": "ansible-core",
-      "version": "2.21.4",
-      "declaredLicense": "GPL-3.0-or-later",
-      "licenseFiles": [
-        "COPYING",
-        "licenses/Apache-License.txt",
-        "licenses/BSD-3-Clause.txt",
-        "licenses/MIT-license.txt",
-        "licenses/PSF-license.txt",
-        "licenses/simplified_bsd.txt"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
       "name": "cffi",
       "version": "2.1.1",
       "declaredLicense": "MIT-0",
@@ -1911,37 +1897,8 @@
       "scope": "audit-environment; product requirements must be checked separately"
     },
     {
-      "name": "Jinja2",
-      "version": "3.1.6",
-      "declaredLicense": null,
-      "licenseFiles": [
-        "LICENSE.txt"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
-      "name": "MarkupSafe",
-      "version": "3.0.3",
-      "declaredLicense": "BSD-3-Clause",
-      "licenseFiles": [
-        "LICENSE.txt"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
-      "name": "packaging",
-      "version": "26.3",
-      "declaredLicense": "Apache-2.0 OR BSD-2-Clause",
-      "licenseFiles": [
-        "LICENSE",
-        "LICENSE.APACHE",
-        "LICENSE.BSD"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
       "name": "pycparser",
-      "version": "3.0",
+      "version": "3.11",
       "declaredLicense": "BSD-3-Clause",
       "licenseFiles": [
         "LICENSE"
@@ -1950,7 +1907,7 @@
     },
     {
       "name": "PyJWT",
-      "version": "2.13.0",
+      "version": "2.15.0",
       "declaredLicense": "MIT",
       "licenseFiles": [
         "LICENSE",
@@ -1960,17 +1917,8 @@
     },
     {
       "name": "PyYAML",
-      "version": "6.0.2",
+      "version": "6.0.3",
       "declaredLicense": "MIT",
-      "licenseFiles": [
-        "LICENSE"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
-      "name": "resolvelib",
-      "version": "1.2.1",
-      "declaredLicense": "ISC License",
       "licenseFiles": [
         "LICENSE"
       ],
@@ -2155,8 +2103,18 @@
     },
     {
       "file": ".github/workflows/dependency-security.yml",
-      "line": 43,
+      "line": 47,
       "reference": "node-version: '24'"
+    },
+    {
+      "file": ".github/workflows/dependency-security.yml",
+      "line": 72,
+      "reference": "python-version: '3.13'"
+    },
+    {
+      "file": ".github/workflows/dependency-security.yml",
+      "line": 74,
+      "reference": "run: python -m pip install pip-audit==2.10.1"
     },
     {
       "file": ".github/workflows/docs-checks.yml",
@@ -3130,7 +3088,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/setup-app.yaml",
-      "line": 38,
+      "line": 42,
       "reference": "image: python:3.13-alpine"
     },
     {

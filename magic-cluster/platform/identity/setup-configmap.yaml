@@ -60,6 +60,10 @@ data:
     FAILED_CLAIMS = {}
     RECOVERY_MIGRATIONS_COMPLETE = set()
     COMPLETION_IN_PROGRESS = threading.Event()
+    SETUP_LOCK = threading.RLock()
+    INCOMPLETE_PHASES = {"Pending", "Claimed", "Applying", "Failed"}
+    DRAFT_FIELDS = {"applianceName", "mdnsDomain", "timezone", "language", "publicDomain",
+                    "username", "displayName", "email"}
 
 
     class ApiError(Exception):
@@ -509,16 +513,99 @@ data:
         return get_resource(SESSION_SECRET_PATH)
 
 
+    def ensure_session_secret(draft=None):
+        """One durable signing key, not one exclusive browser session.
+
+        Keep legacy hashes until their cookies expire. Resource-version checks
+        also preserve the signing key across overlapping setup-service Pods.
+        Never persist a human password or recovery code in the resumable draft.
+        """
+        for _ in range(4):
+            stored = session_secret()
+            fields = {}
+            if not decode_secret(stored, "signing-key"):
+                fields["signing-key"] = secrets.token_urlsafe(32)
+            if draft is not None:
+                fields["draft-json"] = json.dumps({key: draft[key] for key in DRAFT_FIELDS if key in draft})
+            if not fields:
+                return stored
+            resource = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+                        "metadata": {"name": "magicstick-setup-session", "namespace": NAMESPACE},
+                        "stringData": fields}
+            try:
+                if stored is None:
+                    return kube_request("POST", SECRETS_PATH, resource)
+                resource_version = (stored.get("metadata") or {}).get("resourceVersion")
+                if not resource_version:
+                    raise ApiError(503, "Die Setup-Sitzung wird vorbereitet. Bitte versuche es erneut.", "session_unavailable")
+                resource["metadata"]["resourceVersion"] = resource_version
+                return kube_request("PATCH", SESSION_SECRET_PATH, resource, "application/merge-patch+json")
+            except urllib.error.HTTPError as error:
+                if error.code != 409:
+                    raise
+        raise ApiError(503, "Die Setup-Sitzung wird vorbereitet. Bitte versuche es erneut.", "session_unavailable")
+
+
+    def new_session(stored):
+        csrf = secrets.token_urlsafe(24)
+        body = ".".join(["v2", secrets.token_urlsafe(32), str(int(time.time()) + SESSION_TTL_SECONDS), secret_hash(csrf)])
+        signature = hmac.new(decode_secret(stored, "signing-key").encode(), body.encode(), hashlib.sha256).hexdigest()
+        return body + "." + signature, csrf
+
+
     def validate_session(cookie_header):
+        if setup_phase() not in INCOMPLETE_PHASES:
+            raise ApiError(401, "Die Setup-Sitzung ist nicht mehr gültig.", "session_expired")
         cookies = SimpleCookie(cookie_header or "")
         session = cookies.get(SESSION_COOKIE)
         stored = session_secret()
         if not session or not stored:
             raise ApiError(401, "Die Setup-Sitzung fehlt.", "session_required")
+        if session.value.startswith("v2."):
+            parts = session.value.split(".")
+            key = decode_secret(stored, "signing-key")
+            try:
+                valid = (len(parts) == 5 and key and int(parts[2]) > time.time()
+                         and constant_match(parts[4], hmac.new(key.encode(), ".".join(parts[:4]).encode(), hashlib.sha256).hexdigest()))
+            except ValueError:
+                valid = False
+            if not valid:
+                raise ApiError(401, "Die Setup-Sitzung ist abgelaufen. Gib den Einrichtungscode erneut ein.", "session_expired")
+            # validate_csrf uses this session's signed binding, not another
+            # browser's CSRF value. Nothing here changes the stored Secret.
+            return cookies, {**stored, "data": {**stored.get("data", {}),
+                "csrf-sha256": base64.b64encode(parts[3].encode()).decode()}}
         expires = float(decode_secret(stored, "expires-at") or "0")
         if expires <= time.time() or not constant_match(secret_hash(session.value), decode_secret(stored, "session-sha256")):
             raise ApiError(401, "Die Setup-Sitzung ist abgelaufen.", "session_expired")
         return cookies, stored
+
+
+    def resumable_config(stored):
+        result = current_settings()
+        try:
+            draft = json.loads(decode_secret(stored, "draft-json") or "{}")
+        except (ValueError, TypeError):
+            draft = {}
+        if isinstance(draft, dict):
+            result.update({key: value for key, value in draft.items() if key in DRAFT_FIELDS and isinstance(value, str)})
+        return result
+
+
+    def clear_setup_credentials():
+        # Completed is the authorization boundary. Cleanup may be retried, but
+        # a lost DELETE response must not reopen an already finished setup.
+        for path in [CLAIM_SECRET_PATH, SESSION_SECRET_PATH]:
+            try:
+                delete_resource(path)
+            except Exception as error:
+                print("setup credential cleanup failed:", type(error).__name__, flush=True)
+
+
+    def record_setup_failure(code):
+        with SETUP_LOCK:
+            if setup_phase() in INCOMPLETE_PHASES:
+                patch_status("Failed", lastErrorCode=code)
 
 
     def validate_csrf(cookies, stored, header):
@@ -605,6 +692,8 @@ data:
     def reconcile_once():
         setup = setup_resource()
         phase = setup_phase(setup)
+        if phase in {"Completed", "CompletedLegacy"}:
+            clear_setup_credentials()
         if phase not in {"Pending", "Claimed", "Applying", "Failed"}:
             if phase == "Completed" and (COMPLETION_IN_PROGRESS.is_set()
                     or not completion_grace_elapsed(setup)
@@ -639,6 +728,7 @@ data:
     let handoffTimer = null;
     let handoffReadySeen = false;
     let loginReady = false;
+    let configLoaded = false;
 
     const cookie = name => document.cookie.split('; ')
       .find(value => value.startsWith(name + '='))?.split('=').slice(1).join('=') || '';
@@ -650,7 +740,11 @@ data:
       }
       const response = await fetch('/setup/api/' + path, {...options, cache: 'no-store'});
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || 'Die Anfrage ist fehlgeschlagen.');
+      if (!response.ok) {
+        const error = new Error(body.message || 'Die Anfrage ist fehlgeschlagen.');
+        error.status = response.status;
+        throw error;
+      }
       return body;
     }
 
@@ -747,13 +841,14 @@ data:
           startHandoff(loginUrl);
           return;
         }
-        if (status.phase === 'Claimed') {
+        if (['Claimed', 'Applying', 'Failed'].includes(status.phase)) {
           try {
             await openConfig();
             return;
-          } catch {
-            $('#message').textContent = 'Die Appliance wurde bereits von einem Browser übernommen. Nutze bei Bedarf „magicstick setup reissue“ an der Konsole.';
-            return;
+          } catch (error) {
+            $('#message').textContent = [401, 403].includes(error.status)
+              ? 'Die Einrichtung ist noch nicht abgeschlossen. Gib den angezeigten Einrichtungscode erneut ein, um fortzufahren.'
+              : error.message;
           }
         }
         show('claim');
@@ -768,12 +863,16 @@ data:
 
     async function openConfig() {
       defaults = await api('config');
-      for (const [key, value] of Object.entries(defaults)) {
-        if ($('#setupForm').elements[key]) {
-          $('#setupForm').elements[key].value = value || '';
+      if (!configLoaded) {
+        for (const [key, value] of Object.entries(defaults)) {
+          if ($('#setupForm').elements[key]) {
+            $('#setupForm').elements[key].value = value || '';
+          }
         }
+        configLoaded = true;
       }
       show('config');
+      $('#message').textContent = '';
     }
 
     $('#claimForm').addEventListener('submit', async event => {
@@ -798,13 +897,13 @@ data:
         $('#message').textContent = 'Die Passwörter stimmen nicht überein.';
         return;
       }
-      const setupId = (await api('status')).installationId || randomCode(6).replaceAll('-', '');
-      values.recoveryUsername = 'recovery-' + setupId.slice(0, 8);
-      values.recoveryCode = randomCode();
       delete values.passwordConfirm;
       const button = event.target.querySelector('button');
       button.disabled = true;
       try {
+        const setupId = (await api('status')).installationId || randomCode(6).replaceAll('-', '');
+        values.recoveryUsername = 'recovery-' + setupId.slice(0, 8);
+        values.recoveryCode = randomCode();
         const result = await api('complete', {method: 'POST', body: JSON.stringify(values)});
         $('#recovery').textContent = 'Benutzer: ' + result.recoveryUsername +
           '\nCode:     ' + result.recoveryCode;
@@ -814,7 +913,12 @@ data:
         $('#status').textContent = 'Setup-Status: Completed';
         startHandoff(result.dashboardURL || 'https://' + values.mdnsDomain + '/');
       } catch (error) {
-        $('#message').textContent = error.message;
+        if ([401, 403].includes(error.status)) {
+          show('claim');
+          $('#message').textContent = 'Gib den Einrichtungscode erneut ein. Deine Eingaben bleiben in diesem Browser erhalten.';
+        } else {
+          $('#message').textContent = error.message;
+        }
         button.disabled = false;
       }
     });
@@ -889,8 +993,8 @@ data:
                     self.send_json(200, {"dashboardURL": "https://" + domain + "/",
                                          "dashboardReady": dashboard_handoff_ready(domain)})
                 elif path == "/setup/api/config":
-                    validate_session(self.headers.get("Cookie"))
-                    self.send_json(200, current_settings())
+                    _, stored = validate_session(self.headers.get("Cookie"))
+                    self.send_json(200, resumable_config(stored))
                 else:
                     self.send_json(404, {"message": "Nicht gefunden."})
             except ApiError as error:
@@ -910,49 +1014,48 @@ data:
                     self.send_json(404, {"message": "Nicht gefunden."})
             except ApiError as error:
                 self.send_json(error.status, {"message": str(error), "code": error.code})
+            except (BrokenPipeError, ConnectionResetError):
+                # A disconnected browser is not a failed setup transaction.
+                # In particular, do not undo a confirmed Completed status.
+                print("setup response disconnected", flush=True)
             except urllib.error.HTTPError as error:
                 print("setup dependency HTTP error:", error.code, flush=True)
                 try:
-                    patch_status("Failed", lastErrorCode="dependency_http_error")
+                    record_setup_failure("dependency_http_error")
                 except Exception:
                     pass
                 self.send_json(503, {"message": "Eine interne Abhängigkeit ist noch nicht bereit.", "code": "dependency_unavailable"})
             except Exception as error:
                 print("setup POST failed:", type(error).__name__, flush=True)
                 try:
-                    patch_status("Failed", lastErrorCode="internal_error")
+                    record_setup_failure("internal_error")
                 except Exception:
                     pass
                 self.send_json(500, {"message": "Die Einrichtung konnte nicht abgeschlossen werden.", "code": "internal_error"})
 
         def claim(self):
-            phase = setup_phase()
-            if phase not in {"Pending", "Failed"}:
-                raise ApiError(409, "Die Appliance wurde bereits übernommen.", "already_claimed")
+            with SETUP_LOCK:
+                self.claim_locked()
+
+        def claim_locked(self):
+            resource = setup_resource()
+            phase = setup_phase(resource)
+            if phase not in INCOMPLETE_PHASES:
+                raise ApiError(409, "Die Einrichtung ist abgeschlossen oder nicht verfügbar.", "setup_closed")
             key = self.client_key()
             failures = [stamp for stamp in FAILED_CLAIMS.get(key, []) if stamp > time.time() - 300]
             FAILED_CLAIMS[key] = failures
-            if len(failures) >= 5:
-                raise ApiError(429, "Zu viele Fehlversuche. Bitte warte fünf Minuten.", "rate_limited")
             supplied = str(self.read_json().get("claimToken") or "").replace("-", "").strip().lower()
             expected = decode_secret(get_resource(CLAIM_SECRET_PATH), "claim-sha256")
             if not constant_match(secret_hash(supplied), expected):
+                if len(failures) >= 5:
+                    raise ApiError(429, "Zu viele Fehlversuche. Bitte warte fünf Minuten.", "rate_limited")
                 failures.append(time.time())
                 raise ApiError(403, "Der Einrichtungscode ist falsch.", "invalid_claim")
-            session_token = secrets.token_urlsafe(32)
-            csrf_token = secrets.token_urlsafe(24)
-            resource = {
-                "apiVersion": "v1", "kind": "Secret", "metadata": {"name": "magicstick-setup-session", "namespace": NAMESPACE},
-                "type": "Opaque", "stringData": {"session-sha256": secret_hash(session_token), "csrf-sha256": secret_hash(csrf_token),
-                    "expires-at": str(time.time() + SESSION_TTL_SECONDS)},
-            }
-            try:
-                kube_request("POST", SECRETS_PATH, resource)
-            except urllib.error.HTTPError as error:
-                if error.code == 409:
-                    raise ApiError(409, "Die Appliance wurde bereits von einem anderen Browser übernommen.", "already_claimed") from error
-                raise
-            patch_status("Claimed", claimedAt=now(), lastErrorCode="")
+            session_token, csrf_token = new_session(ensure_session_secret())
+            FAILED_CLAIMS.pop(key, None)
+            if phase == "Pending":
+                patch_status("Claimed", claimedAt=(resource.get("status") or {}).get("claimedAt") or now(), lastErrorCode="")
             cookies = [
                 f"{SESSION_COOKIE}={session_token}; Path=/setup; Max-Age={SESSION_TTL_SECONDS}; Secure; HttpOnly; SameSite=Strict",
                 f"{CSRF_COOKIE}={csrf_token}; Path=/; Max-Age={SESSION_TTL_SECONDS}; Secure; SameSite=Strict",
@@ -960,14 +1063,19 @@ data:
             self.send_json(200, {"claimed": True}, cookies)
 
         def complete(self):
+            with SETUP_LOCK:
+                self.complete_locked()
+
+        def complete_locked(self):
             phase = setup_phase()
-            if phase == "Completed":
+            if phase in {"Completed", "CompletedLegacy"}:
                 raise ApiError(409, "Die Einrichtung ist bereits abgeschlossen.", "already_completed")
             if phase not in {"Claimed", "Applying", "Failed"}:
                 raise ApiError(409, "Die Appliance wurde noch nicht übernommen.", "claim_required")
             cookies, stored = validate_session(self.headers.get("Cookie"))
             validate_csrf(cookies, stored, self.headers.get("X-MagicStick-CSRF", ""))
             values = validate_complete(self.read_json())
+            ensure_session_secret(draft=values)
             patch_status("Applying", claimedAt=((setup_resource().get("status") or {}).get("claimedAt", now())), lastErrorCode="")
             update_settings(values)
             token = keycloak_token()
@@ -977,8 +1085,7 @@ data:
             COMPLETION_IN_PROGRESS.set()
             try:
                 patch_status("Completed", completedAt=now(), lastErrorCode="")
-                delete_resource(CLAIM_SECRET_PATH)
-                delete_resource(SESSION_SECRET_PATH)
+                clear_setup_credentials()
                 expired = [
                     f"{SESSION_COOKIE}=; Path=/setup; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
                     f"{CSRF_COOKIE}=; Path=/; Max-Age=0; Secure; SameSite=Strict",

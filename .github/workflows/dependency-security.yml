@@ -8,6 +8,8 @@ on:
       - dashboard/pnpm-lock.yaml
       - dashboard/pnpm-workspace.yaml
       - dashboard/**/package.json
+      - dashboard/apps/api/requirements.txt
+      - magic-cluster/apps/ai/private-mesh/requirements.txt
       - .github/workflows/dependency-security.yml
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - dashboard/pnpm-lock.yaml
       - dashboard/pnpm-workspace.yaml
       - dashboard/**/package.json
+      - dashboard/apps/api/requirements.txt
+      - magic-cluster/apps/ai/private-mesh/requirements.txt
       - .github/workflows/dependency-security.yml
   schedule:
     - cron: '41 4 * * 1'
@@ -49,3 +53,27 @@ jobs:
         # Network/registry failure must not turn into a green security result.
         # No --fix, ignored advisories, registry-error bypass or || true here.
         run: pnpm audit --audit-level high
+
+  python-advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        requirements:
+          - dashboard/apps/api/requirements.txt
+          - magic-cluster/apps/ai/private-mesh/requirements.txt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned Python advisory scanner
+        run: python -m pip install pip-audit==2.10.1
+      - name: Query current Python advisories
+        # A resolver, registry or advisory-service error must fail this job.
+        env:
+          REQUIREMENTS: ${{ matrix.requirements }}
+        run: python -m pip_audit --strict --progress-spinner off -r "$REQUIREMENTS"
