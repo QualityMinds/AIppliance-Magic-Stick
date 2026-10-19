@@ -6,7 +6,10 @@ and rejects security-control regressions in the shipped implementation.
 """
 from pathlib import Path
 import json
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -252,6 +255,42 @@ class RegressionSecurityTests(unittest.TestCase):
             self.assertNotIn('continue-on-error', step)
             self.assertNotIn('|| true', step.get('run', ''))
         self.assertLess(steps.index(archive), steps.index(automatic))
+
+    def test_runtime_update_proposal_script_distinguishes_no_change_and_applicable_patch(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/runtime-image-updates.yml').read_text())
+        script = next(item['run'] for item in workflow['jobs']['updates']['steps'] if item.get('id') == 'proposal')
+        paths = ['magic-cluster/apps/instances/odysseus/files/runtime-images.json', 'licenses/dependency-inventory.json']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for path in [*paths, 'unrelated.txt']:
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('original fixture\n')
+
+            def git(*args):
+                return subprocess.run(['git', *args], cwd=root, check=True, capture_output=True, text=True)
+
+            git('init', '--quiet')
+            git('add', '.')
+            git('-c', 'user.name=Regression Fixture', '-c', 'user.email=fixture@example.com',
+                '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Synthetic proposal baseline')
+            env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_OUTPUT': str(root / 'outputs'),
+                   'GITHUB_STEP_SUMMARY': str(root / 'summary')}
+            subprocess.run(['bash', '-e', '-c', script], cwd=root, env=env, check=True, capture_output=True)
+            patch = root / 'runtime-image-updates.patch'
+            self.assertEqual(patch.read_text(), '')
+            self.assertEqual((root / 'outputs').read_text(), 'changed=false\n')
+            self.assertIn('No runtime image update is needed', (root / 'summary').read_text())
+
+            for path in [*paths, 'unrelated.txt']:
+                (root / path).write_text('reviewed candidate fixture\n')
+            subprocess.run(['bash', '-e', '-c', script], cwd=root, env=env, check=True, capture_output=True)
+            self.assertEqual((root / 'outputs').read_text().splitlines(), ['changed=false', 'changed=true'])
+            self.assertIn('runtime-image-update-proposal', (root / 'summary').read_text())
+            for path in paths:
+                self.assertIn('diff --git a/' + path, patch.read_text())
+            self.assertNotIn('unrelated.txt', patch.read_text())
+            git('apply', '--reverse', '--check', str(patch))
 
     def test_cli_and_hostname_parsers_have_adversarial_owning_tests(self):
         source = (ROOT / 'dashboard/packages/core/src/index.ts').read_text()
