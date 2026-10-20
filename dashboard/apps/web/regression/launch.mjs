@@ -25,10 +25,12 @@ import {runnerSession} from './core/runner-session.ts';
 import {progressEvent} from './core/progress.ts';
 import {blockedCounts,inheritRecoveryCause,recoveryCause} from './core/blocking.ts';
 import {regressionBlockedSummary} from '../../../packages/core/src/regression-blocking.ts';
+import {testMode,requireSafeStep,selectedSteps} from './core/test-mode.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 const mode = process.argv[2], runId = newRunId();
+const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),nonDestructive=runTestMode==='non-destructive';
 const modelCase = mode === 'phase2-models' ? process.argv[3] : undefined;
 const selectedModelCase = modelCase && Object.hasOwn(phase2ModelCases, modelCase) ? phase2ModelCases[modelCase] : undefined;
 const gpuCase = ['phase3-gpu','phase4-sharing'].includes(mode) ? process.argv[3] : undefined;
@@ -42,7 +44,7 @@ const directory = join(output, runId);
 const playwrightCli = resolve('node_modules/@playwright/test/cli.js');
 const typeScriptCli = resolve('node_modules/typescript/bin/tsc');
 // Invalid drill arguments are handled by the redacted reporting path below.
-const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
+const requiredBase = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
   mode === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] : mode === 'phase2-readonly' ? ['DISC-03'] :
   mode === 'phase2-models' ? selectedModelCase?.ids ?? phase2ModelIds :
   mode === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
@@ -54,8 +56,9 @@ const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [h
   mode === 'smoke' ? ['LIFE-01', 'ROUTE-01', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
   mode === 'model-edit' ? ['LIFE-01', 'ROUTE-01', 'LIFE-08', 'LIFE-07', 'LIFE-09', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
   mode === 'gpu-recover' ? ['HAR-07','HAR-08'] : mode === 'recover' ? ['HAR-07'] : ['HAR-01', 'HAR-02', 'HAR-03']);
+const required=mode==='non-destructive-live'?['HAR-01','HAR-02']:nonDestructive&&/^phase[0-8]$/.test(mode)?[]:requiredBase;
 let home, child, interruptedSignal, session;
-const phaseIds=phase=>phase === 0 ? phase0Ids : phase === 1 ? phase1Ids : phase === 2 ? phase2Ids :
+const phaseIds=phase=>nonDestructive?[]:phase === 0 ? phase0Ids : phase === 1 ? phase1Ids : phase === 2 ? phase2Ids :
   gpuModeIds(`phase${phase}`) ?? remainingIds(`phase${phase}`) ?? [];
 async function waitChild(current) {
   let force;
@@ -72,9 +75,10 @@ async function waitChild(current) {
 }
 
 try {
+  requireSafeStep(mode,runTestMode);
   requireSafe([...['5','6','7','8'].flatMap(phase=>[`phase${phase}`,`phase${phase}-fast`,`phase${phase}-fixtures`,`phase${phase}-live`]),'all','selftest', 'phase0', 'phase1', 'phase2','phase3','phase4','phase3-fast','phase4-fast','phase3-fixtures','phase4-fixtures','phase3-gpu','phase3-validation','phase4-sharing', 'phase2-fast', 'phase2-fixtures', 'phase2-readonly',
     'phase2-models', 'phase2-faults', 'smoke-fast', 'smoke-fixtures', 'session-smoke', 'core-smoke', 'foundations',
-    'phase6-drill','preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover','campaign-recover', 'typecheck', 'cleanup-plan'].includes(mode), 'CONFIG');
+    'phase6-drill','preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover','campaign-recover', 'typecheck', 'cleanup-plan','non-destructive-live'].includes(mode), 'CONFIG');
   requireSafe(mode!=='campaign-recover'||/^reg-[0-9a-f-]{36}$/.test(recoveryRunId??''),'CONFIG');
   requireSafe(!modelCase || Boolean(selectedModelCase), 'CONFIG');
   requireSafe(!gpuCase || Boolean(selectedGpuCase), 'CONFIG');
@@ -162,6 +166,7 @@ try {
       requireSafe(arguments_.length === 2 && arguments_[0] === '--phases','CONFIG');
       selected=preparationArguments(arguments_).phases;
     }
+    environment.REGRESSION_PHASES=selected.join(',');process.env.REGRESSION_PHASES=selected.join(',');
     const preparation=await preparationDiagnostic();
     const phases=[],recoveryAttempts=[],collected=preparation?.outcome === 'Failed' ?
       [{id:'HAR-02',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:preparation.reason ?? 'API'}] : [];
@@ -193,7 +198,7 @@ try {
         executionCounts:summarizeExecutions(cases),blockedCounts:blockedCounts(cases),executionBlockedCounts:blockedCounts(cases,true)});
       progressEvent({event:'phase-end',phase,outcome:phases.at(-1).state});
       collected.push(...cases);
-      await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,
+      await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,testMode:runTestMode,
         allSelectedPhasesPassed:phases.length === selected.length && phases.every(item=>item.state === 'Passed')});
     }
     if(interruptedSignal)for(const phase of selected.filter(value=>!phases.some(item=>item.phase === value))) {
@@ -202,11 +207,11 @@ try {
         executionCounts:summarizeExecutions(cases),blockedCounts:blockedCounts(cases),executionBlockedCounts:blockedCounts(cases,true)});
     }
     const passed=phases.length === selected.length && phases.every(item=>item.state === 'Passed');
-    await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,allSelectedPhasesPassed:passed});
+    await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,testMode:runTestMode,allSelectedPhasesPassed:passed});
     await saveReport(directory,runId,collected,[...new Set(collected.map(item=>item.id))],process.env.REGRESSION_SOURCE_REVISION,'all',undefined,
       {recoveryFenceActive:Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryAttempts});
     const counts={Passed:0,Failed:0,Blocked:0};for(const item of collected)if(Object.hasOwn(counts,item.outcome))counts[item.outcome]++;
-    await writePrivate(join(directory,'all-summary.txt'),'Magic Stick complete P0 regression\n'+
+    await writePrivate(join(directory,'all-summary.txt'),(nonDestructive?'Magic Stick non-destructive regression (not full-phase acceptance)\n':'Magic Stick complete P0 regression\n')+
       (preparation ? preparationDescription(preparation)+'\n' : '')+
       `Evidence rows (case × variant × layer): Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
       `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
@@ -219,7 +224,7 @@ try {
   } else if (Object.hasOwn(phaseSteps,mode)) {
     const collected = [], steps = [],recoveryAttempts=[];
     const recoveryFenceAtStart=Boolean(environment.REGRESSION_RECOVERY_FENCE);
-    const stepsToRun = phaseSteps[mode];
+    const stepsToRun = selectedSteps(Number(mode.slice(-1)),runTestMode);
     for (const [index, step] of stepsToRun.entries()) {
       if(interruptedSignal)break;
       const fixture = step === 'selftest' || /(?:-fast|-fixtures)$/.test(step);
@@ -229,7 +234,9 @@ try {
       progressEvent({event:'step-start',step,index:index+1,total:stepsToRun.length});
       console.log(`  ${modeDescription(step)}`);
       child = spawn(process.execPath, [fileURLToPath(import.meta.url),step], {
-        env: {...environment,REGRESSION_CAMPAIGN_RESULT:receipt}, stdio: 'inherit',
+        // Isolated tests exercise all product contracts against synthetic data;
+        // they must not change assertions based on the live campaign's mode.
+        env: {...environment,...(fixture?{REGRESSION_TEST_MODE:'full'}:{}),REGRESSION_CAMPAIGN_RESULT:receipt,...(step==='non-destructive-live'?{REGRESSION_READONLY_PHASE:mode.slice(-1)}:{})}, stdio: 'inherit',
       });
       const exit=await waitChild(child);
       const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:step,required:[],fixture,
@@ -254,7 +261,7 @@ try {
       }
       steps.push({mode: step, runId: result.runId, passed: exit === 0 && report.acceptable === true && continued});
       await writePrivate(join(directory, 'steps.json'), steps);
-      if(recoveryFence&&!fixture&&!priorFence&&!interruptedSignal) {
+      if(recoveryFence&&!fixture&&!priorFence&&!interruptedSignal&&!nonDestructive) {
         const recoveryReceipt=join(directory,'recovery-result.json');await rm(recoveryReceipt,{force:true});
         console.log('Attempting exact finished-child restoration before independent live tests continue; original failure retained.');
         child=spawn(process.execPath,[fileURLToPath(import.meta.url),'campaign-recover',result.runId],
@@ -269,9 +276,10 @@ try {
         await writePrivate(join(directory,'campaign-recovery-attempts.json'),{version:1,recoveryAttempts});
       }
     }
-    const report = await saveReport(directory, runId, interruptedSignal ? completeCases(mode,collected,required,'CANCELLED') : collected,
-      required, process.env.REGRESSION_SOURCE_REVISION, mode,undefined,
-      {recoveryFenceActive:Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryAttempts,recoveryFenceAtStart});
+    const selectedRequired=nonDestructive?[...new Set(collected.map(item=>item.id))]:required;
+    const report = await saveReport(directory, runId, interruptedSignal ? completeCases(mode,collected,selectedRequired,'CANCELLED') : collected,
+      selectedRequired, process.env.REGRESSION_SOURCE_REVISION, mode,undefined,
+      {recoveryFenceActive:!nonDestructive&&Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryAttempts,recoveryFenceAtStart});
     console.log(`Private Phase ${mode.slice(-1)} P0 report: ${join(directory, 'summary.txt')}`);
     const summary=JSON.parse(await readPrivate(join(directory,'summary.json')));
     process.exitCode = (mode === 'phase4' ? report.installedPhase4Accepted : report[`fullPhase${mode.slice(-1)}Accepted`]) ? 0 : reportExitCode(summary.cases);

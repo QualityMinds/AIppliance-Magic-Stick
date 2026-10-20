@@ -9,17 +9,17 @@ const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;
 type Entry={name:string;classname:string;outcome:string;durationMs:number;detail:string;properties:Record<string,string>;
   source?:{file:string;line:number};output?:string};
 function suite(name:string,entries:Entry[],excludedEngines:readonly string[]=[]) {
-  return `<testsuite name="${name}" tests="${entries.length}" failures="${entries.filter(item=>item.outcome==='Failed').length}" skipped="${entries.filter(item=>item.outcome==='Blocked').length}">\n`+
+  return `<testsuite name="${name}" tests="${entries.length}" failures="${entries.filter(item=>item.outcome==='Failed').length}" skipped="${entries.filter(item=>['Blocked','Skipped'].includes(item.outcome)).length}">\n`+
     (excludedEngines.length ? `<properties><property name="excludedExperimentalEngines" value="${xml(excludedEngines.join(', '))}"/></properties>\n` : '')+
     entries.map(item=>`<testcase classname="${xml(item.classname)}" name="${xml(item.name)}" time="${(item.durationMs/1000).toFixed(3)}"`+
       (item.source?` file="${xml(item.source.file)}" line="${item.source.line}"`:'')+'>'+
       '<properties>'+Object.entries(item.properties).map(([name,value])=>`<property name="${xml(name)}" value="${xml(value)}"/>`).join('')+'</properties>'+
-      (item.outcome==='Failed'?`<failure type="Failed" message="${xml(item.detail)}"/>`:item.outcome==='Blocked'?`<skipped type="Blocked" message="${xml(item.detail)}"/>`:'')+
+      (item.outcome==='Failed'?`<failure type="Failed" message="${xml(item.detail)}"/>`:['Blocked','Skipped'].includes(item.outcome)?`<skipped type="${item.outcome==='Blocked'?'Blocked':'NotSelected'}" message="${xml(item.detail)}"/>`:'')+
       (item.output?`<system-out>${xml(item.output)}</system-out>`:'')+'</testcase>').join('\n')+'\n</testsuite>';
 }
 /** Keep case/layer evidence, executable scenarios and steps as distinct suites.
  * Relative attachments work after extracting the sanitized report archive. */
-export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],excludedEngines:readonly string[]=[]) {
+export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],excludedEngines:readonly string[]=[],selection?:{testMode:string;excludedSteps:string[]}) {
   const lookup=new Map(artifacts.map(item=>[item.trace.executionId,item]));
   const evidence:Entry[]=cases.map(item=>{
     const artifact=item.executionId?lookup.get(item.executionId):undefined;
@@ -57,6 +57,10 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
     properties:{executionId:trace.executionId,stepIndex:String(step.index),category:step.category,outcome:step.outcome,trace:path,
       ...(step.parentIndex?{parentStep:String(step.parentIndex)}:{}),...(step.reason?{reason:step.reason}:{}),...(step.stage?{stage:step.stage}:{}),
       ...(step.handledError?{handledError:'true'}:{} )},output:JSON.stringify(step)})));
+  if(selection)for(const item of evidence)item.properties.testMode=selection.testMode;
+  const excluded:Entry[]=(selection?.excludedSteps??[]).map(step=>({name:step,classname:'selection',outcome:'Skipped',durationMs:0,
+    detail:'Not selected: non-destructive mode. No destructive or preparation-dependent live step was executed.',properties:{testMode:selection!.testMode,outcome:'Not selected',reason:'TEST_MODE'}}));
   return '<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>\n'+suite('magicstick-selected-regression',evidence,excludedEngines)+'\n'+
+    (excluded.length?suite('magicstick-not-selected-by-test-mode',excluded)+'\n':'')+
     suite('magicstick-executable-scenarios',scenarios)+'\n'+suite('magicstick-test-steps',steps)+'\n</testsuites>\n';
 }

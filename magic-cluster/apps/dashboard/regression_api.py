@@ -98,6 +98,7 @@ class RegressionApi:
     def view(self, run):
         meta, spec, status = run.get("metadata", {}), run.get("spec", {}), run.get("status", {})
         result = {"id": meta.get("name"), "uid": meta.get("uid"), "createdAt": meta.get("creationTimestamp"),
+                  "testMode": spec.get("testMode", "full"),
                   "operation": spec.get("operation", "tests"),
                   "phases": spec.get("phases", list(range(9))), "phase": status.get("phase", "Queued"),
                   "message": status.get("message", "Waiting for the operator."),
@@ -257,7 +258,7 @@ class RegressionApi:
 
     def start(self, principal, payload):
         self.f["live_admin_actor"](principal)
-        if (not {"requestId", "acknowledgeDisruption"} <= set(payload) <= {"requestId", "acknowledgeDisruption", "phases"}
+        if (not {"requestId", "acknowledgeDisruption"} <= set(payload) <= {"requestId", "acknowledgeDisruption", "phases", "testMode"}
                 or payload.get("acknowledgeDisruption") is not True
                 or not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", "")))):
             self.error(400, "A unique request and disruption confirmation are required.")
@@ -266,7 +267,10 @@ class RegressionApi:
                 or any(type(phase) is not int or not 0 <= phase <= 8 for phase in phases)
                 or len(set(phases)) != len(phases)):
             self.error(400, "Select one or more distinct test phases from 0 to 8.")
-        return self.enqueue(principal, {**payload, "phases": sorted(phases)}, "tests")
+        test_mode = payload.get("testMode", "full")
+        if test_mode not in ("non-destructive", "full"):
+            self.error(400, "Select non-destructive or full tests.")
+        return self.enqueue(principal, {**payload, "phases": sorted(phases), "testMode": test_mode}, "tests")
 
     def recover_lock(self, principal, payload):
         self.f["live_admin_actor"](principal)
@@ -292,9 +296,14 @@ class RegressionApi:
                     self.error(409, "This request ID is already owned by another administrator.")
                 if operation == "tests" and existing.get("spec", {}).get("phases") != payload["phases"]:
                     self.error(409, "This request ID already selects different phases. Use a new request ID for a new run.")
+                if operation == "tests" and existing.get("spec", {}).get("testMode", "full") != payload["testMode"]:
+                    self.error(409, "This request ID already selects a different test mode. Use a new request ID for a new run.")
                 return self.view(existing)
             runs = self.f["list_resource"](RUNS)
             recovery = self.recovery_candidate(runs)
+            non_destructive = operation == "tests" and payload["testMode"] == "non-destructive"
+            if non_destructive and any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs):
+                self.error(409, "Clean up the previous run separately before non-destructive tests. This mode never restores or changes previous test resources.")
             if any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs) and not recovery:
                 self.error(409, "Another regression run is still queued, running or cleaning up.")
             recovery_spec = {}
@@ -319,6 +328,8 @@ class RegressionApi:
                     or lease.get("metadata", {}).get("resourceVersion") != recovery_spec["lockRecovery"]["resourceVersion"]):
                 self.error(409, "The lock changed while preparing recovery. Refresh before trying again.")
             if lease and lease.get("spec", {}).get("holderIdentity"):
+                if non_destructive:
+                    self.error(409, "The lab is reserved or needs previous-run cleanup. Non-destructive tests never recover or clear its lock.")
                 spec = lease.get("spec", {})
                 owner = lease.get("metadata", {}).get("annotations", {}).get("regression.magicstick.dev/run-id", spec["holderIdentity"])
                 try:
@@ -336,7 +347,13 @@ class RegressionApi:
                 "metadata": {"name": name, "namespace": "ai-system"},
                 "spec": {"applianceUid": registration["applianceUid"], "nodeUids": registration["nodeUids"],
                     "phases": [] if operation == "recover-lock" else payload["phases"], "requestedBy": principal["subject"], "image": image,
+                    **({"testMode": payload["testMode"]} if operation == "tests" else {}),
                     "sourceRevision": revision, "cancelRequested": False, **recovery_spec}})
+            if non_destructive and run.get("spec", {}).get("testMode") != "non-destructive":
+                message = "The installed regression schema does not support non-destructive tests yet. Update the operator/schema before retrying; no test account or Job was created."
+                self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "credentialRecoveryRequired": False, "message": message}})
+                self.cleanup(run)
+                self.error(503, message)
             try:
                 if recovery:
                     original_name = credential_owner(recovery)[0]
@@ -346,7 +363,7 @@ class RegressionApi:
                 # Old operators must not interpret recovery intent as a test
                 # suite during a rolling upgrade: only the new reconciler
                 # understands this distinct readiness key/entrypoint.
-                ready = "recovery-credentials-ready" if operation == "recover-lock" else "credentials-ready"
+                ready = "recovery-credentials-ready" if operation == "recover-lock" else "non-destructive-credentials-ready" if non_destructive else "credentials-ready"
                 self.f["patch_json"](RUNS + "/" + name, {"metadata": {"annotations": {"regression.magicstick.dev/" + ready: run["metadata"]["uid"]}}})
             except Exception:
                 self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "message": "Automatic test-account provisioning failed; no tests were started."}})
@@ -368,6 +385,7 @@ class RegressionApi:
         # Persist the intended identity before contacting Keycloak. Cleanup can
         # resolve a lost create response, without adopting a same-name user.
         account = {"username": username, "password": password, "runUid": uid,
+                   "testMode": run.get("spec", {}).get("testMode", "full"),
                    "registration": registration, "completionToken": secrets.token_urlsafe(32)}
         self.write("POST", CORE + "/secrets", {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
             "metadata": {"name": name, "namespace": NAMESPACE, "labels": {OWNER: uid}},
@@ -398,7 +416,8 @@ class RegressionApi:
                 self.error(503, "Test identity could not be resolved.")
         account["userId"] = user_id
         self.f["patch_json"](CORE + "/secrets/" + name, {"stringData": {"account.json": json.dumps(account)}})
-        self.f["_replace_managed_roles"](user_id, self.f["ACCESS_LEVEL_ROLES"]["admin"])
+        access_level = "viewer" if account["testMode"] == "non-destructive" else "admin"
+        self.f["_replace_managed_roles"](user_id, self.f["ACCESS_LEVEL_ROLES"][access_level])
         # The existing setup temporarily grants and independently restores
         # Kubernetes access; ordinary tests never retain an admin kubeconfig.
         access = self.f["kubernetes_access_info"](required=True)
@@ -455,6 +474,8 @@ class RegressionApi:
         account = json.loads(base64.b64decode(secret["data"]["account.json"])) if secret else None
         if account and (account.get("runUid") != uid or account.get("username") != "regression-" + uid.replace("-", "")):
             self.error(409, "The retained setup identity does not match its original run.")
+        if account and account.get("testMode", "full") != run.get("spec", {}).get("testMode", "full"):
+            self.error(409, "The test account mode does not match the immutable run selection.")
         return secret, account
 
     def owned_user(self, account, uid, required=False):

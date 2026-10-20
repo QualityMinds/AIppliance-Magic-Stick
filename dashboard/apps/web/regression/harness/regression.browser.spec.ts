@@ -1,24 +1,26 @@
 import {test,expect,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 
-for(const viewport of ['desktop','mobile'] as const)for(const selection of [[3],[3,5]])
-test(`HAR-10 UX-02 ${viewport} starts only selected phases ${selection.join(',')} and retains their progress after reload`,async({page},info)=>{
+for(const viewport of ['desktop','mobile'] as const)for(const selection of [[3],[3,5]])for(const testMode of ['non-destructive','full'] as const)
+test(`HAR-10 UX-02 ${viewport} ${testMode} starts only selected phases ${selection.join(',')} and retains their progress after reload`,async({page},info)=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   let id='',phases:number[]=[];const requests:unknown[]=[];
-  const run=()=>({id,uid:'fixture-run-uid',createdAt:'2026-10-16T12:00:00Z',sourceRevision:'b'.repeat(40),phases,
+  const run=()=>({id,uid:'fixture-run-uid',createdAt:'2026-10-16T12:00:00Z',sourceRevision:'b'.repeat(40),phases,testMode,
     phase:'Running',message:'Running only the selected phases.',credentialsCleaned:false,reportAvailable:false,progress:{percent:0}});
   const payload=()=>({registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
     executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:id?[run()]:[]});
   await fixturePage(page,{'/api/regression':payload,'/api/regression/runs':(request:Request)=>{
     const body=request.postDataJSON();expect(request.method()).toBe('POST');
-    expect(body).toEqual({requestId:expect.stringMatching(/^[a-f0-9]{32}$/),acknowledgeDisruption:true,phases:selection});
+    expect(body).toEqual({requestId:expect.stringMatching(/^[a-f0-9]{32}$/),acknowledgeDisruption:true,phases:selection,testMode});
     requests.push(body);phases=body.phases;id='regression-'+body.requestId;return run();
   }});
   await page.goto(origin+'/#/system/status/regression');
   await page.getByRole('button',{name:'Start regression tests',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Start regression tests'}),start=dialog.getByRole('button',{name:'Start tests',exact:true});
+  await expect(dialog.getByRole('radio',{name:'Non-destructive only'})).toBeChecked();
+  if(testMode==='full')await dialog.getByRole('radio',{name:'Include destructive tests'}).click();
   await expect(dialog.getByRole('checkbox',{checked:true})).toHaveCount(9);
-  await expect(dialog.getByText(/Existing models may be stopped/)).toBeVisible();
+  await expect(dialog.getByText(testMode==='full'?/Existing models may be stopped/:/without stopping models/)).toBeVisible();
   await dialog.getByRole('button',{name:'Clear selection'}).click();
   await expect(start).toBeDisabled();await expect(dialog.getByRole('alert')).toHaveText('Select at least one test phase.');
   for(const phase of [...selection].reverse()) {
@@ -30,11 +32,12 @@ test(`HAR-10 UX-02 ${viewport} starts only selected phases ${selection.join(',')
   await expect(dialog.getByRole('status')).toHaveText(`Selected phases: ${selection.join(', ')}.`);
   expect(requests).toEqual([]);
   expect(await dialog.evaluate(element=>element.scrollWidth<=element.clientWidth)).toBe(true);
-  await page.screenshot({path:info.outputPath(`regression-phases-${viewport}-${selection.join('-')}.png`),fullPage:true});
+  await page.screenshot({path:info.outputPath(`regression-phases-${viewport}-${testMode}-${selection.join('-')}.png`),fullPage:true});
   await start.click();
   await expect(page.getByLabel('Selected test phases')).toHaveText(`Selected phases: ${selection.join(', ')}.`);
   await expect(page.getByText(`0 / ${selection.length} ${selection.length===1?'phase':'phases'} finished. Progress reflects completed test steps, not an estimated time.`,{exact:true})).toBeVisible();
   await page.reload();await expect(page.getByLabel('Selected test phases')).toHaveText(`Selected phases: ${selection.join(', ')}.`);
+  await expect(page.getByLabel('Test mode')).toHaveText(`Test mode: ${testMode==='non-destructive'?'Non-destructive only':'Full, including destructive tests'}.`);
   await expect(page.getByRole('button',{name:'Start regression tests',exact:true})).toBeDisabled();
   expect(requests).toHaveLength(1);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
@@ -176,6 +179,45 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewpor
   }finally{hold=false;release?.();}
 });
 
+for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewport} slow runner activation shows pending request and readiness without starting tests`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let ready=false,release:(()=>void)|undefined;
+  const writes:string[]=[];
+  await fixturePage(page,{
+    '/api/regression':()=>({registered:false,applianceUid:'fixture-appliance',runtimeAvailable:ready,sourceRevision:ready?'b'.repeat(40):'',
+      message:ready?'':'Enable the regression runner.',runs:[],executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot']}),
+    '/api/modules/regression/enable':async(request:Request)=>{
+      expect(request.method()).toBe('POST');writes.push('enable');
+      await new Promise<void>(resolve=>{release=resolve;});return {};
+    },
+    '/api/regression/register':()=>{writes.push('unexpected-registration');return {};},
+    '/api/regression/runs':()=>{writes.push('unexpected-run');return {};},
+  });
+  try{
+    await page.goto(origin+'/#/system/status/regression');
+    expect(writes).toEqual([]);
+    await page.getByRole('button',{name:'Enable regression runner',exact:true}).click();
+    await expect(page.getByText('Sending runner activation request…',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Enabling regression runner…',exact:true})).toBeDisabled();
+    const progress=page.getByRole('progressbar',{name:'Regression runner activation',exact:true});
+    await expect(progress).toBeVisible();await expect(progress).not.toHaveAttribute('aria-valuenow');
+    await expect(page.getByRole('button',{name:'Start regression tests',exact:true})).toBeDisabled();
+    await expect.poll(()=>Boolean(release)).toBe(true);expect(writes).toEqual(['enable']);release!();
+    await expect(page.getByRole('button',{name:'Waiting for runner readiness…',exact:true})).toBeDisabled();
+    await expect(page.getByText('Activation requested. Waiting for the regression runner to become ready…',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Refresh tests',exact:true}).click();
+    await expect(progress).toBeVisible();expect(writes).toEqual(['enable']);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`regression-activation-${viewport}.png`),fullPage:true});
+    ready=true;await page.getByRole('button',{name:'Refresh tests',exact:true}).click();
+    await expect(progress).toHaveCount(0);
+    await expect(page.getByText('Regression runner is ready. Register this disposable test Appliance to continue.',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Register test Appliance',exact:true})).toBeEnabled();
+    await expect(page.getByRole('button',{name:'Start regression tests',exact:true})).toBeDisabled();
+    expect(writes).toEqual(['enable']);
+  }finally{release?.();}
+});
+
 for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 SEC-01 UX-02 ${viewport} administrators enable, register, start, cancel and download without a license`,async({page})=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   let enabled=false,registered=false,id='',cancelled=false,licenseReads=0;
@@ -196,7 +238,7 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 SEC-01 UX-02 ${
       registered=true;writes.push('register');return {};
     },
     '/api/regression/runs':(request:Request)=>{
-      const body=request.postDataJSON();expect(body).toEqual({requestId:expect.stringMatching(/^[a-f0-9]{32}$/),acknowledgeDisruption:true,phases:[0,1,2,3,4,5,6,7,8]});
+      const body=request.postDataJSON();expect(body).toEqual({requestId:expect.stringMatching(/^[a-f0-9]{32}$/),acknowledgeDisruption:true,phases:[0,1,2,3,4,5,6,7,8],testMode:'non-destructive'});
       id='regression-'+body.requestId;writes.push('start');return run();
     },
   });

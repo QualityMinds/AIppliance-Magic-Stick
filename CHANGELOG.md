@@ -8,6 +8,16 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Choose non-destructive checks (the Dashboard default) or full regression with
+  destructive scenarios. Persist the immutable choice through the API, Job and
+  reports. Non-destructive runs use a temporary viewer, isolated inputs and
+  read-only inventory checks, never prepare models or recover old resources;
+  intentionally excluded steps are named separately from failures/prerequisites.
+
+- Show regression runner activation in progress while its request is pending and
+  while Kubernetes makes the runner ready. Prevent duplicate enable requests,
+  retain visible errors and offer registration only after confirmed readiness.
+
 - Keep the regression enable action available on fresh installations before the
   optional runner's test-lock permissions exist. Report that lock as unverified,
   not free; retain permission failures when registration, runtime or run history

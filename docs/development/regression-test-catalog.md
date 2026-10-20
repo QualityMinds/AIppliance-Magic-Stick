@@ -39,6 +39,17 @@ assertions, deadline and failure teardown. Case IDs remain stable.
 
 ## 1. Harness and lab safety
 
+Dashboard execution has two immutable modes. **Non-destructive only** (default)
+selects isolated suites and HAR-01/HAR-02 read-only TLS/login/installation-bound
+inventory variants for each selected phase. No mutating preparation, inference,
+model lifecycle, sharing, license/service change or recovery is performed. The
+temporary viewer account, Job and reports are still test infrastructure writes.
+Excluded preparation-dependent/destructive steps are named separately and do not
+count as Passed/Failed/Blocked or full-phase acceptance. **Include destructive
+tests** retains the complete existing phase requirements. Historical runs and
+requests with no mode remain full; the two reports must not be compared as equal
+coverage.
+
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
 | HAR-01 | Resolve the configured hosts and verify TLS with the approved CA. Wrong host, untrusted certificate or unexpected appliance identity aborts before mutation. | C+A | P0 · smoke |
@@ -50,7 +61,7 @@ assertions, deadline and failure teardown. Case IDs remain stable.
 | HAR-07 | Interrupt the runner and resume its cleanup journal. Ambiguous requests are inspected before retry; orphaned ownership or cleanup failure remains visible. Recovery-only Dashboard intent restores the exact old journal and unchanged borrowed settings, verifies absence and releases its expired Lease; no test phases, historical outcome rewrite or forced unlock. | U+C+B+A | P0 · functional |
 | HAR-08 | Change a borrowed global setting, then simulate an intervening human revision. Restoration must not overwrite that revision; report the remaining difference for review. | U+C+A | P0 · sharing |
 | HAR-09 | Exercise stage deadlines and polling with delayed status/generation updates. Old Ready state is not accepted for a new intent; failure includes the stalled stage. | U+C+A | P0 · smoke |
-| HAR-10 | Generate a report with failed, blocked, skipped, unimplemented and retry-passed cases. Required gaps cannot yield a green profile or a successful empty run. In System regression execution, select all phases by default or a nonempty subset of phases 0–8; persist the immutable selection and selection-bound progress/results across reloads without running or crediting other phases. Empty/invalid selections and changed idempotency selections are rejected before new writes. Distinguish blocks caused by prerequisites from blocks caused by failures, retaining the original blocking check and trace when recorded; cancellation and unrecorded causes remain separate. Show reason, phase/variant/layer, stage and next action; allow only sanitized archive/HTML/JUnit downloads. Administrators can enable/register/start/cancel/download without a product license or license-status dependency; test registration is not license activation. | U+C+B | P0 · fast |
+| HAR-10 | Generate a report with failed, blocked, skipped, unimplemented and retry-passed cases. Required gaps cannot yield a green profile or a successful empty run. In System regression execution, select all phases by default or a nonempty subset of phases 0–8; persist the immutable selection and selection-bound progress/results across reloads without running or crediting other phases. Empty/invalid selections and changed idempotency selections are rejected before new writes. Distinguish blocks caused by prerequisites from blocks caused by failures, retaining the original blocking check and trace when recorded; cancellation and unrecorded causes remain separate. Show reason, phase/variant/layer, stage and next action; allow only sanitized archive/HTML/JUnit downloads. Administrators can enable/register/start/cancel/download without a product license or license-status dependency; test registration is not license activation. Show pending runner activation separately from the readiness wait, without duplicate enables, fabricated percentage progress or automatic test starts. Offer immutable non-destructive/full selection; list deliberately excluded steps separately, never as passed tests or full-phase acceptance. | U+C+B | P0 · fast |
 | HAR-11 | Seed synthetic credentials into fixture headers, dialogs, logs and auth state. Public/sanitized artifacts omit them; raw live state is restricted and deleted by policy. | U+C+B | P0 · fast |
 
 ## 2. Authentication, sessions and role boundaries
@@ -696,6 +707,24 @@ dependent cases do not repeat the failed setup or borrow passing results from
 another run. These changes have local owning, fast and harness coverage; matching
 published images and a fresh installed Phase 5 run are still required. Old
 reports and UID/revision-bound cleanup checks are unchanged.
+
+20 October 2026 activation feedback follow-up: HAR-10 and UX-02 have owning
+component counterproofs and desktop/mobile browser fixtures for a delayed enable
+request, accepted activation awaiting readiness, duplicate-request prevention,
+error/retry, manual status refresh and the transition to registration without
+automatically registering or starting tests. The existing Phase 8 fixture profile
+selects the browser cases; this is isolated UI coverage, not new installed-runner
+or hardware acceptance.
+
+20 October 2026 test-mode follow-up: HAR-01/02/04/10 and UX-02 cover a safe default,
+explicit destructive opt-in, immutable mode/idempotency, viewer-only provisioning,
+no recovery-account reuse, stale-lock refusal, old-schema/operator/image rejection,
+isolated input mounts, deny-by-default step selection and GET-only transport.
+Owning API/controller tests and `harness/test-mode.unit.spec.ts` are selected by
+the existing selftest bridge. Desktop/mobile Phase 8 fixtures exercise both modes
+with phase subsets and reload. JSON/HTML/text/JUnit distinguish intentional
+exclusions from failed or prerequisite-blocked checks. This is isolated coverage;
+matching CI runner publication and installed acceptance remain separate gates.
 
 15 October 2026 runner follow-up: HAR-02/06/07/10, MOD-03/04, APP-02,
 HW-06, SHR-02/04, SLOT-03 and MGPU-01 have targeted counterproofs for shared

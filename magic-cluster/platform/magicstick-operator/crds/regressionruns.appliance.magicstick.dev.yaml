@@ -31,6 +31,12 @@ spec:
               type: object
               required: [applianceUid, nodeUids, phases, requestedBy, image, sourceRevision]
               x-kubernetes-validations:
+                - rule: '(has(self.testMode) ? self.testMode : "full") == (has(oldSelf.testMode) ? oldSelf.testMode : "full")'
+                  message: 'The test mode is immutable. Create a new run instead.'
+                - rule: 'self.operation == "tests" || self.testMode == "full"'
+                  message: 'Non-destructive mode cannot perform previous-run recovery.'
+                - rule: 'self.testMode != "non-destructive" || (!has(self.accountRunName) && !has(self.accountRunUid))'
+                  message: 'Non-destructive tests cannot reuse a previous recovery account.'
                 - rule: 'self.applianceUid == oldSelf.applianceUid && self.nodeUids == oldSelf.nodeUids && self.phases == oldSelf.phases && self.requestedBy == oldSelf.requestedBy && self.image == oldSelf.image && self.sourceRevision == oldSelf.sourceRevision'
                   message: 'Run identity, image and selection are immutable. Create a new run instead.'
                 - rule: 'has(self.accountRunName) == has(self.accountRunUid)'
@@ -61,6 +67,7 @@ spec:
                   maxLength: 240
                   pattern: '^ghcr[.]io/qualityminds/magicstick-regression:[a-z0-9-]+@sha256:[a-f0-9]{64}$'
                 sourceRevision: {type: string, pattern: '^[a-f0-9]{40}$'}
+                testMode: {type: string, enum: [non-destructive, full], default: full}
                 operation: {type: string, maxLength: 12, enum: [tests, recover-lock], default: tests}
                 lockRecovery:
                   type: object

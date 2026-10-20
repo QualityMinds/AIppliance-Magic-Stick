@@ -2,6 +2,10 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-help}"
+if [[ "${REGRESSION_TEST_MODE-full}" != full && "$mode" != help && "$mode" != build ]]; then
+  printf '%s\n' 'Non-destructive runs use the Dashboard and its isolated viewer runner. The external launcher does not support this mode; no setup or tests were started.' >&2
+  exit 2
+fi
 docker_cli="${DOCKER_CLI:-docker}"
 export REGRESSION_RUNNER_IMAGE="${REGRESSION_RUNNER_IMAGE:-magicstick-regression:local}"
 if [[ "$docker_cli" == */* ]]; then export PATH="$(dirname "$docker_cli"):$PATH"; fi

@@ -42,6 +42,10 @@ reviewed stale lock and original journal, restore recorded state, then release
 the lock without selecting test phases. The Dashboard API cleans the generated test account after
 the owned Pod terminates. [Host-disconnecting drills](../development/regression-remaining-p0.md#in-the-dashboard)
 remain an external-runner prerequisite, not in-cluster acceptance.
+An immutable non-destructive selection uses a separate readiness key/entrypoint,
+viewer credentials and no old private-state mounts. It cannot turn into recovery
+or full tests during a rolling upgrade. Isolated suites and GET-only inventory
+share the existing runner/reporting path; destructive live steps are excluded.
 
 The optional `ModelActivation.spec.local.realtime` profile uses a direct
 vLLM-Omni Deployment, Service and stage ConfigMap. Module dependencies are the

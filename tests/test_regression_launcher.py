@@ -11,6 +11,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RegressionLauncherTests(unittest.TestCase):
+    def test_non_destructive_environment_cannot_enter_external_mutating_preparation(self):
+        for mode in ("setup", "all", "prepare", "phase3", "phase3-gpu"):
+            with self.subTest(mode=mode):
+                result = self.run_launcher(mode, REGRESSION_TEST_MODE="non-destructive")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("no setup or tests were started", result.stderr)
+                self.assertFalse(self.log.exists())
+                self.assertFalse((self.root / "setup.jsonl").exists())
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='regression launcher ')
         self.addCleanup(self.directory.cleanup)

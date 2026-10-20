@@ -10,7 +10,8 @@ settings, deploy services, replace test licenses and clear model caches.
 1. Open **System → System Status → Regression tests** as an administrator.
 2. Once: **Enable regression runner**, wait for readiness, then **Register test
    Appliance** and confirm `DISPOSABLE TEST SERVER`.
-3. Choose **Start regression tests**. Keep all phases selected for a complete run,
+3. Choose **Start regression tests**, then **Non-destructive only** (default) or
+   **Include destructive tests**. Keep all phases selected for a complete run,
    or use **Clear selection** and select, for example, **Phase 3**. Confirm with
    **Start tests**. Credentials, scoped Kubernetes access and small model fixtures
    are prepared automatically.
@@ -19,8 +20,21 @@ settings, deploy services, replace test licenses and clear model caches.
 On a new installation, **Enable regression runner** is available before the
 runner's permissions exist. The test lock remains unverified until installation;
 opening or refreshing this page does not enable or start anything.
+Activation shows an activity bar: first **Enabling regression runner…**, then
+**Waiting for runner readiness…** after the request is accepted. Image downloads
+and service startup can take several minutes. Status updates automatically; the
+bar is not a time estimate, and activation never starts tests. Registration is
+offered only after readiness is confirmed.
 
-Every start cleans up the previous run, checks the baseline, creates a **new test
+**Non-destructive only** runs isolated checks and live read-only inventory. It
+does not stop or deploy models, run inference, change settings/sharing/services/
+licenses/caches or restore old test resources. Only the temporary viewer account,
+runner Job and reports are created and cleaned up. A previous interrupted run
+must be cleaned up separately first. Reports name excluded live steps; a green
+limited selection is not full-phase acceptance. This mode is currently available
+in the Dashboard/API's Kubernetes runner, not the external Docker launcher.
+
+Every full start cleans up the previous run, checks the baseline, creates a **new test
 ID**, and runs the selected P0 phases from the beginning. All Phase 0–8 tests are
 selected by default. Progress and reports identify the saved selection; other
 phases are not run or counted as passed. Earlier results are never reused.

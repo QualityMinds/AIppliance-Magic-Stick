@@ -115,8 +115,12 @@ export interface RealLoginOptions {
   inferenceOrigin?: string;
 }
 
+/** Read-only checks need login facts, not mutation/observer/bootstrap inputs. */
+export type DashboardLoginConfig = Pick<LabConfig, 'dashboardUrl' | 'identityUrl' | 'usernameFile' | 'passwordFile' | 'requestTimeoutMs' | 'loginTimeoutMs'> &
+  {expected: {role: 'magicstick-admin' | 'magicstick-viewer'}};
+
 interface RunnerSession {
-  config: LabConfig;
+  config: DashboardLoginConfig;
   options: RealLoginOptions;
   username: string;
   subject: string;
@@ -127,16 +131,17 @@ interface RunnerSession {
 // Private in-memory receipts, not exported cookies or durable credentials.
 const runnerSessions = new WeakMap<BrowserContext, RunnerSession>();
 
-function verifySession(session: Session, username: string, config: LabConfig, options: RealLoginOptions, subject?: string) {
+function verifySession(session: Session, username: string, config: DashboardLoginConfig, options: RealLoginOptions, subject?: string) {
   requireSafe(session.subject && session.username === username && session.roles.includes(options.actor?.role ?? config.expected.role) &&
     (!options.actor || session.subject === options.actor.subject) && (!subject || session.subject === subject), 'AUTH');
-  if (options.actor && options.actor.role !== 'magicstick-admin') requireSafe(!session.roles.includes('magicstick-admin') &&
-    (options.actor.role === 'magicstick-operator' || !session.roles.includes('magicstick-operator')), 'AUTH');
+  const role = options.actor?.role ?? config.expected.role;
+  if (role !== 'magicstick-admin') requireSafe(!session.roles.includes('magicstick-admin') &&
+    (role === 'magicstick-operator' || !session.roles.includes('magicstick-operator')), 'AUTH');
 }
 
 /** Complete the gateway callback before reading /api/session. Being back on
  * the dashboard origin alone is not proof that its cookies are installed. */
-async function dashboardSignIn(context: BrowserContext, config: LabConfig, options: RealLoginOptions,
+async function dashboardSignIn(context: BrowserContext, config: DashboardLoginConfig, options: RealLoginOptions,
   username: string, renewal = false) {
   const page = await context.newPage();
   let stage: Stage = 'login-form';
@@ -219,7 +224,7 @@ export async function openInferenceSession(context: BrowserContext, origin: stri
   finally {await page.close();}
 }
 
-export async function realLogin(browser: Browser, config: LabConfig, options: RealLoginOptions = {}): Promise<BrowserContext> {
+export async function realLogin(browser: Browser, config: DashboardLoginConfig, options: RealLoginOptions = {}): Promise<BrowserContext> {
   const username = options.actor?.username ?? (await readPrivate(config.usernameFile)).trim();
   requireSafe(username.length > 0, 'AUTH');
   const context = await browser.newContext({...regressionContextOptions(options.httpsPurpose),

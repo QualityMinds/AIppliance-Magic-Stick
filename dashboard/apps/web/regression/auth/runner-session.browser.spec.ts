@@ -101,6 +101,20 @@ function foundation(context: BrowserContext, config: LabConfig, assertHeld: () =
     {observer: {}, api: {}}, new Set()]), {lease: {assertHeld}});
 }
 
+test('HAR-01 HAR-10 non-destructive login uses a viewer and refuses elevated fallback',async({browser})=>{
+  const fixture=await identityFixture();
+  const config={...fixture.config,expected:{role:'magicstick-viewer' as const}};
+  try {
+    fixture.state.roles=['magicstick-viewer'];
+    const context=await realLogin(browser,config);await context.close();
+    for(const role of ['magicstick-admin','magicstick-operator']) {
+      fixture.state.token=0;fixture.state.roles=['magicstick-viewer',role];
+      await expect(realLogin(browser,config)).rejects.toMatchObject({code:'AUTH',outcome:'Failed'});
+    }
+    expect(fixture.state.writes).toBe(0);
+  }finally{await fixture.close();}
+});
+
 test('HAR-01 K8S-05 only the explicit private export login accepts browser downloads', async ({browser}) => {
   const fixture=await identityFixture();
   try {for(const allowed of [false,true]) {

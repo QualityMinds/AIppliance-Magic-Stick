@@ -38,7 +38,7 @@ class RegressionApiTests(unittest.TestCase):
             "settings_response": lambda: {"mdnsDomain": "example.local"}, "live_admin_actor": lambda _: None,
             "keycloak_admin_request": self.identity, "_realm_path": lambda p: "/realm" + p,
             "_user_path": lambda uid: "/user/" + uid, "_replace_managed_roles": lambda *_: None,
-            "ACCESS_LEVEL_ROLES": {"admin": ["magicstick-admin"]}, "kubernetes_access_info": lambda **_: {"oidcCa": "PUBLIC-CA-NOT-A-KEY"},
+            "ACCESS_LEVEL_ROLES": {"admin": ["magicstick-admin"], "viewer": ["magicstick-viewer"]}, "kubernetes_access_info": lambda **_: {"oidcCa": "PUBLIC-CA-NOT-A-KEY"},
             "_exact_user_matches": lambda field, value: [copy.deepcopy(u) for u in self.users.values() if u.get(field) == value],
             "regression_report_bytes": lambda uid, name: b"sanitized-report"}
         self.service = RegressionApi(self.functions)
@@ -101,6 +101,69 @@ class RegressionApiTests(unittest.TestCase):
 
     def start(self, request="1"*32):
         return self.service.start(ACTOR, {"requestId": request, "acknowledgeDisruption": True})
+
+    def test_non_destructive_mode_is_saved_uses_only_viewer_and_distinct_readiness(self):
+        roles = Mock()
+        self.functions["_replace_managed_roles"] = roles
+        payload = {"requestId": "1"*32, "acknowledgeDisruption": True, "phases": [3], "testMode": "non-destructive"}
+        run = self.service.start(ACTOR, payload)
+        self.assertEqual(run["testMode"], "non-destructive")
+        saved = self.objects[RUNS + "/" + run["id"]]
+        self.assertEqual(saved["spec"]["testMode"], "non-destructive")
+        self.assertEqual(saved["metadata"]["annotations"], {"regression.magicstick.dev/non-destructive-credentials-ready": UID})
+        roles.assert_called_once_with("fixture-user", ["magicstick-viewer"])
+        account = json.loads(base64.b64decode(self.objects[CORE + "/secrets/" + run["id"]]["data"]["account.json"]))
+        self.assertEqual(account["testMode"], "non-destructive")
+        self.writes.clear()
+        self.assertEqual(run, self.service.start(ACTOR, payload))
+        self.assertEqual(self.writes, [])
+        with self.assertRaisesRegex(RequestError, "different test mode"):
+            self.service.start(ACTOR, {**payload, "testMode": "full"})
+        self.assertEqual(self.writes, [])
+
+    def test_invalid_mode_never_creates_an_account_or_run(self):
+        for mode in (None, "readonly", "", True, [], {}):
+            with self.subTest(mode=mode), self.assertRaises(RequestError):
+                self.service.start(ACTOR, {"requestId": "1"*32, "acknowledgeDisruption": True, "testMode": mode})
+            self.assertEqual(self.writes, [])
+            self.assertEqual(self.users, {})
+
+    def test_non_destructive_start_never_recovers_or_reuses_previous_destructive_access(self):
+        self.stale_run()
+        before = copy.deepcopy(self.objects)
+        with self.assertRaisesRegex(RequestError, "Clean up the previous run separately"):
+            self.service.start(ACTOR, {"requestId": "2"*32, "acknowledgeDisruption": True, "testMode": "non-destructive"})
+        self.assertEqual(self.objects, before)
+        self.assertEqual(self.writes, [])
+
+    def test_non_destructive_start_never_clears_an_external_or_expired_lock(self):
+        self.objects[LEASE] = {"metadata": {}, "spec": {"holderIdentity": "external-owner"}}
+        with self.assertRaisesRegex(RequestError, "never recover or clear"):
+            self.service.start(ACTOR, {"requestId": "1"*32, "acknowledgeDisruption": True, "testMode": "non-destructive"})
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.users, {})
+
+    def test_pruning_by_an_old_schema_cannot_downgrade_safe_mode_to_an_admin_account(self):
+        original = self.functions["request_json"]
+        def old_schema(method, path, value):
+            if path == RUNS:
+                value = copy.deepcopy(value)
+                value["spec"].pop("testMode", None)
+            return original(method, path, value)
+        self.functions["request_json"] = old_schema
+        with self.assertRaises(RequestError):
+            self.service.start(ACTOR, {"requestId": "1"*32, "acknowledgeDisruption": True, "testMode": "non-destructive"})
+        self.assertEqual(self.users, {})
+        self.assertFalse(any("/secrets" in path for _, path, _ in self.writes))
+
+    def test_non_destructive_terminated_account_cleanup_needs_no_setup_recovery(self):
+        run = self.service.start(ACTOR, {"requestId": "1"*32, "acknowledgeDisruption": True, "testMode": "non-destructive"})
+        saved = self.objects[RUNS + "/" + run["id"]]
+        saved["metadata"]["annotations"]["regression.magicstick.dev/credentials-used"] = UID
+        saved["status"] = {"phase": "Cancelled", "credentialRecoveryRequired": False}
+        self.service.cleanup(saved)
+        self.assertEqual(self.users, {})
+        self.assertTrue(saved["status"]["credentialsCleaned"])
 
     def stale_run(self):
         run = self.start()

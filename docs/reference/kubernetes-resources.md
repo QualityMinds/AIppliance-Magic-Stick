@@ -266,6 +266,12 @@ network, model, and credential contracts.
 `RegressionRun` is namespaced in `ai-system`. Its immutable spec binds the
 Appliance UID, Node UIDs, Phase 0–8 selection, requesting administrator and
 tested runner image/source. Only `cancelRequested` can change after creation.
+`testMode` is immutable: `non-destructive` or `full` (legacy default). The former
+cannot reference an old recovery account. Its distinct readiness annotation and
+entrypoint fail closed with older operators/images. Its Job mounts no retained
+private inputs/journals and receives only a temporary viewer account; the shared
+runner skips mutating preparation and selects isolated/GET-only checks. Mode and
+intentional exclusions remain in reports, without full-phase acceptance.
 `operation` defaults to `tests`, with a nonempty phase selection. Recovery-only
 intent uses `operation: recover-lock`, `phases: []` and an immutable
 `lockRecovery` snapshot of the Lease UID/resource version and original journal

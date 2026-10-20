@@ -90,7 +90,7 @@ lock check; an unexpected permission error remains an error, not an empty lab.
 | --- | --- |
 | `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results, lock state and external-runner limitations. Read-only. |
 | `POST /api/regression/register` | Exact `confirmation: "DISPOSABLE TEST SERVER"`, `acknowledgeDisruption: true`; immutable Appliance/Node-bound test marker, no production fallback. |
-| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`, optional `phases` array of distinct integers 0–8 (1–9 entries; default all). Idempotent `RegressionRun` intent and generated private test account; no UI Job writes. |
+| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`, optional `phases` array of distinct integers 0–8 (1–9 entries; default all), optional `testMode: non-destructive\|full` (legacy default full). Idempotent `RegressionRun` intent and generated private test account; no UI Job writes. |
 | `POST /api/regression/recover-lock` | 32-lowercase-hex `requestId`, reviewed `expectedLockRevision: "<Lease UID>:<resource version>"`, `acknowledgeCleanup: true`; idempotent recovery-only intent. No test phases or forced Lease deletion. |
 | `GET /api/regression/runs/<id>` | Durable run status. |
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
@@ -102,6 +102,26 @@ before account creation. For example, `phases: [3]` starts only Phase 3, with th
 same automatic previous-run cleanup and baseline checks. Unselected phases are
 not executed or credited as passed. The saved `phases` and selected-phase
 progress/results remain available after reload.
+
+`testMode` is also immutable and included in run responses. Reusing a request ID
+with a different mode returns 409 before provisioning. Unknown/coerced modes are
+rejected. The Dashboard explicitly defaults to `non-destructive`; older requests
+without this field retain full semantics. Safe-mode rejection is never retried
+without its mode. If an older installed CRD prunes the field, provisioning stops
+before creating an account. A distinct credentials-ready annotation and runner
+entrypoint prevent older operators/images from falling back to destructive tests.
+
+Non-destructive runs use a generated viewer account, no Kubernetes grant, isolated
+ephemeral inputs and the sanitized report PVC only. They run existing isolated
+suites plus GET-only selected-phase inventory, not the mutating setup/cleanup,
+model inference/lifecycle or maintenance adapters. Active models are allowed.
+Previous runs needing cleanup or a held Lease reject the start; neither recovery
+accounts nor locks are adopted. These tests still use a registered dedicated lab
+and create their own Job, account and reports. `result.testMode` and
+`result.excludedSteps` describe intentional exclusions separately from failures
+and prerequisites. JSON/HTML/text/JUnit retain the selection; JUnit has a separate
+`magicstick-not-selected-by-test-mode` skipped suite. No full-phase acceptance is
+credited by a successful limited run.
 
 Run IDs are `regression-<32 hex characters>`. The operator, not the browser/API,
 creates Jobs in `magicstick-regression`. Phases are `Queued`, `Preparing`,

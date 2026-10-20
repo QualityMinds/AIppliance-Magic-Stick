@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import type {RegressionBlockedCounts,RegressionPhase,RegressionResult,RegressionRun} from '@magicstick/dashboard-contracts';
+import type {RegressionBlockedCounts,RegressionPhase,RegressionResult,RegressionRun,RegressionTestMode} from '@magicstick/dashboard-contracts';
 import {regressionBlockedKind,regressionBlockedLabel,regressionBlockedSummary} from '@magicstick/dashboard-core';
 import {api} from '../api';
 import {Button, ConfirmDialog, Empty, ErrorNotice, Loading, Panel, StatusBadge} from '../components';
@@ -45,6 +45,11 @@ const Result = ({run}: {run: RegressionRun}) => {
   return <Panel title={run.operation === 'recover-lock' ? 'Previous run cleanup' : timestamp(run.createdAt)} meta={`${run.operation === 'recover-lock' ? timestamp(run.createdAt) + ' · ' : ''}Runner revision ${run.sourceRevision.slice(0, 12)}`} actions={<StatusBadge phase={run.phase} />}>
     <p role="status">{run.message}</p>
     {run.operation !== 'recover-lock' && <p aria-label="Selected test phases">Selected phases: {run.phases.join(', ')}.</p>}
+    {run.operation !== 'recover-lock' && <p aria-label="Test mode">Test mode: {run.testMode === 'non-destructive' ? 'Non-destructive only' : 'Full, including destructive tests'}.</p>}
+    {!!run.result?.excludedSteps?.length && <details><summary>Not selected in this mode ({run.result.excludedSteps.length} steps)</summary>
+      <p>Destructive and preparation-dependent live steps were not run or counted as passed. Full-phase acceptance was not assessed.</p>
+      <ul>{run.result.excludedSteps.map(step => <li key={step}><code>{step}</code></li>)}</ul>
+    </details>}
     {preparation&&preparation.outcome!=='Passed'&&<div className="notice notice-error" role={preparation.outcome==='Failed'?'alert':'status'} aria-label="Automatic preparation result">
       <strong>Automatic preparation {preparation.outcome.toLowerCase()}</strong>
       <p>{preparation.message}</p>
@@ -93,7 +98,9 @@ export const RegressionPage = () => {
   const client = useQueryClient(), [confirm, setConfirm] = useState<'register' | 'start' | 'cancel' | 'recover' | null>(null);
   const [reviewedLock, setReviewedLock] = useState<string>();
   const [selectedPhases, setSelectedPhases] = useState<RegressionPhase[]>(allPhases);
+  const [testMode, setTestMode] = useState<RegressionTestMode>('non-destructive');
   const [refreshing, setRefreshing] = useState(false);
+  const [enableRequested, setEnableRequested] = useState(false);
   const query = useQuery({queryKey: ['regression'], queryFn: () => api.regression(), refetchInterval: 2000});
   const refresh = async () => {
     setRefreshing(true);
@@ -109,7 +116,8 @@ export const RegressionPage = () => {
     if (action === 'register') return api.registerRegression();
     if (action === 'start') {
       if (!selectedPhases.length) throw new Error('Select at least one test phase.');
-      return api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases);
+      if (testMode === 'non-destructive' && (cleanupPending || (data?.lock && data.lock.state !== 'free'))) throw new Error('Clean up the previous run separately before non-destructive tests.');
+      return api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases, testMode);
     }
     if (action === 'recover') {
       if (!reviewedLock || cleanup.revision !== reviewedLock || !cleanup.available) throw new Error('The lock changed after review. Refresh and review it again.');
@@ -117,8 +125,15 @@ export const RegressionPage = () => {
     }
     if (!active) throw new Error('No active run to cancel.');
     return api.cancelRegression(active.id);
-  }, retry: false, onSuccess: async () => {setConfirm(null); await client.invalidateQueries({queryKey: ['regression']});}});
+  }, retry: false, onSuccess: async (_result, action) => {
+    setEnableRequested(action === 'enable');
+    if (action === 'start') setTestMode('non-destructive');
+    setConfirm(null); await client.invalidateQueries({queryKey: ['regression']});
+  }});
   const disabled = query.isPending || Boolean(query.error) || mutation.isPending;
+  const enabling = !data?.runtimeAvailable && (enableRequested || (mutation.isPending && mutation.variables === 'enable'));
+  const activationMessage = enableRequested ? 'Activation requested. Waiting for the regression runner to become ready…' : 'Sending runner activation request…';
+  const nonDestructiveBlocked = testMode === 'non-destructive' && (cleanupPending || Boolean(data?.lock && data.lock.state !== 'free'));
   const open = (value: 'register' | 'start' | 'cancel' | 'recover') => {
     mutation.reset(); setReviewedLock(value === 'recover' ? cleanup.revision : undefined); setConfirm(value);
   };
@@ -127,9 +142,20 @@ export const RegressionPage = () => {
     <ErrorNotice error={query.error ?? mutation.error} />{query.isPending && <Loading />}
     {data && <Panel title="Run the suite">
       <p>No license is required to run regression tests or download reports. Sign in as an administrator and register this disposable test server once; this is not license registration.</p>
-      <p>For dedicated disposable test servers only. Tests may stop models, alter settings, deploy small models and services, replace test licenses and clear model caches.</p>
+      <p>For dedicated test servers only. Choose non-destructive checks, or full tests that may stop models, alter settings, deploy models and services, replace test licenses and clear model caches.</p>
       <p className="muted">Host restart, power-loss, network-disconnection and software-replacement drills require the external Docker runner and are reported as Blocked here. Missing GPUs, Mesh peers or test identity providers block only their dependent cases.</p>
-      {!data.runtimeAvailable && <><p role="status">{data.message}</p><Button disabled={disabled} onClick={() => mutation.mutate('enable')}>Enable regression runner</Button></>}
+      {!data.runtimeAvailable && <>
+        {enabling ? <>
+          <p id="regression-activation-status" role="status">{activationMessage}</p>
+          <div className="progress progress-warn progress-indeterminate" role="progressbar" aria-label="Regression runner activation" aria-valuetext={activationMessage}>
+            <div className="progress-track"><span style={{width: '35%'}} /></div>
+          </div>
+          <p className="muted">Downloading images and starting the runner services can take several minutes. Status updates automatically; no tests have been started. If readiness stalls, check Services and System Status → Flux.</p>
+        </> : <p role="status">{data.message}</p>}
+        <Button disabled={disabled || enabling} aria-busy={enabling} aria-describedby={enabling ? 'regression-activation-status' : undefined}
+          onClick={() => mutation.mutate('enable')}>{enabling ? enableRequested ? 'Waiting for runner readiness…' : 'Enabling regression runner…' : 'Enable regression runner'}</Button>
+      </>}
+      {data.runtimeAvailable && enableRequested && <p role="status">Regression runner is ready.{!data.registered && ' Register this disposable test Appliance to continue.'}</p>}
       {data.runtimeAvailable && !data.registered && <Button variant="danger" disabled={disabled} onClick={() => open('register')}>Register test Appliance</Button>}
       <div className="form-actions"><Button variant="primary" disabled={disabled || !data.registered || !data.runtimeAvailable || Boolean(active) || (cleanupPending && !data.recoveryAvailable) || (Boolean(data.lock) && data.lock?.state !== 'free' && !data.lock?.canRecover)} onClick={() => open('start')}>Start regression tests</Button>
         {active && <Button variant="danger" disabled={disabled || active.phase === 'Cancelling'} onClick={() => open('cancel')}>Cancel tests</Button>}
@@ -138,19 +164,25 @@ export const RegressionPage = () => {
       <p id="regression-cleanup-status" role="status">{!data.registered ? 'Register this disposable test Appliance before cleanup.' : !data.runtimeAvailable ?
         'Enable the regression runner and wait for readiness before cleanup.' : active ? 'A test or cleanup run is active. Wait for it to finish.' : cleanup.message}</p>
       {data.lock && data.lock.state !== 'free' && data.lock.message !== cleanup.message && <p role="status">{data.lock.message}</p>}
-      {cleanupPending && <p role="status">{data.recoveryAvailable ? 'Start a new run to automatically clean up the previous run first. Cleanup must succeed before a fresh test ID and new tests are started.' : "Removing the completed run's generated test account before another run can start."}</p>}
+      {cleanupPending && <p role="status">{data.recoveryAvailable ? 'Full tests can automatically clean up the previous run first. For non-destructive tests, clean up separately before starting. Cleanup must succeed before a fresh test ID and new tests are started.' : "Removing the completed run's generated test account before another run can start."}</p>}
       <p className="muted">No recurring setup or manually prepared test files. Reloading or leaving this page does not stop the job.</p>
     </Panel>}
     {data?.runs.map(run => <Result key={run.uid} run={run} />)}
     {data && !data.runs.length && <Empty>No regression runs yet.</Empty>}
     <ConfirmDialog open={Boolean(confirm)} title={confirm === 'register' ? 'Register disposable test Appliance' : confirm === 'cancel' ? 'Cancel regression tests' : confirm === 'recover' ? 'Clean up previous test run' : 'Start regression tests'}
       expectedValue={confirm === 'register' ? 'DISPOSABLE TEST SERVER' : undefined}
-      description={confirm === 'register' ? 'This permanently binds the destructive test policy to this Appliance and its Node identities. Do not register a production server.' : confirm === 'cancel' ? 'Stop further tests and allow bounded cleanup. Interrupted operations retain their recovery journal; cancellation does not mean restoration succeeded.' : confirm === 'recover' ? 'Restore retained setup access and verify the old run’s exact resources and unchanged borrowed settings, even if its lock is already free. Active owners and missing or changed journals are not bypassed. No new regression tests will start; historical results remain unchanged.' : 'Run the selected P0 phases from the beginning after automatic cleanup and baseline checks. Existing models may be stopped; settings, services, licenses and caches may be changed on this dedicated test Appliance. Failures and unavailable prerequisites remain visible.'}
+      description={confirm === 'register' ? 'This permanently binds the test policy to this Appliance and its Node identities. Do not register a production server.' : confirm === 'cancel' ? 'Stop further tests and allow bounded cleanup. Interrupted operations retain their recovery journal; cancellation does not mean restoration succeeded.' : confirm === 'recover' ? 'Restore retained setup access and verify the old run’s exact resources and unchanged borrowed settings, even if its lock is already free. Active owners and missing or changed journals are not bypassed. No new regression tests will start; historical results remain unchanged.' : testMode === 'non-destructive' ? 'Read existing appliance state and run isolated tests without stopping models or changing services, settings, licenses or caches. Creates a temporary viewer account, a Kubernetes runner Job and reports. Previous-run cleanup is not performed automatically. Excluded steps are named in the report; this is not full-phase acceptance.' : 'Run the selected P0 phases from the beginning after automatic cleanup and baseline checks. Existing models may be stopped; settings, services, licenses and caches may be changed on this dedicated test Appliance. Failures and unavailable prerequisites remain visible.'}
       confirmLabel={confirm === 'register' ? 'Register test Appliance' : confirm === 'cancel' ? 'Cancel tests' : confirm === 'recover' ? 'Clean up previous run' : 'Start tests'}
       busy={mutation.isPending} error={mutation.error} onClose={() => {if (!mutation.isPending) setConfirm(null);}}
-      confirmDisabled={confirm === 'start' && selectedPhases.length === 0}
+      confirmDisabled={confirm === 'start' && (selectedPhases.length === 0 || Boolean(nonDestructiveBlocked))}
       onConfirm={() => {if (confirm) mutation.mutate(confirm);}}>
       {confirm === 'start' && <>
+        <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending}>
+          <legend>Test mode</legend>
+          <label className="check-field"><input type="radio" name="regression-test-mode" value="non-destructive" checked={testMode === 'non-destructive'} onChange={() => setTestMode('non-destructive')} />Non-destructive only</label>
+          <label className="check-field"><input type="radio" name="regression-test-mode" value="full" checked={testMode === 'full'} onChange={() => setTestMode('full')} />Include destructive tests</label>
+        </fieldset>
+        {nonDestructiveBlocked && <p role="alert">Clean up the previous run separately before non-destructive tests. This mode never restores old test resources or clears their lock.</p>}
         <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending} aria-describedby="regression-phase-hint">
           <legend>Test phases</legend>
           <div className="actions">
@@ -164,7 +196,7 @@ export const RegressionPage = () => {
             }} />
             Phase {option.phase} · {option.name}
           </label>)}</div>
-          <p id="regression-phase-hint" className="muted">Preparation and cleanup run automatically for your selection. Other test phases are not executed or counted as passed.</p>
+          <p id="regression-phase-hint" className="muted">{testMode === 'full' ? 'Preparation and cleanup run automatically for your selection.' : 'Only isolated tests and read-only inventory checks run. Existing workloads remain active.'} Other test phases are not executed or counted as passed.</p>
         </fieldset>
         {selectedPhases.length ? <p role="status">Selected phases: {selectedPhases.join(', ')}.</p> : <p role="alert">Select at least one test phase.</p>}
       </>}

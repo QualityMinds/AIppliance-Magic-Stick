@@ -14,8 +14,9 @@ export type Session = z.infer<typeof sessionSchema>;
 
 export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
 export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type RegressionTestMode = 'non-destructive' | 'full';
 export interface RegressionStartRequest {
-  requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[];
+  requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[]; testMode?: RegressionTestMode;
 }
 export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
 export type RegressionBlockedKind = 'prerequisite' | 'failure' | 'cancelled' | 'unknown';
@@ -29,6 +30,7 @@ export interface RegressionProgress {
   executionBlockedCounts?: RegressionBlockedCounts;
 }
 export interface RegressionResult {
+  testMode?: RegressionTestMode; excludedSteps?: string[];
   counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
   blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts;
   evidenceCounts?: {fixture: RegressionCounts; live: RegressionCounts};
@@ -40,6 +42,7 @@ export interface RegressionResult {
     phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker}>;
 }
 export interface RegressionRun {
+  testMode?: RegressionTestMode;
   id: string; uid: string; createdAt: string; phases: number[]; sourceRevision: string;
   phase: RegressionOutcome | 'Queued' | 'Preparing' | 'Starting' | 'Running' | 'Recovering' | 'Cancelling' | 'Cancelled';
   message: string; progress: RegressionProgress; result?: RegressionResult | null; reportAvailable: boolean;

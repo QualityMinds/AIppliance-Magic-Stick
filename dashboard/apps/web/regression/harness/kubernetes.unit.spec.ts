@@ -45,9 +45,9 @@ test('HAR-10 Kubernetes progress loads in Node strip-only mode and binds the run
     {stdio:'pipe',timeout:10_000,env:{...process.env,NODE_OPTIONS:''}});
 });
 test('HAR-02 HAR-10 Kubernetes test and cleanup entrypoints import in native strip-only mode before private access',()=>{
-  for(const entrypoint of ['kubernetes.mjs','kubernetes-recovery.mjs']) {
+  for(const entrypoint of ['kubernetes.mjs','kubernetes-recovery.mjs','kubernetes-nondestructive.mjs']) {
     const result=spawnSync(process.execPath,['--experimental-strip-types',fileURLToPath(new URL('../'+entrypoint,import.meta.url))],
-      {encoding:'utf8',timeout:10_000,env:{...process.env,NODE_OPTIONS:'',REGRESSION_RUN_UID:''}});
+      {encoding:'utf8',timeout:10_000,env:{...process.env,NODE_OPTIONS:'',REGRESSION_RUN_UID:'',REGRESSION_TEST_MODE:entrypoint==='kubernetes-nondestructive.mjs'?'non-destructive':'full'}});
     expect(result.error).toBeUndefined();expect(result.signal).toBeNull();expect(result.status).toBe(1);
     expect(result.stderr).toContain('Error: Invalid run identity.');
     expect(result.stderr).not.toMatch(/SyntaxError|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX/);

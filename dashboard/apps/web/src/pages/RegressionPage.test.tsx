@@ -28,6 +28,80 @@ beforeEach(() => {
 });
 
 describe('In-Appliance regression tests', () => {
+  it('defaults to non-destructive checks and never sends a test before confirmation',async()=>{
+    mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    const dialog=screen.getByRole('dialog');
+    expect(within(dialog).getByRole('radio',{name:'Non-destructive only'})).toBeChecked();
+    expect(within(dialog).getByText(/temporary viewer account/)).toBeVisible();
+    expect(within(dialog).queryByText(/Existing models may be stopped/)).toBeNull();
+    expect(api.startRegression).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole('button',{name:'Start tests'}));
+    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[0,1,2,3,4,5,6,7,8],'non-destructive'));
+  });
+  it('requires separate previous-run cleanup in non-destructive mode and allows an explicit full selection',async()=>{
+    data.lock={state:'stale',canRecover:true,revision:'fixture:42',message:'Cleanup is required.'};data.recoveryAvailable=true;
+    data.runs=[{...run(),phase:'Failed',credentialsCleaned:false}];
+    mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    const dialog=screen.getByRole('dialog');
+    expect(within(dialog).getByRole('button',{name:'Start tests'})).toBeDisabled();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Clean up the previous run separately');
+    await userEvent.click(within(dialog).getByRole('radio',{name:'Include destructive tests'}));
+    expect(within(dialog).getByRole('button',{name:'Start tests'})).toBeEnabled();
+    expect(within(dialog).getByText(/Existing models may be stopped/)).toBeVisible();
+    expect(api.startRegression).not.toHaveBeenCalled();expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  it('shows the saved mode and intentional exclusions separately from failed or blocked checks',async()=>{
+    data.runs=[{...run(),testMode:'non-destructive',phase:'Passed',credentialsCleaned:true,result:{
+      testMode:'non-destructive',excludedSteps:['phase3/phase3-gpu'],counts:{Passed:1,Failed:0,Blocked:0},
+      executionCounts:{Passed:1,Failed:0,Blocked:0},recoveryRequired:false,omittedCases:0,phases:[],cases:[]}}];
+    mount();expect(await screen.findByLabelText('Test mode')).toHaveTextContent('Non-destructive only');
+    await userEvent.click(screen.getByText('Not selected in this mode (1 steps)'));
+    expect(screen.getByText('phase3/phase3-gpu')).toBeVisible();
+    expect(screen.getByText(/Full-phase acceptance was not assessed/)).toBeVisible();
+    expect(screen.queryByText(/Failures and blocked checks/)).toBeNull();
+  });
+  it('shows activation request and readiness separately and prevents duplicate enables', async () => {
+    data = {...data, registered: false, runtimeAvailable: false, sourceRevision: '', message: 'Enable the regression runner.'};
+    let finish!: () => void;
+    vi.mocked(api.enableModule).mockImplementationOnce(() => new Promise(resolve => {finish = () => resolve({});}));
+    const client = mount();
+    await userEvent.click(await screen.findByRole('button', {name: 'Enable regression runner'}));
+    const progress = screen.getByRole('progressbar', {name: 'Regression runner activation'});
+    expect(progress).not.toHaveAttribute('aria-valuenow');
+    expect(screen.getByRole('button', {name: 'Enabling regression runner…'})).toBeDisabled();
+    expect(screen.getByText('Sending runner activation request…')).toBeVisible();
+    expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeEnabled();
+    expect(screen.getByRole('button', {name: 'Start regression tests'})).toBeDisabled();
+    await act(async () => {finish();});
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Waiting for runner readiness…'})).toBeDisabled());
+    expect(screen.getByText('Activation requested. Waiting for the regression runner to become ready…')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', {name: 'Waiting for runner readiness…'}));
+    expect(api.enableModule).toHaveBeenCalledExactlyOnceWith('regression');
+    data = {...data, runtimeAvailable: true, sourceRevision: 'b'.repeat(40), message: ''};
+    await act(async () => {await client.refetchQueries({queryKey: ['regression']});});
+    expect(await screen.findByText('Regression runner is ready. Register this disposable test Appliance to continue.')).toBeVisible();
+    expect(screen.queryByRole('progressbar', {name: 'Regression runner activation'})).toBeNull();
+    expect(screen.getByRole('button', {name: 'Register test Appliance'})).toBeEnabled();
+    expect(api.startRegression).not.toHaveBeenCalled();
+    expect(api.registerRegression).not.toHaveBeenCalled();
+  });
+  it('clears the pending activation indicator on request failure and permits an explicit retry', async () => {
+    data = {...data, registered: false, runtimeAvailable: false, sourceRevision: '', message: 'Enable the regression runner.'};
+    let fail!: (error: Error) => void;
+    vi.mocked(api.enableModule).mockImplementationOnce(() => new Promise((_resolve, reject) => {fail = reject;}));
+    mount();await userEvent.click(await screen.findByRole('button', {name: 'Enable regression runner'}));
+    expect(screen.getByRole('progressbar', {name: 'Regression runner activation'})).toBeVisible();
+    await act(async () => {fail(new Error('Synthetic activation request failure'));});
+    expect(await screen.findByRole('alert')).toHaveTextContent('Synthetic activation request failure');
+    expect(screen.queryByRole('progressbar', {name: 'Regression runner activation'})).toBeNull();
+    expect(screen.getByRole('button', {name: 'Enable regression runner'})).toBeEnabled();
+    expect(api.enableModule).toHaveBeenCalledTimes(1);
+    vi.mocked(api.enableModule).mockResolvedValueOnce({});
+    await userEvent.click(screen.getByRole('button', {name: 'Enable regression runner'}));
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Waiting for runner readiness…'})).toBeDisabled());
+    expect(api.enableModule).toHaveBeenCalledTimes(2);
+    expect(api.startRegression).not.toHaveBeenCalled();
+  });
   it('offers retained-access cleanup with a free lock and never starts a test suite', async () => {
     data.lock={state:'free',canRecover:false,message:'No regression lock is held.'};
     data.recoveryAvailable=true;
@@ -71,6 +145,7 @@ describe('In-Appliance regression tests', () => {
     data.recoveryAvailable=true;
     data.runs=[{...run(),phase:'Failed',reportAvailable:true,credentialsCleaned:false,message:'Original failed result'}];
     mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('radio',{name:'Include destructive tests'}));
     expect(screen.getByText(/automatically clean up the previous run first/)).toBeVisible();
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:/^Start tests$/}));
     await waitFor(()=>expect(api.startRegression).toHaveBeenCalledTimes(1));
@@ -173,10 +248,14 @@ describe('In-Appliance regression tests', () => {
     mount(); await userEvent.click(await screen.findByRole('button', {name: 'Start regression tests'}));
     expect(api.startRegression).not.toHaveBeenCalled();
     const dialog = screen.getByRole('dialog', {name: 'Start regression tests'});
+    await userEvent.click(within(dialog).getByRole('radio',{name:'Include destructive tests'}));
     expect(within(dialog).getByText(/Existing models may be stopped/)).toBeVisible();
     expect(within(dialog).getAllByRole('checkbox',{checked:true})).toHaveLength(9);
     await userEvent.click(within(dialog).getByRole('button', {name: 'Start tests'}));
-    await waitFor(() => expect(api.startRegression).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{32}$/),[0,1,2,3,4,5,6,7,8]));
+    await waitFor(() => expect(api.startRegression).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{32}$/),[0,1,2,3,4,5,6,7,8],'full'));
+    await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
+    await userEvent.click(screen.getByRole('button',{name:'Start regression tests'}));
+    expect(within(screen.getByRole('dialog')).getByRole('radio',{name:'Non-destructive only'})).toBeChecked();
   });
   it('requires a nonempty selection, preserves it during polling and starts only Phase 3',async()=>{
     const client=mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
@@ -189,7 +268,7 @@ describe('In-Appliance regression tests', () => {
     expect(within(dialog).getAllByRole('checkbox',{checked:true})).toHaveLength(1);
     expect(within(dialog).getByRole('status')).toHaveTextContent('Selected phases: 3.');
     await userEvent.click(start);
-    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[3]));
+    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[3],'non-destructive'));
     expect(api.recoverRegressionLock).not.toHaveBeenCalled();
   });
   it('keeps a cancelled draft without starting tests and offers all phases again',async()=>{
@@ -215,7 +294,8 @@ describe('In-Appliance regression tests', () => {
     await userEvent.click(within(dialog).getByRole('checkbox',{name:/^Phase 3 ·/}));
     const start=within(dialog).getByRole('button',{name:'Start tests'});await userEvent.click(start);
     expect(start).toBeDisabled();expect(within(dialog).getByRole('checkbox',{name:/^Phase 3 ·/})).toBeDisabled();
-    expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[3,5]);
+    expect(within(dialog).getByRole('radio',{name:'Non-destructive only'})).toBeDisabled();
+    expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[3,5],'non-destructive');
     await act(async()=>{reject(new Error('Synthetic start failure'));});
     await waitFor(()=>expect(start).toBeEnabled());
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Synthetic start failure');

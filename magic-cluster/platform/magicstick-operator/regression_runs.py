@@ -37,6 +37,7 @@ class RegressionRuns:
         name, uid = run["metadata"]["name"], run["metadata"]["uid"]
         spec = run["spec"]
         recovery = spec.get("operation", "tests") == "recover-lock"
+        non_destructive = spec.get("testMode", "full") == "non-destructive"
         recovery_env = [{"name": "REGRESSION_RECOVERY_LOCK", "value": json.dumps(spec["lockRecovery"])}] if recovery else []
         domain = account["registration"]["dashboardUrl"].split("//")[1]
         return {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": name, "namespace": NS,
@@ -53,17 +54,18 @@ class RegressionRuns:
                         "fsGroupChangePolicy": "OnRootMismatch", "seccompProfile": {"type": "RuntimeDefault"}},
                     "hostAliases": [{"ip": account["gatewayIp"], "hostnames": [domain, "id." + domain, "api." + domain, "litellm." + domain, "kubernetes." + domain]}],
                     "containers": [{"name": "runner", "image": spec["image"], "imagePullPolicy": "IfNotPresent",
-                        "command": ["node", "regression/kubernetes-recovery.mjs" if recovery else "regression/kubernetes.mjs"],
+                        "command": ["node", "regression/kubernetes-recovery.mjs" if recovery else "regression/kubernetes-nondestructive.mjs" if non_destructive else "regression/kubernetes.mjs"],
                         "env": [{"name": "REGRESSION_RUN_UID", "value": uid},
                                 {"name": "REGRESSION_ACCOUNT_RUN_UID", "value": spec.get("accountRunUid", uid)},
                                 {"name": "REGRESSION_APPLIANCE_UID", "value": spec["applianceUid"]},
                                 {"name": "REGRESSION_SOURCE_REVISION", "value": spec["sourceRevision"]},
+                                {"name": "REGRESSION_TEST_MODE", "value": spec.get("testMode", "full")},
                                 {"name": "REGRESSION_PHASES", "value": ",".join(map(str, spec["phases"]))}, *recovery_env],
                         "resources": {"requests": {"cpu": "500m", "memory": "2Gi"}, "limits": {"cpu": "4", "memory": "6Gi"}},
                         "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}},
-                        "volumeMounts": [{"name": "state", "mountPath": "/state"}, {"name": "account", "mountPath": "/account", "readOnly": True},
+                        "volumeMounts": ([{"name": "state", "mountPath": "/state/reports", "subPath": "reports"}] if non_destructive else [{"name": "state", "mountPath": "/state"},
                                          {"name": "state", "mountPath": "/inputs", "subPath": "inputs"},
-                                         {"name": "state", "mountPath": "/private", "subPath": "private"},
+                                         {"name": "state", "mountPath": "/private", "subPath": "private"}]) + [{"name": "account", "mountPath": "/account", "readOnly": True},
                                          {"name": "tmp", "mountPath": "/tmp"}, {"name": "shm", "mountPath": "/dev/shm"}]}],
                     "volumes": [{"name": "state", "persistentVolumeClaim": {"claimName": "magicstick-regression-state"}},
                                 {"name": "account", "secret": {"secretName": spec.get("accountRunName", name), "defaultMode": 288}},
@@ -73,9 +75,12 @@ class RegressionRuns:
         metadata, spec, status = run["metadata"], run.get("spec", {}), run.get("status", {})
         name, uid = metadata["name"], metadata["uid"]
         recovery = spec.get("operation", "tests") == "recover-lock"
-        ready_key = "regression.magicstick.dev/" + ("recovery-credentials-ready" if recovery else "credentials-ready")
+        non_destructive = spec.get("testMode", "full") == "non-destructive"
+        ready_key = "regression.magicstick.dev/" + ("recovery-credentials-ready" if recovery else "non-destructive-credentials-ready" if non_destructive else "credentials-ready")
         lock = spec.get("lockRecovery", {})
         if (spec.get("operation", "tests") not in {"tests", "recover-lock"}
+                or spec.get("testMode", "full") not in ("full", "non-destructive")
+                or non_destructive and (recovery or "accountRunName" in spec or "accountRunUid" in spec)
                 or recovery and (spec.get("phases") != [] or not isinstance(lock, dict) or set(lock) not in ({"uid", "resourceVersion", "runId"}, {"uid", "resourceVersion", "runId", "released"})
                     or "released" in lock and lock["released"] is not True
                     or not all(isinstance(lock.get(key), str) for key in ("uid", "resourceVersion", "runId"))
@@ -121,7 +126,7 @@ class RegressionRuns:
                 report = {}
             self.status(run, phase="Cancelled", message="Cancelled. The next run rechecks durable recovery journals before any mutations.",
                 progress=report.get("progress", status.get("progress", {})),result=report.get("result", status.get("result")),
-                credentialRecoveryRequired="accountRunName" in spec or metadata.get("annotations", {}).get("regression.magicstick.dev/credentials-used") == uid,
+                credentialRecoveryRequired=not non_destructive and ("accountRunName" in spec or metadata.get("annotations", {}).get("regression.magicstick.dev/credentials-used") == uid),
                 reportAvailable=bool(report.get("reportAvailable", status.get("reportAvailable", False))),finishedAt=self.f["now"]())
             return False
         if busy and not job:
@@ -141,7 +146,7 @@ class RegressionRuns:
             return False
         if not job:
             if metadata.get("annotations", {}).get("regression.magicstick.dev/credentials-used") == uid:
-                self.status(run, phase="Failed", credentialRecoveryRequired=True, finishedAt=self.f["now"](),
+                self.status(run, phase="Failed", credentialRecoveryRequired=not non_destructive, finishedAt=self.f["now"](),
                     message="The run-owned Job disappeared or its creation could not be verified. It was not retried; start a new recovery-capable run.")
                 return False
             if metadata.get("annotations", {}).get(ready_key) != uid:
@@ -158,11 +163,15 @@ class RegressionRuns:
             account = json.loads(base64.b64decode(secret["data"]["account.json"]))
             if account.get("runUid") != account_uid:
                 raise ValueError("Regression account ownership changed")
+            if account.get("testMode", "full") != spec.get("testMode", "full"):
+                self.status(run, phase="Failed", credentialRecoveryRequired=not non_destructive,
+                    message="The test account mode does not match the immutable run selection. No Job was started.")
+                return False
             # Persist use before Job creation, so an API/Pod crash can never
             # delete the account needed by an interrupted setup access receipt.
             self.f["patch_json"](RUNS + "/" + name, {"metadata": {"annotations": {"regression.magicstick.dev/credentials-used": uid}}})
             self.f["request_json"]("POST", JOBS, self.job(run, account))
-            self.status(run, phase="Starting", credentialRecoveryRequired=True,
+            self.status(run, phase="Starting", credentialRecoveryRequired=not non_destructive,
                 message="Scheduling exact stale-lock recovery; no test suite will start." if recovery else "Scheduling the existing regression suite on this Appliance.", startedAt=self.f["now"]())
             return True
         progress = None
@@ -173,6 +182,8 @@ class RegressionRuns:
                 raise
         if progress and progress.get("runUid") != uid:
             raise ValueError("Regression report ownership changed")
+        if progress and progress.get("testMode", "full") != spec.get("testMode", "full"):
+            raise ValueError("Regression report test mode changed")
         complete = any(c.get("status") == "True" and c.get("type") in {"Complete", "Failed"} for c in job.get("status", {}).get("conditions", []))
         if complete:
             outcome = (progress or {}).get("outcome")
@@ -181,11 +192,11 @@ class RegressionRuns:
                 outcome = "Failed"
             self.status(run, phase=outcome, message="Regression execution finished." if progress else "Runner failed before publishing its report. Check scheduling, storage and image availability.",
                 progress=(progress or {}).get("progress", {}), result=(progress or {}).get("result"),
-                credentialRecoveryRequired=True if job_failed else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
+                credentialRecoveryRequired=False if non_destructive else True if job_failed else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
                 reportAvailable=bool((progress or {}).get("reportAvailable")), finishedAt=self.f["now"]())
             return False
         self.status(run, phase="Running" if progress else "Starting", message=(progress or {}).get("message", "Waiting for the runner Pod to start."),
-            credentialRecoveryRequired=(progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
+            credentialRecoveryRequired=False if non_destructive else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
             progress=(progress or {}).get("progress", {}), result=(progress or {}).get("result"), reportAvailable=bool((progress or {}).get("reportAvailable")))
         return True
 

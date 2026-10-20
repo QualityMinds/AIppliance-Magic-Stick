@@ -47,7 +47,13 @@ cache or regression page. Use arrow keys, Home and End within the status tab bar
 On a dedicated disposable test server, open **System → System Status → Regression tests** as an
 administrator. **No license is required**, including report downloads.
 Enable the optional runner and register the Appliance once, then choose
-**Start regression tests**. All phases are selected by default. To run only GPU
+**Start regression tests**. Choose **Non-destructive only** (default) or
+**Include destructive tests**. Non-destructive runs leave existing workloads,
+settings, licenses and caches unchanged; they create a temporary viewer account,
+runner Job and reports, run isolated checks and read the selected phase's live
+inventory. Model lifecycle, inference, sharing, recovery and other mutating live
+checks are not run. Excluded steps are listed separately, not passed or blocked.
+All phases are selected by default. To run only GPU
 tests, choose **Clear selection**, check **Phase 3**, then **Start tests**. You
 can also select several phases. The saved selection appears beside progress
 and limits the report to those phases.
@@ -56,8 +62,12 @@ It can stop models and change test-server state; never
 register a production Appliance.
 This test-server registration is not license activation. License/SSO cases use
 test fixtures; missing prerequisites block those checks, not the whole suite.
+Runner activation shows an activity bar while sending the request and waiting
+for readiness. Image downloads and service startup can take several minutes;
+registration becomes available only once the runner is ready. Activation alone
+does not start tests.
 
-Every start cleans up the previous run, checks the baseline, then creates a
+Every full start cleans up the previous run, checks the baseline, then creates a
 fresh test ID and executes the selected tests from the beginning. Earlier results
 are never reused. For diagnosis, **Clean up previous test run** performs only
 the recorded cleanup, including retained setup access after a lock was released.
@@ -65,6 +75,9 @@ Its adjacent status explains whether cleanup is needed, already complete or
 blocked by active work or unverifiable ownership.
 An active run or unavailable journal disables the button and explains why.
 External runs must be recovered from their original runner's private journal.
+Non-destructive runs never perform that cleanup automatically: clean up a
+previous interrupted run separately first. A successful limited report does not
+certify complete phases or real model inference. The saved mode survives reload.
 
 The page shows current phase/check, progress and separate executable-scenario
 and case/layer counts. Expand **Failures and blocked checks** for the reason,

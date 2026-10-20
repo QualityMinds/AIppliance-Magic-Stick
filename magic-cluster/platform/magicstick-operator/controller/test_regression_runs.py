@@ -75,6 +75,65 @@ class RegressionRunsTests(unittest.TestCase):
             "uid": UID, "resourceVersion": "42", "runId": "reg-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
         self.run["metadata"]["annotations"] = {"regression.magicstick.dev/recovery-credentials-ready": UID}
 
+    def non_destructive(self):
+        self.run["spec"]["testMode"] = "non-destructive"
+        self.run["metadata"]["annotations"] = {"regression.magicstick.dev/non-destructive-credentials-ready": UID}
+        self.account["testMode"] = "non-destructive"
+        self.objects["/api/v1/namespaces/" + NS + "/secrets/" + self.run["metadata"]["name"]]["data"]["account.json"] = base64.b64encode(json.dumps(self.account).encode()).decode()
+
+    def test_non_destructive_job_cannot_read_old_inputs_or_recovery_journals(self):
+        self.non_destructive()
+        self.assertTrue(self.controller.reconcile(self.run))
+        container = self.writes[0][2]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["command"], ["node", "regression/kubernetes-nondestructive.mjs"])
+        self.assertEqual({e["name"]: e["value"] for e in container["env"]}["REGRESSION_TEST_MODE"], "non-destructive")
+        mounts = container["volumeMounts"]
+        self.assertFalse(any(m["mountPath"] in ("/inputs", "/private", "/state") for m in mounts))
+        self.assertIn({"name": "state", "mountPath": "/state/reports", "subPath": "reports"}, mounts)
+        self.assertFalse(self.run["status"]["credentialRecoveryRequired"])
+
+    def test_non_destructive_mode_never_uses_legacy_readiness_or_foreign_account_mode(self):
+        self.non_destructive()
+        self.run["metadata"]["annotations"] = {"regression.magicstick.dev/credentials-ready": UID}
+        self.assertTrue(self.controller.reconcile(self.run))
+        self.assertEqual(self.writes, [])
+        self.run["metadata"]["annotations"] = {"regression.magicstick.dev/non-destructive-credentials-ready": UID}
+        secret = self.objects["/api/v1/namespaces/" + NS + "/secrets/" + self.run["metadata"]["name"]]
+        secret["data"]["account.json"] = base64.b64encode(json.dumps({**self.account, "testMode": "full"}).encode()).decode()
+        self.assertFalse(self.controller.reconcile(self.run))
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.run["status"]["phase"], "Failed")
+
+    def test_invalid_modes_and_recovery_references_never_start_a_job(self):
+        for change in ({"testMode": "unknown"}, {"testMode": None}, {"testMode": []},
+                       {"testMode": "non-destructive", "accountRunName": "regression-" + "2"*32}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.run["spec"].update(change)
+                self.assertFalse(self.controller.reconcile(self.run))
+                self.assertEqual(self.writes, [])
+
+    def test_non_destructive_lost_or_cancelled_job_does_not_retain_a_setup_admin(self):
+        self.non_destructive()
+        self.controller.reconcile(self.run)
+        del self.objects[JOBS + "/" + self.run["metadata"]["name"]]
+        self.controller.reconcile(self.run)
+        self.assertEqual(self.run["status"]["phase"], "Failed")
+        self.assertFalse(self.run["status"]["credentialRecoveryRequired"])
+        self.setUp()
+        self.non_destructive()
+        self.controller.reconcile(self.run)
+        self.run["spec"]["cancelRequested"] = True
+        self.controller.reconcile(self.run)
+        self.controller.reconcile(self.run)
+        self.assertEqual(self.run["status"]["phase"], "Cancelled")
+        self.assertFalse(self.run["status"]["credentialRecoveryRequired"])
+
+    def test_non_destructive_mode_is_default_compatible_and_immutable_in_schema(self):
+        schema = yaml.safe_load((ROOT / "crds/regressionruns.appliance.magicstick.dev.yaml").read_text())["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        self.assertEqual(schema["properties"]["testMode"], {"type": "string", "enum": ["non-destructive", "full"], "default": "full"})
+        self.assertTrue(any("oldSelf.testMode" in rule["rule"] for rule in schema["x-kubernetes-validations"]))
+
     def test_single_or_nonconsecutive_phase_selection_reaches_the_existing_runner_unchanged(self):
         for phases in ([3], [0], [3, 5]):
             with self.subTest(phases=phases):

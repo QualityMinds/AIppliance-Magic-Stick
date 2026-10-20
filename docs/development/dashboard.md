@@ -100,6 +100,13 @@ The start dialog selects one or more P0 phases (0–8, all by default) through t
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic
 cleanup and baseline checks, and show only their selected-phase progress/results.
+The dialog also selects `testMode`: non-destructive by default, or full including
+destructive scenarios. The API stores the immutable choice. Non-destructive Jobs
+receive only a fresh viewer account and report-store mount; no old private inputs
+or recovery journals. They bypass mutating setup/cleanup and select only reviewed
+isolated suites plus the GET-only live inventory adapter. Reports explicitly name
+excluded steps and cannot certify full phase acceptance. Legacy omitted modes
+remain full; clients must never retry a rejected safe-mode request as full.
 Enabling, registering, starting, cancelling and downloading reports are core
 functions with no license prerequisite. Test registration binds a disposable
 installation, not a licensing edition; keep license queries out of that control

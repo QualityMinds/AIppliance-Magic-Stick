@@ -107,9 +107,9 @@ export class MagicStickApi {
   regression() { return this.request<RegressionStatus>('/api/regression'); }
   registerRegression() { return this.request<RegressionStatus>('/api/regression/register', {method: 'POST',
     body: JSON.stringify({confirmation: 'DISPOSABLE TEST SERVER', acknowledgeDisruption: true})}); }
-  startRegression(requestId: string, phases?: RegressionStartRequest['phases']) {
+  startRegression(requestId: string, phases?: RegressionStartRequest['phases'], testMode?: RegressionStartRequest['testMode']) {
     const body: RegressionStartRequest = {
-      requestId, acknowledgeDisruption: true, ...(phases === undefined ? {} : {phases})};
+      requestId, acknowledgeDisruption: true, ...(phases === undefined ? {} : {phases}), ...(testMode === undefined ? {} : {testMode})};
     return this.request<RegressionRun>('/api/regression/runs', {method: 'POST', body: JSON.stringify(body)});
   }
   recoverRegressionLock(requestId: string, expectedLockRevision: string) {

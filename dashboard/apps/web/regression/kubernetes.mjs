@@ -19,16 +19,20 @@ if(!/^[a-f0-9-]{36}$/.test(uid??''))throw new Error('Invalid run identity.');
 const operation=process.env.REGRESSION_OPERATION??'tests';
 if(!['tests','recover-lock'].includes(operation))throw new Error('Invalid run operation.');
 const recovery=operation==='recover-lock';
+const testMode=process.env.REGRESSION_TEST_MODE??'full';
+if(!['full','non-destructive'].includes(testMode)||recovery&&testMode!=='full')throw new Error('Invalid test mode.');
+const nonDestructive=testMode==='non-destructive';
 const phases=recovery?[]:(process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number);
 if((!recovery&&!phases.length)||new Set(phases).size!==phases.length||phases.some(n=>!Number.isInteger(n)||n<0||n>8))throw new Error('Invalid phase selection.');
-const input='/inputs',output='/private/runs',published=join('/state/reports',uid),progress=new KubernetesProgress(phases,process.env.REGRESSION_APPLIANCE_UID);
+const privateRoot=nonDestructive?'/tmp/non-destructive-'+uid:'/private';
+const input=nonDestructive?join(privateRoot,'inputs'):'/inputs',output=join(privateRoot,'runs'),published=join('/state/reports',uid),progress=new KubernetesProgress(phases,process.env.REGRESSION_APPLIANCE_UID);
 const environment={...process.env,REGRESSION_EXECUTION:'kubernetes',REGRESSION_INPUT_DIR:input,REGRESSION_CONFIG:input+'/lab.json',
-  REGRESSION_REMAINING_PROFILE:input+'/remaining-p0.json',REGRESSION_OUTPUT_DIR:output,REGRESSION_PRIVATE_DIR:'/private',
+  REGRESSION_REMAINING_PROFILE:input+'/remaining-p0.json',REGRESSION_OUTPUT_DIR:output,REGRESSION_PRIVATE_DIR:privateRoot,
   REGRESSION_HOST_DRILLS_FILE:input+'/host-drills.json',REGRESSION_HOST_DRILLS:'disabled',REGRESSION_PROGRESS_EVENTS:'1',
   PYTHONDONTWRITEBYTECODE:'1',NODE_EXTRA_CA_CERTS:input+'/appliance-ca.pem'};
 let current,interrupted=false,force,saveChain=Promise.resolve();
 let recoveryDiagnostic;
-const snapshot={version:1,runUid:uid,message:'Preparing automatic test credentials and fixtures.',reportAvailable:false,credentialRecoveryRequired:true};
+const snapshot={version:1,runUid:uid,testMode,message:nonDestructive?'Preparing an isolated read-only connection.':'Preparing automatic test credentials and fixtures.',reportAvailable:false,credentialRecoveryRequired:!nonDestructive};
 const save=()=>{saveChain=saveChain.then(async()=>{await writePrivate(join(published,'.status.json'),{...snapshot,progress:progress.snapshot(Boolean(snapshot.outcome))});
   await rename(join(published,'.status.json'),join(published,'status.json'));});return saveChain;};
 async function execute(command,args,env=environment,onFailure,onSetupMarker) {
@@ -91,10 +95,11 @@ for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{
   if(force&&current)current.kill('SIGKILL');else force=setTimeout(()=>current?.kill('SIGKILL'),150_000);
 });
 try {
-  for(const dir of [input,'/private',output,published])await privateDirectory(dir);
+  for(const dir of [privateRoot,input,output,published])await privateDirectory(dir);
   await save();
   const account=JSON.parse(await readFile('/account/account.json','utf8'));
   if(account.runUid!==(process.env.REGRESSION_ACCOUNT_RUN_UID??uid)||!account.registration||!account.caPem||!account.password||!account.username)throw new Error('Account ownership mismatch.');
+  if((account.testMode??'full')!==testMode)throw new Error('Account test mode mismatch.');
   const saved=await lstat(join(input,'lab-registration.json')).catch(()=>undefined);
   if(saved) {
     const previous=JSON.parse(await readPrivate(join(input,'lab-registration.json')));
@@ -105,6 +110,11 @@ try {
   await writePrivate(join(input,'appliance-ca.pem'),account.caPem);
   if(recovery) {
     await recoverOnly();
+  } else {
+  if(nonDestructive) {
+    await writePrivate(join(input,'non-destructive.json'),{version:1,testMode,dashboardUrl:account.registration.dashboardUrl,
+      identityUrl:account.registration.identityUrl,applianceUid:account.registration.applianceUid,nodeUids:account.registration.nodeUids});
+    snapshot.message='Running non-destructive checks. Existing workloads and settings are not changed.';await save();
   } else {
   const diagnostic='/private/.preparation-'+uid.replaceAll('-','').slice(0,6);
   await writePrivate(diagnostic,{});
@@ -124,18 +134,21 @@ try {
     environment.REGRESSION_CONFIG=blocked+'/lab.json';environment.REGRESSION_REMAINING_PROFILE=blocked+'/remaining-p0.json';
   }
   snapshot.message=prepared?'Preparation is unavailable; independent tests continue and dependent cases report Blocked.':'Running all selected P0 phases.';await save();
+  }
+  if(interrupted)throw new Error('Cancelled before test execution.');
   const exit=await execute(process.execPath,[fileURLToPath(new URL('./launch.mjs',import.meta.url)),'all','--phases',phases.join(',')]);
   if(!progress.campaignRunId)throw new Error('Campaign did not publish a receipt.');
   // A full case × variant × layer matrix is larger than a private input file.
   // Keep the normal input limit, but explicitly bound these two generated reports.
   const directory=join(output,progress.campaignRunId),summary=JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),
     campaign=JSON.parse(await readPrivate(join(directory,'all-summary.json'),8*1024*1024));
+  if(nonDestructive&&(summary.testMode!==testMode||campaign.testMode!==testMode))throw new Error('Campaign test mode changed.');
   snapshot.result=publicResult(summary,campaign);snapshot.outcome=interrupted?'Blocked':exit===0?'Passed':exit===1?'Failed':'Blocked';
-  if(snapshot.result.recoveryRequired)snapshot.credentialRecoveryRequired=true;
+  if(snapshot.result.recoveryRequired&&!nonDestructive)snapshot.credentialRecoveryRequired=true;
   await publish(directory);snapshot.message=interrupted?'Cancelled; unexecuted tests remain Blocked.':'Execution finished. Missing external prerequisites are not successful tests.';
   }
 } catch(error) {
-  snapshot.credentialRecoveryRequired=true;
+  snapshot.credentialRecoveryRequired=!nonDestructive;
   snapshot.outcome=interrupted?'Blocked':recovery&&error instanceof HarnessError?error.outcome:'Failed';snapshot.message=interrupted?'Cancelled during preparation or execution. Recovery journals were retained.':recovery?'Previous-run cleanup was not verified. The private restoration receipts were retained; inspect its cleanup report.':'The Kubernetes runner could not complete its setup or report export.';
   if(recoveryDiagnostic&&!interrupted)snapshot.message=`Previous-run cleanup failed at ${recoveryDiagnostic.setupStage} (${recoveryDiagnostic.reason}${recoveryDiagnostic.detail?`; ${recoveryDiagnostic.detail}`:''}). The exact restoration receipts are retained.`;
   try {
@@ -153,11 +166,11 @@ try {
   } catch {/* Scheduling/storage failures remain visible even without an archive. */}
 } finally {
   clearTimeout(force);
-  if(interrupted)snapshot.credentialRecoveryRequired=true;
+  if(interrupted&&!nonDestructive)snapshot.credentialRecoveryRequired=true;
   // Even a preparation failure/cancellation must retain the original identity
   // when a durable access-restoration receipt is still present. Unknown state
   // stays protected, never an implicit cleanup success.
-  for(const name of ['.setup-bootstrap.kubeconfig','.setup-access-restore.json'])if(await lstat(join(input,name)).catch(()=>undefined))snapshot.credentialRecoveryRequired=true;
+  if(!nonDestructive)for(const name of ['.setup-bootstrap.kubeconfig','.setup-access-restore.json'])if(await lstat(join(input,name)).catch(()=>undefined))snapshot.credentialRecoveryRequired=true;
   await save();
 }
 // A Job completes after execution even when tests failed/blocked. Status and

@@ -2,6 +2,12 @@ import {describe,expect,it,vi} from 'vitest';
 import {MagicStickApi,ApiError} from '@magicstick/dashboard-api-client';
 
 describe('Shared regression API contract',()=>{
+  it('sends the selected immutable test mode without silently upgrading a non-destructive request',async()=>{
+    const fetch=vi.fn().mockImplementation(async()=>new Response('{}',{headers:{'content-type':'application/json'}}));
+    const client=new MagicStickApi({fetch});
+    for(const testMode of ['non-destructive','full'] as const)await client.startRegression('a'.repeat(32),[3],testMode);
+    expect(fetch.mock.calls.map(call=>JSON.parse(call[1].body).testMode)).toEqual(['non-destructive','full']);
+  });
   it('requests only exact revision-bound cleanup over the normal authenticated CSRF transport',async()=>{
     const fetch=vi.fn().mockResolvedValue(new Response('{}',{headers:{'content-type':'application/json'}}));
     const client=new MagicStickApi({baseUrl:'https://dashboard.example.local',fetch,getAccessToken:async()=>'synthetic-test-token'});

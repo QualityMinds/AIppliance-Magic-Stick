@@ -17,20 +17,22 @@ import {blockerDescription} from './blocker-description.ts';
 import type {RegressionBlocker, RegressionBlockedKind} from '@magicstick/dashboard-contracts';
 import {regressionBlockedKind,regressionBlockedLabel, regressionBlockedSummary} from '../../../../packages/core/src/regression-blocking.ts';
 import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses,recoveryCause} from './blocking.ts';
+import {testMode,excludedSteps,isolatedStep} from './test-mode.ts';
+import {nonDestructiveVariants} from './non-destructive.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
   executionId?:string; executionOutcome?:'Passed'|'Failed'|'Blocked';
   traceRunId?:string;recoveryRequired?:true;
   blockedBy?:RegressionBlocker;
-  stage?: Stage; variant?: Phase0Variant | Phase1Variant | Phase2Variant | GpuVariant | `p${5|6|7|8}-${string}`}
+  stage?: Stage; variant?: Phase0Variant | Phase1Variant | Phase2Variant | GpuVariant | `p${5|6|7|8}-${string}` | `p${0|1|2|3|4}-non-destructive-${'tls'|'read'}`}
 export interface RecoveryAttempt {runId:string;state:'restored'|'blocked';reason?:ReasonCode}
 export function needsRecovery(cases:CaseResult[]) {
   return cases.some(item=>item.recoveryRequired===true||item.reason&&
     ['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason));
 }
 
-export const reportVariants: Record<string, string> = {...phase0Variants, ...phase1Variants,
+export const reportVariants: Record<string, string> = {...phase0Variants, ...phase1Variants,...nonDestructiveVariants,
   ...Object.fromEntries(Object.entries({...phase2Variants,...phase3Variants,...phase4Variants,...remainingVariants}).map(([variant, definition]) => [variant, definition.id]))};
 
 export function terminalOutcome(value: Outcome): 'Passed'|'Failed'|'Blocked' {
@@ -75,14 +77,15 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
     }
     return {reason,blockedBy:cause};
   };
-  const matrix=mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
+  const limited=testMode(process.env.REGRESSION_TEST_MODE??'full')==='non-destructive';
+  const matrix=limited?[]:mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
     mode === 'phase3' || mode === 'phase4' ? gpuRequirements(Number(mode[5]) as 3|4) :
     mode && remainingPhase(mode) ? remainingRequirements(mode) ?? [] : [];
   for(const item of matrix)if(!result.some(proof=>proof.id === item.id && proof.variant === item.variant &&
     proof.layer === item.layer && (proof.environment ?? environmentFor(proof.layer)) === item.environment))
     result.push({id:item.id,variant:item.variant as CaseResult['variant'],layer:item.layer,environment:item.environment,
       outcome:'Blocked',durationMs:0,...absent(item.id,item.variant,item.environment)});
-  if(mode === 'phase0') {
+  if(mode === 'phase0'&&!limited) {
     for(const id of phase0IdsForReport)if(!result.some(item=>item.id === id && (item.environment ?? environmentFor(item.layer)) === 'fixture'))
       result.push({id,layer:'U',environment:'fixture',outcome:'Blocked',durationMs:0,...absent(id,undefined,'fixture')});
     for(const [variant,id] of Object.entries(phase0Variants))if(!result.some(item=>item.id === id && item.variant === variant &&
@@ -204,6 +207,11 @@ export function liveReportScope(mode?: string) {
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
   preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
+  const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),limited=runTestMode==='non-destructive';
+  const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='all'?
+    (process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number):[];
+  const omittedSteps=excludedSteps(runTestMode,selectionPhases);
+  const selectionText=limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.';
   const portableArchive=mode==='all'||mode==='selftest'||mode==='recover'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
   const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true).map(item => {
@@ -245,44 +253,45 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   const smokeCoverage = phase1Coverage(safe);
   const controlCoverage = phase2Coverage(safe);
   const phase3Coverage = gpuCoverage(3,safe), phase4Coverage = gpuCoverage(4,safe);
-  const laterPhase=remainingPhase(mode);
+  const laterPhase=limited?undefined:remainingPhase(mode);
   const laterCoverage=laterPhase ? remainingCoverage(mode!,safe) : undefined;
   const summary = {...selectedSummary, acceptable: selectedSummary.acceptable && !recoveryFenceActive && executionCounts.Failed === 0 && executionCounts.Blocked === 0 &&
-    (mode !== 'phase0' || coverage.complete) &&
-    (mode !== 'phase1' || smokeCoverage.complete) && (mode !== 'phase2' || controlCoverage.complete) &&
-    (mode !== 'phase3' || phase3Coverage.complete) && (mode !== 'phase4' || phase4Coverage.complete) &&
+    (limited || mode !== 'phase0' || coverage.complete) &&
+    (limited || mode !== 'phase1' || smokeCoverage.complete) && (limited || mode !== 'phase2' || controlCoverage.complete) &&
+    (limited || mode !== 'phase3' || phase3Coverage.complete) && (limited || mode !== 'phase4' || phase4Coverage.complete) &&
     (!laterCoverage || laterCoverage.complete)};
   const revision = /^[0-9a-f]{40,64}$/.test(sourceRevision) ? sourceRevision : 'unknown';
   const liveScope = liveReportScope(mode);
-  const fullPhase0Accepted = mode === 'phase0' && summary.acceptable && coverage.complete;
-  const fullPhase1Accepted = mode === 'phase1' && summary.acceptable && smokeCoverage.complete;
-  const fullPhase2Accepted = mode === 'phase2' && summary.acceptable && controlCoverage.complete;
-  const fullPhase3Accepted = mode === 'phase3' && summary.acceptable && phase3Coverage.complete;
-  const installedPhase4Accepted = mode === 'phase4' && summary.acceptable && phase4Coverage.complete;
+  const fullPhase0Accepted = !limited && mode === 'phase0' && summary.acceptable && coverage.complete;
+  const fullPhase1Accepted = !limited && mode === 'phase1' && summary.acceptable && smokeCoverage.complete;
+  const fullPhase2Accepted = !limited && mode === 'phase2' && summary.acceptable && controlCoverage.complete;
+  const fullPhase3Accepted = !limited && mode === 'phase3' && summary.acceptable && phase3Coverage.complete;
+  const installedPhase4Accepted = !limited && mode === 'phase4' && summary.acceptable && phase4Coverage.complete;
   // The installed profile never performs a host reboot. Keep historic CDI
   // maintenance gates visible rather than silently calling all Phase 4 P0 done.
   const fullPhase4Accepted = false;
-  const openGates = laterCoverage ? [...new Set(laterCoverage.missingLayers.map(item=>`${item.id}/${item.layer}: ${item.gate ?? item.group} evidence required`))] : mode?.startsWith('phase4') ? ['BOOT-04: separately authorized live driver restart/CDI recovery'] :
+  const openGates = limited?[]:laterCoverage ? [...new Set(laterCoverage.missingLayers.map(item=>`${item.id}/${item.layer}: ${item.gate ?? item.group} evidence required`))] : mode?.startsWith('phase4') ? ['BOOT-04: separately authorized live driver restart/CDI recovery'] :
     mode?.startsWith('phase3') ? ['Intel: unavailable lab hardware'] : [];
-  await writePrivate(join(directory, 'summary.json'), {version: 2, runId, sourceRevision: revision,
+  await writePrivate(join(directory, 'summary.json'), {version: 2, runId, sourceRevision: revision,testMode:runTestMode,excludedSteps:omittedSteps,
     ...(prepared ? {automaticPreparation: prepared} : {}),
-    scope: safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning-layer tests; no appliance acceptance',
+    scope: limited?selectionText:safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning-layer tests; no appliance acceptance',
     fullPhase0Accepted,
     fullPhase1Accepted,
     fullPhase2Accepted,
     fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,openGates,
-    ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true])),
+    ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,!limited && mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true])),
     ...(laterCoverage ? {[`phase${laterPhase}Coverage`]:laterCoverage} : {}),
     ...(mode === 'phase0' ? {phase0Coverage: coverage} : {}),
     ...(mode === 'phase1' ? {phase1Coverage: smokeCoverage} : {}),
     ...(mode === 'phase2' ? {phase2Coverage: controlCoverage} : {}),
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
     ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
-  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines));
+  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps}));
   await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
     '.Passed{color:#087343}.Failed{color:#b42030}.Blocked{color:#906100}</style><h1>Regression results</h1>'+
+    `<p>${xml(selectionText)}</p>`+(omittedSteps.length?`<details><summary>Not selected in this mode (${omittedSteps.length} steps)</summary><ul>${omittedSteps.map(step=>`<li>${xml(step)}</li>`).join('')}</ul></details>`:'')+
     (prepared ? `<p>${xml(preparationDescription(prepared))}${prepared.outcome==='Passed'?'':' '+xml(reasons[prepared.reason ?? 'PREREQUISITE'])}</p>` : '')+
     `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
     `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
@@ -306,13 +315,14 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
         (step.source?` · ${xml(step.source.file)}:${step.source.line}`:'')+'</li>').join('')+'</ol>'+
       (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+'</details>').join('')+'</html>');
   await writePrivate(join(directory, 'summary.txt'), `Magic Stick selected regression cases: ${summary.acceptable ? 'PASSED' : 'NOT ACCEPTED'}\n` +
+    selectionText+'\n'+(omittedSteps.length?'Not selected in this mode: '+omittedSteps.join(', ')+'\n':'')+
     (prepared ? preparationDescription(prepared)+'\n' : '')+
-    `Full Phase 0 P0 gate: ${mode === 'phase0' ? fullPhase0Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
-    `Full Phase 1 P0 gate: ${mode === 'phase1' ? fullPhase1Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
-    `Full Phase 2 P0 gate: ${mode === 'phase2' ? fullPhase2Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
-    `Installed Phase 3 P0 gate: ${mode === 'phase3' ? fullPhase3Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
-    `Installed Phase 4 P0 gate: ${mode === 'phase4' ? installedPhase4Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
-    [5,6,7,8].map(phase=>`Full Phase ${phase} P0 gate: ${mode === `phase${phase}` ? summary.acceptable ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n`).join('') +
+    `Full Phase 0 P0 gate: ${!limited && mode === 'phase0' ? fullPhase0Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
+    `Full Phase 1 P0 gate: ${!limited && mode === 'phase1' ? fullPhase1Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
+    `Full Phase 2 P0 gate: ${!limited && mode === 'phase2' ? fullPhase2Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
+    `Installed Phase 3 P0 gate: ${!limited && mode === 'phase3' ? fullPhase3Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
+    `Installed Phase 4 P0 gate: ${!limited && mode === 'phase4' ? installedPhase4Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
+    [5,6,7,8].map(phase=>`Full Phase ${phase} P0 gate: ${!limited && mode === `phase${phase}` ? summary.acceptable ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n`).join('') +
     (openGates.length ? `Separate open gates: ${openGates.join('; ')}\n` : '') +
     `Scope: ${safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning layers only'}\n` +
     'Catalogue goals describe case families; Passed applies only to the recorded variant, layer and environment.\n' +

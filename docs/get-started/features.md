@@ -50,13 +50,18 @@
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
   Run all phases by default or select one or more, such as Phase 3 only; progress
   and reports retain that selection without crediting unselected phases.
+  Choose **Non-destructive only** (default) for isolated tests and live read-only
+  inventory, or **Include destructive tests** for model/service/configuration
+  workflows. The limited mode creates only test infrastructure and a temporary
+  viewer account; excluded live steps are named, not counted as passed.
   Clean up the previous run separately, including retained setup access when its
   lock is already free; disabled actions explain their blocking condition.
   Distinguish missing prerequisites from checks blocked by an earlier failure,
   with the original blocking check and trace when recorded.
   Automatic preparation failures show their setup stage and next action; fixture
   and live evidence counts are displayed separately.
-  Each start cleans up the previous run and begins again with a fresh test ID.
+  Each full start cleans up the previous run and begins again with a fresh test ID.
+  Non-destructive starts require any previous-run cleanup to be completed separately.
   **Clean up previous test run** is also available for diagnosis; cleanup
   verifies the retained resource identities and revisions.
   Host-disconnecting drills still require an external runner.
