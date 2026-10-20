@@ -61,4 +61,41 @@
       });
     });
   }
+
+  // Product video: the poster is a plain link to YouTube; with JavaScript a click
+  // replaces it with the youtube-nocookie.com player instead. Nothing from
+  // YouTube is loaded before the click.
+  const videoLabels = {
+    en: {
+      title: 'Magic Stick at a glance: manage AI models centrally and stay in control (German)',
+      loading: 'Loading the YouTube player. If playback does not start, use the link below the video.',
+      loaded: 'YouTube player loaded.',
+    },
+    de: {
+      title: 'Magic Stick im Überblick: KI-Modelle zentral verwalten und selbst kontrollieren',
+      loading: 'YouTube-Player wird geladen. Falls die Wiedergabe nicht startet, nutze den Link unter dem Video.',
+      loaded: 'YouTube-Player geladen.',
+    },
+  };
+  const language = document.documentElement.lang === 'de' ? 'de' : 'en';
+  for (const frame of document.querySelectorAll('[data-video]')) {
+    const trigger = frame.querySelector('[data-video-play]');
+    const status = frame.parentElement.querySelector('[data-video-status]');
+    if (!trigger || !/^[\w-]{11}$/.test(frame.dataset.video)) continue;
+    trigger.setAttribute('role', 'button');
+    trigger.addEventListener('click', (event) => {
+      event.preventDefault();
+      const labels = videoLabels[language];
+      const player = document.createElement('iframe');
+      player.title = labels.title;
+      player.src = `https://www.youtube-nocookie.com/embed/${frame.dataset.video}?autoplay=1&playsinline=1&rel=0&hl=${language}`;
+      player.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+      player.allowFullscreen = true;
+      player.referrerPolicy = 'strict-origin-when-cross-origin';
+      if (status) status.textContent = labels.loading;
+      player.addEventListener('load', () => { if (status) status.textContent = labels.loaded; }, { once: true });
+      frame.replaceChildren(player);
+      player.focus();
+    }, { once: true });
+  }
 })();

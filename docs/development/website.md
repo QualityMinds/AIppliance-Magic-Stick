@@ -23,15 +23,17 @@ GitHub Pages only redirects to it.
 | [editions.html](../editions.html), [editionen.html](../editionen.html) | Licensing overview, eligibility and the actual request/activation workflow |
 | [site.css](../site.css) | Responsive navy/violet/cyan design from the October 2026 pitch mockup, system fonts for text, the local heading font, visible focus and reduced motion |
 | `assets/fonts/` ([bricolage-grotesque-qm-600-800.woff2](../assets/fonts/bricolage-grotesque-qm-600-800.woff2), [OFL.txt](../assets/fonts/OFL.txt)) | Bricolage Grotesque (variable, weights 600–800) for headings on the landing pages, the legal pages and the handbook, with its SIL Open Font License text; see [Heading font](#heading-font) |
-| [site.js](../site.js) | Mobile navigation and keyboard-accessible dashboard screenshot tabs |
+| [site.js](../site.js) | Mobile navigation, keyboard-accessible dashboard screenshot tabs and the click-to-load product video; see [Product video](#product-video) |
 | `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
-| `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg), two WebP backgrounds and four `commander-tob-*.webp` character illustrations) | Hero illustration, two blurred section backgrounds and the Commander Tob guide character; see [Artwork provenance](#artwork-provenance) |
+| `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg), two WebP backgrounds, four `commander-tob-*.webp` character illustrations and [video-poster.webp](../assets/artwork/video-poster.webp)) | Hero illustration, two blurred section backgrounds, the Commander Tob guide character and the product-video poster; see [Artwork provenance](#artwork-provenance) |
 | [assets/favicon.svg](../assets/favicon.svg) | Picture mark: brandmark on a light rounded tile |
 | [imprint.html](../imprint.html), [impressum.html](../impressum.html) | Imprint in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
 | [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
 
 The homepage follows the October 2026 pitch mockup. It moves from a full-width
-hero illustration and the "Meet Commander Tob" welcome band through the product section (intro, dashboard screenshot
+hero illustration, the "Meet Commander Tob" welcome band and the light
+product-video section (see [Product video](#product-video)) through the
+product section (intro, dashboard screenshot
 switcher, application catalog cards), a "where would you like to start" choice
 for individuals and teams, the four deployment environments with a GPU note, a
 three-step first-use section, a team-pilot section with the licensing note, the
@@ -69,8 +71,8 @@ switches are ordinary links, with no geolocation, language auto-redirect, cookie
 stored preference. Each page has a canonical URL, reciprocal English/German
 `hreflang` links, an English `x-default`, descriptive metadata and an existing
 hero illustration as the social preview. Homepage fragment IDs that other pages
-link (`#produkt`, `#requirements`, `#hardware`, `#starten`, `#teams`,
-`#lizenzen`, `#faq`) remain available in both languages.
+link (`#produktvideo`, `#produkt`, `#requirements`, `#hardware`, `#starten`,
+`#teams`, `#lizenzen`, `#faq`) remain available in both languages.
 
 The source HTML links to canonical handbook Markdown. `tools/docs.py` converts
 these to `handbook/.../` links in the published artifact. Root repository files
@@ -78,6 +80,34 @@ such as LICENSE and SUPPORT.md use explicit public GitHub links; they are not
 handbook pages. New marketing HTML must be included in `MARKETING_PAGES` and
 excluded from MkDocs in `mkdocs.yml`. Do not collide with legacy redirect routes
 from `docs/migration.json` (in particular `licensing.html`).
+
+## Product video
+
+The section between the welcome band and the product section (`#produktvideo`,
+from the marketing team's video preview of October 2026) presents the product
+interview with Tobias Varlemann, published on the QualityMinds YouTube channel
+(video `vKwI855wBYc`, in German; the English page says so). The preview's small
+"Welcome aboard" block is not repeated because the welcome band above already
+says it. The section continues the light band; the player is capped at 600px so
+the copy and the poster share the row evenly.
+
+Nothing from YouTube is loaded before the visitor acts: the source HTML holds
+no `iframe`, the poster is a local image and the website tests keep it that
+way. The poster is a plain link to the YouTube watch page, so the video stays
+reachable without JavaScript. With JavaScript, `site.js` gives the link the
+`button` role and, on click, replaces it with the `youtube-nocookie.com` embed
+(extended privacy mode, `autoplay`, `rel=0`, interface language from the page
+`lang`), moves focus into the player and announces the state through a visually
+hidden live region. The "watch on YouTube" link below the player remains as the
+fallback. The caption states that playing connects to YouTube and links the
+privacy policy section `#video`, which describes YouTube embeds on the site in
+general (extended privacy mode, click-to-load, consent per video) in both
+languages; it covers further videos that follow the same pattern, so keep the
+embed parameters, that section and the figcaption in step.
+
+To change the video, update the `data-video` id, the two poster links and the
+player titles in `site.js` in both languages, and replace the poster with a
+reviewed image of the same dimensions.
 
 ## Heading font
 
@@ -239,6 +269,7 @@ They are illustrations and brand assets, not product evidence.
 | `artwork/command-centre.jpg` | Hero background and social preview, 1670 × 942. Unchanged mockup file (Adobe Photoshop 27.10 export of 2 October 2026 with an Adobe Content Credentials/C2PA manifest, which a re-encode would strip). Decorative (`alt=""`). The screen in the scene shows third-party service marks (among them OpenAI and Kubernetes); review this before a wider campaign use and replace the file if brand clearance is not available. |
 | `artwork/commander-tob-standing.webp` (560 × 812), `artwork/commander-tob-avatar.webp` (200 × 247), `artwork/commander-tob-working.webp` (800 × 519), `artwork/commander-tob-sitting.webp` (900 × 659) | Commander Tob character illustrations from the QualityMinds marketing concept of 16 October 2026 (`C-Tob_standing_cut_01_single.png`, `Avatar_Commander_Tob_Frontal_Base.png`, `Commander_Tob_working_01_single.png`, `C-Tob_Fullcolor_sitting_V1.png`). Transparent margins trimmed, scaled down and converted with Pillow at WebP quality 80; no other pixel changes. Decorative (`alt=""`), loaded lazily. Creator rights and the likeness release belong to the collateral review in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md). |
 | `artwork/side-workstation.webp`, `artwork/entrance.webp` | Blurred backgrounds of the first-use and closing sections, converted from the mockup PNGs (1672 × 941) with Pillow at WebP quality 78. Used as CSS backgrounds only. |
+| `artwork/video-poster.webp` | Product-video poster, 960 × 540, from the marketing team's video preview (October 2026; Canva export). Converted from PNG with Pillow at WebP quality 84, pixels unchanged. Shows Tobias Varlemann and the German title "Was kann der Magic Stick."; decorative in the markup (`alt=""`) because the link text names the video. Publication of the portrait and name is the marketing team's clearance, not a repository decision. |
 
 The generation prompts of the artwork are not part of this repository; the
 mockup owner holds them. The previous generated artwork remains below for the

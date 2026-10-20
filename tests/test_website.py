@@ -183,9 +183,36 @@ class WebsiteTests(unittest.TestCase):
                 eager = [img for img in page.matching('img') if 'loading' not in img and img is not hero[0]]
                 self.assertTrue(all(img['src'] == 'assets/brand/logo.svg' or img['src'] == 'assets/brand/brandmark.svg' for img in eager))
 
+    def test_product_video_loads_youtube_only_after_a_click(self):
+        # The poster is a local image inside a plain link to the watch page; site.js
+        # swaps it for the youtube-nocookie.com player on click (see
+        # docs/development/website.md, "Product video").
+        for name, (language, _, _) in (('index.html', self.pages['index.html']), ('de.html', self.pages['de.html'])):
+            with self.subTest(page=name):
+                page = self.markup(name)
+                frames = page.matching('div', **{'class': 'video-frame'})
+                self.assertEqual(len(frames), 1)
+                video = frames[0]['data-video']
+                watch = f'https://www.youtube.com/watch?v={video}'
+                poster = page.matching('a', **{'class': 'video-poster'})
+                self.assertEqual(len(poster), 1)
+                self.assertEqual(poster[0]['href'], watch)
+                self.assertEqual(poster[0]['aria-describedby'], 'video-notice')
+                self.assertTrue(page.matching('figcaption', id='video-notice'))
+                self.assertGreaterEqual(len(page.matching('a', href=watch)), 2)
+                privacy = 'privacy.html#video' if language == 'en' else 'datenschutz.html#video'
+                self.assertTrue(page.matching('a', href=privacy))
+                self.assertTrue(page.matching('span', **{'data-video-status': None, 'role': 'status'}))
+        script = (docs.DOCS / 'site.js').read_text()
+        self.assertIn('https://www.youtube-nocookie.com/embed/', script)
+        self.assertNotIn('https://www.youtube.com/embed/', script)
+        for legal in ('privacy.html', 'datenschutz.html'):
+            self.assertTrue(self.markup(legal).matching('h2', id='video'), legal)
+
     def test_existing_landing_anchors_are_preserved_in_both_languages(self):
         # Fragments linked from other pages (editions, handbook, footer) stay stable.
-        anchors = {'main-navigation', 'main', 'top', 'hero-title', 'produkt', 'product-title',
+        anchors = {'main-navigation', 'main', 'top', 'hero-title', 'produktvideo', 'video-title',
+                   'produkt', 'product-title',
                    'anwendungen', 'apps-title', 'requirements', 'requirements-title', 'hardware',
                    'starten', 'start-title', 'teams', 'teams-title', 'lizenzen', 'faq', 'faq-title'}
         for name in ('index.html', 'de.html'):
