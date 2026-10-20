@@ -186,8 +186,10 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 SEC-01 UX-02 ${
     progress:{percent:cancelled?34:0,completedPhases:0,totalPhases:9,executionCounts:{Passed:0,Failed:0,Blocked:0}}});
   await fixturePage(page,{
     '/api/license':()=>{licenseReads++;return {state:'missing',valid:false,hasDocument:false,features:[]};},
-    '/api/regression':()=>({registered,applianceUid:'fixture-appliance',runtimeAvailable:enabled,sourceRevision:'b'.repeat(40),
-      message:enabled?'':'Enable the regression runner.',executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:id?[run()]:[]}),
+    '/api/regression':()=>({registered,applianceUid:'fixture-appliance',runtimeAvailable:enabled,sourceRevision:enabled?'b'.repeat(40):'',
+      message:enabled?'':'Enable the regression runner.',executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],
+      lock:{state:enabled?'free':'blocked',canRecover:false,
+        message:enabled?'No regression lock is held.':'Enable the regression runner before checking the test lock and cleanup.'},runs:id?[run()]:[]}),
     '/api/modules/regression/enable':(request:Request)=>{expect(request.method()).toBe('POST');enabled=true;writes.push('enable');return {};},
     '/api/regression/register':(request:Request)=>{
       expect(request.postDataJSON()).toEqual({confirmation:'DISPOSABLE TEST SERVER',acknowledgeDisruption:true});
@@ -210,6 +212,11 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 SEC-01 UX-02 ${
   });
   await page.goto(origin+'/#/system/regression');
   await expect(page.getByText(/No license is required to run regression tests or download reports/)).toBeVisible();
+  await expect(page.getByRole('button',{name:'Enable regression runner'})).toBeEnabled();
+  await expect(page.getByRole('button',{name:'Start regression tests'})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Clean up previous test run'})).toBeDisabled();
+  await page.reload();
+  await expect(page.getByRole('button',{name:'Enable regression runner'})).toBeEnabled();expect(writes).toEqual([]);
   await page.getByRole('button',{name:'Enable regression runner'}).click();
   await page.getByRole('button',{name:'Register test Appliance'}).click();
   const registration=page.getByRole('dialog');

@@ -562,6 +562,16 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+20 October 2026 first-run follow-up: HAR-10 status checks cover an absent,
+disabled or still-installing optional runner with no runtime metadata,
+registration or run history. A forbidden test-Lease read is reproduced without
+granting extra authority; first status exposes Enable with an unverified lock.
+Retained evidence still makes the actual forbidden lock read fail. The existing
+Kubernetes owning selftest selects these API/HTTP counterexamples, and Phase 8
+Chromium fixtures cover empty revision/blocked-lock enable, reload without writes
+and the subsequent register/start flow on desktop and mobile. These isolated
+checks do not by themselves prove a completed live campaign.
+
 20 October 2026 promotion follow-up: SEC-03's supply-chain owning selection now
 includes `test_dashboard_image_promotion`, in addition to public/build CI. Real
 local bare-Git counterexamples cover concurrent runner and human commits,

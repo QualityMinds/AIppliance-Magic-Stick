@@ -16,6 +16,10 @@ settings, deploy services, replace test licenses and clear model caches.
    are prepared automatically.
 4. Watch progress, then download **Download report**, **HTML summary** or **JUnit XML**.
 
+On a new installation, **Enable regression runner** is available before the
+runner's permissions exist. The test lock remains unverified until installation;
+opening or refreshing this page does not enable or start anything.
+
 Every start cleans up the previous run, checks the baseline, creates a **new test
 ID**, and runs the selected P0 phases from the beginning. All Phase 0–8 tests are
 selected by default. Progress and reports identify the saved selection; other

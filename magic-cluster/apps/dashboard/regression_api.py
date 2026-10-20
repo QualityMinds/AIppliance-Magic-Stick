@@ -133,7 +133,14 @@ class RegressionApi:
         available, _, revision = self.runtime()
         runs = self.f["list_resource"](RUNS)
         runs = sorted(runs, key=lambda r: r.get("metadata", {}).get("creationTimestamp", ""), reverse=True)
-        lock = self.lock_status(runs, registration)
+        # The optional module installs the namespace-scoped Lease read grant.
+        # First status must expose Enable before that grant exists. Do not infer
+        # a free lock, and never take this path over retained execution evidence.
+        if not available and not revision and registration is None and not runs:
+            lock = {"state": "blocked", "canRecover": False,
+                    "message": "Enable the regression runner before checking the test lock and cleanup."}
+        else:
+            lock = self.lock_status(runs, registration)
         return {"registered": registration is not None, "applianceUid": self.target()[0],
                 "runtimeAvailable": available, "sourceRevision": revision,
                 "message": "" if available else "Enable the regression runner and wait for a CI-published, digest-pinned image.",

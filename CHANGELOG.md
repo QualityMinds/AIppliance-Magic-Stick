@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep the regression enable action available on fresh installations before the
+  optional runner's test-lock permissions exist. Report that lock as unverified,
+  not free; retain permission failures when registration, runtime or run history
+  already exists. Polling never enables the module or starts tests automatically.
+
 - Retry dashboard image promotion from a newly reviewed channel head after a
   confirmed concurrent push, regenerating only its pins and reference inventory.
   Content-verified runner-pin updates reuse their checked source rather than

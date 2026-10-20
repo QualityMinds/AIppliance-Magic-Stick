@@ -4,6 +4,7 @@ import json
 import io
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch, Mock
 
@@ -247,6 +248,76 @@ class RegressionApiTests(unittest.TestCase):
             self.assertTrue(status["runtimeAvailable"])
         self.assertEqual(self.writes, [])
         self.assertEqual(self.users, {})
+
+    def test_first_status_without_optional_runner_never_reads_its_unavailable_lease(self):
+        initial = copy.deepcopy(self.objects)
+        activation_path = "/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/moduleactivations/regression"
+        for activation in (None, {"spec": {"enabled": False}}, {"spec": {"enabled": True}}):
+            with self.subTest(activation=activation):
+                self.objects = {path: copy.deepcopy(value) for path, value in initial.items()
+                                if not path.startswith(CORE + "/") and path != activation_path}
+                if activation is not None:
+                    self.objects[activation_path] = activation
+                reads = []
+
+                def get_resource(path):
+                    reads.append(path)
+                    if path == LEASE:
+                        raise urllib.error.HTTPError(path, 403, "Optional namespace RBAC is not installed", {}, None)
+                    return copy.deepcopy(self.objects.get(path))
+
+                self.functions["get_resource"] = get_resource
+                self.functions["license_service"] = Mock(side_effect=AssertionError("First status is not licensed"))
+                for _ in range(2):
+                    status = self.service.list()
+                    self.assertFalse(status["registered"])
+                    self.assertFalse(status["runtimeAvailable"])
+                    self.assertEqual(status["sourceRevision"], "")
+                    self.assertEqual(status["runs"], [])
+                    self.assertEqual(status["lock"]["state"], "blocked")
+                    self.assertFalse(status["lock"]["canRecover"])
+                    self.assertFalse(status["cleanup"]["available"])
+                    self.assertIn("Enable", status["message"])
+                self.assertNotIn(LEASE, reads)
+                self.assertEqual(self.writes, [])
+                self.assertEqual(self.users, {})
+                self.functions["license_service"].assert_not_called()
+                server = load_server()
+                handler = server["Handler"].__new__(server["Handler"])
+                handler.route = lambda: "/api/regression"
+                handler.require_access = Mock(return_value=ACTOR)
+                handler.send_json, handler.send_error_json, handler.send_auth_error = Mock(), Mock(), Mock()
+                with patch("regression_api.RegressionApi", return_value=self.service):
+                    handler.handle_regression()
+                handler.send_json.assert_called_once_with(status)
+                handler.send_error_json.assert_not_called()
+                handler.send_auth_error.assert_not_called()
+
+    def test_retained_registration_run_or_runtime_never_hides_forbidden_lock_reads(self):
+        initial = copy.deepcopy(self.objects)
+        for retained in ("registration", "run", "runtime"):
+            with self.subTest(retained=retained):
+                self.objects = {path: copy.deepcopy(value) for path, value in initial.items()
+                                if not path.startswith(CORE + "/")}
+                if retained == "registration":
+                    self.objects[CORE + "/configmaps/registered-lab"] = initial[CORE + "/configmaps/registered-lab"]
+                elif retained == "runtime":
+                    self.objects[CORE + "/configmaps/magicstick-regression-runtime"] = initial[CORE + "/configmaps/magicstick-regression-runtime"]
+                else:
+                    self.objects[RUNS + "/regression-" + "1" * 32] = {
+                        "metadata": {"name": "regression-" + "1" * 32, "uid": UID},
+                        "status": {"phase": "Passed", "credentialsCleaned": True}}
+
+                def get_resource(path):
+                    if path == LEASE:
+                        raise urllib.error.HTTPError(path, 403, "Lease access denied", {}, None)
+                    return copy.deepcopy(self.objects.get(path))
+
+                self.functions["get_resource"] = get_resource
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    self.service.list()
+                self.assertEqual(error.exception.code, 403)
+                self.assertEqual(self.writes, [])
 
     def test_runner_lifecycle_and_all_reports_do_not_require_or_activate_a_license(self):
         for index, state in enumerate(("missing", "expired", "invalid", "storage_unavailable"), 1):

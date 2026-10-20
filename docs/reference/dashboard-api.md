@@ -79,6 +79,13 @@ invalid or unavailable license status must not gate the runner lifecycle or
 report downloads; this does not bypass entitlement checks in individual tests.
 No request accepts a runner image, URL, script, command, manifest or credential.
 
+Before the optional runner has been installed, an empty installation returns
+`runtimeAvailable: false` and an unverified `lock.state: blocked`, allowing the
+administrator to enable the module. Status polling does not read the test Lease
+before its namespace-scoped permissions exist and never claims a free lock.
+Retained registration, runtime metadata or previous runs still require the real
+lock check; an unexpected permission error remains an error, not an empty lab.
+
 | Route | Contract |
 | --- | --- |
 | `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results, lock state and external-runner limitations. Read-only. |
