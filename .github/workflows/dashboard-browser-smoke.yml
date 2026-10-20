@@ -7,6 +7,7 @@ on:
       - .github/workflows/build-dashboard-image.yml
       - .github/workflows/public-release-checks.yml
       - tools/promote_dashboard_images.py
+      - tools/promote_regression_image.py
       - tests/test_dashboard_image_promotion.py
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py
@@ -31,6 +32,7 @@ on:
       - .github/workflows/build-dashboard-image.yml
       - .github/workflows/public-release-checks.yml
       - tools/promote_dashboard_images.py
+      - tools/promote_regression_image.py
       - tests/test_dashboard_image_promotion.py
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py

@@ -562,6 +562,16 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+20 October 2026 promotion follow-up: SEC-03's supply-chain owning selection now
+includes `test_dashboard_image_promotion`, in addition to public/build CI. Real
+local bare-Git counterexamples cover concurrent runner and human commits,
+exact-source runner/public CI inheritance only for content-proven generated
+pin/inventory deltas, failed/pending-check rejection, preserved foreign metadata,
+newer-runtime supersession, lost push acknowledgements and three-attempt limits.
+These are isolated U/C checks; no live appliance campaign or successful remote
+promotion is inferred from them. Existing HAR-02/10 runner-promotion checks remain
+selected by the Kubernetes harness selftest.
+
 20 October 2026 release-CI follow-up: HAR-02/10 and SEC-02/03 report-server
 counterexamples reject noncanonical identities, private/traversal filenames,
 symlinks, oversized files and blocking special files. A directory-swap test

@@ -155,14 +155,17 @@ class RequiredCiTests(unittest.TestCase):
 
     def test_missing_ci_has_a_bounded_deadline(self):
         now = [0]
+        diagnostic = io.StringIO()
 
         def sleep(seconds):
             now[0] += seconds
 
-        with self.assertRaises(promotion.PromotionError):
+        with contextlib.redirect_stderr(diagnostic), self.assertRaises(promotion.PromotionError):
             promotion.wait_for_checks("develop", SOURCE, fetch=lambda _: {"workflow_runs": []},
                                       clock=lambda: now[0], sleep=sleep, timeout=31)
         self.assertEqual(now[0], 31)
+        self.assertIn("develop at " + SOURCE[:12], diagnostic.getvalue())
+        self.assertIn("public-release-checks.yml=absent", diagnostic.getvalue())
 
     def test_ci_api_failure_does_not_publish(self):
         with patch.object(promotion, "wait_for_checks", side_effect=promotion.PromotionError("CI unavailable")), \
@@ -321,6 +324,10 @@ class LocalGitPromotionTests(unittest.TestCase):
             "pnpmLockSha256": promotion.license_audit.checksum(self.root / "dashboard/pnpm-lock.yaml"),
             "npm": ["unchanged-package-metadata"], "python": ["unchanged-environment"],
             "status": "inventory-not-legal-clearance", "review": "not-approval"}))
+        self.write(promotion.regression_promotion.PIN,
+                   'data:\n  image: "ghcr.io/qualityminds/magicstick-regression:sha-' + OLD_SOURCE +
+                   '@sha256:' + 'f' * 64 + '"\n  sourceRevision: "' + OLD_SOURCE + '"\n')
+        promotion.license_audit.refresh_references(self.root)
         self.commit("Initial synthetic source")
         self.source = self.git("rev-parse", "HEAD")
         self.git("branch", "main")
@@ -355,6 +362,40 @@ class LocalGitPromotionTests(unittest.TestCase):
         # tested independently above; this fixture exercises real scoped Git.
         with patch.object(promotion.license_audit, "source_checks", return_value=[]):
             return promotion.publish(self.root, branch, self.source, DIGESTS, head or self.source)
+
+    def promote(self, ci=None):
+        with patch.object(promotion.license_audit, "source_checks", return_value=[]), \
+                patch.object(promotion, "wait_for_checks", side_effect=ci) as checks, \
+                patch.object(promotion, "verify_images"), \
+                patch.object(promotion, "github", return_value={"workflow_runs": []}), \
+                contextlib.redirect_stderr(io.StringIO()):
+            return promotion.promote(self.root, "develop", self.source, DIGESTS), checks.call_args_list
+
+    def runner_advance(self, mutate=None, digest=None):
+        pin = self.root / promotion.regression_promotion.PIN
+        pin.write_text(promotion.regression_promotion.replacement(
+            pin.read_text(), self.source, digest or "sha256:" + "1" * 64))
+        promotion.license_audit.refresh_references(self.root)
+        if mutate:
+            mutate()
+        self.commit("Synthetic generated runner promotion")
+        self.git("push", "origin", "develop")
+        return self.git("rev-parse", "HEAD")
+
+    def concurrent_writer(self, path, text):
+        concurrent = self.directory / "concurrent"
+        if not concurrent.exists():
+            self.raw_git(self.directory, "clone", "-q", "-b", "develop", str(self.remote), str(concurrent))
+        target = concurrent / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        promotion.license_audit.refresh_references(concurrent)
+        self.raw_git(concurrent, "add", ".")
+        self.raw_git(concurrent, "-c", "user.name=Synthetic fixture", "-c",
+                     "user.email=fixture@example.com", "-c", "commit.gpgsign=false",
+                     "commit", "-q", "-m", "Concurrent synthetic update")
+        self.raw_git(concurrent, "push", "origin", "develop")
+        return self.raw_git(concurrent, "rev-parse", "HEAD")
 
     def test_coordinated_promotion_changes_only_four_owned_files_and_own_branch(self):
         old_main = self.raw_git(self.remote, "rev-parse", "refs/heads/main")
@@ -432,6 +473,7 @@ class LocalGitPromotionTests(unittest.TestCase):
     def test_new_runtime_or_automation_or_pin_changes_supersede_old_build(self):
         for path in ("dashboard/apps/web/src/runtime.ts", "core/magicstick_core/changed.py",
                      ".dockerignore", "LICENSE", "tools/promote_dashboard_images.py",
+                     "tools/promote_regression_image.py", ".github/workflows/regression-runner.yml",
                      ".github/workflows/build-dashboard-image.yml", promotion.FILES["web"][0]):
             with self.subTest(path=path):
                 self.advance(path)
@@ -471,6 +513,201 @@ class LocalGitPromotionTests(unittest.TestCase):
         self.assertEqual(self.raw_git(self.remote, "show", "develop:human-edit.txt"), "Concurrent branch change")
         self.assertNotEqual(self.raw_git(self.remote, "rev-parse", "develop"), self.git("rev-parse", "HEAD"))
 
+    def test_runner_pin_only_commit_inherits_checked_parent_and_exact_runner_build_not_missing_bot_ci(self):
+        parent = self.advance("docs/generated.md")
+        head = self.runner_advance()
+        before = self.git("status", "--porcelain")
+        with patch.object(promotion, "github", return_value={"workflow_runs": []}) as remote, \
+                patch.object(promotion, "wait_for_checks") as checks, \
+                contextlib.redirect_stderr(io.StringIO()):
+            promotion.verify_channel_checks(self.root, "develop", self.source, head)
+        self.assertIn("head_sha=" + head, remote.call_args.args[0])
+        checks.assert_any_call("develop", self.source, checks=("regression-runner.yml",))
+        checks.assert_any_call("develop", parent, checks=(promotion.CHECKS[0],))
+        self.assertEqual(checks.call_count, 2)
+        self.assertEqual(self.git("status", "--porcelain"), before)
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+
+    def test_pin_metadata_or_other_content_cannot_borrow_a_parent_check(self):
+        def package_change():
+            path = self.root / promotion.INVENTORY
+            inventory = json.loads(path.read_text())
+            inventory["npm"].append("unreviewed")
+            path.write_text(json.dumps(inventory))
+
+        def config_change():
+            path = self.root / promotion.regression_promotion.PIN
+            path.write_text(path.read_text() + "  extra: unexpected\n")
+
+        def foreign_reference():
+            path = self.root / promotion.INVENTORY
+            inventory = json.loads(path.read_text())
+            inventory["deploymentReferences"][0]["reference"] = "image: unrelated:latest"
+            inventory["deploymentReferencesSha256"] = promotion.license_audit.references_checksum(
+                inventory["deploymentReferences"])
+            path.write_text(json.dumps(inventory))
+
+        for index, mutate in enumerate((package_change, config_change, foreign_reference), 1):
+            with self.subTest(mutate=mutate.__name__):
+                head = self.runner_advance(mutate, "sha256:" + str(index) * 64)
+                with patch.object(promotion, "wait_for_checks") as checks:
+                    promotion.verify_channel_checks(self.root, "develop", self.source, head)
+                checks.assert_called_once_with("develop", head, checks=(promotion.CHECKS[0],))
+
+    def test_existing_failed_or_pending_ci_for_pin_only_commit_is_never_hidden(self):
+        head = self.runner_advance()
+        for status, conclusion in (("completed", "failure"), ("completed", "cancelled"),
+                                   ("completed", "skipped"), ("queued", None), ("completed", "success")):
+            record = run_record(head_sha=head, status=status, conclusion=conclusion)
+            with self.subTest(status=status, conclusion=conclusion), \
+                    patch.object(promotion, "github", return_value={"workflow_runs": [record]}), \
+                    patch.object(promotion, "wait_for_checks") as checks:
+                if status == "completed" and conclusion != "success":
+                    with self.assertRaises(promotion.PromotionError):
+                        promotion.verify_channel_checks(self.root, "develop", self.source, head)
+                    checks.assert_not_called()
+                else:
+                    promotion.verify_channel_checks(self.root, "develop", self.source, head)
+                    checks.assert_called_once_with("develop", head, checks=(promotion.CHECKS[0],))
+
+    def test_missing_bot_ci_does_not_bypass_failed_runner_build(self):
+        head = self.runner_advance()
+        with patch.object(promotion, "github", return_value={"workflow_runs": []}), \
+                patch.object(promotion, "wait_for_checks", side_effect=promotion.PromotionError("Runner CI failed")), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(promotion.PromotionError):
+            promotion.verify_channel_checks(self.root, "develop", self.source, head)
+        self.assertEqual(self.raw_git(self.remote, "rev-parse", "develop"), head)
+
+    def test_runner_from_a_different_source_cannot_borrow_current_build_ci(self):
+        def different_source():
+            path = self.root / promotion.regression_promotion.PIN
+            path.write_text(promotion.regression_promotion.replacement(
+                path.read_text(), OLD_SOURCE, "sha256:" + "3" * 64))
+            promotion.license_audit.refresh_references(self.root)
+
+        head = self.runner_advance(different_source)
+        with patch.object(promotion, "wait_for_checks") as checks:
+            promotion.verify_channel_checks(self.root, "develop", self.source, head)
+        checks.assert_called_once_with("develop", head, checks=(promotion.CHECKS[0],))
+
+    def test_concurrent_runner_promotion_is_preserved_by_fresh_scoped_dashboard_retry(self):
+        original_git, pushes, concurrent_heads = promotion.git, [], []
+        pin = promotion.regression_promotion.PIN
+        runner_text = promotion.regression_promotion.replacement(
+            (self.root / pin).read_text(), self.source, "sha256:" + "2" * 64)
+
+        def git(root, *args):
+            self.assertNotIn("--force", args)
+            self.assertNotIn("rebase", args)
+            if args[0] == "push":
+                pushes.append(args)
+                if len(pushes) == 1:
+                    concurrent_heads.append(self.concurrent_writer(pin, runner_text))
+            return original_git(root, *args)
+
+        with patch.object(promotion, "git", side_effect=git):
+            commit, checks = self.promote()
+        self.assertEqual(len(pushes), 2)
+        self.assertEqual(self.git("rev-parse", commit + "^"), concurrent_heads[0])
+        self.assertEqual(self.raw_git(self.remote, "show", "develop:" + pin), runner_text.strip())
+        self.assertEqual(set(self.git("diff", "--name-only", concurrent_heads[0], commit).splitlines()), promotion.ALLOWED)
+        self.assertEqual(promotion.read_pins(self.root), promotion.replacements(self.source, DIGESTS))
+        self.assertTrue(any(call.kwargs.get("checks") == ("regression-runner.yml",) for call in checks))
+        inventory = json.loads((self.root / promotion.INVENTORY).read_text())
+        self.assertEqual(inventory["deploymentReferencesSha256"], promotion.license_audit.references_checksum(
+            promotion.license_audit.deployment_references(self.root)))
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_concurrent_human_change_is_retained_and_requires_its_own_ci_on_retry(self):
+        original_git, advances = promotion.git, []
+
+        def git(root, *args):
+            if args[0] == "push" and not advances:
+                advances.append(self.concurrent_writer("docs/human.md", "Preserve human change\n"))
+            return original_git(root, *args)
+
+        with patch.object(promotion, "git", side_effect=git):
+            commit, checks = self.promote()
+        self.assertEqual(self.git("rev-parse", commit + "^"), advances[0])
+        self.assertEqual(self.raw_git(self.remote, "show", "develop:docs/human.md"), "Preserve human change")
+        self.assertTrue(any(call.args == ("develop", advances[0]) and call.kwargs == {"checks": (promotion.CHECKS[0],)}
+                            for call in checks))
+
+    def test_new_runtime_on_retry_supersedes_old_candidate_without_overwrite(self):
+        original_git, advances = promotion.git, []
+
+        def git(root, *args):
+            if args[0] == "push" and not advances:
+                advances.append(self.concurrent_writer("dashboard/apps/web/src/runtime.ts", "new source\n"))
+            return original_git(root, *args)
+
+        with patch.object(promotion, "git", side_effect=git), self.assertRaises(promotion.Superseded):
+            self.promote()
+        self.assertEqual(self.raw_git(self.remote, "rev-parse", "develop"), advances[0])
+
+    def test_failed_ci_for_concurrent_human_head_stops_before_second_push(self):
+        original_git, pushes, advances = promotion.git, [], []
+
+        def git(root, *args):
+            if args[0] == "push":
+                pushes.append(args)
+                if not advances:
+                    advances.append(self.concurrent_writer("docs/human.md", "Pending reviewed change\n"))
+            return original_git(root, *args)
+
+        def checks(branch, source, **kwargs):
+            if source != self.source:
+                raise promotion.PromotionError("New head CI failed")
+
+        with patch.object(promotion, "git", side_effect=git), self.assertRaises(promotion.PromotionError):
+            self.promote(checks)
+        self.assertEqual(len(pushes), 1)
+        self.assertEqual(self.raw_git(self.remote, "rev-parse", "develop"), advances[0])
+
+    def test_push_failure_without_remote_advance_is_not_retried(self):
+        original_git, pushes = promotion.git, []
+
+        def git(root, *args):
+            if args[0] == "push":
+                pushes.append(args)
+                raise promotion.GitError("push", 128)
+            return original_git(root, *args)
+
+        with patch.object(promotion, "git", side_effect=git), self.assertRaises(promotion.GitError):
+            self.promote()
+        self.assertEqual(len(pushes), 1)
+        self.assertEqual(self.raw_git(self.remote, "rev-parse", "develop"), self.source)
+
+    def test_lost_push_response_is_verified_on_remote_without_another_commit(self):
+        original_git, pushes = promotion.git, []
+
+        def git(root, *args):
+            result = original_git(root, *args)
+            if args[0] == "push":
+                pushes.append(args)
+                raise promotion.GitError("push", 128)
+            return result
+
+        with patch.object(promotion, "git", side_effect=git):
+            commit, _ = self.promote()
+        self.assertEqual(len(pushes), 1)
+        self.assertEqual(self.raw_git(self.remote, "rev-parse", "develop"), commit)
+
+    def test_repeated_channel_moves_have_exactly_three_attempts_without_force(self):
+        original_git, advances = promotion.git, []
+
+        def git(root, *args):
+            self.assertNotIn("--force", args)
+            self.assertNotIn("rebase", args)
+            if args[0] == "push":
+                advances.append(self.concurrent_writer("docs/move.md", "Move " + str(len(advances)) + "\n"))
+            return original_git(root, *args)
+
+        with patch.object(promotion, "git", side_effect=git), self.assertRaisesRegex(promotion.PromotionError, "repeatedly"):
+            self.promote()
+        self.assertEqual(len(advances), 3)
+        self.assertEqual(self.raw_git(self.remote, "rev-parse", "develop"), advances[-1])
+
 
 class PromotionOrchestrationTests(unittest.TestCase):
     def test_check_only_verifies_but_never_writes_or_pushes(self):
@@ -487,6 +724,8 @@ class PromotionOrchestrationTests(unittest.TestCase):
         with patch.object(promotion, "wait_for_checks") as checks, \
                 patch.object(promotion, "verify_images"), \
                 patch.object(promotion, "candidate_head", return_value=OLD_SOURCE), \
+                patch.object(promotion, "runner_pin_only", return_value=False), \
+                patch.object(promotion, "git", return_value=OLD_SOURCE + " " + SOURCE), \
                 patch.object(promotion, "publish", return_value="c" * 40) as publish, \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(promotion.main(cli_arguments("--push")), 0)

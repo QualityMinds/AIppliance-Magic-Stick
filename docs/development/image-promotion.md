@@ -23,11 +23,30 @@ GitHub Release tag or manual Pod restart is needed for a branch follower.
 4. The helper checks the current branch head. A newer runtime, promotion-policy
    or image-pin change supersedes the older build. Documentation, host-only or
    ConfigMap advances can be retained when they do not change baked image inputs;
-   their own public source checks must also succeed.
+   their own public source checks must also succeed. A generated runner-pin-only
+   advance is the narrow exception described below, not permission to ignore CI.
 5. A clean CI checkout receives one scoped commit changing only the three image
    pins and generated deployment-reference inventory. Existing dependency and
    license-review metadata is preserved. The normal fast-forward push rejects
-   a concurrent branch change; there is no force-push or conflict overwrite.
+   a concurrent branch change. Only a confirmed forward advance permits a fresh
+   attempt: fetch/review its source and CI, retain its changes and regenerate the
+   four owned files. At most three attempts are made, without rebasing the old
+   commit, force-pushing or overwriting a conflicting runtime/policy change.
+
+For a runner promotion made with `GITHUB_TOKEN`, a new push CI run does not exist.
+The helper recognizes this by content, not by an author name or commit message:
+only the runner pin and generated deployment-reference inventory may differ;
+the two pin fields must be exactly the standard replacement for the **same
+tested source**, and all package, legal and unrelated reference metadata must
+be unchanged. Its exact-source **Regression runner** workflow must have passed,
+as must the prior source revision's required checks. A real failed, cancelled,
+skipped or pending check for the generated head is never hidden by this rule.
+Other edits, merge commits and unproved metadata still require their own CI.
+
+While waiting, the job reports the exact short revision, missing/pending workflow
+and bounded deadline in its log. Permission/network/protection failures without
+a confirmed channel advance are not retried. If a push response is lost, the
+helper checks whether the remote actually contains its commit before retrying.
 
 The build and browser workflows use matching path filters, so a normal image
 build cannot silently omit its required browser check. `main` promotion never
@@ -70,8 +89,8 @@ If a source push has not appeared on an appliance, inspect these distinct stages
 - **Live:** do the running image IDs and changed user flow match the intended build?
 
 A superseded build makes no changes. Inspect the newer build before retrying.
-For a concurrent push or branch-rule failure, review the new branch head/rules
-and use the explicit promotion path below; rerunning a push job cannot bypass
+For repeated concurrent pushes or a branch-rule failure, review the new branch
+head/rules and use the explicit promotion path below; rerunning a push job cannot bypass
 the provenance or compatibility checks. An offline appliance is not verified
 deployed merely because its branch contains the promotion.
 

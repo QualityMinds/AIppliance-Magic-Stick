@@ -69,7 +69,7 @@ const proofs:Record<string,Proof>={
     'test_dashboard_api.OllamaDiscoveryTests.test_ollama_fetcher_is_host_pinned_redirect_safe_and_bounded']],
     ['../api',['test_instance_access.SharingTests','test_federated_sso.FederatedSsoPolicyTests']],
     [identity,['test_user_admin_identity.UserAdminIdentityTests']]],components:[['src/ModelLogs.test.tsx',[]],['src/InstanceSharing.test.tsx',[]]]},
-  'supply-chain':{python:[['../../../tests',['test_release.ReleaseTests','test_runtime_image_updates.RuntimeImageTests','test_license_release.ReleaseMetadataTests','test_license_ci','test_regression_security','test_regression_launcher','test_regression_inputs']]],components:[['src/CoreSafety.test.ts',[]]]},
+  'supply-chain':{python:[['../../../tests',['test_release.ReleaseTests','test_runtime_image_updates.RuntimeImageTests','test_dashboard_image_promotion','test_license_release.ReleaseMetadataTests','test_license_ci','test_regression_security','test_regression_launcher','test_regression_inputs']]],components:[['src/CoreSafety.test.ts',[]]]},
   forms:{components:[['src/pages/GpuSharingControls.test.tsx',[]],['src/pages/SoftwareChannelEditor.test.tsx',[]],
     ['src/pages/HostGpuMemory.test.tsx',[]],['src/pages/NetworkPage.test.tsx',[]],['src/pages/UpdatesPage.test.tsx',[]],
     ['src/FeatureParity.test.tsx',['Settings retains both editable domains']],['src/pages/MeshPage.test.tsx',[]],

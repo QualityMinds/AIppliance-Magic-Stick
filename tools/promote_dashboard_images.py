@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "magic-host/roles/host-management/files"))
 import license_audit
+import promote_regression_image as regression_promotion
 from software_channel import image_source_path
 
 REPOSITORY = "QualityMinds/AIppliance-Magic-Stick"
@@ -30,6 +31,7 @@ FILES = {
 INVENTORY = "licenses/dependency-inventory.json"
 ALLOWED = {item[0] for item in FILES.values()} | {INVENTORY}
 AUTOMATION = {"tools/promote_dashboard_images.py", "tests/test_dashboard_image_promotion.py",
+              "tools/promote_regression_image.py", ".github/workflows/regression-runner.yml",
               ".github/workflows/build-dashboard-image.yml", ".github/workflows/dashboard-browser-smoke.yml",
               ".github/workflows/public-release-checks.yml"}
 LIMIT = 4 * 1024 * 1024
@@ -43,6 +45,16 @@ class PromotionError(ValueError):
 
 class Superseded(PromotionError):
     """A newer runtime build owns promotion; nothing has been changed."""
+
+
+class GitError(PromotionError):
+    def __init__(self, operation, returncode):
+        self.operation, self.returncode = operation, returncode
+        super().__init__("Git " + operation + " failed; no force-push or automatic conflict overwrite is allowed.")
+
+
+class ChannelMoved(PromotionError):
+    """Only a confirmed fast-forward channel advance permits another attempt."""
 
 
 def validate(branch, source, digests):
@@ -59,8 +71,23 @@ def git(root, *args):
     result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, timeout=180)
     if result.returncode:
         # Do not print credential-bearing remotes, Git headers or command stderr.
-        raise PromotionError("Git " + args[0] + " failed; no force-push or automatic conflict overwrite is allowed.")
+        raise GitError(args[0], result.returncode)
     return result.stdout.strip()
+
+
+def is_ancestor(root, ancestor, descendant):
+    try:
+        git(root, "merge-base", "--is-ancestor", ancestor, descendant)
+        return True
+    except GitError as error:
+        if error.returncode == 1:
+            return False
+        raise
+
+
+def channel_head(root, branch):
+    git(root, "fetch", "--no-tags", "origin", "refs/heads/" + branch + ":refs/remotes/origin/" + branch)
+    return git(root, "rev-parse", "refs/remotes/origin/" + branch)
 
 
 def github(path):
@@ -74,7 +101,7 @@ def github(path):
         raise PromotionError("GitHub returned invalid CI status.") from None
 
 
-def check_state(payload, branch, source):
+def check_state(payload, branch, source, missing="pending"):
     runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
     if not isinstance(runs, list):
         raise PromotionError("GitHub returned an invalid workflow-run list.")
@@ -84,7 +111,7 @@ def check_state(payload, branch, source):
                and run.get("event") == "push" and
                run["head_repository"].get("full_name") == REPOSITORY]
     if not matches:
-        return "pending"
+        return missing
     if any(type(run.get("id")) is not int or run["id"] <= 0 or
            type(run.get("run_attempt", 1)) is not int or run.get("run_attempt", 1) <= 0 for run in matches):
         raise PromotionError("GitHub returned an invalid workflow-run identity.")
@@ -100,14 +127,22 @@ def wait_for_checks(branch, source, checks=CHECKS, fetch=github, clock=time.mono
                     timeout=1200):
     deadline = clock() + timeout
     pending = set(checks)
+    last_report = float("-inf")
     while pending:
+        states = {}
         for workflow in sorted(pending):
             query = urllib.parse.urlencode({"head_sha": source, "branch": branch, "event": "push", "per_page": 100})
             payload = fetch(f"repos/{REPOSITORY}/actions/workflows/{workflow}/runs?{query}")
-            if check_state(payload, branch, source) == "success":
+            states[workflow] = check_state(payload, branch, source, missing="absent")
+            if states[workflow] == "success":
                 pending.remove(workflow)
         if not pending:
             return
+        if clock() - last_report >= 60:
+            print("Waiting for CI on " + branch + " at " + source[:12] + ": " +
+                  ", ".join(workflow + "=" + states[workflow] for workflow in sorted(pending)) +
+                  " (" + str(max(0, int(deadline - clock()))) + "s remaining).", file=sys.stderr)
+            last_report = clock()
         if clock() >= deadline:
             raise PromotionError("Required CI did not complete successfully within the 20-minute promotion deadline.")
         sleep(min(15, max(0, deadline - clock())))
@@ -221,8 +256,7 @@ def replacements(source, digests):
 
 
 def candidate_head(root, branch, source):
-    git(root, "fetch", "--no-tags", "origin", "refs/heads/" + branch + ":refs/remotes/origin/" + branch)
-    head = git(root, "rev-parse", "refs/remotes/origin/" + branch)
+    head = channel_head(root, branch)
     git(root, "merge-base", "--is-ancestor", source, head)
     if head != source:
         changed = git(root, "diff", "--name-only", source, head, "--").splitlines()
@@ -230,6 +264,57 @@ def candidate_head(root, branch, source):
                for path in changed):
             raise Superseded("A newer runtime or promotion revision owns this channel; the older build was not applied.")
     return head
+
+
+def runner_pin_only(root, parent, head, source):
+    """Prove a generated pin delta by content, never by its author or message."""
+    pin, inventory = regression_promotion.PIN, INVENTORY
+    if set(git(root, "diff", "--name-only", parent, head, "--").splitlines()) != {pin, inventory}:
+        return False
+    before, after = (git(root, "show", revision + ":" + pin) for revision in (parent, head))
+    match = re.search(r'^  image: "ghcr[.]io/qualityminds/magicstick-regression:sha-' + source +
+                      r'@(sha256:[a-f0-9]{64})"$', after, re.M)
+    if not match or regression_promotion.replacement(before, source, match[1]).strip() != after:
+        return False
+    try:
+        expected, actual = (json.loads(git(root, "show", revision + ":" + inventory))
+                            for revision in (parent, head))
+        references = expected["deploymentReferences"]
+        entries = [item for item in references if item["file"] == pin]
+        old_line = next(line.strip() for line in before.splitlines() if line.startswith("  image:"))
+        if len(entries) != 1 or entries[0]["reference"] != old_line:
+            return False
+        entries[0]["reference"] = match[0].strip()
+        expected["deploymentReferencesSha256"] = license_audit.references_checksum(references)
+        # Package metadata, legal reviews and all unrelated references must stay
+        # byte-for-value unchanged. Source checks run again before publication.
+        return expected == actual
+    except (KeyError, TypeError, ValueError, StopIteration):
+        return False
+
+
+def verify_channel_checks(root, branch, source, head):
+    revision, runner_proof = head, False
+    for _ in range(32):
+        if revision == source:
+            break
+        parents = git(root, "rev-list", "--parents", "-n", "1", revision).split()
+        if len(parents) != 2 or not runner_pin_only(root, parents[1], revision, source):
+            break
+        query = urllib.parse.urlencode({"head_sha": revision, "branch": branch, "event": "push", "per_page": 100})
+        payload = github(f"repos/{REPOSITORY}/actions/workflows/{CHECKS[0]}/runs?{query}")
+        # Never inherit over a real failed, queued or successful run. Only the
+        # absent push run of a content-proven generated delta may use its parent.
+        if check_state(payload, branch, revision, missing="absent") != "absent":
+            break
+        runner_proof, revision = True, parents[1]
+    else:
+        raise PromotionError("Too many generated promotion advances; review the current channel.")
+    if runner_proof:
+        print("Verified runner-pin-only advance; checking its exact-source runner CI and prior source CI.", file=sys.stderr)
+        wait_for_checks(branch, source, checks=("regression-runner.yml",))
+    if revision != source:
+        wait_for_checks(branch, revision, checks=(CHECKS[0],))
 
 
 def rewrite_pins(root, source, digests):
@@ -269,10 +354,38 @@ def publish(root, branch, source, digests, head):
     git(root, "-c", "user.name=github-actions[bot]", "-c",
         "user.email=41898282+github-actions[bot]@users.noreply.github.com", "commit", "-m",
         "chore(images): promote dashboard " + source[:12] + " on " + branch)
-    # A normal fast-forward push is the final atomic race guard. Never force,
-    # rebase over a human edit, change branch protection or fall back to a PAT.
-    git(root, "push", "origin", "HEAD:refs/heads/" + branch)
-    return git(root, "rev-parse", "HEAD")
+    commit = git(root, "rev-parse", "HEAD")
+    # The push is still the atomic guard. A retry starts from a fresh reviewed
+    # head and regenerates the inventory; it never rebases or force-pushes.
+    try:
+        git(root, "push", "origin", "HEAD:refs/heads/" + branch)
+    except GitError:
+        latest = channel_head(root, branch)
+        if is_ancestor(root, commit, latest):
+            return commit  # The server accepted it but its response was lost.
+        if latest == head:
+            raise  # Permissions/network/protection failure, not a branch race.
+        if not is_ancestor(root, head, latest):
+            raise PromotionError("Channel history changed; no promotion retry or overwrite is allowed.") from None
+        raise ChannelMoved("Channel advanced during the push; a fresh verified attempt is required.") from None
+    return commit
+
+
+def promote(root, branch, source, digests, check_only=False):
+    wait_for_checks(branch, source)
+    verify_images(source, digests)
+    for attempt in range(3):
+        head = candidate_head(root, branch, source)
+        verify_channel_checks(root, branch, source, head)
+        if check_only:
+            return None
+        try:
+            return publish(root, branch, source, digests, head)
+        except ChannelMoved:
+            if attempt == 2:
+                raise PromotionError("Channel advanced repeatedly; promotion was not force-pushed.") from None
+            print("Channel advanced; rechecking its source and CI before promotion attempt " + str(attempt + 2) + "/3.",
+                  file=sys.stderr)
 
 
 def main(argv=None):
@@ -288,17 +401,10 @@ def main(argv=None):
     digests = {component: getattr(args, component + "_digest") for component in FILES}
     try:
         validate(args.branch, args.source, digests)
-        wait_for_checks(args.branch, args.source)
-        verify_images(args.source, digests)
-        head = candidate_head(ROOT, args.branch, args.source)
-        if head != args.source:
-            # Host/ConfigMap/docs-only advances need their own source checks,
-            # while the unchanged image build retains its exact browser proof.
-            wait_for_checks(args.branch, head, checks=(CHECKS[0],))
+        commit = promote(ROOT, args.branch, args.source, digests, check_only=args.check_only)
         if args.check_only:
             print("CI, both Linux architectures and image/source provenance verified. No files were edited or pushed.")
             return 0
-        commit = publish(ROOT, args.branch, args.source, digests, head)
         if commit:
             print("Promoted " + args.source + " to " + args.branch + " at " + commit + ". Appliance convergence is separate.")
         return 0
