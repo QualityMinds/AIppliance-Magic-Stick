@@ -27,7 +27,7 @@ test('HAR-01 [p0:verified-login] verified endpoints and real administrator login
     await verifiedEndpoint(url, config.requestTimeoutMs, ca);
   }
   observer = new KubectlObserver(config.observerKubeconfig, config.requestTimeoutMs);
-  context = await realLogin(browser, config);
+  context = await realLogin(browser, config, {httpsPurpose: 'certificate'});
 });
 
 test('HAR-02 [p0:pinned-baseline] [layer:A] independent lab identity, capabilities and requested deployment pins', async () => {

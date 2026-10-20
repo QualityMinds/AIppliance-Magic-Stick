@@ -3,14 +3,187 @@ import type {ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
 import {validCompanionReport} from './companion-live.ts';
-import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules} from './security-live.ts';
+import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
+import {AdministrationApi,allowedAdministrationRead} from '../core/administration-api.ts';
+import type {APIRequestContext} from '@playwright/test';
+import {atStage} from '../core/errors.ts';
 import {inspectOidcConfig} from '../core/oidc-exec.ts';
-import {verifyAppCleanerRules} from '../core/owned-app.ts';
+import {verifyAppCleanerRules,OwnedAppClient,appReleaseTarget,appReleaseReady} from '../core/owned-app.ts';
+import type {AppInstance} from '@magicstick/dashboard-contracts';
+import type {KubeObject} from '../core/observer.ts';
+import {moduleProfileWorkflow} from './modules-live.ts';
+import type {LiveFoundation} from '../core/live-foundation.ts';
 import {validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
+import {licenseUiPermits} from './license-live.ts';
+import {allowedExactDashboardRequest} from '../core/auth.ts';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import type {MemoryEstimate,ModelsPayload,ModulesPayload} from '@magicstick/dashboard-contracts';
+import {applicationModel,applicationContexts,applicationEditContext} from '../core/application-model.ts';
+import {catalogFixture} from '../core/input-preparation.ts';
+import {HarnessError} from '../core/errors.ts';
+import {OwnedModelClient} from '../core/owned-model.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+
+function applicationInputs() {
+  const models={activations:[],presets:{small:{variants:[
+    {engine:'OLlama',computeTarget:'cpu',url:'ollama://tiny:latest',memoryRequiredMi:2048,contextWindow:2048},
+    {engine:'OLlama',computeTarget:'cpu',url:'ollama://long-context:latest',memoryRequiredMi:3072,contextWindow:32768},
+  ]}},computeTargets:{targets:[{id:'cpu',available:true,engines:['OLlama'],kvCacheTypes:{OLlama:[{value:'f16',label:'FP16'}]}}]},
+    computeMemory:{devices:[{id:'cpu',computeTarget:'cpu',unreservedMi:64000,freeMi:48000}]}} as unknown as ModelsPayload;
+  const modules={modules:{},catalogJson:{applications:{hermes:{minimumModelContextTokens:64000},openclaw:{}}}} as ModulesPayload;
+  return {models,modules};
+}
+test('APP-02 selects a small application-specific model using native context and the larger edit RAM estimate',annotation,async()=>{
+  const {models,modules}=applicationInputs(),original=structuredClone(models),requests:Array<{url:string;contextWindow:number}>=[];
+  const fixture=await applicationModel(models,modules,['hermes','openclaw'],async model=>{
+    requests.push({url:model.url,contextWindow:model.contextWindow});
+    return {modelMaxContext:model.url.includes('tiny')?32768:262144,contextWindow:model.contextWindow,
+      minimumMi:3400,recommendedMi:3601};
+  });
+  expect(fixture).toMatchObject({url:'ollama://long-context:latest',contextWindow:64256,memoryRequiredMi:3700,maxNumSeqs:1});
+  expect(requests).toEqual([{url:'ollama://tiny:latest',contextWindow:2048},
+    {url:'ollama://long-context:latest',contextWindow:2048},{url:'ollama://long-context:latest',contextWindow:64256}]);
+  expect(models).toEqual(original);
+  expect(catalogFixture(models,'OLlama','cpu')).toMatchObject({url:'ollama://tiny:latest',contextWindow:2048,memoryRequiredMi:2048});
+  expect(applicationEditContext(modules,['hermes','openclaw'],fixture.contextWindow)).toBe(64000);
+  expect(applicationEditContext(modules,['hermes','openclaw'],64000)).toBe(64256);
+  expect(()=>applicationEditContext(modules,['hermes'],256)).toThrow('[CONFLICT]');
+});
+test('APP-02 missing native context or RAM blocks before creating resources; API and inconsistent estimates fail',annotation,async()=>{
+  const {models,modules}=applicationInputs();
+  for(const modelMaxContext of [undefined,32768,64000])await expect(applicationModel(models,modules,['hermes'],async model=>
+    ({modelMaxContext,contextWindow:model.contextWindow,minimumMi:2000,recommendedMi:3000})))
+    .rejects.toMatchObject({code:'APPLICATION_MODEL',outcome:'Blocked',stage:'model-estimate'});
+  const estimate=async(model:{contextWindow:number}):Promise<MemoryEstimate>=>
+    ({modelMaxContext:262144,contextWindow:model.contextWindow,minimumMi:40000,recommendedMi:50000});
+  await expect(applicationModel(models,modules,['hermes'],estimate)).rejects.toMatchObject({code:'APPLICATION_MODEL',outcome:'Blocked'});
+  await expect(applicationModel(models,modules,['hermes'],async()=>{throw new HarnessError('API');}))
+    .rejects.toMatchObject({code:'API',outcome:'Failed',stage:'model-estimate'});
+  await expect(applicationModel(models,modules,['hermes'],async()=>({modelMaxContext:262144,contextWindow:2048,minimumMi:1,recommendedMi:2})))
+    .rejects.toMatchObject({code:'API',outcome:'Failed'});
+  expect(()=>applicationContexts(modules,['missing'])).toThrow('[PREREQUISITE]');
+});
+test('APP-09 context edits stay within the individually sized application fixture and retain UID/revision fencing',annotation,async()=>{
+  const prefix='reg-aabbccddeeff-',name=prefix+'app-model',uid='model-uid';let writes=0;
+  const current={metadata:{name,uid,generation:1},spec:{type:'local',enabled:true,local:{contextWindow:64256}}} as import('@magicstick/dashboard-contracts').ModelActivation;
+  const request={fetch:async(_url:string,options:{data:string})=>{
+    writes++;const body=JSON.parse(options.data);
+    expect(body.expectedRevision).toBe('generation:model-uid:1');
+    return {status:()=>200,headers:()=>({'content-type':'application/json'}),body:async()=>Buffer.from(JSON.stringify(
+      {...current,metadata:{...current.metadata,generation:2},spec:{...current.spec,local:{contextWindow:body.local.contextWindow}}}))};
+  }} as unknown as APIRequestContext;
+  const fixture={engine:'OLlama' as const,computeTarget:'cpu' as const,url:'ollama://long-context:latest',contextWindow:64256,memoryRequiredMi:4000,maxNumSeqs:1 as const};
+  const client=new OwnedModelClient(request,'https://dashboard.example.invalid',1000,name,fixture,prefix,async()=>{});client.adopt(uid);
+  expect(await client.editContext(current,64000)).toEqual({uid,generation:2});
+  for(const context of [64257,262144,Number.NaN])await expect(client.editContext(current,context)).rejects.toMatchObject({code:'MUTATION'});
+  await expect(client.editContext({...current,metadata:{...current.metadata,uid:'foreign'}},64000)).rejects.toMatchObject({code:'OWNERSHIP'});
+  const smoke=new OwnedModelClient(request,'https://dashboard.example.invalid',1000,name,{...fixture,contextWindow:2048},prefix,async()=>{});smoke.adopt(uid);
+  await expect(smoke.editContext(current,64000)).rejects.toMatchObject({code:'MUTATION'});
+  expect(writes).toBe(1);
+});
+test('APP-02 observes the current controller-owned HelmRelease in the Appliance namespace, never its workload namespace',annotation,async()=>{
+  const item:AppInstance={metadata:{name:'hermes-fixture',uid:'instance-uid',generation:3},
+    spec:{application:'hermes',enabled:true,targetNamespace:'ai'},status:{phase:'Ready',observedGeneration:3,
+      kind:'HelmRelease',name:'hermes-fixture',namespace:'ai-system'}};
+  const observed=item as KubeObject,owned={uid:'instance-uid',generation:3};
+  const child:KubeObject={metadata:{name:'hermes-fixture',namespace:'ai-system',uid:'release-uid',generation:7,
+    labels:{'app.kubernetes.io/managed-by':'magicstick-operator','appliance.magicstick.dev/appinstance':'hermes-fixture',
+      'appliance.magicstick.dev/application':'hermes'}},spec:{targetNamespace:'ai',suspend:false},
+    status:{observedGeneration:7,conditions:[{type:'Ready',status:'True',observedGeneration:7}]}};
+  const namespaces:string[]=[],apps=Object.create(OwnedAppClient.prototype) as OwnedAppClient;
+  Object.defineProperties(apps,{owned:{value:new Map([['hermes-fixture',owned]])},read:{value:async()=>item},
+    cleaner:{value:{find:async()=>observed}},live:{value:{guard:async()=>{},config:{expected:{applianceNamespace:'ai-system'}},
+      observer:{list:async(_resource:string,namespace:string)=>{namespaces.push(namespace);return namespace==='ai-system'?[child]:[];}}}}});
+  const ready=await apps.ready('hermes-fixture');
+  expect(namespaces).toEqual(['ai-system']);expect(ready.target).toEqual({name:'hermes-fixture',namespace:'ai-system'});
+  expect(appReleaseReady(item,observed,[child],owned,'ai-system')).toBe(true);
+  for(const patch of [{namespace:'ai'},{name:'another-release'},{kind:'Deployment'}])
+    expect(()=>appReleaseTarget({...item,status:{...item.status,...patch}},'hermes-fixture','ai-system')).toThrow('[OWNERSHIP]');
+  expect(appReleaseTarget({...item,status:undefined},'hermes-fixture','ai-system').namespace).toBe('ai-system');
+  for(const invalid of [{...item,metadata:{...item.metadata,uid:'foreign'}},{...item,metadata:{...item.metadata,generation:4}}])
+    expect(()=>appReleaseReady(invalid,observed,[child],owned,'ai-system')).toThrow('[OWNERSHIP]');
+  expect(appReleaseReady({...item,status:{...item.status,observedGeneration:2}},observed,[child],owned,'ai-system')).toBe(false);
+  for(const change of [
+    {...child,metadata:{...child.metadata,namespace:'ai'}},
+    {...child,metadata:{...child.metadata,labels:{...child.metadata.labels,'app.kubernetes.io/managed-by':'foreign'}}},
+    {...child,metadata:{...child.metadata,labels:{...child.metadata.labels,'appliance.magicstick.dev/application':'openclaw'}}},
+    {...child,status:{...child.status,observedGeneration:6,conditions:[{type:'Ready',status:'True',observedGeneration:6}]}},
+    {...child,spec:{...child.spec,suspend:true}},
+  ])expect(appReleaseReady(item,observed,[change],owned,'ai-system')).toBe(false);
+  expect(()=>appReleaseReady({...item,status:{...item.status,phase:'Degraded'}},observed,[child],owned,'ai-system'))
+    .toThrow('[stage:app-ready]');
+});
+
+test('MOD-06 absent AMD hardware blocks profile mutation before reading its module or a stale preparation file',annotation,async()=>{
+  await expect(moduleProfileWorkflow({config:{gpu:{devices:{nvidia:{id:'node/pci'}}}}} as unknown as LiveFoundation))
+    .rejects.toMatchObject({code:'GPU_PROVIDER',outcome:'Blocked',stage:'gpu-backend'});
+});
+test('HAR-10 license UI protection allows bodyless polling but rejects unrelated and stale writes',annotation,()=>{
+  const document='synthetic-license',revision='synthetic-revision',origin='https://dashboard.example.local';
+  const allowed=(method:string,path:string,body:unknown,activate=true)=>Boolean(allowedExactDashboardRequest(new URL(origin+path),method,body,origin,licenseUiPermits(document,revision,activate)));
+  expect(allowedAdministrationRead(new URL(origin+'/api/license'),origin)).toBe(true);
+  expect(allowed('POST','/api/license/validate',{document})).toBe(true);
+  expect(allowed('PUT','/api/license',{document,expectedRevision:revision})).toBe(true);
+  expect(allowed('PUT','/api/license',{document,expectedRevision:revision},false)).toBe(false);
+  for(const [method,path,body] of [['PUT','/api/license',null],['POST','/api/license',{document}],
+    ['PUT','/api/license',{document:'other',expectedRevision:revision}],['PUT','/api/license',{document,expectedRevision:'old'}],
+    ['PUT','/api/license',{document,expectedRevision:revision,unexpected:true}],
+    ['DELETE','/api/license',null],['POST','/api/license/validate',[]]] as const)
+    expect(allowed(method,path,body)).toBe(false);
+});
+test('HAR-10 administration reads ignore flattened session cookies and retain HTTP failures',annotation,async()=>{
+  let status=200;
+  const request={fetch:async()=>({status:()=>status,headers:()=>({'content-type':'application/json',
+    'set-cookie':'synthetic-session=one; HttpOnly\nsynthetic-session=two; HttpOnly'}),
+    body:async()=>Buffer.from(JSON.stringify(status===200?{modules:{},catalogJson:{modules:{}}}:{error:'denied'}))})} as unknown as APIRequestContext;
+  const api=new AdministrationApi(request,'https://dashboard.example.invalid',1000,async()=>{});
+  expect((await api.api.modules()).modules).toEqual({});
+  status=403;
+  await expect(atStage('baseline-models',()=>api.api.modules())).rejects.toThrow('[stage:baseline-models]');
+  await expect(api.write({method:'POST',path:'/api/modules/fixture/enable',body:{}},()=>api.api.enableModule('fixture')))
+    .rejects.toMatchObject({status:403});
+});
+test('HAR-10 a durable forward receipt runs only after the guard and before the exact API write',annotation,async()=>{
+  for(const fault of ['none','guard','receipt'] as const) {
+    const events:string[]=[];
+    const request={fetch:async()=>{events.push('send');return {status:()=>200,headers:()=>({'content-type':'application/json'}),body:async()=>Buffer.from('{}')};}} as unknown as APIRequestContext;
+    const api=new AdministrationApi(request,'https://dashboard.example.invalid',1000,async()=>{events.push('guard');if(fault==='guard')throw new HarnessError('LOCK_LOST');});
+    const action=api.write({method:'PUT',path:'/api/license',body:{document:'synthetic',expectedRevision:'1'}},()=>api.api.importLicense('synthetic','1'),
+      async()=>{events.push('receipt');if(fault==='receipt')throw new HarnessError('PRIVATE_FILE');});
+    if(fault==='none'){await action;expect(events).toEqual(['guard','receipt','send']);}
+    else{await expect(action).rejects.toBeInstanceOf(HarnessError);expect(events).toEqual(fault==='guard'?['guard']:['guard','receipt']);}
+  }
+});
+
+test('SEC-04 shipped permissions include recursively referenced regression and log roles, not an obsolete file list',annotation,async()=>{
+  const rbac=await shippedDashboardRbac();
+  const roles=rbac.filter(item=>item.kind==='Role');
+  expect(roles.some(item=>item.metadata.name==='dashboard-regression-intent' && item.metadata.namespace==='ai-system' &&
+    item.rules?.some(r=>r.resources?.includes('regressionruns')))).toBe(true);
+  expect(roles.some(item=>item.metadata.name==='dashboard-model-log-ownership'&&item.metadata.namespace==='ai'&&
+    item.rules?.some(r=>r.apiGroups?.some(group=>group==='kubeai.org')&&r.resources?.includes('models')))).toBe(true);
+  const expected=normalizeRules(roles[0]!.rules!);
+  expect(normalizeRules([...roles[0]!.rules!,{apiGroups:[''],resources:['secrets'],verbs:['get']}])).not.toEqual(expected);
+  const enabled=await shippedDashboardRbac(undefined,{modules:{regression:{enabled:true}},catalogJson:{modules:{
+    regression:{path:'magic-cluster/apps/regression'}}}});
+  const disabled=await shippedDashboardRbac(undefined,{modules:{regression:{enabled:false}},catalogJson:{modules:{
+    regression:{path:'magic-cluster/apps/regression'}}}});
+  expect(enabled.filter(item=>item.kind==='RoleBinding').length).toBe(rbac.filter(item=>item.kind==='RoleBinding').length+1);
+  expect(enabled.some(item=>item.kind==='Role' && item.metadata.name==='dashboard-regression-credentials' &&
+    item.metadata.namespace==='magicstick-regression')).toBe(true);
+  expect(disabled).toEqual(rbac);
+  const source=await readFile(resolve('../../..','magic-cluster/platform/magicstick-operator/module-catalog.yaml'),'utf8');
+  const catalog=JSON.parse(execFileSync('python3',['-c',
+    'import sys,yaml; print(yaml.safe_load(sys.stdin.read())["data"]["modules.json"])'],{input:source,encoding:'utf8',timeout:5000}));
+  const every=await shippedDashboardRbac(undefined,{catalogJson:catalog,modules:Object.fromEntries(
+    Object.keys(catalog.modules).map(id=>[id,{enabled:true}]))});
+  expect(every.filter(item=>item.kind==='RoleBinding').length).toBeGreaterThanOrEqual(enabled.filter(item=>item.kind==='RoleBinding').length);
+});
 test('HAR-10 app context proof rejects partial/stale/malformed generated consumer configurations',annotation,()=>{
   const name='reg-fixture',context=512;
   const data={

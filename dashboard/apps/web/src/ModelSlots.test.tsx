@@ -25,7 +25,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.popularModels).mockResolvedValue({provider: 'huggingface', results: [], total: 0});
   vi.mocked(api.estimateMemory).mockResolvedValue({minimumMi: 5000, recommendedMi: 6000, maximumMi: 100000,
-    weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'estimated'});
+    weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'estimated', detectedModelType: 'chat'});
 });
 
 describe('model slot selection', () => {
@@ -50,7 +50,7 @@ describe('model slot selection', () => {
     expect(await screen.findByText(/No free GPU model slots\./)).toBeVisible();
     expect(submit).toBeDisabled();
     fireEvent.submit(submit.closest('form')!);
-    await waitFor(() => expect(screen.getAllByText(/No free GPU model slots\./)).toHaveLength(2));
+    expect(screen.getAllByText(/No free GPU model slots\./)).toHaveLength(1);
     expect(api.createLocalModel).not.toHaveBeenCalled();
     await act(async () => {client.setQueryData(['models'], payload(1));});
     await waitFor(() => expect(submit).toBeEnabled());

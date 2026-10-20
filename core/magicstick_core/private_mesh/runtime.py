@@ -190,31 +190,9 @@ class LocalInventory:
         with request.urlopen(request.Request(url, headers={"Authorization": "Bearer " + token}), context=ssl.create_default_context(cafile=ca), timeout=5) as result:
             return json.load(result).get("items", [])
 
-    @staticmethod
-    def _freetoken_endpoint(activation):
-        # Match the existing catalog contract: the operator's versioned local
-        # Service endpoint, not an external provider or a route imported by Mesh.
-        namespace = (activation.get("spec") or {}).get("targetNamespace") or "ai"
-        endpoint = str((activation.get("status") or {}).get("runtimeEndpoint") or "").strip().rstrip("/")
-        if not isinstance(namespace, str) or not NAME.fullmatch(namespace):
-            return None
-        try:
-            parsed = urlsplit(endpoint)
-            suffix = f".{namespace}.svc.cluster.local"
-            host = parsed.hostname or ""
-            if (parsed.scheme not in {"http", "https"} or parsed.username or parsed.password
-                    or parsed.query or parsed.fragment or parsed.path != "/v1"
-                    or not host.endswith(suffix) or not NAME.fullmatch(host[:-len(suffix)])
-                    or parsed.port == 0):
-                return None
-        except ValueError:
-            return None
-        return endpoint
-
     def refresh(self):
         try:
             models = self.read(self.MODEL_PATH)
-            activations = self.read(self.ACTIVATION_PATH)
             items = {}
             for model in models:
                 meta, spec, status = model.get("metadata") or {}, model.get("spec") or {}, model.get("status") or {}
@@ -225,26 +203,6 @@ class LocalInventory:
                     continue
                 items[meta["name"]] = {"uid": meta.get("uid"), "ready": (status.get("replicas") or {}).get("ready", 0) > 0,
                                        "source": "kubeai", "engine": engine}
-            for activation in activations:
-                meta, spec, status = activation.get("metadata") or {}, activation.get("spec") or {}, activation.get("status") or {}
-                local = spec.get("local") or {}
-                engine = str(local.get("engine", "")).upper()
-                if (spec.get("type") != "local" or spec.get("enabled", True) is False
-                        or meta.get("deletionTimestamp") or not meta.get("name") or not meta.get("uid")
-                        or engine not in LOCAL_ENGINES["freetoken"]
-                        or local.get("modelType", "chat") != "chat"):
-                    continue
-                endpoint = self._freetoken_endpoint(activation)
-                if not endpoint:
-                    continue
-                name = meta["name"]
-                if name in items:
-                    # Do not guess which backend owns an ambiguous local alias.
-                    del items[name]
-                    continue
-                items[name] = {"uid": meta["uid"], "source": "freetoken", "engine": engine,
-                               "ready": str(status.get("phase", "")).lower() == "ready",
-                               "apiBase": endpoint}
             self.items, self.available = items, True
         except (OSError, ValueError, TypeError, AttributeError):
             # Fail closed on loss of backend provenance instead of keeping an

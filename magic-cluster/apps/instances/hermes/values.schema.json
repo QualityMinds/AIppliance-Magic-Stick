@@ -12,7 +12,16 @@
         "application": {"type": "string", "minLength": 1},
         "localHost": {"type": "string", "minLength": 1},
         "localName": {"type": "string", "minLength": 1},
-        "values": {"type": "object"}
+        "values": {
+          "type": "object",
+          "properties": {
+            "modelContextTokens": {"type": "integer", "minimum": 1},
+            "modelCapabilities": {
+              "type": "object", "additionalProperties": false,
+              "properties": {"tools": {"type": "boolean"}, "vision": {"type": "boolean"}, "reasoning": {"type": "boolean"}}
+            }
+          }
+        }
       }
     }
   }

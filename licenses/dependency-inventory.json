@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "e0f336826094fc1e3c75d666eb37076eb73e1b4e4c724e03bc8dace4812da0b5",
+  "deploymentReferencesSha256": "5ed5773852594b3c955b4bf4061dc9cc277c6d8ab4ba2fbf2e6dc160187b967d",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1877,20 +1877,6 @@
   ],
   "python": [
     {
-      "name": "ansible-core",
-      "version": "2.21.4",
-      "declaredLicense": "GPL-3.0-or-later",
-      "licenseFiles": [
-        "COPYING",
-        "licenses/Apache-License.txt",
-        "licenses/BSD-3-Clause.txt",
-        "licenses/MIT-license.txt",
-        "licenses/PSF-license.txt",
-        "licenses/simplified_bsd.txt"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
       "name": "cffi",
       "version": "2.1.1",
       "declaredLicense": "MIT-0",
@@ -1911,37 +1897,8 @@
       "scope": "audit-environment; product requirements must be checked separately"
     },
     {
-      "name": "Jinja2",
-      "version": "3.1.6",
-      "declaredLicense": null,
-      "licenseFiles": [
-        "LICENSE.txt"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
-      "name": "MarkupSafe",
-      "version": "3.0.3",
-      "declaredLicense": "BSD-3-Clause",
-      "licenseFiles": [
-        "LICENSE.txt"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
-      "name": "packaging",
-      "version": "26.3",
-      "declaredLicense": "Apache-2.0 OR BSD-2-Clause",
-      "licenseFiles": [
-        "LICENSE",
-        "LICENSE.APACHE",
-        "LICENSE.BSD"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
       "name": "pycparser",
-      "version": "3.0",
+      "version": "3.11",
       "declaredLicense": "BSD-3-Clause",
       "licenseFiles": [
         "LICENSE"
@@ -1950,7 +1907,7 @@
     },
     {
       "name": "PyJWT",
-      "version": "2.13.0",
+      "version": "2.15.0",
       "declaredLicense": "MIT",
       "licenseFiles": [
         "LICENSE",
@@ -1960,17 +1917,8 @@
     },
     {
       "name": "PyYAML",
-      "version": "6.0.2",
+      "version": "6.0.3",
       "declaredLicense": "MIT",
-      "licenseFiles": [
-        "LICENSE"
-      ],
-      "scope": "audit-environment; product requirements must be checked separately"
-    },
-    {
-      "name": "resolvelib",
-      "version": "1.2.1",
-      "declaredLicense": "ISC License",
       "licenseFiles": [
         "LICENSE"
       ],
@@ -2005,48 +1953,33 @@
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 65,
+      "line": 67,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 69,
+      "line": 71,
       "reference": "python3 -m pip install pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 116,
+      "line": 118,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 148,
+      "line": 150,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 164,
+      "line": 166,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 180,
+      "line": 182,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
-    },
-    {
-      "file": ".github/workflows/build-freetoken-image.yml",
-      "line": 76,
-      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
-    },
-    {
-      "file": ".github/workflows/build-freetoken-image.yml",
-      "line": 103,
-      "reference": "subject-version: v${{ env.FREETOKEN_VERSION }}"
-    },
-    {
-      "file": ".github/workflows/build-freetoken-image.yml",
-      "line": 112,
-      "reference": "echo \"- FreeToken version: \\`v${FREETOKEN_VERSION}\\`\""
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
@@ -2095,32 +2028,32 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 117,
+      "line": 128,
       "reference": "OPENSSL_STATIC=1 python -m pip install --no-cache-dir -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 133,
+      "line": 144,
       "reference": "Invoke-WebRequest -Uri \"https://github.com/protocolbuffers/protobuf/releases/download/v${env:PROTOC_VERSION}/protoc-${env:PROTOC_VERSION}-${env:PROTOC_PLATFORM}.zip\" -OutFile $zip"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 139,
+      "line": 150,
       "reference": "& python -m pip install -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 156,
+      "line": 167,
       "reference": "git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git \"$RUNNER_TEMP/mesh-source\""
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 177,
+      "line": 188,
       "reference": "& git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git $source"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 253,
+      "line": 264,
       "reference": "with: {python-version: '3.13'}"
     },
     {
@@ -2159,24 +2092,29 @@
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
-      "file": ".github/workflows/build-paperclip-operator-image.yml",
-      "line": 40,
-      "reference": "repository: paperclipinc/paperclip-operator"
-    },
-    {
-      "file": ".github/workflows/build-paperclip-operator-image.yml",
-      "line": 87,
-      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 191,
+      "reference": "subject-digest: ${{ steps.publish.outputs.digest }}"
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 61,
+      "line": 65,
       "reference": "node-version: '24'"
     },
     {
       "file": ".github/workflows/dependency-security.yml",
-      "line": 43,
+      "line": 47,
       "reference": "node-version: '24'"
+    },
+    {
+      "file": ".github/workflows/dependency-security.yml",
+      "line": 72,
+      "reference": "python-version: '3.13'"
+    },
+    {
+      "file": ".github/workflows/dependency-security.yml",
+      "line": 74,
+      "reference": "run: python -m pip install pip-audit==2.10.1"
     },
     {
       "file": ".github/workflows/docs-checks.yml",
@@ -2250,12 +2188,7 @@
     },
     {
       "file": ".github/workflows/license-audit.yml",
-      "line": 103,
-      "reference": "- {id: freetoken, repository: FlashML-org/FreeToken, revision: cac247a860e316e06580d05aeb05f2e647bde214}"
-    },
-    {
-      "file": ".github/workflows/license-audit.yml",
-      "line": 110,
+      "line": 109,
       "reference": "repository: ${{ matrix.repository }}"
     },
     {
@@ -2269,11 +2202,6 @@
       "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
-      "file": ".github/workflows/promote-freetoken-runtime.yml",
-      "line": 90,
-      "reference": "-e \"s|^  image: .*|  image: ${IMAGE_NAME}@${FREETOKEN_DIGEST}|\" \\"
-    },
-    {
       "file": ".github/workflows/public-release-checks.yml",
       "line": 28,
       "reference": "node-version: \"24\""
@@ -2285,18 +2213,33 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 37,
+      "line": 38,
+      "reference": "version: v2.9.2"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 42,
       "reference": "python3 -m pip install --user ansible-core"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 41,
+      "line": 46,
       "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 96,
+      "line": 101,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
+    },
+    {
+      "file": ".github/workflows/regression-runner.yml",
+      "line": 38,
+      "reference": "regression-image:"
+    },
+    {
+      "file": ".github/workflows/regression-runner.yml",
+      "line": 128,
+      "reference": "export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader"
     },
     {
       "file": ".github/workflows/release-draft.yml",
@@ -2314,14 +2257,29 @@
       "reference": "python-version: '3.13'"
     },
     {
+      "file": ".github/workflows/vllm-runtime-contracts.yml",
+      "line": 36,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/vllm-runtime-contracts.yml",
+      "line": 39,
+      "reference": "python3 -m pip install pyyaml==6.0.3"
+    },
+    {
       "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
-      "line": 27,
+      "line": 30,
       "reference": "image: busybox:1.36"
     },
     {
       "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
-      "line": 49,
-      "reference": "image: mintplexlabs/anythingllm:1.12.1"
+      "line": 51,
+      "reference": "image: mintplexlabs/anythingllm:1.17.0@sha256:f26f30df46916b6e953e3a47ca98f48817726e3df635e62d4bfdd133292ecfff"
+    },
+    {
+      "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
+      "line": 67,
+      "reference": "image: mintplexlabs/anythingllm:1.17.0@sha256:f26f30df46916b6e953e3a47ca98f48817726e3df635e62d4bfdd133292ecfff"
     },
     {
       "file": "magic-cluster/apps/ai/anything-llm/qdrant/base/deployment.yaml",
@@ -2341,7 +2299,32 @@
     {
       "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.1.6\""
+      "reference": "version: \"0.1.9\""
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 24,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 25,
+      "reference": "tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 28,
+      "reference": "image: ghcr.io/kubeopencode/kubeopencode:v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 32,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 33,
+      "reference": "tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
     },
     {
       "file": "magic-cluster/apps/ai/litellm/base/deployment.yaml",
@@ -2431,7 +2414,7 @@
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
       "line": 19,
-      "reference": "image: vllm/vllm-openai-cpu:v0.23.0"
+      "reference": "image: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9"
     },
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
@@ -2456,7 +2439,7 @@
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
       "line": 66,
-      "reference": "image: vllm/vllm-openai-cpu:v0.23.0"
+      "reference": "image: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9"
     },
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
@@ -2476,7 +2459,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-0e8a62a92a605e443b2606fd8201b864198a3134@sha256:2fda04720facc22e73c4dd6754958f65fcf85163f8201c82b13332b8b29e1939"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-978cb7a071959c83df84a2df8d9f3968e0db02d3@sha256:e9d4ceaf661968403005790e6d423bf632fcdac6385297c3487ee0d8c2889b76"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2485,18 +2468,23 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6813,
+      "line": 6708,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6850,
+      "line": 6745,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-0e8a62a92a605e443b2606fd8201b864198a3134@sha256:d5c628e9f97dce97e25a1451d59dfe548e5c1ca60f77504c0866f9069b296c7c"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-978cb7a071959c83df84a2df8d9f3968e0db02d3@sha256:6b2b2fb253cb02d75a77bf4717436cf83a0a090914660be2943af8d8ecc62091"
+    },
+    {
+      "file": "magic-cluster/apps/dashboard/test_regression_api.py",
+      "line": 364,
+      "reference": "self.objects[CORE + \"/configmaps/magicstick-regression-runtime\"][\"data\"][\"image\"] = \"image:latest\""
     },
     {
       "file": "magic-cluster/apps/instances/hermes/Chart.yaml",
@@ -2505,23 +2493,48 @@
     },
     {
       "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
-      "line": 17,
+      "line": 41,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
-      "line": 18,
-      "reference": "repository: {{ dig \"image\" \"repository\" \"ghcr.io/paperclipinc/hermes-agent\" $values | quote }}"
+      "line": 42,
+      "reference": "repository: {{ $repository | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
-      "line": 19,
-      "reference": "tag: {{ dig \"image\" \"tag\" \"v0.16.0\" $values | quote }}"
+      "line": 43,
+      "reference": "tag: {{ $tag | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
+      "line": 45,
+      "reference": "digest: {{ $digest | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
+      "line": 105,
+      "reference": "image: {{ $image | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/kubeopencode/Chart.yaml",
       "line": 5,
       "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/kubeopencode/templates/resources.yaml",
+      "line": 17,
+      "reference": "agentImage: ghcr.io/kubeopencode/kubeopencode-agent-opencode@sha256:0df226ff164a24b40b2694ad9aa6653529d772574c141783735be9cf43e27f12"
+    },
+    {
+      "file": "magic-cluster/apps/instances/kubeopencode/templates/resources.yaml",
+      "line": 18,
+      "reference": "executorImage: ghcr.io/kubeopencode/kubeopencode-agent-devbox@sha256:4408922985ec220a10926af35d7a501cb1f33514a661b3564dc05c48534391d4"
+    },
+    {
+      "file": "magic-cluster/apps/instances/kubeopencode/templates/resources.yaml",
+      "line": 19,
+      "reference": "attachImage: ghcr.io/kubeopencode/kubeopencode-agent-attach@sha256:1e6e6acc70ba5774975ef61c20e15c9b5c84138bffc542044e59a75a55846cc6"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/Chart.yaml",
@@ -2545,27 +2558,27 @@
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 139,
+      "line": 140,
       "reference": "image: {{ printf \"%s@%s\" $images.chroma.repository $images.chroma.digest | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 141,
+      "line": 142,
       "reference": "image: docker.io/searxng/searxng:2026.5.31-7159b8aed"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 143,
+      "line": 144,
       "reference": "image: {{ printf \"%s@%s\" $images.ntfy.repository $images.ntfy.digest | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 205,
+      "line": 207,
       "reference": "image: {{ $appImage | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 244,
+      "line": 246,
       "reference": "image: {{ $appImage | quote }}"
     },
     {
@@ -2574,39 +2587,94 @@
       "reference": "version: 0.1.0"
     },
     {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 19,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 20,
+      "reference": "repository: ghcr.io/openclaw/openclaw"
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 21,
+      "reference": "tag: \"2026.9.8\""
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 22,
+      "reference": "digest: sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8"
+    },
+    {
       "file": "magic-cluster/apps/instances/paperclip/Chart.yaml",
       "line": 5,
       "reference": "version: 0.1.0"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 21,
+      "line": 38,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 22,
+      "line": 39,
       "reference": "repository: {{ $imageRepository | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 23,
+      "line": 40,
       "reference": "tag: {{ $imageTag | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 33,
-      "reference": "image: {{ printf \"%s:%s\" $imageRepository $imageTag | quote }}"
+      "line": 42,
+      "reference": "digest: {{ $imageDigest | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 124,
-      "reference": "image: {{ printf \"%s:%s\" $imageRepository $imageTag | quote }}"
+      "line": 53,
+      "reference": "image: {{ $image | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 265,
+      "line": 151,
+      "reference": "image: {{ $image | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 292,
       "reference": "version: pluginPackageVersion,"
+    },
+    {
+      "file": "magic-cluster/apps/instances/pi-coding/Chart.yaml",
+      "line": 5,
+      "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
+      "line": 104,
+      "reference": "image: {{ $image | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
+      "line": 123,
+      "reference": "image: {{ $image | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/regression/reports.yaml",
+      "line": 23,
+      "reference": "image: python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f"
+    },
+    {
+      "file": "magic-cluster/apps/regression/reports.yaml",
+      "line": 29,
+      "reference": "image: python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f"
+    },
+    {
+      "file": "magic-cluster/apps/regression/runtime.yaml",
+      "line": 9,
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-978cb7a071959c83df84a2df8d9f3968e0db02d3@sha256:4509279e6ec0d51754a062d621f5bae4203b30fc9f9cc41acf9f4eb4966473e7\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -2639,46 +2707,6 @@
       "reference": "tag: v0.5.1"
     },
     {
-      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
-      "line": 8,
-      "reference": "FROM nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:0eee3094c71518ad31d011a594ae6ed6de72959ee07e318cb31cffe71690e90c"
-    },
-    {
-      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
-      "line": 15,
-      "reference": "org.opencontainers.image.source=\"https://github.com/QualityMinds/AIppliance-Magic-Stick\" \\"
-    },
-    {
-      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
-      "line": 33,
-      "reference": "&& apt-get install -y --no-install-recommends \\"
-    },
-    {
-      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
-      "line": 42,
-      "reference": "&& /opt/freetoken/bin/pip install --no-cache-dir --upgrade pip setuptools wheel \\"
-    },
-    {
-      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
-      "line": 43,
-      "reference": "&& /opt/freetoken/bin/pip install --no-cache-dir \"freetoken[accel]==${FREETOKEN_VERSION}\" \\"
-    },
-    {
-      "file": "magic-cluster/platform/ai/freetoken/runtime-configmap.yaml",
-      "line": 13,
-      "reference": "image: ghcr.io/qualityminds/magicstick-freetoken@sha256:190e0392b9ca24680db742765047063a46cda6a1accb20d9c2b2d72b1ee5042d"
-    },
-    {
-      "file": "magic-cluster/platform/ai/freetoken/runtime-configmap.yaml",
-      "line": 18,
-      "reference": "version: \"0.1.3\""
-    },
-    {
-      "file": "magic-cluster/platform/ai/freetoken/runtime-configmap.yaml",
-      "line": 21,
-      "reference": "upstream: https://github.com/FlashML-org/FreeToken/tree/v0.1.3"
-    },
-    {
       "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
       "line": 9,
       "reference": "chart:"
@@ -2691,7 +2719,7 @@
     {
       "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.1.18\""
+      "reference": "version: \"0.2.0\""
     },
     {
       "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
@@ -2701,7 +2729,7 @@
     {
       "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
       "line": 25,
-      "reference": "tag: v0.1.18"
+      "reference": "tag: v0.2.0"
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/helmrelease.yaml",
@@ -2719,6 +2747,21 @@
       "reference": "version: \"0.23.2\""
     },
     {
+      "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
+      "line": 103,
+      "reference": "backport[\"distribution\"] = lambda name, version=version: types.SimpleNamespace(version=version)"
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
+      "line": 628,
+      "reference": "self.wrapper[\"runtime_version\"] = lambda package, version=version: version"
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/vllm-wrapper-configmap.yaml",
+      "line": 338,
+      "reference": "die(f\"Cannot interpret the installed vLLM runtime version: {version!r}\")"
+    },
+    {
       "file": "magic-cluster/platform/ai/openclaw-operator/helmrelease.yaml",
       "line": 9,
       "reference": "chart:"
@@ -2731,7 +2774,7 @@
     {
       "file": "magic-cluster/platform/ai/openclaw-operator/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.36.4\""
+      "reference": "version: \"0.40.0\""
     },
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
@@ -2746,22 +2789,22 @@
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.18.0\""
-    },
-    {
-      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
-      "line": 25,
-      "reference": "image:"
-    },
-    {
-      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
-      "line": 26,
-      "reference": "repository: ghcr.io/qualityminds/magicstick-paperclip-operator"
+      "reference": "version: \"0.19.1\""
     },
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
       "line": 27,
-      "reference": "tag: sha-1f9867b542b9b7b10fbc77f631a97a7cb25324be"
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 28,
+      "reference": "repository: ghcr.io/paperclipinc/paperclip-operator"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 29,
+      "reference": "tag: v0.19.1"
     },
     {
       "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
@@ -2899,9 +2942,14 @@
       "reference": "tag: \"3.4.1\""
     },
     {
+      "file": "magic-cluster/platform/gateway/envoy-gateway/helmrelease.yaml",
+      "line": 23,
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
+    },
+    {
       "file": "magic-cluster/platform/gateway/envoy-gateway/oci-repository.yaml",
       "line": 12,
-      "reference": "tag: v1.8.2"
+      "reference": "tag: v1.8.5"
     },
     {
       "file": "magic-cluster/platform/gpu/amd-gpu-operator/helmrelease.yaml",
@@ -2964,6 +3012,21 @@
       "reference": "version: 0.36.0"
     },
     {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 44,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 46,
+      "reference": "chart: dra-driver-nvidia-gpu"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 47,
+      "reference": "version: 0.5.0"
+    },
+    {
       "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/helmrelease.yaml",
       "line": 9,
       "reference": "chart:"
@@ -3004,6 +3067,11 @@
       "reference": "version: 0.18.3"
     },
     {
+      "file": "magic-cluster/platform/identity/gateway.yaml",
+      "line": 18,
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
+    },
+    {
       "file": "magic-cluster/platform/identity/keycloak.yaml",
       "line": 31,
       "reference": "image: quay.io/keycloak/keycloak:26.6.3"
@@ -3024,39 +3092,24 @@
       "reference": "image: python:3.13-alpine"
     },
     {
-      "file": "magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml",
-      "line": 127,
-      "reference": "\"source\": \"https://github.com/FlashML-org/FreeToken\","
-    },
-    {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2893,
+      "line": 3357,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2930,
+      "line": 3394,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4154,
+      "line": 4265,
       "reference": "if not image:"
     },
     {
-      "file": "magic-cluster/platform/magicstick-operator/controller/test_freetoken_runtime.py",
-      "line": 178,
-      "reference": "\"upstream\": \"https://github.com/FlashML-org/FreeToken\","
-    },
-    {
-      "file": "magic-cluster/platform/magicstick-operator/controller/test_freetoken_runtime.py",
-      "line": 230,
-      "reference": "\"upstream\": \"https://github.com/FlashML-org/FreeToken\","
-    },
-    {
-      "file": "magic-cluster/platform/magicstick-operator/controller/test_freetoken_runtime.py",
-      "line": 293,
-      "reference": "\"healthPath\": \"/health\", \"upstream\": \"https://github.com/FlashML-org/FreeToken\","
+      "file": "magic-cluster/platform/magicstick-operator/crds/regressionruns.appliance.magicstick.dev.yaml",
+      "line": 59,
+      "reference": "image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/deployment.yaml",
@@ -3107,6 +3160,11 @@
       "file": "magic-installer/scripts/build-installer-image-container.sh",
       "line": 403,
       "reference": "printf 'Created installer image: %s\\n' \"$OUTPUT\""
+    },
+    {
+      "file": "magic-installer/scripts/installer-media.py",
+      "line": 170,
+      "reference": "if target.stat().st_size != int(size) or hashes(target)[\"sha256\"] != digest:"
     },
     {
       "file": "magic-installer/scripts/installer-media.py",

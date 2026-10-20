@@ -37,7 +37,7 @@
   "companion": {"runId":0,"sourceRevision":"CHANGEME"},
   "realtime": {"approveGpuTransitions":false,"fixtures":[]},
   "unmanagedKey": {"approveDisposableProbe":false,"id":"CHANGEME"},
-  "cache": {"approveFreeToken":false},
+  "cache": {},
   "securityCi": {"sourceRevision":"CHANGEME","dependenciesRunId":0,"publicationRunId":0},
   "repeat": {"cycles":3,"maximumMemoryGrowthMi":1024,"maximumNonCacheDiskGrowthBytes":268435456}
 }

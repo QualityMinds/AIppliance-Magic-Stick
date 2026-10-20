@@ -14,6 +14,13 @@ matrices and findings below retain their original wider scope. Current reports
 list the excluded engine tests and distinguish executable scenarios from their
 case/variant/layer evidence rows.
 
+Scope update, 18 October 2026: experimental Omni/Realtime cases are temporarily
+excluded from regular regression selection and automatic preparation by
+`core/engine-policy.ts`. Retain their specifications and old reports for later
+reactivation after Realtime implementation. Phase 7 continues with Mesh and
+companion; ordinary vLLM/Ollama and product Omni remain unchanged. New reports
+name the exclusion without manufacturing Passed or Blocked Realtime evidence.
+
 Design baseline: 1 October 2026; evidence reviewed through 5 October 2026.
 Status: **Phase 0 and finite Phase 1 P0 accepted on 4 October; finite Phase 2 P0
 accepted on 5 October 2026**.
@@ -266,9 +273,10 @@ can be used only for fixtures whose output is demonstrably stable.
 
 ### Linux container on the Mac first
 
-The local harness uses the workspace's locked Node/pnpm/Playwright dependencies
-and the digest-pinned Playwright Ubuntu 26.04 image. Run natively as Linux ARM64
-on Apple Silicon; the pinned image also declares Linux AMD64 support. No AMD64
+The local harness uses the workspace's locked Node/pnpm/Playwright dependencies,
+a digest-pinned slim Node image and only Chromium's headless shell. The pinned
+Node and separate Go builder indexes declare Linux ARM64 and AMD64 support.
+Run natively as Linux ARM64 on Apple Silicon. No AMD64
 run or appliance-kernel equivalence is implied by an ARM64 browser test.
 Use a fresh automated browser context, not the developer's personal Chrome
 session. Initial execution is headless. Later derive a GitHub Runner variant
@@ -905,9 +913,14 @@ Optional local environment overrides:
 
 The container runs non-root, read-only, with dropped capabilities and a private
 temporary browser HOME; it has no Docker socket or published ports. Node and
-Chromium explicitly trust the supplied CA, including the isolated Chromium NSS
-database. Browser TLS verification is never bypassed. The container is for trusted
-tests/targets, not a security boundary for executing public fork code.
+Chromium trust the supplied CA, including the isolated Chromium NSS database,
+for explicit HAR-01 certificate checks and credential bootstrap. Functional
+browser/API, inference and Realtime checks deliberately exclude certificate
+validation through a runner-only, per-context/request policy; HTTPS and the real
+origin/authentication/ownership checks remain mandatory. No process-global TLS
+override is used. Kubernetes access keeps the downloaded CA/exec-plugin contract.
+The container is for trusted tests/targets, not a security boundary for executing
+public fork code.
 
 Each run writes mode-`0600` `summary.txt`, allowlisted `summary.json` and `junit.xml`
 under `.regression/private/runs/<run-id>/`. A configured live attempt creates an
@@ -1029,7 +1042,7 @@ FreeToken's scheduling capability entries need not contain `vendor` or VRAM
 counters. The harness joins the selected `node:<name>` with independently
 reported NVIDIA GPU samples in `computeMemory`, requiring the correct node,
 engine eligibility, known telemetry and a matching FreeToken scheduler identity.
-The [read-only test resolver](../../dashboard/apps/web/regression/core/freetoken-inventory.ts)
+The [read-only test resolver](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/7ff5312e3819f497a9c451434d0f28668df18fb6/dashboard/apps/web/regression/core/freetoken-inventory.ts)
 never uses cluster CPU RAM or a different node as a VRAM fallback. The
 frontend clamps numeric GPU/RAM inputs to current capacity; the API separately
 rejects impossible direct-create budgets. Isolated tests cover this actual
@@ -1363,10 +1376,17 @@ token ID. App/identity adapters are not implemented. Preserve both the
 original failure and any cleanup failure.
 
 Resolve the configured dashboard, identity and inference hosts normally. Trust
-the appliance's CA explicitly in browser/HTTP clients, or use a valid trusted
-public certificate. Never accept `ignoreHTTPSErrors`, global TLS verification
-disablement, fabricated cookies or a host-admin kubeconfig as authentication
-success. Test local mDNS and public DNS routes separately where available.
+the appliance's CA explicitly for HAR-01 and credential bootstrap, or use a
+trusted public certificate. Functional checks use the shared
+[`https-policy.ts`](../../dashboard/apps/web/regression/core/https-policy.ts)
+without treating certificate validity as an application postcondition. They
+still require real login, correct origin/identity and safe owned-resource cleanup;
+neither fabricated cookies nor a host-admin kubeconfig prove authentication.
+Never disable process-global TLS verification. MOD-03 selects advertised routes
+in the registered local/public/direct connection scope; a local functional run
+does not require public example-domain DNS. Missing local routes, failed DNS,
+timeouts and unexpected HTTP status remain failures. Public exposure and
+certificate acceptance are separate checks, not silent fallbacks.
 
 Obtain a real OIDC login for each dedicated test role. For ordinary same-origin
 browser API tests, use the authenticated browser request context and the actual

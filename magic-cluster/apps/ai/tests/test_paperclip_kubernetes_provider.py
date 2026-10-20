@@ -21,7 +21,7 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         )
 
         self.assertIn('const pluginPackage = "@paperclipai/plugin-kubernetes";', template)
-        self.assertIn('const pluginPackageVersion = "2026.707.0";', template)
+        self.assertIn('const pluginPackageVersion = "2026.1001.0";', template)
         self.assertIn('const paperclipBaseSkill = "paperclipai/paperclip/paperclip";', template)
         self.assertIn('apiRequest("POST", "/api/plugins/install"', template)
         self.assertIn('path === "/api/plugins/install" ? 120000 : 5000', template)
@@ -75,7 +75,7 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d",
+            "ghcr.io/paperclipai/agent-runtime-opencode@sha256:06b207047eb2efcede3f5c85d493fbe976ad653a7fafe41cf6df76dd02e12ae6",
             template,
         )
         self.assertNotIn("magicstick-paperclip-opencode-runtime", template)

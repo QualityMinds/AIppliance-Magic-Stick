@@ -4,6 +4,7 @@ WORKDIR /opt/magicstick-api
 COPY dashboard/apps/api/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY dashboard/apps/api/licensing.py dashboard/apps/api/instance_access.py dashboard/apps/api/federated_sso.py ./
+COPY magic-cluster/apps/dashboard/regression_api.py ./
 COPY magic-host/roles/host-management/files/network_contract.py ./
 COPY magic-host/roles/host-management/files/updates_contract.py ./
 COPY magic-host/roles/host-management/files/model_cache.py ./

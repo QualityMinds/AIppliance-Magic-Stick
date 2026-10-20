@@ -33,13 +33,15 @@ from urllib.request import Request, HTTPSHandler, HTTPRedirectHandler, build_ope
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / 'dashboard/apps/web/regression'
 PREPARATION_REASONS = {'TLS', 'AUTH', 'PREREQUISITE', 'IDENTITY', 'API', 'CONFIG', 'PRIVATE_FILE',
-                       'CONFLICT', 'LAB', 'LOCK_BUSY', 'LOCK_STALE', 'RECOVERY', 'OWNERSHIP', 'CLEANUP', 'LOCK_LOST', 'DEADLINE', 'UNEXPECTED'}
+                       'CONFLICT', 'LAB', 'LOCK_BUSY', 'LOCK_STALE', 'RECOVERY', 'OWNERSHIP', 'CLEANUP', 'LOCK_LOST', 'DEADLINE', 'UNEXPECTED',
+                       'REVISION', 'CAPABILITY', 'OBSERVER', 'HOST', 'BUSY', 'MUTATION'}
 PREPARATION_STAGES = {'request', 'tls', 'login', 'discovery', 'kubernetes-access', 'oidc-session',
-                      'bootstrap-file', 'lab-bootstrap', 'run-recovery', 'license-fixtures', 'license-validation'}
+                      'bootstrap-file', 'lab-bootstrap', 'run-recovery', 'license-fixtures', 'license-validation',
+                      'input-discovery', 'input-validation', 'input-acceptance'}
 RECOVERED_RUN_IDS = []
 PREPARATION_DETAILS = {'ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
                        'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED',
-                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR'}
+                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'}
 
 
 class SetupError(Exception):
@@ -519,6 +521,7 @@ def keychain_appliance_ca(dashboard):
         for certificate in certificates:
             try:
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
                 context.load_verify_locations(cadata=certificate)
                 with socket.create_connection((parsed.hostname, parsed.port or 443), timeout=2) as connection:
                     with context.wrap_socket(connection, server_hostname=parsed.hostname):
@@ -541,8 +544,8 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
                    'REGRESSION_RUNNER_IMAGE': image,
                    'REGRESSION_RUNNER_UID': str(os.getuid()), 'REGRESSION_RUNNER_GID': str(os.getgid())}
     try:
-        for arguments, message in [(['info'], 'Start Docker/Rancher Desktop before automatic setup.'),
-                                   (['image', 'inspect', image], 'Build the updated runner first: bash tools/regression.sh build')]:
+        for arguments, message in ([] if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes' else [(['info'], 'Start Docker/Rancher Desktop before automatic setup.'),
+                                   (['image', 'inspect', image], 'Build the updated runner first: bash tools/regression.sh build')]):
             result = subprocess.run([docker, *arguments], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
             if result.returncode:
                 raise SetupError(message)
@@ -572,8 +575,22 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
             command.extend(['-f', override or str(directory / 'compose.override.yaml')])
         # Worker only emits fixed messages. Do not forward Docker/plugin errors:
         # users receive a deterministic setup reason, not arbitrary private data.
-        result = subprocess.run([*command, 'run', '--rm', '--no-deps', '-T', 'setup-api'], env=environment,
+        worker_command = (['node', str(EXAMPLES / 'setup.mjs')] if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes'
+                          else [*command, 'run', '--rm', '--no-deps', '-T', 'setup-api'])
+        result = subprocess.run(worker_command, env=environment,
                                 capture_output=True, text=True, timeout=900 if mode in ['stop-models', 'register', 'refresh'] else 240)
+        if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes':
+            # Forward only validated ownership receipts, not worker logs. This
+            # binds stale-Lease recovery to this Job's persistent journals.
+            for line in (getattr(result, 'stdout', '') or '').splitlines():
+                if not line.startswith('REGRESSION_EVENT '):
+                    continue
+                try:
+                    event = json.loads(line[len('REGRESSION_EVENT '):])
+                    if event.get('version') == 1 and event.get('event') == 'owner-start' and re.fullmatch(r'reg-[a-f0-9-]{36}', event.get('runId', '')) and event.get('targetUid') == environment.get('REGRESSION_APPLIANCE_UID'):
+                        print('REGRESSION_EVENT ' + json.dumps({'version': 1, 'event': 'owner-start', 'runId': event['runId'], 'targetUid': event['targetUid']}), flush=True)
+                except (ValueError, TypeError, AttributeError):
+                    pass
         if result.returncode:
             if (directory / '.setup-access-restore.json').exists():
                 raise SetupError('Kubernetes access restoration needs review. Run: bash tools/regression.sh setup --restore-kubernetes-access')
@@ -775,9 +792,11 @@ def suite_consent(facts, previous=None):
         ('mesh', [7], 'Create/join/leave a disposable Mesh on TWO separately selected test appliances'),
         ('realtime', [7], 'Temporarily switch sharing and start advertised Omni Realtime models'),
         ('unmanaged-key', [5, 8], 'Create a one-hour disposable unmanaged LiteLLM key for the denied-delete probe, then remove ONLY that fixture; master key stays in memory'),
-        ('cache', [8], 'Clear the selected test FreeToken model cache; downloads will be needed again'),
         ('host-drills', [6], 'DESTRUCTIVE host drills: reboots, GPU memory, network rollback, updates, channel changes and model-cache deletion'),
     ]
+    # The Node inventory applies the repository's experimental-engine policy.
+    # Do not ask for or reuse permission for an excluded/unavailable Omni fixture.
+    descriptions = [row for row in descriptions if row[0] != 'realtime' or inventory.get('realtime')]
     scopes = []
     old_scopes = previous.get('scopes', []) if matching else []
     reuse = matching and yes_no('Reuse previously reviewed per-scope answers for this unchanged installation?', True)
@@ -1043,11 +1062,31 @@ def run_preparation(directory, arguments):
     if (directory / 'compose.override.yaml').exists():
         command += ['-f', str(directory / 'compose.override.yaml')]
     # Preparation's public messages are static/allowlisted. No raw subprocess stderr is forwarded.
-    result = subprocess.run([*command, 'run', '--rm', '--no-deps', '-T', 'prepare', *arguments], env=environment,
+    worker_command = (['node', str(EXAMPLES / 'prepare.mjs'), *arguments] if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes'
+                      else [*command, 'run', '--rm', '--no-deps', '-T', 'prepare', *arguments])
+    result = subprocess.run(worker_command, env=environment,
                             capture_output=True, text=True, timeout=600)
     if result.returncode:
-        raise SetupError('Verified input preparation failed. Check trusted connectivity, current telemetry and private pending receipts; accepted inputs were not bypassed.',
-                         'Failed' if result.returncode == 1 else 'Blocked')
+        # Retain only repository-owned codes/stages. Worker output may contain
+        # private paths, tokens and upstream bodies; never forward any of it.
+        worker_output = (getattr(result, 'stderr', '') or '') + '\n' + (getattr(result, 'stdout', '') or '')
+        codes = re.findall(r'^\[(' + '|'.join(sorted(PREPARATION_REASONS)) + r')\]', worker_output, re.M)
+        stages = re.findall(r'^\[SETUP_STAGE:(' + '|'.join(sorted(PREPARATION_STAGES)) +
+                            r')\](?: \[detail:(' + '|'.join(sorted(PREPARATION_DETAILS)) + r')\])?$', worker_output, re.M)
+        outcome = 'Failed' if result.returncode == 1 else 'Blocked'
+        code = codes[-1] if codes else 'UNEXPECTED' if outcome == 'Failed' else 'PREREQUISITE'
+        stage = stages[-1][0] if stages else 'input-discovery'
+        detail = stages[-1][1] if stages and stages[-1][1] else None
+        # ESM import failures happen before the worker's own catch block. Name
+        # the fixed error type only, never its module name or filesystem path.
+        if not codes:
+            imports = re.findall(r"\bcode:\s*['\"](ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND)['\"]", worker_output)
+            if imports:
+                detail = imports[-1]
+        raise SetupError('Verified input preparation failed (' + code + ') at ' + stage +
+                         ('. Detail: ' + detail if detail else '') +
+                         '. Check the reported prerequisite or failed step; accepted inputs and recovery receipts were not bypassed.',
+                         outcome, code=code, stage=stage, detail=detail)
 
 
 def finish_complete_setup(directory, seed):
@@ -1245,7 +1284,7 @@ def complete_fixtures(directory, seed, facts, consent):
             filename = reusable_secret(directory, 'github-readonly.token', 'read-only GitHub Actions metadata token')
             for section in ['securityCi', 'companion']:
                 profile.setdefault(section, {})['tokenFile'] = filename
-    profile.setdefault('cache', {'approveFreeToken': False})
+    profile.setdefault('cache', {})
     private_write(directory / 'remaining-p0.json', profile)
     if 'host-drills' in scopes:
         host_drill_questions(directory, facts, consent)

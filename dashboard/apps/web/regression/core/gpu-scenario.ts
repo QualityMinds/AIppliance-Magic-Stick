@@ -1,13 +1,14 @@
-import type {Browser,Page} from '@playwright/test';
+import {test,type Browser,type Page} from '@playwright/test';
 import type {GpuSharingRequest,GpuSharingState,HardwareGpuDevice,ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
 import {MagicStickApi} from '@magicstick/dashboard-api-client';
 import {join,dirname} from 'node:path';
+import {mkdir} from 'node:fs/promises';
 import {loadLabConfig,type GpuModelFixture,type RuntimeModelFixture} from './config.ts';
 import {LiveFoundation} from './live-foundation.ts';
 import {ResourceJournal,newRunId} from './journal.ts';
 import {BorrowedSharing,canonical,SharingWriteRejected,type Provider,type SharingAdapter} from './borrowed-sharing.ts';
 import {requireGpuProfile} from '../profiles/gpu-p0.ts';
-import {HarnessError,requireSafe} from './errors.ts';
+import {HarnessError,requireSafe,atStage} from './errors.ts';
 import {poll,currentReady} from './poll.ts';
 import {InferenceProbe} from './inference.ts';
 import {activation,fixtureIsAdvertised,OwnedModelClient} from './owned-model.ts';
@@ -15,6 +16,10 @@ import type {KubeObject} from './observer.ts';
 import {openInferenceSession,type ExactDashboardRequest} from './auth.ts';
 import {privateDirectory,readPrivate,writePrivate} from './private-files.ts';
 import {waitModelStopped} from './model-stop.ts';
+import {gpuSlotCapacity} from './model-ui.ts';
+import {runtimeDiagnostic} from './runtime-diagnostic.ts';
+import {AdministrationApi} from './administration-api.ts';
+import {gpuFixtureEstimateBody,sizedGpuFixture} from './gpu-fixture.ts';
 
 export interface GpuCreated {client:OwnedModelClient;fixture:RuntimeModelFixture;uid:string;generation:number}
 type Container = {name:string;image:string;args?:string[];env?:Array<{name:string;value?:string}>;
@@ -30,18 +35,23 @@ export const unfinishedJob = (job:KubeObject) => !job.status?.conditions?.some(c
  * Pods in the ownership inventory so teardown and convergence cannot mistake
  * their continued presence for completed deletion. These mappings assert the
  * existing Magic Stick runtime contract; they are not a new launch policy. */
-export function runtimePodConverged(pods:KubeObject[],item:ModelActivation|undefined) {
+export function runtimePodConverged(pods:KubeObject[],item:ModelActivation|undefined):boolean {
+  if(item?.spec?.local?.gpuDeployment === 'replicated') {
+    const devices=item.spec.local.gpuDevices as Array<{uuid:string}>,instances=item.status?.replication?.instances ?? [];
+    return Array.isArray(devices) && devices.length >= 2 && pods.length === devices.length && instances.length === devices.length && devices.every(d=>{
+      const instance=instances.find(i=>i.uuid === d.uuid && i.phase === 'Ready');
+      const matches=pods.filter(p=>p.metadata.labels?.['appliance.magicstick.dev/activation-uid'] === item.metadata?.uid &&
+        p.metadata.ownerReferences?.some(o=>o.kind === 'Model' && o.controller && o.uid === instance?.modelUid && o.name === instance?.name));
+      return matches.length === 1 && runtimePodConverged(matches,{...item,spec:{...item.spec,local:{...item.spec!.local,gpuDeployment:'single'}}});
+    });
+  }
   if(pods.length !== 1 || !item?.spec?.local) return false;
   const pod=pods[0]!,local=item.spec.local;
   if(pod.metadata.deletionTimestamp || pod.status?.phase !== 'Running' ||
     !pod.status.conditions?.some(c=>c.type === 'Ready' && c.status === 'True')) return false;
-  const engine=local.engine,runtime=podSpec(pod).containers?.find(c=>c.name === (engine === 'FreeToken' ? 'freetoken' : 'server'));
+  const engine=local.engine,runtime=podSpec(pod).containers?.find(c=>c.name === 'server');
   if(!runtime) return false;
   const env=Object.fromEntries((runtime.env ?? []).map(e=>[e.name,e.value]));
-  const nonce=(local.freetoken as {restartNonce?:string}|undefined)?.restartNonce;
-  if(engine === 'FreeToken') return env.MAGICSTICK_FREETOKEN_CONTEXT_LENGTH === String(local.contextWindow) &&
-    env.MAGICSTICK_FREETOKEN_MAX_RUNNING_REQUESTS === String(local.maxNumSeqs) &&
-    (!nonce || pod.metadata.annotations?.['appliance.magicstick.dev/restart-nonce'] === nonce);
   if(env.MAGICSTICK_ENGINE !== engine || env.MAGICSTICK_COMPUTE_TARGET !== local.computeTarget ||
     Object.entries(local.env ?? {}).some(([name,value])=>env[name] !== value)) return false;
   if(engine === 'OLlama') return env.OLLAMA_CONTEXT_LENGTH === String(local.contextWindow) &&
@@ -54,8 +64,21 @@ export function runtimePodConverged(pods:KubeObject[],item:ModelActivation|undef
 /** Playwright starts a new worker after a failed test, even with retries=0.
  * Never overwrite the previous worker's ownership or restore receipts. A new
  * worker gets a separate journal; a surviving Lease/resource still blocks it. */
-export async function gpuWorkerJournal(root:string,workerIndex:number,targetUid:string) {
+export async function gpuWorkerJournal(root:string,workerIndex:number,targetUid:string,freshScenario=false) {
   requireSafe(Number.isSafeInteger(workerIndex) && workerIndex >= 0 && workerIndex <= 64,'CONFIG');
+  if(freshScenario) {
+    // A successful test does not restart its Playwright worker. Reserve a new
+    // bounded recovery slot for every scenario, not only after worker failure.
+    // Keep the established flat worker paths readable by automatic recovery.
+    await privateDirectory(root);
+    for(let slot=1;slot<=64;slot++) {
+      const directory=join(root,`worker-${slot}`);
+      try{await mkdir(directory,{mode:0o700});}
+      catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST'){await privateDirectory(directory);continue;}throw error;}
+      return {directory,journal:await ResourceJournal.create(join(directory,'journal.json'),newRunId(),targetUid)};
+    }
+    throw new HarnessError('CONFIG','Failed');
+  }
   const directory=workerIndex === 0 ? root : join(root,`worker-${workerIndex}`);
   await privateDirectory(directory);
   const journal=workerIndex === 0 ? await ResourceJournal.resume(join(directory,'journal.json'),targetUid) :
@@ -73,17 +96,22 @@ export class GpuScenario {
   readonly live:LiveFoundation;
   readonly allowed:ExactDashboardRequest[];
   readonly directory:string;
+  private fixtureBudgets=new Map<string,GpuModelFixture>();
   private constructor(live:LiveFoundation,sharing:BorrowedSharing,inference:InferenceProbe,
     allowed:ExactDashboardRequest[],directory:string) {
     this.live=live;this.allowed=allowed;this.directory=directory;
     this.config = live.config; this.sharing = sharing; this.inference = inference;
     this.originalModels = live.snapshot.models.activations.map(item => ({name:item.metadata!.name!,uid:item.metadata!.uid!,
       generation:item.metadata!.generation!,spec:structuredClone(item.spec)}));
+    // Restoration participates in the foundation teardown. A busy validation
+    // Job or failed backend check must not skip key cleanup, heartbeat shutdown
+    // and the durable CLEANUP fence.
+    live.registerRestoration(()=>this.restore());
   }
   static async open(browser:Browser,workerIndex=0) {
     requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RUN_DIR,'CONFIG');
     const config = await loadLabConfig(process.env.REGRESSION_CONFIG); requireGpuProfile(config);
-    const {directory,journal} = await gpuWorkerJournal(process.env.REGRESSION_RUN_DIR,workerIndex,config.expected.applianceUid);
+    const {directory,journal} = await gpuWorkerJournal(process.env.REGRESSION_RUN_DIR,workerIndex,config.expected.applianceUid,true);
     const allowed:ExactDashboardRequest[] = []; let live:LiveFoundation | undefined;
     live = await LiveFoundation.open(browser,config,journal,{inferenceOrigin:config.inferenceUrl,
       allowedDashboardRequests:()=>allowed,assertMutationAllowed:async () => {
@@ -147,22 +175,25 @@ export class GpuScenario {
     const states = (await this.live.api.gpuSharing()).providers.filter(item=>item.provider === provider);
     requireSafe(states.length === 1 && states[0]!.nodeUid === this.config.gpu!.nodeUid,'IDENTITY'); return states[0]!;
   }
-  async transition(provider:Provider,mode:GpuSharingState['mode'],count=2) {
+  async transition(provider:Provider,mode:GpuSharingState['mode'],count=2,allocationBackend:'dra'|'device-plugin'='device-plugin') {
     await this.inventory();
     for (let attempt=0;attempt<3;attempt++) {
-      try {await this.sharing.change(provider,mode,count); break;}
+      try {await this.sharing.change(provider,mode,count,allocationBackend); break;}
       catch (error) {if (!(error instanceof SharingWriteRejected) || error.httpStatus !== 409 || attempt === 2) throw error;}
     }
-    return this.waitBackend(provider,mode,count);
+    return this.waitBackend(provider,mode,count,allocationBackend);
   }
-  async waitBackend(provider:Provider,mode:GpuSharingState['mode'],count=2) {
+  async waitBackend(provider:Provider,mode:GpuSharingState['mode'],count=2,allocationBackend:'dra'|'device-plugin'='device-plugin') {
+    const physicalCount=await this.physicalCount(provider);
     const state = await poll(async () => {
       await this.live.guard(); const current = await this.state(provider);
       const node = await this.live.observer.get('nodes',undefined,this.config.gpu!.nodeName);
       requireSafe(node.metadata.uid === this.config.gpu!.nodeUid && node.status?.nodeInfo?.bootID === this.config.gpu!.bootId,'IDENTITY');
       const expected = mode === 'exclusive' ? 1 : count;
       let backend = false;
-      if (provider === 'nvidia') backend = Number(node.status?.allocatable?.['nvidia.com/gpu']) === expected &&
+      if (provider === 'nvidia' && allocationBackend === 'dra') backend = current.backend === 'dra' &&
+        node.metadata.labels?.['appliance.magicstick.dev/nvidia-dra-ready'] === 'true' && !Number(node.status?.allocatable?.['nvidia.com/gpu']);
+      else if (provider === 'nvidia') backend = Number(node.status?.allocatable?.['nvidia.com/gpu']) === gpuSlotCapacity(physicalCount,mode,count) &&
         node.metadata.labels?.['nvidia.com/device-plugin.config'] === (mode === 'exclusive' ? 'magicstick-exclusive' : `magicstick-shared-${count}`) &&
         Number(node.metadata.labels?.['nvidia.com/gpu.replicas'] ?? 1) === expected;
       else if (mode === 'exclusive') backend = Number(node.status?.allocatable?.['amd.com/gpu']) === 1;
@@ -180,14 +211,41 @@ export class GpuScenario {
       }
       const models = await this.live.api.models();
       const target = models.computeTargets.targets.find(item=>item.id === `${provider}-gpu`);
-      return {current,backend,slots:target?.slots};
+      return {current,backend,slots:target?.slots,physicalCount};
     },value => value.current.phase === 'Ready' && value.current.mode === mode && value.current.maxModels === count &&
-      value.backend && value.slots?.total === (mode === 'exclusive' ? 1 : count),
+      value.backend && value.slots?.total === (mode === 'exclusive' ? 1 : count) * value.physicalCount,
     {timeoutMs:600_000,intervalMs:1000,stage:'gpu-backend'});
     return state.current;
   }
+  async physicalCount(provider:Provider) {
+    const {devices,node}=await this.inventory();
+    const cards=devices.filter(device=>device.vendor===provider && device.nodeUid===this.config.gpu!.nodeUid),count=cards.length;
+    requireSafe(count>0,'CAPABILITY');
+    requireSafe(cards.every(card=>typeof card.id==='string' && card.id.length>0) && new Set(cards.map(card=>card.id)).size===count,'IDENTITY');
+    const advertised=node!.metadata.labels?.['nvidia.com/gpu.count'];
+    if(provider==='nvidia' && advertised!==undefined)requireSafe(Number(advertised)===count,'IDENTITY');
+    // The current AMD lab adapter borrows one physical shared claim. Multiple
+    // AMD cards need their own profile; never invent a one-card NVIDIA node.
+    if(provider==='amd')requireSafe(count===1,'PREREQUISITE');
+    return count;
+  }
+  async slotCapacity(provider:Provider) {
+    const state=await this.state(provider);
+    return gpuSlotCapacity(await this.physicalCount(provider),state.mode,state.maxModels);
+  }
   async create(label:string,fixture:RuntimeModelFixture,allowMemoryRisk=false) {
     await this.inventory(); fixtureIsAdvertised(await this.live.api.models(),fixture);
+    if(fixture.computeTarget!=='cpu'&&fixture.automaticSizing) {
+      const body=gpuFixtureEstimateBody(fixture),key=canonical(body);
+      let sized=this.fixtureBudgets.get(key);
+      if(!sized) {
+        const api=new AdministrationApi(this.live.context.request,this.config.dashboardUrl,this.config.requestTimeoutMs,this.live.guard);
+        sized=await atStage('model-estimate',async()=>sizedGpuFixture(fixture as GpuModelFixture,
+          await api.write({method:'POST',path:'/api/models/estimate-memory',body},()=>api.api.estimateMemory(body))));
+        this.fixtureBudgets.set(key,sized);
+      }
+      fixture={...sized};
+    }
     const created = await this.live.createModel(label,this.live.journal,fixture,{allowMemoryRisk});
     return {...created,fixture};
   }
@@ -203,7 +261,7 @@ export class GpuScenario {
       currentReady(value.observed ?? {},model.uid,model.generation) &&
       runtimePodConverged(value.pods,value.item) &&
       value.models.models?.some(item=>item.id === model.client.name) === true,
-    {timeoutMs:model.fixture.engine === 'FreeToken' ? 2_700_000 : 900_000,intervalMs:1000,stage:'model-ready'});}
+    {timeoutMs:900_000,intervalMs:1000,stage:'model-ready'});}
     catch(error) {await this.runtimeFailure(model,'model-ready',error);throw error;}
     const filename=join(this.directory,`runtime-${model.client.name}.json`);
     await writePrivate(filename,{version:1,runId:this.live.journal.runId,engine:model.fixture.engine,
@@ -215,7 +273,7 @@ export class GpuScenario {
     }
     await writePrivate(filename,{version:1,runId:this.live.journal.runId,engine:model.fixture.engine,
       target:model.fixture.computeTarget,generation:model.generation,stage:'binding-observed'});
-    try {await this.inference.chat(model.client.name,undefined,model.fixture.engine === 'FreeToken' ? 256 : 8,
+    try {await this.inference.chat(model.client.name,undefined,8,
       async result=>writePrivate(filename,{version:1,runId:this.live.journal.runId,engine:model.fixture.engine,
         target:model.fixture.computeTarget,generation:model.generation,stage:'inference-response',...result}));}
     catch(error) {
@@ -231,14 +289,44 @@ export class GpuScenario {
   private async runtimeFailure(model:GpuCreated,stage:'model-ready'|'gpu-binding'|'model-inference',error:unknown,recordStage=true) {
     if(recordStage) await writePrivate(join(this.directory,`runtime-${model.client.name}.json`),{
       version:1,runId:this.live.journal.runId,engine:model.fixture.engine,target:model.fixture.computeTarget,
-      generation:model.generation,stage,reason:error instanceof HarnessError ? error.code : 'UNEXPECTED'});
-    // Logs use the bounded authenticated product API, never Pod exec or broad
-    // cluster log permission. Preserve them before failure-safe owned cleanup.
-    try {await writePrivate(join(this.directory,`logs-${model.client.name}.json`),await model.client.logs());}catch{}
+      generation:model.generation,stage,reason:error instanceof HarnessError ? error.code : 'UNEXPECTED'}).catch(()=>{});
+    // Snapshot current/previous output before cleanup, using only the bounded
+    // authenticated product API. Keep native logs private; extract fixed wrapper
+    // reason fields into the independently identity-checked structural evidence.
+    let logs:Awaited<ReturnType<OwnedModelClient['logs']>>|undefined;
+    try {logs=await model.client.logs();await writePrivate(join(this.directory,`logs-${model.client.name}.json`),logs);}catch{}
+    try {
+      const state=await this.live.modelState(model.client,model.uid);
+      if(state.item)await test.info().attach('magicstick-runtime-diagnostic',{contentType:'application/json',
+        body:Buffer.from(JSON.stringify(runtimeDiagnostic(state.item,state.pods,model.uid,model.generation,logs)))});
+    }catch{/* Diagnostic collection must never replace the primary failure. */}
   }
   async binding(model:GpuCreated,pods:KubeObject[]) {
     const ready = pods.filter(pod=>!pod.metadata.deletionTimestamp && pod.status?.phase === 'Running' &&
       pod.status.conditions?.some(condition=>condition.type === 'Ready' && condition.status === 'True'));
+    const fixture=model.fixture as GpuModelFixture;
+    if(fixture.gpuDeployment === 'replicated') {
+      const selected=fixture.gpuDevices;
+      requireSafe(selected?.length && ready.length === selected.length,'CAPABILITY');
+      const seen=new Set<string>();
+      for(const pod of ready) {
+        const owner=pod.metadata.ownerReferences?.find(o=>o.kind === 'Model' && o.controller);
+        requireSafe(owner?.name && owner.uid,'OWNERSHIP');
+        const child=await this.live.observer.get('models.kubeai.org','ai',owner.name);
+        requireSafe(child.metadata.uid === owner.uid && child.metadata.labels?.['appliance.magicstick.dev/activation-uid'] === model.uid &&
+          child.metadata.annotations?.['appliance.magicstick.dev/activation-generation'] === String(model.generation),'OWNERSHIP');
+        const uuid=child.metadata.annotations?.['appliance.magicstick.dev/replica-gpu'];
+        const selection=selected.find(d=>d.uuid === uuid);requireSafe(selection && !seen.has(selection.uuid),'CAPABILITY');seen.add(selection.uuid);
+        const runtime=podSpec(pod).containers?.find(c=>c.name === 'server');
+        const env=Object.fromEntries((runtime?.env ?? []).map(e=>[e.name,e.value]));
+        requireSafe(env.MAGICSTICK_GPU_COUNT === '1' && env.MAGICSTICK_GPU_UUIDS === selection.uuid &&
+          !env.MAGICSTICK_VLLM_PARALLELISM && runtime?.resources?.requests?.memory === `${fixture.systemMemoryMi}Mi` &&
+          runtime.resources.limits?.memory === `${fixture.systemMemoryMi}Mi` &&
+          (fixture.engine !== 'OLlama' || env.OLLAMA_SCHED_SPREAD === 'false'),'CAPABILITY');
+        await this.binding({...model,fixture:{...fixture,gpuDeployment:undefined,gpuDevices:[selection]}},[pod]);
+      }
+      return;
+    }
     requireSafe(ready.length === 1,'CAPABILITY'); const pod = ready[0]!,spec = podSpec(pod);
     requireSafe(spec.nodeName === this.config.gpu!.nodeName && Array.isArray(spec.containers),'CAPABILITY');
     const gpu = model.fixture.computeTarget !== 'cpu';
@@ -255,29 +343,27 @@ export class GpuScenario {
       const results = (claim.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
       requireSafe(results?.length === 1 && results[0]!.driver === 'gpu.amd.com' && results[0]!.pool === this.config.gpu!.nodeName &&
         results[0]!.device === sharing.device?.name,'CAPABILITY');
+    } else if (provider === 'nvidia' && sharing.backend === 'dra') {
+      const selected = (model.fixture as GpuModelFixture).gpuDevices;
+      requireSafe(selected?.length && spec.resourceClaims?.length === selected.length && limits.every(value=>!value['nvidia.com/gpu'] && !value['appliance.magicstick.dev/nvidia-dra']),'CAPABILITY');
+      const slices = await this.live.observer.list('resourceslices.resource.k8s.io');
+      const actual:string[] = [];
+      for (const reference of spec.resourceClaims) {
+        requireSafe(reference.resourceClaimName && spec.containers.some(c=>c.resources?.claims?.some(r=>r.name === reference.name)),'CAPABILITY');
+        const claim = await this.live.observer.get('resourceclaims.resource.k8s.io','ai',reference.resourceClaimName);
+        const results = (claim.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
+        requireSafe(results?.length === 1 && results[0]!.driver === 'gpu.nvidia.com' && results[0]!.pool === this.config.gpu!.nodeName,'CAPABILITY');
+        const match=slices.flatMap(slice=>{
+          const data=slice.spec as {driver?:string;nodeName?:string;devices?:Array<{name:string;attributes?:Record<string,{string?:string}>}>};
+          return data.driver === 'gpu.nvidia.com' && data.nodeName === this.config.gpu!.nodeName ? data.devices ?? [] : [];
+        }).find(d=>d.name === results[0]!.device);
+        requireSafe(match?.attributes?.uuid?.string,'CAPABILITY'); actual.push(match.attributes.uuid.string);
+      }
+      requireSafe(canonical(actual.sort()) === canonical(selected.map(d=>d.uuid).sort()),'CAPABILITY');
     } else requireSafe(limits.some(value=>Number(value[`${provider}.com/gpu`]) === 1) && !spec.resourceClaims?.length,'CAPABILITY');
     const item = activation(await model.client.models(),model.client.name);
     requireSafe(item?.metadata?.uid === model.uid && item.spec?.local?.computeTarget === model.fixture.computeTarget &&
       item.spec.local.engine === model.fixture.engine,'CAPABILITY');
-    if (model.fixture.engine === 'FreeToken') {
-      const owner = pod.metadata.ownerReferences?.find(ref=>ref.kind === 'ReplicaSet' && ref.controller);
-      requireSafe(owner?.name && owner.uid,'OWNERSHIP');
-      const rs = await this.live.observer.get('replicasets.apps','ai',owner.name);
-      requireSafe(rs.metadata.uid === owner.uid,'OWNERSHIP');
-      const deploymentOwner = rs.metadata.ownerReferences?.find(ref=>ref.kind === 'Deployment' && ref.controller);
-      requireSafe(deploymentOwner?.name && deploymentOwner.uid,'OWNERSHIP');
-      const deployment = await this.live.observer.get('deployments.apps','ai',deploymentOwner.name);
-      requireSafe(deployment.metadata.uid === deploymentOwner.uid && deployment.metadata.name === `${model.client.name}-freetoken` &&
-        deployment.metadata.labels?.['appliance.magicstick.dev/modelactivation'] === model.client.name &&
-        deployment.metadata.labels?.['app.kubernetes.io/managed-by'] === 'magicstick-operator','OWNERSHIP');
-      const runtime = spec.containers.find(container=>container.name === 'freetoken');
-      requireSafe(sharing.mode === 'exclusive' && spec.runtimeClassName === 'nvidia' && runtime &&
-        runtime.resources?.requests?.memory === `${(model.fixture as GpuModelFixture).freetoken!.systemMemoryMi}Mi` &&
-        runtime.resources?.limits?.memory === runtime.resources?.requests?.memory && /@sha256:[a-f0-9]{64}$/.test(runtime.image),'CAPABILITY');
-      const logs = await model.client.logs();
-      const text = logs.pods.flatMap(p=>p.containers.flatMap(c=>c.logs.map(log=>log.text ?? ''))).join('\n');
-      requireSafe(text.includes('[magicstick-freetoken] validated 1 whole NVIDIA GPU') && !text.includes('no CUDA-visible GPU was assigned'),'CAPABILITY');
-    }
   }
   async lifecycle(model:GpuCreated,action:'start'|'stop'|'restart'|'edit') {
     await this.inventory(); const current = activation(await model.client.models(),model.client.name); requireSafe(current,'OWNERSHIP');
@@ -306,23 +392,25 @@ export class GpuScenario {
     },{timeoutMs:120_000,intervalMs:1000,stage:'gpu-slots'});
   }
   async openModels(page:Page) {await page.goto(this.config.dashboardUrl+'/#/models',{waitUntil:'domcontentloaded'});}
-  async close() {
+  async close() {await this.live.close();}
+  private async restore() {
     // Delete only recorded models before restoring backends; leave their cache
     // alone. Restoration is forbidden after any ambiguous or foreign spec write.
     for (const entry of this.live.journal.entries.filter(entry=>entry.kind === 'model' && entry.state !== 'removed'))
       await this.live.cleanup(this.live.journal,{kind:'model',name:entry.name});
     await this.inventory();
-    const jobs=[...await this.live.observer.list('jobs','ai'),...await this.live.observer.list('jobs',this.config.expected.applianceNamespace)];
-    requireSafe(!jobs.some(unfinishedJob),'BUSY');
-    await this.sharing.restore();
-    for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount);
+    await atStage('gpu-validation',async()=>{
+      const jobs=[...await this.live.observer.list('jobs','ai'),...await this.live.observer.list('jobs',this.config.expected.applianceNamespace)];
+      requireSafe(!jobs.some(unfinishedJob),'BUSY');
+    });
+    await atStage('recovery-sharing',()=>this.sharing.restore());
+    for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount,entry.originalBackend ?? 'device-plugin');
     const current = await this.live.api.models();
     for (const original of this.originalModels) {
       const item = activation(current,original.name);
       requireSafe(item?.metadata?.uid === original.uid && item.metadata.generation === original.generation &&
         canonical(item.spec) === canonical(original.spec),'CLEANUP');
     }
-    await this.live.close();
   }
 }
 

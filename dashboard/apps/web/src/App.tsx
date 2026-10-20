@@ -13,9 +13,10 @@ import {KubernetesAccessPage} from './pages/KubernetesAccessPage';
 import {MyInstancesPage} from './pages/MyInstancesPage';
 import {allowedSystemSections, isSystemSection, SystemAreaPage, type SystemSectionId} from './pages/SystemAreaPage';
 import {allowedSettingsSections, isSettingsSection, type SettingsSectionId} from './pages/SettingsPage';
+import {allowedStatusSections, isStatusSection, type StatusSectionId} from './pages/SystemPage';
 
 type TabId = 'overview' | 'services' | 'models' | 'api-access' | 'mesh' | 'kubernetes-access' | 'system';
-type DashboardRoute = {tab: TabId; systemSection: SystemSectionId; settingsSection: SettingsSectionId};
+type DashboardRoute = {tab: TabId; systemSection: SystemSectionId; settingsSection: SettingsSectionId; statusSection: StatusSectionId};
 
 const tabs: Array<{id: TabId; label: string; admin?: boolean; identity?: boolean}> = [
   {id: 'overview', label: 'Overview'},
@@ -30,24 +31,27 @@ const tabs: Array<{id: TabId; label: string; admin?: boolean; identity?: boolean
 const initialRoute = (): DashboardRoute => {
   const value = window.location.hash.replace(/^#\/?/, '').replace(/\/$/, '');
   const [tab, section, subsection] = value.split('/');
-  const systemRoute = (systemSection: SystemSectionId, settingsSection: SettingsSectionId = 'domains'): DashboardRoute => ({tab: 'system', systemSection, settingsSection});
-  const meshRoute: DashboardRoute = {tab: 'mesh', systemSection: 'status', settingsSection: 'domains'};
+  const systemRoute = (systemSection: SystemSectionId, settingsSection: SettingsSectionId = 'domains', statusSection: StatusSectionId = 'overview'): DashboardRoute => ({tab: 'system', systemSection, settingsSection, statusSection});
+  const meshRoute: DashboardRoute = {tab: 'mesh', systemSection: 'status', settingsSection: 'domains', statusSection: 'overview'};
   if ((tab === 'settings' && section === 'mesh') || (tab === 'system' && (section === 'mesh' || (section === 'settings' && subsection === 'mesh')))) return meshRoute;
   if (tab === 'settings') return systemRoute('settings', section && isSettingsSection(section) ? section : 'domains');
   if (tab === 'license' || tab === 'users') return systemRoute(tab);
   if (tab === 'federated-sso') return systemRoute('settings', 'federated-sso');
   if (tab === 'system') {
+    if (section === 'model-cache' || section === 'regression') return systemRoute('status', 'domains', section);
+    if (section === 'status') return systemRoute('status', 'domains', subsection && isStatusSection(subsection) ? subsection : 'overview');
     if (section === 'federated-sso' || section === 'network' || section === 'updates') return systemRoute('settings', section);
     return systemRoute(section && isSystemSection(section) ? section : 'status', subsection && isSettingsSection(subsection) ? subsection : 'domains');
   }
-  return {tab: tabs.some((item) => item.id === tab) ? tab as TabId : 'overview', systemSection: 'status', settingsSection: 'domains'};
+  return {tab: tabs.some((item) => item.id === tab) ? tab as TabId : 'overview', systemSection: 'status', settingsSection: 'domains', statusSection: 'overview'};
 };
 
-const ActivePage = ({route, session, onSystemSectionChange, onSettingsSectionChange}: {
+const ActivePage = ({route, session, onSystemSectionChange, onSettingsSectionChange, onStatusSectionChange}: {
   route: DashboardRoute;
   session: Session;
   onSystemSectionChange: (section: SystemSectionId) => void;
   onSettingsSectionChange: (section: SettingsSectionId) => void;
+  onStatusSectionChange: (section: StatusSectionId) => void;
 }) => {
   const {tab} = route;
   switch (tab) {
@@ -56,7 +60,7 @@ const ActivePage = ({route, session, onSystemSectionChange, onSettingsSectionCha
     case 'api-access': return <ApiAccessPage />;
     case 'mesh': return <MeshPage />;
     case 'kubernetes-access': return <KubernetesAccessPage />;
-    case 'system': return <SystemAreaPage session={session} section={route.systemSection} settingsSection={route.settingsSection} onSectionChange={onSystemSectionChange} onSettingsSectionChange={onSettingsSectionChange} />;
+    case 'system': return <SystemAreaPage session={session} section={route.systemSection} settingsSection={route.settingsSection} statusSection={route.statusSection} onSectionChange={onSystemSectionChange} onSettingsSectionChange={onSettingsSectionChange} onStatusSectionChange={onStatusSectionChange} />;
     default: return <OverviewPage />;
   }
 };
@@ -70,15 +74,17 @@ export const App = () => {
   );
   const allowedSections = useMemo(() => session.data ? allowedSystemSections(session.data) : [], [session.data]);
   const allowedSettings = useMemo(() => session.data ? allowedSettingsSections(session.data) : [], [session.data]);
+  const allowedStatus = useMemo(() => session.data ? allowedStatusSections(session.data) : [], [session.data]);
   const activeRoute: DashboardRoute = {
     tab: !session.data || allowedTabs.some((item) => item.id === route.tab) ? route.tab : 'overview',
     systemSection: !session.data || allowedSections.some((item) => item.id === route.systemSection) ? route.systemSection : 'status',
     settingsSection: !session.data || allowedSettings.some((item) => item.id === route.settingsSection) ? route.settingsSection : 'domains',
+    statusSection: !session.data || allowedStatus.some((item) => item.id === route.statusSection) ? route.statusSection : 'overview',
   };
 
   useEffect(() => {
-    if (session.data && (activeRoute.tab !== route.tab || activeRoute.systemSection !== route.systemSection || activeRoute.settingsSection !== route.settingsSection)) setRoute(activeRoute);
-  }, [activeRoute.tab, activeRoute.systemSection, activeRoute.settingsSection, route.systemSection, route.settingsSection, route.tab, session.data]);
+    if (session.data && (activeRoute.tab !== route.tab || activeRoute.systemSection !== route.systemSection || activeRoute.settingsSection !== route.settingsSection || activeRoute.statusSection !== route.statusSection)) setRoute(activeRoute);
+  }, [activeRoute.tab, activeRoute.systemSection, activeRoute.settingsSection, activeRoute.statusSection, route.systemSection, route.settingsSection, route.statusSection, route.tab, session.data]);
 
   useEffect(() => {
     const followHash = () => {
@@ -92,9 +98,10 @@ export const App = () => {
 
   useEffect(() => {
     const settingsPath = activeRoute.systemSection === 'settings' && activeRoute.settingsSection !== 'domains' ? `/${activeRoute.settingsSection}` : '';
-    const path = activeRoute.tab === 'system' ? `system/${activeRoute.systemSection}${settingsPath}` : activeRoute.tab;
+    const statusPath = activeRoute.systemSection === 'status' && activeRoute.statusSection !== 'overview' ? `/${activeRoute.statusSection}` : '';
+    const path = activeRoute.tab === 'system' ? `system/${activeRoute.systemSection}${settingsPath}${statusPath}` : activeRoute.tab;
     window.history.replaceState(null, '', `#/${path}`);
-  }, [activeRoute.systemSection, activeRoute.settingsSection, activeRoute.tab, route.systemSection, route.settingsSection, route.tab]);
+  }, [activeRoute.systemSection, activeRoute.settingsSection, activeRoute.statusSection, activeRoute.tab, route.systemSection, route.settingsSection, route.statusSection, route.tab]);
 
   if (session.isPending) return <main className="boot"><Loading /></main>;
   if (session.error || !session.data) return <main className="boot"><ErrorNotice error={session.error ?? new Error('Session is unavailable.')} /></main>;
@@ -132,7 +139,8 @@ export const App = () => {
         </nav>
         <div className="content"><ActivePage route={activeRoute} session={session.data}
           onSystemSectionChange={(systemSection) => setRoute((current) => ({...current, tab: 'system', systemSection}))}
-          onSettingsSectionChange={(settingsSection) => setRoute({tab: 'system', systemSection: 'settings', settingsSection})} /></div>
+          onSettingsSectionChange={(settingsSection) => setRoute((current) => ({...current, tab: 'system', systemSection: 'settings', settingsSection}))}
+          onStatusSectionChange={(statusSection) => setRoute((current) => ({...current, tab: 'system', systemSection: 'status', statusSection}))} /></div>
       </section>
 
       <footer>Magic Stick · Your AI infrastructure.</footer>

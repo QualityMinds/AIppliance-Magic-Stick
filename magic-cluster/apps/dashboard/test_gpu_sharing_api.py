@@ -103,12 +103,13 @@ class GpuSharingApiTests(unittest.TestCase):
         self.assertFalse(state['experimental'])
         self.assertEqual(self.writes, [])
 
-    def test_nvidia_custom_mig_and_multiple_gpu_configuration_are_not_adopted(self):
-        for labels in ({'nvidia.com/gpu.count': '2'}, {'nvidia.com/mig.strategy': 'mixed'},
+    def test_nvidia_custom_and_mig_configuration_are_not_adopted(self):
+        for labels in ({'nvidia.com/mig.strategy': 'mixed'},
                        {'nvidia.com/device-plugin.config': 'custom-mps'}):
             with self.subTest(labels=labels):
                 self.assertFalse(self.nvidia_status(labels)['available'])
         self.assertTrue(self.nvidia_status({'nvidia.com/device-plugin.config': 'magicstick-exclusive'})['available'])
+        self.assertTrue(self.nvidia_status({'nvidia.com/gpu.count': '4'})['available'])
         self.assertEqual(self.writes, [])
 
     def test_global_mig_strategy_is_not_confused_with_enabled_mig_partitions(self):

@@ -1,9 +1,9 @@
 import {test,expect} from '@playwright/test';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import type {User} from '@magicstick/dashboard-contracts';
-import type {LiveFoundation} from '../core/live-foundation.ts';
+import {LiveFoundation} from '../core/live-foundation.ts';
 import type {CleanupAdapter,ResourceKind} from '../core/journal.ts';
 import {ResourceJournal,newRunId} from '../core/journal.ts';
 import {OwnedIdentityClient,ownedLocalIdentity} from '../core/owned-identity.ts';
@@ -11,8 +11,172 @@ import {BorrowedModule} from '../core/borrowed-module.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {AdministrationRejected} from '../core/administration-api.ts';
+import {MutationNotSubmitted} from '../core/browser-action.ts';
+import {HarnessError} from '../core/errors.ts';
+import {readPrivate,journalFile,privateDirectory,writePrivate} from '../core/private-files.ts';
+import {workloadPodInventory,repeatInventoryChanges} from '../core/repeat-inventory.ts';
+import {absentLicenseDocumentPatch} from '../core/license-baseline.ts';
+import {SharedWorkflow,executionIdentity} from '../core/shared-workflow.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('APP-02 dependent cases retain their exact shared failure across worker restarts without rerunning writes',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'shared-workflow-'));
+  try {
+    const scope={runId:newRunId(),targetUid:'appliance'},root={testId:'root-test',annotations:[]},error=new HarnessError('DEADLINE','Failed','app-ready');
+    let executions=0;
+    await expect(new SharedWorkflow(directory,scope).execute('applications','APP-02',root,async()=>{executions++;throw error;})).rejects.toBe(error);
+    const cause={kind:'failure',reason:'DEADLINE',caseId:'APP-02',stage:'app-ready',executionId:executionIdentity(scope.runId,root.testId),traceRunId:scope.runId};
+    for(const id of ['APP-05','APP-06','ACL-01']) {
+      const dependent={testId:id,annotations:[] as Array<{type:string;description?:string}>};
+      await expect(new SharedWorkflow(directory,scope).execute('applications',id,dependent,async()=>{executions++;return new Set([id]);}))
+        .rejects.toMatchObject({code:'DEPENDENCY',outcome:'Blocked',stage:'app-ready'});
+      expect(dependent.annotations).toEqual([{type:'regression-dependency',description:JSON.stringify(cause)}]);
+    }
+    expect(executions).toBe(1);
+    for(const changed of [{...scope,runId:newRunId()},{...scope,targetUid:'replacement'}])
+      await expect(new SharedWorkflow(directory,changed).execute('applications','APP-02',root,async()=>{executions++;return new Set(['APP-02']);}))
+        .rejects.toMatchObject({code:'CONFIG',outcome:'Failed'});
+    expect(executions).toBe(1);
+    // Independent workflows still run. No successful evidence is loaded from disk.
+    await new SharedWorkflow(directory,scope).execute('modules','MOD-03',root,async()=>{executions++;return new Set(['MOD-03']);});
+    expect(executions).toBe(2);
+    const receipt=await readPrivate(join(directory,'workflow-applications-failure.json'));
+    expect(receipt).not.toContain(error.stack!);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+test('LIC-02 LIC-04 first-activation cleanup removes only the exact test document and preserves the original installation',annotation,()=>{
+  const encode=(text:string)=>Buffer.from(text).toString('base64');
+  const original={metadata:{name:'magicstick-license',namespace:'identity-system',uid:'original-secret',resourceVersion:'1'},
+    data:{installationId:encode('fixture-installation'),preserve:encode('untouched-field')}};
+  const current={...original,metadata:{...original.metadata,resourceVersion:'2'},data:{...original.data,'license.json':encode('test-document')}};
+  expect(absentLicenseDocumentPatch(original,current,'fixture-installation','test-document')).toEqual([
+    {op:'test',path:'/metadata/uid',value:'original-secret'},
+    {op:'test',path:'/metadata/resourceVersion',value:'2'},
+    {op:'test',path:'/data',value:current.data},{op:'remove',path:'/data/license.json'},
+  ]);
+  for(const changed of [
+    {...current,metadata:{...current.metadata,uid:'foreign-secret'}},
+    {...current,data:{...current.data,installationId:encode('another-installation')}},
+    {...current,data:{...current.data,preserve:encode('changed-field')}},
+    {...current,data:{...current.data,'license.json':encode('human-document')}},
+  ])expect(()=>absentLicenseDocumentPatch(original,changed,'fixture-installation','test-document')).toThrow();
+  expect(()=>absentLicenseDocumentPatch(current,current,'fixture-installation','test-document')).toThrow();
+});
+test('PERF-02 catalog-driven Pod replacement is not a leak; extra replicas, replaced owners and bare Pods are',annotation,()=>{
+  const set=(uid:string,owner='stable-deployment')=>({metadata:{uid,ownerReferences:[{kind:'Deployment',uid:owner,controller:true}]}} as KubeObject);
+  const pod=(uid:string,owner?:string)=>({metadata:{uid,...(owner?{ownerReferences:[{kind:'ReplicaSet',uid:owner,controller:true}]}:{})}} as KubeObject);
+  const before=workloadPodInventory([pod('old-pod','old-rs'),pod('bare-pod')],[set('old-rs')]);
+  expect(workloadPodInventory([pod('new-pod','new-rs'),pod('bare-pod')],[set('new-rs')])).toBe(before);
+  for(const changed of [
+    workloadPodInventory([pod('new-pod','new-rs'),pod('extra-pod','new-rs'),pod('bare-pod')],[set('new-rs')]),
+    workloadPodInventory([pod('new-pod','new-rs'),pod('bare-pod')],[set('new-rs','recreated-deployment')]),
+    workloadPodInventory([pod('new-pod','new-rs'),pod('replaced-bare-pod')],[set('new-rs')]),
+    workloadPodInventory([pod('new-pod','unknown-rs'),pod('bare-pod')],[]),
+  ]) {
+    const baseline={podIds:before,modelIds:'',intentIds:'',claimIds:'',routeIds:'',keyIds:''};
+    expect(repeatInventoryChanges(baseline,{...baseline,podIds:changed})).toEqual(['podIds']);
+  }
+});
+test('HAR-07 transaction receipts from restarted workers cannot overwrite or collide with previous workers',annotation,async()=>{
+  const root=await mkdtemp(join(tmpdir(),'worker-receipts-'));
+  try {
+    const first={filename:join(root,'worker-1','journal.json')},second={filename:join(root,'worker-2','journal.json')};
+    for(const item of [first,second])await privateDirectory(dirname(item.filename));
+    await writePrivate(journalFile(first,'license-transaction.json'),{state:'applied'},true);
+    await writePrivate(journalFile(second,'license-transaction.json'),{state:'reviewed'},true);
+    expect(JSON.parse(await readPrivate(journalFile(first,'license-transaction.json'))).state).toBe('applied');
+    expect(JSON.parse(await readPrivate(journalFile(second,'license-transaction.json'))).state).toBe('reviewed');
+    for(const name of ['../journal.json','nested/receipt.json','..','/tmp/receipt.json'])expect(()=>journalFile(first,name)).toThrow('[PRIVATE_FILE]');
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+test('HAR-07 GPU restoration failure still cleans independent journals, stops heartbeat and retains its precise stage',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'restoration-fence-'));
+  try {
+    const journal=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'appliance'),events:string[]=[];
+    const live=Object.assign(Object.create(LiveFoundation.prototype),{acquired:true,journal,journals:[journal],
+      restorations:[async()=>{events.push('restore');throw new HarnessError('BUSY','Blocked','gpu-validation');}],
+      cleanup:async()=>{events.push('owned-cleanup');},heartbeat:{stop:async()=>{events.push('heartbeat-stop');}},
+      lease:{release:async()=>{events.push('lease-release');}},context:{close:async()=>{events.push('context-close');}}}) as LiveFoundation;
+    await expect(live.close()).rejects.toMatchObject({code:'CLEANUP',stage:'gpu-validation'});
+    expect(events).toEqual(['owned-cleanup','restore','heartbeat-stop','context-close']);
+    expect(JSON.parse(await readPrivate(join(directory,'cleanup-failure.json'))).failures).toEqual([{reason:'BUSY',stage:'gpu-validation'}]);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+test('HAR-07 a legacy unfinished license receipt cannot be reported clean or release the Lease',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'license-cleanup-fence-'));
+  try {
+    const journal=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'appliance');
+    await writePrivate(join(directory,'license-transaction.json'),{version:1,state:'reviewed'},true);
+    let released=false;
+    const live=Object.assign(Object.create(LiveFoundation.prototype),{acquired:true,journal,journals:[journal],restorations:[],
+      cleanup:async()=>{},heartbeat:{stop:async()=>{}},guard:async()=>{},
+      lease:{release:async()=>{released=true;}},context:{close:async()=>{}}}) as LiveFoundation;
+    await expect(live.close()).rejects.toMatchObject({code:'CLEANUP',outcome:'Failed'});expect(released).toBe(false);
+    expect(JSON.parse(await readPrivate(join(directory,'cleanup-failure.json'))).failures).toContainEqual({reason:'CLEANUP',stage:'cleanup'});
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+test('HAR-10 module cleanup distinguishes unsent, acknowledged and lost responses across process restarts',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'module-recovery-'));
+  try {
+    for(const outcome of ['unsent','acknowledged','lost'] as const) {
+      const original:KubeObject={metadata:{name:'optional',uid:'exact-uid',generation:1},spec:{enabled:false,parameters:{}}};
+      let current=structuredClone(original),writes=0;
+      const adapter={read:async()=>structuredClone(current),set:async(enabled:boolean,parameters:Record<string,string>)=>{
+        writes++;current={metadata:{...current.metadata,generation:current.metadata.generation!+1},spec:{enabled,parameters}};
+      }},receipt=join(directory,outcome+'.json'),guard=async()=>{};
+      const borrowed=new BorrowedModule(original,receipt,adapter,guard);
+      await expect(borrowed.change(true,{},async acknowledge=>{
+        if(outcome==='unsent')throw new MutationNotSubmitted('DEADLINE');
+        await adapter.set(true,{});
+        if(outcome==='acknowledged')await acknowledge();
+        throw new Error('Synthetic lost response or postcondition failure');
+      })).rejects.toThrow();
+      const recovered=await BorrowedModule.resume(receipt,adapter,guard);
+      if(outcome==='lost') {
+        await expect(recovered.reconcileUnchanged()).rejects.toThrow('[CONFLICT]');
+        await expect(recovered.restore()).rejects.toThrow('[CLEANUP]');
+        expect(writes).toBe(1);continue;
+      }
+      await recovered.reconcileUnchanged();await recovered.restore();
+      expect(current.spec).toEqual(original.spec);
+      const again=await BorrowedModule.resume(receipt,adapter,guard);
+      await again.reconcileUnchanged();await again.restore();
+      expect(writes).toBe(outcome==='unsent'?0:2);
+      current.metadata.generation!++;
+      await expect(again.restore()).rejects.toThrow('[CONFLICT]');
+    }
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
+test('MOD-03 MOD-04 optional maps and enabled service baselines are restored exactly and repeatedly',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'module-baselines-'));
+  try {
+    for(const enabled of [false,true])for(const withParameters of [false,true]) {
+      const original:KubeObject={metadata:{name:'service',uid:'exact-service-uid',generation:5},
+        spec:{module:'service',enabled,...(withParameters?{parameters:{}}:{})}};
+      let current=structuredClone(original),writes=0;
+      const adapter={read:async()=>structuredClone(current),set:async(value:boolean,parameters:Record<string,string>)=>{
+        writes++;current={...current,metadata:{...current.metadata,generation:current.metadata.generation!+1},
+          spec:{...current.spec,enabled:value,...(withParameters||Object.keys(parameters).length?{parameters}:{})}};
+      }},receipt=join(directory,`${enabled}-${withParameters}.json`),guard=async()=>{};
+      const borrowed=new BorrowedModule(original,receipt,adapter,guard);
+      await borrowed.change(!enabled,{});
+      const recovered=await BorrowedModule.resume(receipt,adapter,guard);
+      await recovered.reconcileUnchanged();await recovered.restore();
+      expect(current.spec).toEqual(original.spec);expect(writes).toBe(2);
+      await recovered.restore();expect(writes).toBe(2);
+      current.metadata.generation!++;
+      await expect(recovered.restore()).rejects.toThrow('[CONFLICT]');
+    }
+    const original:KubeObject={metadata:{name:'service',uid:'uid',generation:1},spec:{module:'service',enabled:false,parameters:{}}};
+    let current=structuredClone(original),writes=0;
+    const adapter={read:async()=>structuredClone(current),set:async(enabled:boolean,parameters:Record<string,string>)=>{
+      writes++;current={...current,metadata:{...current.metadata,generation:current.metadata.generation!+1},spec:{...current.spec,enabled,parameters}};
+    }};
+    const borrowed=new BorrowedModule(original,join(directory,'already-reset.json'),adapter,async()=>{});
+    await borrowed.change(true,{});await borrowed.change(false,{});await borrowed.restore();await borrowed.restore();
+    expect(writes).toBe(2);expect(current.spec).toEqual(original.spec);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 test('HAR-10 acknowledged local users are journaled before postconditions and cleaned by exact UID',annotation,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'identity-cleanup-'));
   try {

@@ -21,13 +21,14 @@ import {readinessLines} from './core/preparation-measures.ts';
 import {savedSetupOptions} from './core/setup-suite.ts';
 import {automaticGpuProfile,automaticProfile,automaticHostRecipes} from './core/automatic-fixtures.ts';
 import {labPolicy,registeredLab} from './core/lab-policy.ts';
+import {setupDetails} from './core/preparation-diagnostic.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..',import.meta.url)));
 const input=resolve(process.env.REGRESSION_INPUT_DIR ?? '/inputs');
 const worker=process.argv[2] === '--worker';
 const args=process.argv.slice(worker ? 3 : 2);
-let home,browser,context;
+let home,browser,context,preparationStage='input-discovery';
 
 async function optional(name) {
   const path=join(input,name);
@@ -107,26 +108,31 @@ async function readableReferences(profile,base) {
 }
 
 async function discover(source,options) {
+  preparationStage='input-discovery';
   const config=source.parsed,observer=new KubectlObserver(config.observerKubeconfig,config.requestTimeoutMs);
   const ca=config.caFile ? await readPrivate(config.caFile) : undefined;
   for(const [label,origin] of [['Dashboard',config.dashboardUrl],['Identity',config.identityUrl],['Inference',config.inferenceUrl]]) {
     if(!origin)continue;
+    preparationStage='tls';
     try {await verifiedEndpoint(origin,config.requestTimeoutMs,ca);}
     catch {console.error(`Verified HTTPS/DNS failed for ${label}. Check the approved Appliance CA, private hostname mappings and reachability; never bypass TLS.`);
       throw new HarnessError('TLS');}
   }
+  preparationStage='kubernetes-access';
   await observer.verifyConfiguration();
   const appliances=await observer.list('appliances.appliance.magicstick.dev');
   const pinned=source.lab.expected;
   const observedAppliance=pinned ? appliances.find(item=>item.metadata.name === pinned.applianceName && item.metadata.namespace === pinned.applianceNamespace) :
     appliances.length === 1 ? appliances[0] : undefined;
   requireSafe(observedAppliance,'IDENTITY');
-  context=await realLogin(browser,config);
+  preparationStage='login';context=await realLogin(browser,config,{httpsPurpose:'certificate'});
+  preparationStage='discovery';
   const api=readOnlyApi(context.request,config.dashboardUrl,config.requestTimeoutMs);
   const [appliance,models,hostPayload,status,modules,nodes,pods,flux]=await Promise.all([
     api.appliance(),api.models(),api.hostManagement(),api.status(),api.modules(),observer.list('nodes'),observer.list('pods'),
     observer.list('kustomizations.kustomize.toolkit.fluxcd.io','flux-system'),
   ]);
+  preparationStage='input-validation';
   const expected=pinned?.flux ?? {namespace:'flux-system',name:'flux-system'};
   const sourceFlux=flux.find(item=>item.metadata.name === expected.name && item.metadata.namespace === expected.namespace);
   requireSafe(sourceFlux?.status?.conditions?.some(c=>c.type === 'Ready' && c.status === 'True' &&
@@ -275,7 +281,7 @@ try {
   if(!worker) {
     // Chromium needs NSS trust; Node reads NODE_EXTRA_CA_CERTS only at startup.
     // Run the worker with a fresh private home, never ignore HTTPS errors.
-    const trust=await browserTrust(source.parsed.caFile);home=trust.home;
+    preparationStage='tls';const trust=await browserTrust(source.parsed.caFile);home=trust.home;
     const environment={...trust.environment,REGRESSION_INPUT_DIR:input};
     const child=spawn(process.execPath,[fileURLToPath(import.meta.url),'--worker',...args],{env:environment,stdio:'inherit'});
     for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>child.kill(signal));
@@ -283,6 +289,7 @@ try {
   } else {
     browser=await chromium.launch();
     if(options.accept) {
+      preparationStage='input-acceptance';
       const directory=join(input,'prepared',options.accept);
       const plan=JSON.parse(await readPrivate(join(directory,'plan.json')));
       const candidate=JSON.parse(await readPrivate(join(directory,'lab.json')));
@@ -290,6 +297,7 @@ try {
       const drills=plan.files.includes('host-drills.json') ? JSON.parse(await readPrivate(join(directory,'host-drills.json'))) : undefined;
       requireSafe(inputHash({candidate,profile,drills}) === plan.contentHash,'REVISION');
       const {snapshot,prepared}=await discover(source,plan.options);
+      preparationStage='input-acceptance';
       validateAcceptance(plan,source.hash,targetHash(prepared,snapshot));
       // An acceptance does not acquire or overwrite a Lease, stop models, or
       // approve a newly busy host. The actual suite still performs preflight.
@@ -315,6 +323,7 @@ try {
       const drills=options.automatic && host ? automaticHostRecipes(prepared.parsed,host) : preparedReboot(prepared.parsed,snapshot,effectiveOptions);
       snapshot.drills=drills;
       const readiness=inputReadiness(prepared.parsed,profile,snapshot,effectiveOptions);
+      preparationStage='input-acceptance';
       const id=randomUUID(),directory=join(input,'prepared',id);
       await privateDirectory(join(input,'prepared'));await privateDirectory(directory);
       const plan={version:1,kind:'input-preparation',createdAt:new Date().toISOString(),options:effectiveOptions,originalHash:source.hash,
@@ -370,6 +379,8 @@ try {
   }
 } catch(error) {
   console.error(error instanceof HarnessError ? error.message : new HarnessError('UNEXPECTED').message);
+  const detail=setupDetails.includes(error?.code)?error.code:error instanceof TypeError?'TYPE_ERROR':error instanceof SyntaxError?'SYNTAX_ERROR':undefined;
+  console.error(`[SETUP_STAGE:${preparationStage}]${detail?` [detail:${detail}]`:''}`);
   console.error('The registered installation was not replaced. Check the private preparation report; TLS and observer checks remain mandatory.');
   process.exitCode=error instanceof HarnessError && error.outcome === 'Blocked' ? 2 : 1;
 } finally {await context?.close();await browser?.close();if(home)await rm(home,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

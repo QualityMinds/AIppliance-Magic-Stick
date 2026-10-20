@@ -3,7 +3,7 @@
 Reusable Ansible host automation for the AI Appliance.
 
 The host-management role installs the fixed-scope model-cache inventory/cleanup
-helper used by **System → Model cache**. No cache is deleted automatically.
+helper used by **System → System Status → Model cache**. No cache is deleted automatically.
 See [model cache management](../docs/model-cache.md) for the protected workload
 checks and the worker/API/controller upgrade contract.
 

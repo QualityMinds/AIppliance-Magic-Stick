@@ -27,7 +27,7 @@ class OpenClawLiteLLMChartTests(unittest.TestCase):
         template = OPENCLAW_TEMPLATE.read_text(encoding="utf-8")
 
         self.assertIn(
-            "configMapRef:\n      name: ai-model-catalog\n      key: openclaw.json",
+            'configMapRef:\n      name: {{ printf "%s-model-catalog" $instance.name }}\n      key: openclaw.json',
             template,
         )
         self.assertIn(
@@ -35,8 +35,9 @@ class OpenClawLiteLLMChartTests(unittest.TestCase):
             template,
         )
         self.assertIn("- name: LITELLM_API_KEY", template)
-        self.assertIn("name: litellm-masterkey-secret", template)
-        self.assertIn("key: LITELLM_MASTER_KEY", template)
+        self.assertIn('name: {{ $key.name | quote }}', template)
+        self.assertIn('key: {{ $key.key | quote }}', template)
+        self.assertIn('ai-appliance.io/preferred-model: {{ $model | quote }}', template)
 
     def test_chart_does_not_rely_on_unsupported_openai_environment_overrides(self):
         template = OPENCLAW_TEMPLATE.read_text(encoding="utf-8")
@@ -54,7 +55,9 @@ class OpenClawLiteLLMChartTests(unittest.TestCase):
     def test_bootstrap_uses_safe_openclaw_runtime_defaults(self):
         bootstrap = MODEL_CATALOG_BOOTSTRAP.read_text(encoding="utf-8")
 
-        self.assertIn('"reserveTokensFloor": 20000', bootstrap)
+        self.assertIn('"keepRecentTokens": 20000', bootstrap)
+        self.assertNotIn('"reserveTokensFloor"', bootstrap)
+        self.assertNotIn('"reserveTokens"', bootstrap)
         self.assertIn('"profile": "coding"', bootstrap)
 
 

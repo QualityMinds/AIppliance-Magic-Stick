@@ -2,14 +2,30 @@
 
 ## Model Controls
 
-**Create → Location: Local → Inference Engine: (Experimental) vLLM-Omni** opens a separate form for
+Ollama, vLLM and vLLM-Omni share one local-model form for both **Create** and
+**Edit**. Model source, hardware, runtime and memory sections expose the selected
+engine's supported controls; one collapsed **Advanced** section contains shared
+CPU controls and engine-specific options. External providers keep their provider
+form. Existing activations retain their saved engine, source and hardware target
+when edited; only changed fields are submitted with the original revision fence.
+Polling updates availability without replacing unsaved input.
+
+The **Name** field validates local and external models before submission:
+1–63 lowercase letters, numbers or hyphens, starting and ending with a letter
+or number. Inline feedback explains an invalid or already-used name and blocks
+creation. Surrounding whitespace is removed before saving; names remain fixed
+when editing. The API also validates the name when creating a resource.
+
+**Create → Location: Local → Inference Engine: (Experimental) vLLM-Omni** selects
 the catalog's experimental Omni profiles for NVIDIA CUDA, AMD ROCm, Intel XPU
 and CPU. GPU choices use schedulable Kubernetes resources, not chip/driver or
 Strix-Halo allowlists. Shared mode uses one slot; exclusive mode offers the
 one-/two-GPU stage plans. CPU does not request a GPU. A matching runtime image
-is still required; CPU/XPU need an explicit image in **Advanced Settings**.
-The same section contains context, concurrency, memory and optional image
-overrides. RAM estimates are advisory; actual node capacity and slot checks stay.
+is still required; CPU/XPU need an explicit image in **Advanced**.
+Context and concurrent sessions use the common runtime section. The memory
+section contains system RAM and the GPU fraction; **Advanced** contains the
+optional image and thinker offloading as well as CPU reservation/limit.
+RAM estimates are advisory; actual node capacity and slot checks stay.
 **Model source** offers HF search and direct repository paths. Quantization,
 architecture, stage completeness and `config.json` are not pre-approved.
 Any valid HF reference can be tried without an online configuration check;
@@ -19,8 +35,10 @@ hardware/model support guarantee. The selected repository is saved in
 Location distinguishes only Local and External; vLLM-Omni is offered
 alongside the other local engines when the catalog advertises a Realtime profile.
 It still persists as `engine: VLLM` with `local.realtime`, not a new backend engine
-type. It does not inherit the normal model form's vLLM/Ollama/FreeToken
-knobs. Installed Realtime models reuse Edit, Logs, Start/Stop, Restart and
+type. Ordinary KV precision, tensor/pipeline parallelism, MiB VRAM controls and
+vision-attention overrides are not mapped into the shipped duplex stage plan;
+the API rejects these fields for Omni. The shared interface does not change that
+runtime contract. Installed Realtime models reuse Edit, Logs, Start/Stop, Restart and
 Remove. Speech testing uses LiteLLM's existing Realtime Playground, not a new
 dashboard conversation UI. See [Realtime](realtime.md), including the pinned
 development-runtime and hardware acceptance boundaries.
@@ -60,10 +78,22 @@ changed directly; there are no wizard steps or back buttons. Engine and hardware
 choices are filtered by current cluster capability. Unavailable CPU or
 accelerator targets are omitted instead of being presented as disabled choices.
 The engine dropdown sorts regular engines alphabetically first (**Ollama**,
-**vLLM**), followed by **(Experimental) FreeToken** and
-**(Experimental) vLLM-Omni**, also alphabetically. The first offered engine is the
-default for a new form. These are display labels only; catalog availability and
+**vLLM**), followed by **(Experimental) vLLM-Omni**, also alphabetically. The first offered engine is the
+default for a new form unless the API advertises an available default engine.
+These are display labels only; catalog availability and
 persisted engine identifiers are unchanged.
+
+The ordinary local Create form detects the **Chat** or **Embedding** task from
+the selected preset or registry metadata. It shows the result without a Type
+dropdown. If metadata is insufficient, **Model task** becomes a required manual
+choice; changing the model clears that choice. External creation and existing
+model editing retain their explicit type controls. Realtime uses its own
+catalog profile. Detection does not certify that an engine can load the model.
+See the [API task contract](dashboard-api.md#automatic-model-task-detection).
+
+Ordinary Create and Edit both offer optional **Max Output Tokens**; leaving it
+blank uses the runtime default. Clearing a stored limit sends an explicit reset.
+Omni does not expose this field because its current duplex adapter rejects it.
 
 For vLLM, **Model source** offers three persistent choices:
 
@@ -122,51 +152,21 @@ direct references available when discovery fails. Hugging Face discovery remains
 separate because the current runtime contract pulls `ollama://` registry models
 and cannot import an arbitrary Hugging Face GGUF repository automatically.
 
-For **FreeToken**, the model source is a capability-approved `hf://` Hugging
-Face safetensors or FTW checkpoint. The form does not treat a broad Hugging Face
-search result as a compatibility promise: it shows only the documented
-FreeToken-family policy returned by the server, and the API repeats that check
-before it accepts a write. FreeToken `v0.1.3` is shown only for its supported
-Linux `amd64` NVIDIA path. AMD/ROCm, Intel, CPU, a GPU slice, an unavailable
-device, and a node whose standard FreeToken adapter cannot receive one whole
-GPU are not selectable; the GPU choice explains the non-sensitive reason.
-
-The FreeToken form replaces the vLLM/Ollama memory controls with **GPU**,
-**VRAM**, **System RAM**, and **Memory Strategy**. It exposes one
-capability-approved whole GPU per runtime. The VRAM slider is bounded by the
-selected device's physical/currently usable memory and stores a planned budget.
-NVIDIA DCGM samples retain their node association with either the current
-`hostname` label or the legacy `Hostname` label, so FreeToken uses the same
-measured VRAM shown in the device gauge.
-When editing an active FreeToken model on the same node and GPU count, its own
-reservation is reusable by the replacement Pod. The form labels this as
-**available on restart**, keeps the existing limits unchanged, and does not add
-the old allocation to live free memory. Physical capacity and other models'
-reservations still bound the replacement. New or stopped models cannot borrow
-an active model's allocation.
-At startup the runtime converts that budget to FreeToken's documented fraction
-of *current free* VRAM. A race or another workload can therefore still make a
-previously valid budget fail clearly at start rather than silently growing it.
-The System RAM value is the Pod's Kubernetes reservation and limit, not an
-invented FreeToken host-RAM flag. It is bound to a fresh available-RAM reading
-from the selected GPU node; it is intentionally unavailable rather than
-falling back to a cluster-wide CPU aggregate when that reading is absent.
-**Auto** is the default strategy; the only
-additional choices are the documented FreeToken `fused`, `offload`, `cpu`, and
-`hybrid` strategies. **Advanced Settings** is collapsed initially and contains
-only documented options such as cache mode, cache/graph sizing, CPU workers,
-expert loading, and dtype.
-
-vLLM and FreeToken accept `hf://` model references; Ollama uses `ollama://`
+vLLM accepts `hf://` model references; Ollama uses `ollama://`
 references.
+Ordinary vLLM uses upstream 0.31.0 for all four target images, pinned by digest;
+vLLM-Omni is versioned separately. Ollama uses immutable 0.40.3 images for CPU,
+NVIDIA and AMD ROCm, retaining the same registry tags and saved model controls.
+See [Ollama upgrades](../development/model-integration.md#ollama-runtime-upgrades)
+before changing an installed runtime. Registry search and memory estimates are not
+a runtime compatibility certification. Check model architecture, quantization
+and target hardware against the selected runtime when startup fails.
 `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,
 and `intel-gpu` are shown only when the matching provider is `Ready` and
 Kubernetes reports its allocatable resource. Intel automatically resolves
 `gpu.intel.com/xe` or `gpu.intel.com/i915`. vLLM supports all four targets.
 Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
-because no validated KubeAI/Ollama Intel profile is bundled. FreeToken supports
-only its capability-approved NVIDIA option and never falls back to another
-engine or hardware target.
+because no validated KubeAI/Ollama Intel profile is bundled.
 
 For an experimental AMD profile, the selected engine needs current host evidence
 and an adopted runtime configuration; GPU validation remains optional. Upstream provider readiness and an allocatable
@@ -196,13 +196,6 @@ requested; model tensors are not downloaded by the estimator. If a registry
 proxy cannot serve that range, the API retains the conservative manifest-only
 calculation and reports that fallback explicitly.
 
-FreeToken does not reuse that vLLM/Ollama estimator because its documented
-`--memory-ratio` spans weights, MoE cache, and KV cache together. Its form uses
-the selected GPU's live capacity plus the requested FreeToken budget and marks
-the result as a runtime allocation plan, not an engine-independent fit proof.
-The API rejects impossible values and lets the runtime make a second check
-against the live device immediately before `ft serve` starts.
-
 Both the RAM and VRAM controls use unreserved memory (`total memory - active
 model reservations`) as their 100-percent slider maximum. The separate live
 free-memory value does not change that planning limit. Minimum and recommended
@@ -210,9 +203,20 @@ values are marked on the same scale. If either estimate exceeds unreserved
 capacity, its marker remains visible in a gray overflow section to the right of
 the slider. The slider stays bounded; the numeric field also accepts larger
 budgets, with an explicit memory-risk warning before creation.
+For **Split one model** across several selected NVIDIA GPUs, Create and Edit
+show a **Total VRAM budget (MiB)**, including total Minimum, Recommended and
+100% markers. The maximum is the smallest selected card's unreserved budget,
+rounded down to 100 MiB per card, multiplied by the number of selected cards.
+The input divides that total equally into per-card reservations; each share
+must still fit its physical GPU. **Replicate model copies** retains a budget
+for each full copy, and a single GPU retains its individual budget.
 The React dashboard's collapsible **Breakdown** separates model weights, the base KV-cache
 estimate, recurrent state where applicable, hybrid-allocator safety, engine
-runtime components, recommendation headroom, and download size. For vLLM hybrid models, the UI labels the
+runtime components, recommendation headroom, and download size. Split-model
+GPU components are totals across the selected cards, matching the calculator;
+their explanations show the per-card formula and group multiplier. Host runtime
+for a split Pod and download bytes are counted once. Replication keeps full
+per-copy estimates. For vLLM hybrid models, the UI labels the
 architecture-derived KV value as **Theoretical KV cache** and shows the extra
 compatibility budget independently instead of presenting their sum as physical
 cache use. Ollama hybrid models show attention KV and their context-independent
@@ -249,6 +253,31 @@ parallel sequences. The browser cannot supply an arbitrary runtime value. The
 operator passes that value to vLLM as `--kv-cache-memory-bytes`; 512 MiB remains
 only as a compatibility fallback for older or directly created resources that
 do not contain the derived field.
+
+GPU models also show **System RAM estimate / reservation** with serving RAM,
+an estimated startup range and a conservative recommended budget. Startup
+includes transfer buffers and a reclaimable file-cache envelope; these are not
+additional permanent model weights or measured RSS. One split Pod has one RAM
+budget, while replication shows per-copy and combined recommendations.
+New multi-GPU/offloading configurations use this recommendation when available;
+saved or manually edited RAM is preserved. The recommendation button is explicit,
+and a value below the provisional startup minimum needs memory-risk acceptance.
+Single-GPU models without CPU offloading retain their existing resource profile
+and show advisory RAM figures rather than claiming that a new limit was applied.
+Unverified capacity or missing weight metadata stays Unknown.
+
+Opening Edit keeps the saved RAM/VRAM budgets visible while the estimate loads.
+A failed estimate shows an actionable error and blocks saving; it does not
+replace the saved budget with a guessed value. Realtime compute choices identify
+both the node and CPU/GPU target, including when both are advertised on one node.
+
+vLLM GPU cache estimates use local tensor-rank heads (including GQA/MLA
+replication) or pipeline-local layers. Recurrent state and QSA side caches are
+itemized. Ollama uses an estimated whole-layer placement envelope. Per-worker
+runtime reserve follows local shards, with uneven placement separated from
+weights; the total estimate is labelled Estimated even when checkpoint byte
+metadata is exact. Special N-gram/PLE host placement requires runtime-specific
+verification and is not automatically enabled by this calculator.
 
 The installed-model card distinguishes **KV requested** from **KV active**.
 The second value remains pending until the operator observes a Ready replica
@@ -325,11 +354,37 @@ Ordinary nodes retain the Kubelet summary/metrics API fallback. Unified-memory
 nodes never use that fallback: driver-owned GPU allocations can be absent from
 Kubelet working-set accounting, overstating both CPU and shared GPU availability.
 
-NVIDIA gauges use one DCGM record per physical GPU. Kubernetes exposes the
-whole-GPU request but not the chosen GPU UUID on the `ModelActivation`, so the
-dashboard packs planned `vramRequiredMi` reservations deterministically across
-the detected devices; the actually-free inner ring always comes directly from
-DCGM. AMD and Intel device-plugin resources are also listed individually. Until their installed
+NVIDIA gauges use one DCGM record per physical GPU. With the default device
+plugin, Kubernetes exposes a whole-GPU request but not the chosen GPU UUID on
+the `ModelActivation`; the dashboard packs planned `vramRequiredMi` reservations
+deterministically across detected devices. That packing is not a binding.
+With opt-in NVIDIA DRA, `local.gpuDevice` binds the model to a verified card and
+its node UID. Its reservation is charged only to that card, never a sibling or
+a replacement node. The actually-free inner ring always comes from DCGM.
+`local.gpuDevices` extends this to a same-node NVIDIA group: one slot and
+the per-card VRAM reservation are charged to each selected UUID, not every GPU on
+the node. Eligibility uses DRA node identity and known positive physical
+`gpuCapacityMi`, with `gpuCapacitySource: nvidia-dra-inventory`. GPU models and
+capacities may differ; equal per-card budgets are bounded by the smallest
+unreserved budget and every card's physical capacity.
+DCGM's `totalMi` can differ between samples or from the inventory's capacity;
+it is not the grouping criterion. Missing inventory capacity blocks
+a group, while missing live readings alone do not. Live readings and planned
+reservations retain their separate memory meanings.
+In **Split one model**, the dialog shows the combined VRAM budget and
+converts it to the per-card `local.vram`/`local.vramMi` contract when saving.
+Existing saved per-card budgets need no migration. System RAM/CPU are reserved
+once for the Pod.
+In **Replicate model copies**, the full model runs on each selected GPU and
+system RAM/CPU are reserved per copy. The UI shows the combined host-RAM budget
+and the per-copy ready state; Logs can select an individual copy. **NVIDIA GPUs**
+shows all physical cards as checkboxes. Checked cards determine the selected
+count and saved identities. Polling never
+silently substitutes a missing or full card. Multi-GPU settings and vLLM
+parallelism appear under **Advanced**. See [GPU sharing](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
+for supported combinations, memory semantics and current acceptance limits.
+ResourceSlice capacity without DCGM yields a known total but unknown free
+memory. AMD and Intel device-plugin resources are also listed individually. Until their installed
 operator supplies a compatible memory exporter, unavailable readings use a
 dashed ring and `—`, not an invented zero, total, percentage, or free value.
 This preserves an honest UI while keeping the response contract
@@ -346,6 +401,12 @@ unverified GPU cgroup accounting remain explicit.
 GPU gauges add an outer segmented **model-slot** ring (gold: free, grey: occupied)
 and exact free/total counts, independently of memory. Fully occupied GPUs remain
 visible but disabled in the Hardware selector, with a `no free slots` hint.
+For multiple NVIDIA device-plugin cards, an aggregate **Node slots** ring is
+shown once above their memory gauges; the runtime chooses the physical card.
+NVIDIA DRA instead gives each card its own ring and a **NVIDIA GPUs** checkbox list in
+Create / Edit with name, PCI address, VRAM and free slots. Editing an active model
+may reuse its own card's slot. Stopped models have no such credit. A lost card or
+changed node UID remains visibly blocked rather than selecting another card.
 The model form refreshes every 15 seconds; if its selected GPU becomes full,
 submission is disabled without clearing the form or switching hardware.
 The API also checks current slots before writing a local model; accepting a
@@ -449,24 +510,26 @@ only for `ModelActivation` rows that the dashboard can delete.
 
 Operators and administrators can **Stop** and **Start** every managed model from
 its installed-model card. This uses the existing `spec.enabled` flag for Ollama,
-vLLM, FreeToken, and external providers, preserving the activation and all saved
+vLLM, Realtime, and external providers, preserving the activation and all saved
 settings. Local runtimes are removed on Stop; their resources become available
 as the Pods and allocations are released. Start recreates the runtime with its
 saved settings through the normal readiness and scheduling checks. For external
 providers, Stop only withdraws the Magic Stick route; it does not shut down the
-remote service. FreeToken also retains its existing **Restart** action.
+remote service. Realtime also provides a **Restart** action.
 The button follows the desired enabled state, prevents duplicate requests, and
 waits for runtime removal before allowing Start. Writes carry the current
 configuration revision; errors remain visible without removing the model card.
-See [stopping and resuming models](../administration/troubleshooting/models.md#stop-and-resume-models), including
-the temporary FreeToken cache behavior.
+For ordinary Ollama/vLLM runtimes, `Removing` continues until the KubeAI Model
+and remaining runtime Pods are gone. A terminal Pod or a withdrawn catalog
+entry alone is not proof of completed cleanup; runtime shutdown errors must
+be investigated rather than hidden by removing finalizers or extending every timeout.
+See [stopping and resuming models](../administration/troubleshooting/models.md#stop-and-resume-models).
 
 Operators can open **Edit** on every managed installed model. Local edits keep
 the model reference, inference engine, hardware target, name, and namespace
 fixed while exposing the applicable engine settings: context/output limits,
-sequence concurrency, KV-cache/memory/offloading controls for vLLM/Ollama, or
-FreeToken's GPU budget, Kubernetes system-RAM reservation, strategy, and
-advanced settings. The memory estimate is recalculated against capacity with the
+sequence concurrency, KV-cache/memory/offloading controls for vLLM/Ollama, and
+Realtime stage settings. The memory estimate is recalculated against capacity with the
 model's own existing reservation removed, so an unchanged deployment is not
 counted twice. External edits cover provider parameters and can replace an API
 key; leaving the key blank preserves the existing Secret. **Save changes**
@@ -480,7 +543,7 @@ one status-only race can be retried without accepting a concurrent spec edit.
 Administrators can open **Logs** on each local installed-model card. The dialog
 refreshes a bounded tail from every declared runtime and init container and also
 shows the previous container run after a restart. It remains useful while a
-model is starting; if KubeAI or the FreeToken adapter has not created a Pod, or
+model is starting; if the runtime controller has not created a Pod, or
 Kubernetes has no output yet, the dialog says so without turning that expected
 state into a dashboard failure. External providers have no local Pod and
 therefore no Logs button.

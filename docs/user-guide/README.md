@@ -6,7 +6,7 @@ their assigned instances rather than the full control plane.
 
 - [Dashboard overview](dashboard.md)
 - [Choose an inference engine](models/choose-engine.md)
-- [Ollama](models/ollama.md), [vLLM](models/vllm.md), [FreeToken](models/freetoken.md)
+- [Ollama](models/ollama.md), [vLLM](models/vllm.md)
   and [Realtime with vLLM-Omni](models/realtime.md)
 - [External model providers](models/external.md)
 - [Edit, start, stop and remove models](models/manage.md)

@@ -278,6 +278,7 @@ def image_source_path(path):
     if path.endswith(".md") or re.search(r"(^|/)(?:test_[^/]+|(?:tests|test|e2e)/)|\.test\.[^/]+$", path):
         return False
     return (path.startswith(("dashboard/", "core/magicstick_core/"))
+            or path == "magic-cluster/apps/dashboard/regression_api.py"
             or path.startswith("licenses/")
             or path in {"magic-host/roles/host-management/files/" + name for name in
                         ("network_contract.py", "updates_contract.py", "software_contract.py", "model_cache.py")})
@@ -385,6 +386,10 @@ def execute(request, lock, kube):
         (STATE / "software-preview.json").unlink(missing_ok=True)
         preview(selected)
         return "Channel and published dashboard images checked. Review and apply the preview."
+    # Reject before saving selection or backup/maintenance markers. The
+    # converge runner subsequently reserves the shared Lease through rollout.
+    import regression_guard
+    regression_guard.assert_idle(kube)
     reviewed = read_json(STATE / "software-preview.json")
     checked = preview(selected)
     if checked["commit"] != reviewed["commit"]:

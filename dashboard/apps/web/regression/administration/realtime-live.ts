@@ -1,8 +1,7 @@
 import {expect} from '@playwright/test';
-import {join} from 'node:path';
 import type {RuntimeModelFixture} from '../core/config.ts';
 import type {LiveFoundation} from '../core/live-foundation.ts';
-import {readPrivate} from '../core/private-files.ts';
+import {readPrivate,journalFile} from '../core/private-files.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
 import {BorrowedSharing} from '../core/borrowed-sharing.ts';
 import {sharingAdapter,podSpec} from '../core/gpu-scenario.ts';
@@ -10,11 +9,72 @@ import {realtimeSession} from '../core/realtime-probe.ts';
 import {openInferenceSession} from '../core/auth.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
-import {activation,editRevision,modelContextUpdateReceipt} from '../core/owned-model.ts';
+import {activation,editRevision,modelContextUpdateReceipt,OwnedModelClient} from '../core/owned-model.ts';
+import {browserMutation,MutationNotSubmitted} from '../core/browser-action.ts';
+import {selectRange} from './form-checks.ts';
 import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {modelCard} from '../hardware/live-ui.ts';
 import {permittedUiAction} from './ui-actions.ts';
 import {AdministrationApi,AdministrationRejected} from '../core/administration-api.ts';
+import {waitRuntimeReady} from '../core/runtime-evidence.ts';
+
+/** Exercise Create in the actual shared form, retaining exact intent and UID-bound cleanup. */
+export async function selectRealtimeCompute(dialog:import('@playwright/test').Locator,fixture:RuntimeModelFixture) {
+  const options=await dialog.getByLabel('Compute node').locator('option').evaluateAll(items=>items.map(item=>({value:(item as HTMLOptionElement).value,
+    node:(item as HTMLOptionElement).dataset.node,target:(item as HTMLOptionElement).dataset.computeTarget,disabled:(item as HTMLOptionElement).disabled})));
+  const matches=options.filter(item=>item.node===fixture.realtime!.gpuNode&&item.target===fixture.computeTarget);
+  requireSafe(matches.length===1&&!matches[0]!.disabled,'CAPABILITY');
+  await dialog.getByLabel('Compute node').selectOption(matches[0]!.value);
+  if(fixture.computeTarget!=='cpu')await dialog.getByRole('combobox',{name:'GPUs',exact:true}).selectOption(String(fixture.realtime!.gpuCount));
+  else await expect(dialog.getByRole('combobox',{name:'GPUs',exact:true})).toHaveCount(0);
+}
+async function createRealtimeThroughForm(live:LiveFoundation,suffix:string,fixture:RuntimeModelFixture) {
+  requireSafe(fixture.realtime && !fixture.realtime.restartNonce,'CONFIG');
+  const name=live.journal.prefix+suffix;
+  const client=new OwnedModelClient(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,name,fixture,live.journal.prefix,live.guard);
+  await live.guard();requireSafe(!await live.cleaner.find(name) && !activation(await client.models(),name),'OWNERSHIP');
+  const page=await live.context.newPage();
+  try {
+    await page.goto(live.config.dashboardUrl+'/#/models');
+    await page.getByRole('button',{name:'Create',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'Create Model'});
+    await dialog.getByLabel('Inference Engine').selectOption('VLLM-Omni');
+    await dialog.getByLabel('Realtime profile').selectOption(fixture.realtime.profile);
+    await dialog.getByLabel('Name',{exact:true}).fill(name);
+    await dialog.getByLabel('Model source').selectOption('direct');
+    await dialog.getByLabel('Hugging Face URL').fill(fixture.url);
+    await selectRealtimeCompute(dialog,fixture);
+    await dialog.getByLabel('Context Size',{exact:true}).fill(String(fixture.contextWindow));
+    await dialog.getByLabel('Concurrent sessions').fill('1');
+    await dialog.getByLabel('System RAM (MiB)').fill(String(fixture.realtime.systemMemoryMi));
+    if(fixture.computeTarget!=='cpu')await selectRange(dialog.getByLabel('GPU memory budget'),fixture.realtime.gpuMemoryFraction);
+    await dialog.getByText('Advanced',{exact:true}).click();
+    if(fixture.computeTarget!=='cpu')await dialog.getByLabel('Thinker CPU offload (GiB)').fill(String(fixture.realtime.thinkerCpuOffloadGiB));
+    if(fixture.realtime.runtimeImage)await dialog.getByLabel('Runtime image (optional)').fill(fixture.realtime.runtimeImage);
+    await expect(dialog.getByLabel('CPU reservation (cores)')).toHaveValue('');
+    await expect(dialog.getByLabel('CPU limit (cores, 0 = unlimited)')).toHaveValue('');
+    await live.journal.requested('model',name);
+    let accepted:ModelActivation|undefined;
+    try {
+      await browserMutation(page,{url:live.config.dashboardUrl+'/api/models/local',method:'POST',body:client.payload(),
+        timeoutMs:live.config.requestTimeoutMs,guard:live.guard,stage:'model-create',acknowledge:async response=>{
+          const value=await response.json() as ModelActivation;
+          requireSafe(value?.metadata?.name===name&&value.metadata.namespace===live.config.expected.applianceNamespace&&
+            value.metadata.uid&&Number.isSafeInteger(value.metadata.generation)&&Number(value.metadata.generation)>0,'API');
+          await live.journal.owned('model',name,value.metadata.uid,value.metadata.generation);accepted=value;
+        }},
+        ()=>dialog.getByRole('button',{name:'Add Realtime Model',exact:true}).click());
+    }catch(error) {
+      if(error instanceof MutationNotSubmitted && !await live.cleaner.find(name))await live.journal.rejected('model',name);
+      throw error;
+    }
+    requireSafe(accepted?.metadata?.name === name && accepted.metadata.namespace === live.config.expected.applianceNamespace &&
+      accepted.metadata.uid && Number.isSafeInteger(accepted.metadata.generation) && Number(accepted.metadata.generation) > 0,'API');
+    const uid=accepted.metadata.uid,generation=Number(accepted.metadata.generation);
+    client.adopt(uid);
+    return {client,uid,generation};
+  }finally{await page.close();}
+}
 
 export async function realtimeWorkflow(live:LiveFoundation) {
   requireSafe(process.env.REGRESSION_REMAINING_PROFILE && live.config.gpu && live.config.inferenceUrl,'PREREQUISITE');
@@ -26,11 +86,11 @@ export async function realtimeWorkflow(live:LiveFoundation) {
     ['amd-gpu','nvidia-gpu'].includes(row.fixture.computeTarget) && row.fixture.realtime?.gpuNode === live.config.gpu.nodeName &&
     row.fixture.contextWindow >= 256 && row.fixture.contextWindow <= 4096 && row.fixture.maxNumSeqs === 1 &&
     /^hf:\/\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:@[a-f0-9]{40})?$/.test(row.fixture.url),'CONFIG');
-  const sharing=await BorrowedSharing.create(join(process.env.REGRESSION_RUN_DIR!,'realtime-sharing.json'),{
+  const sharing=await BorrowedSharing.create(journalFile(live.journal,'realtime-sharing.json'),{
     runId:live.journal.runId,targetUid:live.config.expected.applianceUid,nodeName:live.config.gpu.nodeName,nodeUid:live.config.gpu.nodeUid},sharingAdapter(live),live.guard);
   const key=await live.createKey('rt-key');
   await openInferenceSession(live.context,live.config.inferenceUrl,live.config.loginTimeoutMs);
-  const ordinary=await live.createModel('rt-control');await live.waitReady(ordinary.client,ordinary.uid,ordinary.generation);
+  const ordinary=await live.createModel('rt-control');await waitRuntimeReady(live,ordinary);
   const inference=new InferenceProbe(live.context.request,live.config.inferenceUrl,key.secret);
   try {
     for(const [index,row] of plan.fixtures.entries()) {
@@ -43,8 +103,8 @@ export async function realtimeWorkflow(live:LiveFoundation) {
       {timeoutMs:300_000,intervalMs:1500,stage:'gpu-backend'});
       const capability=models.computeTargets.engineCatalog?.VLLM?.realtimeProfiles?.[row.fixture.realtime!.profile];
       requireSafe(capability?.gpuCounts.includes(row.fixture.realtime!.gpuCount) && (row.mode !== 'shared' || row.fixture.realtime!.gpuCount === 1),'CAPABILITY');
-      const created=await live.createModel('omni-'+index,live.journal,row.fixture);
-      let ready=await live.waitReady(created.client,created.uid,created.generation);
+      const created=await createRealtimeThroughForm(live,'omni-'+index,row.fixture);
+      let ready=await waitRuntimeReady(live,created);
       requireSafe(ready.pods.length === 1 && podSpec(ready.pods[0]!).nodeName === row.fixture.realtime!.gpuNode &&
         ready.item?.spec?.local?.realtime?.profile === row.fixture.realtime!.profile && ready.item.spec.local.engine === 'VLLM' &&
         !Object.hasOwn(ready.item.spec.local,'freetoken') && !Object.hasOwn(ready.item.spec.local,'cpuOffloading'),'API');
@@ -54,19 +114,18 @@ export async function realtimeWorkflow(live:LiveFoundation) {
         const card=modelCard(page,created.client.name);
         await card.getByRole('button',{name:'Edit '+created.client.name,exact:true}).click();
         await expect(page.getByLabel('Realtime profile')).toHaveValue(row.fixture.realtime!.profile);
-        await expect(page.getByLabel('Compute node')).toHaveValue(row.fixture.realtime!.gpuNode);
+        await expect(page.getByLabel('Compute node').locator('option:checked')).toHaveAttribute('data-node',row.fixture.realtime!.gpuNode);
+        await expect(page.getByLabel('Compute node').locator('option:checked')).toHaveAttribute('data-compute-target',row.fixture.computeTarget);
         await expect(page.getByLabel('KV Cache')).toHaveCount(0);await expect(page.getByRole('button',{name:'Save changes',exact:true})).toBeDisabled();
-        await page.getByRole('dialog').getByText('Advanced Settings',{exact:true}).click();
         const context=row.fixture.contextWindow === 256 ? 512 : 256;
         await page.getByRole('dialog').getByLabel('Context Size',{exact:true}).fill(String(context));
-        const current=ready.item!,body={expectedRevision:editRevision(current),local:{realtime:current.spec!.local!.realtime!,contextWindow:context,maxNumSeqs:1}};
+        const current=ready.item!,body={expectedRevision:editRevision(current),local:{contextWindow:context}};
         const updated=await permittedUiAction<ModelActivation>(page,live.config.dashboardUrl,'/api/models/'+created.client.name,'PUT',body,live.guard,
           ()=>page.getByRole('button',{name:'Save changes',exact:true}).click());
         const receipt=modelContextUpdateReceipt(current,updated,context);
         await live.journal.modelGeneration(created.client.name,created.uid,created.generation,receipt.generation);created.generation=receipt.generation;
-        ready=await live.waitReady(created.client,created.uid,created.generation);
+        ready=await waitRuntimeReady(live,created);
         await page.reload();await modelCard(page,created.client.name).getByRole('button',{name:'Edit '+created.client.name,exact:true}).click();
-        await page.getByRole('dialog').getByText('Advanced Settings',{exact:true}).click();
         await expect(page.getByLabel('Context Size',{exact:true})).toHaveValue(String(context));
         await expect(page.getByRole('button',{name:'Save changes',exact:true})).toBeDisabled();
         await page.getByRole('button',{name:'Cancel',exact:true}).click();
@@ -105,14 +164,14 @@ export async function realtimeWorkflow(live:LiveFoundation) {
         }finally{await page.close();}
       };
       const restarted=await lifecycle('restart');
-      const replaced=await live.waitReady(created.client,created.uid,restarted.generation);requireSafe(replaced.pods.every(pod=>!oldPods.has(pod.metadata.uid)),'API');
+      const replaced=await waitRuntimeReady(live,{...created,generation:restarted.generation});requireSafe(replaced.pods.every(pod=>!oldPods.has(pod.metadata.uid)),'API');
       await realtimeSession(live.config.inferenceUrl,created.client.name,key.secret);
       await lifecycle('stop');
       const idle=await poll(()=>live.modelState(created.client,created.uid),value=>value.item?.spec?.enabled === false && value.pods.length === 0 &&
         !value.models.models?.some(model=>model.id === created.client.name),{timeoutMs:300_000,intervalMs:1000,stage:'model-stopped'});
       await inference.chat(ordinary.client.name,live.config.smokeModel!.url.split('://')[1]);
       requireSafe(idle.item?.metadata?.generation === created.generation,'API');const started=await lifecycle('start');
-      await live.waitReady(created.client,created.uid,started.generation);await realtimeSession(live.config.inferenceUrl,created.client.name,key.secret);
+      await waitRuntimeReady(live,{...created,generation:started.generation});await realtimeSession(live.config.inferenceUrl,created.client.name,key.secret);
       const removal=await live.context.newPage();
       try {
         await removal.goto(live.config.dashboardUrl+'/#/models');

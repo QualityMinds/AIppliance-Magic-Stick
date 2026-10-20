@@ -103,7 +103,7 @@ account.
 
 The current implementation provides:
 
-- Envoy Gateway `v1.8.2` as the primary `LoadBalancer` data plane
+- Envoy Gateway `v1.8.5` with Envoy Proxy `v1.38.6` as the primary `LoadBalancer` data plane
 - Keycloak with PostgreSQL in namespace `identity-system`
 - runtime-generated database, bootstrap-admin, and OIDC client secrets
 - a first-run wizard that creates the first human and recovery administrators
@@ -146,3 +146,19 @@ gateway client or `magicstick-cli`, their issuer matches the local realm, they
 are unexpired, Keycloak still accepts them through `userinfo`, and the required
 realm role is present. The edge JWT policy is an additional validation layer,
 not a replacement for API authorization.
+
+### Gateway patch updates
+
+Both the identity gateway and temporary first-run gateway explicitly select the
+patched Envoy Proxy image. The Helm default alone is insufficient: an attached
+`EnvoyProxy` without a merge type replaces the controller default.
+The selected same-series patches follow the upstream
+[Envoy Gateway v1.8.5 upgrade guidance](https://gateway.envoyproxy.io/news/releases/notes/v1.8.5/)
+and include fixes for authentication-filter crashes. This is not proof that a
+historical, unsymbolized native crash had one particular upstream cause.
+
+Upgrading from the older OIDC cookie format can require users to sign in once
+again; it does not remove local accounts. Validate authenticated dashboard and
+application access plus module/route disable, re-enable and cleanup without
+proxy restarts after a gateway update. Do not bypass TLS, authentication or the
+regression cleanup fence if that check fails.

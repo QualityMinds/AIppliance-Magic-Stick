@@ -40,7 +40,7 @@ class ModelCacheTests(unittest.TestCase):
         self.assertTrue(self.capability["supported"])
         self.assertFalse(self.capability["blocked"])
         self.assertGreater(self.capability["reclaimableBytes"], 0)
-        self.assertEqual(len(self.capability["caches"]), 3)
+        self.assertEqual(len(self.capability["caches"]), 2)
         after = cache.clear(node(), self.kube, self.payload)
         self.assertEqual(after["reclaimableBytes"], 0)
         self.assertGreater(after["freeBytes"], 0)

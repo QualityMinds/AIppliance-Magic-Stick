@@ -1,4 +1,5 @@
 import pathlib
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -6,6 +7,7 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 CLUSTER_ROOT = ROOT.parents[1]
 
 
@@ -66,6 +68,19 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertFalse(release["spec"]["values"]["instance"]["values"]["ingress"]["enabled"])
         self.assertEqual(url, "https://demo.kubeopencode.magicstick.local/")
 
+    def test_anythingllm_initial_model_parameters_reach_only_its_generated_substitutions(self):
+        catalog = yaml.safe_load(yaml.safe_load((ROOT / "module-catalog.yaml").read_text())["data"]["modules.json"])
+        definition = catalog["modules"]["anything-llm"]
+        selections = {"chatModel": "selected-chat", "embeddingModel": "selected-embedding", "storage": "3Gi"}
+        resource = self.controller["generated_kustomization"]("anything-llm", definition, catalog, True,
+            {"kind": "GitRepository", "name": "flux-system"}, selections)
+        self.assertEqual(resource["spec"]["path"], "./magic-cluster/apps/ai/anything-llm/base")
+        values = resource["spec"]["postBuild"]["substitute"]
+        self.assertEqual(values["AI_APPLIANCE_ANYTHING_LLM_CHAT_MODEL"], "selected-chat")
+        self.assertEqual(values["AI_APPLIANCE_ANYTHING_LLM_EMBEDDING_MODEL"], "selected-embedding")
+        self.assertNotIn("AI_APPLIANCE_DEFAULT_CHAT_MODEL", values)
+        self.assertNotIn("AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL", values)
+
     def test_catalog_routes_hermes_to_its_dashboard_port(self):
         manifest = yaml.safe_load((ROOT / "app-catalog.yaml").read_text(encoding="utf-8"))
         catalog = yaml.safe_load(manifest["data"]["applications.json"])
@@ -88,6 +103,7 @@ class HelmAppInstanceTests(unittest.TestCase):
                 "paperclip": "0s",
                 "kubeopencode": "0s",
                 "odysseus": "0s",
+                "pi-coding": "0s",
             },
         )
 
@@ -356,7 +372,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         pod_rule = next(
             rule for rule in rules if rule["apiGroups"] == [""] and rule["resources"] == ["pods"]
         )
-        self.assertEqual(namespace_rule["verbs"], ["get", "list", "watch"])
+        self.assertEqual(namespace_rule["verbs"], ["get", "list", "watch", "create"])
         self.assertEqual(quota_rule["verbs"], ["get", "create", "update", "patch"])
         self.assertEqual(policy_rule["verbs"], ["get", "create", "update", "patch", "delete"])
         self.assertEqual(pod_rule["verbs"], ["get", "list", "watch", "delete"])
@@ -773,8 +789,12 @@ class HelmAppInstanceTests(unittest.TestCase):
             crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
             ["properties"]["local"]
         )
-        self.assertEqual(local_schema["properties"]["engine"]["enum"], ["VLLM", "OLlama", "FreeToken"])
+        self.assertEqual(local_schema["properties"]["engine"]["enum"], ["VLLM", "OLlama"])
         self.assertEqual(local_schema["properties"]["artifact"]["type"], "string")
+        self.assertNotIn("freetoken", local_schema["properties"])
+        spec_fields = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
+        self.assertTrue(spec_fields["external"]["x-kubernetes-preserve-unknown-fields"])
+        self.assertEqual(spec_fields["external"]["properties"]["capabilities"]["type"], "object")
         status_schema = (
             crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
             ["status"]["properties"]
@@ -787,7 +807,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         catalog = yaml.safe_load(manifest["data"]["targets.json"])
         self.assertEqual(catalog["schemaVersion"], 3)
         self.assertEqual(catalog["targets"]["cpu"]["engines"], ["VLLM", "OLlama"])
-        self.assertEqual(catalog["targets"]["nvidia-gpu"]["engines"], ["VLLM", "OLlama", "FreeToken"])
+        self.assertEqual(catalog["targets"]["nvidia-gpu"]["engines"], ["VLLM", "OLlama"])
         self.assertEqual(catalog["targets"]["amd-gpu"]["engines"], ["VLLM", "OLlama"])
         self.assertEqual(catalog["targets"]["intel-gpu"]["engines"], ["VLLM"])
 
@@ -982,7 +1002,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         fp8_resource, fp8_runtime = self.controller["kubeai_model_resource"](activation, presets)
         self.assertEqual(fp8_runtime["kvCacheType"], "fp8")
         self.assertIn("--kv-cache-dtype=fp8", fp8_resource["spec"]["args"])
-        self.assertIn("--calculate-kv-scales", fp8_resource["spec"]["args"])
+        self.assertNotIn("--calculate-kv-scales", fp8_resource["spec"]["args"])
         self.assertNotIn("--kv-cache-dtype=auto", fp8_resource["spec"]["args"])
 
     def test_cpu_preset_generates_cpu_runtime_without_gpu_requirements(self):

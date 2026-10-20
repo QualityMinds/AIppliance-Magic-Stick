@@ -49,17 +49,17 @@ spec:
     modelServers:
       VLLM:
         images:
-          magicstick-vllm-nvidia: vllm/vllm-openai:v0.23.0
-          magicstick-vllm-cpu: vllm/vllm-openai-cpu:v0.23.0
+          magicstick-vllm-nvidia: vllm/vllm-openai:v0.31.0@sha256:c1c9f6fd5c109ba7f0546a59f5b2f15fb87f64c77782e90a27b648b42a8e67c3
+          magicstick-vllm-cpu: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
           # AMD images come only from magicstick-gpu-runtime-images. Duplicate
           # inline tags can override validated digests during values merging.
-          magicstick-vllm-intel: vllm/vllm-openai-xpu:v0.26.0
+          magicstick-vllm-intel: vllm/vllm-openai-xpu:v0.31.0@sha256:95ac815038c4b3537b173798bfe3b89bdf525a52bd653cd14d4deb01f1062be7
       OLlama:
         images:
           # Qwen3.5/3.6/3.8 require a current Ollama model parser. Keep the
           # standard and ROCm images on the same pinned upstream release.
-          magicstick-ollama-cpu: ollama/ollama:0.33.2
-          magicstick-ollama-nvidia: ollama/ollama:0.33.2
+          magicstick-ollama-cpu: ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99
+          magicstick-ollama-nvidia: ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99
           # The AMD image is supplied by valuesFrom above.
     modelRollouts:
       # Avoid starting an extra GPU model pod during model updates.

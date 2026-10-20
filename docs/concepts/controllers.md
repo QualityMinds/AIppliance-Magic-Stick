@@ -5,8 +5,7 @@ optional `ModelActivation.spec.local.cpuResources` overrides. After memory and
 GPU-sharing resolution, the controller materializes a count-one KubeAI profile
 in the existing runtime-profile ConfigMap. Only CPU requests/limits change;
 RAM quantities, GPU resources, selectors and DRA bindings are preserved.
-This avoids multiplying CPU by CPU-model RAM units. FreeToken applies the
-resolved policy to its own Deployment. See the
+This avoids multiplying CPU by CPU-model RAM units. See the
 [CPU scheduling policy](../reference/compute-targets.md#cpu-scheduling-policy).
 
 The Magic Stick Operator is a meta-operator. It orchestrates platform modules
@@ -33,6 +32,16 @@ The dashboard is also not an operator. It reads status and creates or patches
 | KubeOpenCode controller | Owns KubeOpenCode resources such as `AgentTemplate`, `Agent`, `Task`, `CronTask`, `Registry`, and `KubeOpenCodeConfig`. |
 
 ## Reconcile Flow
+
+The optional regression module uses the same operator for `RegressionRun`
+intent. It verifies immutable test registration and hardware identity, serializes
+one non-retrying Job, observes sanitized progress/results, and honors UID-bound
+cancellation. Private recovery journals persist across runs; a finished Job is
+not a passing suite. The same operator handles recovery-only intent: verify the
+reviewed stale lock and original journal, restore recorded state, then release
+the lock without selecting test phases. The Dashboard API cleans the generated test account after
+the owned Pod terminates. [Host-disconnecting drills](../development/regression-remaining-p0.md#in-the-dashboard)
+remain an external-runner prerequisite, not in-cluster acceptance.
 
 The optional `ModelActivation.spec.local.realtime` profile uses a direct
 vLLM-Omni Deployment, Service and stage ConfigMap. Module dependencies are the
@@ -152,6 +161,7 @@ serialized while remaining upgrade-compatible with Flux server-side apply.
 | `paperclip` | `paperclip-operator`, `agent-sandbox` | `instances.paperclip.inc`, `sandboxes.agents.x-k8s.io` | `Instance` `paperclip.inc/v1alpha1` and per-run `Sandbox` resources |
 | `kubeopencode` | `kubeopencode` | `agenttemplates.kubeopencode.io` | `AgentTemplate` and related `kubeopencode.io/v1alpha1` resources |
 | `odysseus` | `odysseus` | none | `Deployment` `apps/v1` plus supporting Services, PVCs, and ConfigMaps |
+| `pi-coding` | `pi-coding` | none | Pi terminal `Deployment` `apps/v1`, ClusterIP Service, bootstrap ConfigMap and retained workspace PVC |
 
 All enabled AI app instances also require `litellm` and `model-catalog`.
 Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and
@@ -257,8 +267,14 @@ native admission adapter and bounded model admission; the AMD adapter leaves
 NVIDIA allocation unchanged. The same Hardware controls manage NVIDIA separately
 through named, shipped device-plugin time-slicing profiles and a per-node label.
 NVIDIA changes drain only NVIDIA models, retain the driver/ClusterPolicy and wait
-for confirmed advertised slots. Hardware inventory counts physical GPUs, not
-synthetic sharing slots.
+for confirmed advertised slots. Opt-in NVIDIA DRA uses the pinned standalone
+driver, one UUID-selected claim per card and a separate native admission adapter
+for ordinary vLLM/Ollama models. The controller disables the old allocator
+before enabling the new one, verifies the actual driver root and complete
+ResourceSlices, and waits for claim cleanup before a reverse handoff. Unmanaged
+consumers block that transition. Hardware inventory counts physical GPUs, not
+synthetic sharing slots; legacy NVIDIA pools are displayed once, while DRA
+counts slots on each physical card.
 
 If an instance requires a module that is disabled, the MVP contract
 does not override the disabled module. The instance remains in
@@ -275,7 +291,9 @@ After the local runtime modules are ready, an accelerator-backed model can
 enter `WaitingForGPU` until Kubernetes reports at least one allocatable target
 resource: `nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/xe`, or
 `gpu.intel.com/i915`. CPU and external models never inspect accelerator
-capacity. For Intel, the controller also resolves the actual resource to the
+capacity. Ready, identity-matched AMD/NVIDIA DRA claims supply capacity without
+an extended resource. A saved NVIDIA card selection never falls back to a
+random legacy GPU if DRA is unavailable. For Intel, the controller also resolves the actual resource to the
 matching `xe` or `i915` KubeAI profile before creating the model.
 
 `Appliance.status.hardwareOperators` always contains NVIDIA, AMD, and Intel.

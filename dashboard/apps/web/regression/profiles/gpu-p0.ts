@@ -2,13 +2,23 @@ import type {LabConfig} from '../core/config.ts';
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
 import {requirePhase1Profile} from './phase1-p0.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 type Definition = {id:string; layers:readonly TestLayer[]};
 const row = (id:string,layers:readonly TestLayer[]): Definition => ({id,layers});
 /** Finite installed mixed-node GPU matrix. Intel and reboot acceptance are
  * separate, explicit hardware/maintenance gates, never synthetic live passes. */
 export const phase3Variants = {
+  'p3-engine-selection':row('ENG-01',['U','C','B']),
+  'p3-replicated-config':row('MGPU-02',['U','C','B']),
+  'p3-replicated-vllm-2':row('MGPU-02',['A','E','O']),
+  'p3-replicated-vllm-4':row('MGPU-02',['A','E','O']),
+  'p3-replicated-ollama-2':row('MGPU-02',['A','E','O']),
+  'p3-replicated-ollama-4':row('MGPU-02',['A','E','O']),
+  'p3-multigpu-config':row('MGPU-01',['U','C','B']),
+  'p3-multigpu-vllm-2':row('MGPU-01',['A','E','O']),
+  'p3-multigpu-vllm-4':row('MGPU-01',['A','E','O']),
+  'p3-multigpu-ollama-2':row('MGPU-01',['A','E','O']),
+  'p3-multigpu-ollama-4':row('MGPU-01',['A','E','O']),
   'p3-inventory':row('HW-01',['U','C','A','E']),
   'p3-mixed-vendor':row('HW-02',['U','C','A','E']),
   'p3-readiness':row('HW-03',['U','C','A','B']),
@@ -20,6 +30,7 @@ export const phase3Variants = {
   'p3-unified-memory':row('MEM-09',['U','C','A','E']),
   'p3-slot-ring':row('SLOT-01',['U','C','A','E']),
   'p3-pending-slot':row('SLOT-02',['U','C','A']),
+  'p3-nvidia-multicard-slots':row('SLOT-01',['U','C','B']),
   'p3-kv-controls':row('ENG-03',['U','C']),
   'p3-amd-ollama':row('ENG-01',['C','A','E']),
   'p3-amd-vllm':row('ENG-01',['C','A','E']),
@@ -33,19 +44,20 @@ export const phase3Variants = {
   'p3-route':row('ROUTE-01',['A']),
   'p3-runtime-stop':row('LIFE-03',['A','E']),
   'p3-runtime-start':row('LIFE-04',['A','E']),
-  'p3-ft-capability':row('FT-01',['U','C','A','E']),
-  'p3-ft-telemetry':row('FT-02',['U','C','B','A','E']),
-  'p3-ft-runtime':row('FT-03',['C','A']),
-  'p3-ft-whole-device':row('FT-04',['U','C','A','E']),
-  'p3-ft-vram':row('FT-05',['U','C','B','A','E']),
-  'p3-ft-ram':row('FT-06',['U','C','B','A','E']),
-  'p3-ft-edit':row('FT-08',['U','C','A','E']),
-  'p3-ft-lifecycle':row('FT-09',['U','C','A','E']),
-  'p3-ft-discovery':row('DISC-08',['U','C','A','E']),
   'p3-restoration':row('HAR-08',['U','A']),
 } as const;
 
 export const phase4Variants = {
+  'p4-replicated-config':row('MGPU-02',['U','C','B']),
+  'p4-replicated-vllm-2':row('MGPU-02',['A','E','O']),
+  'p4-replicated-vllm-4':row('MGPU-02',['A','E','O']),
+  'p4-replicated-ollama-2':row('MGPU-02',['A','E','O']),
+  'p4-replicated-ollama-4':row('MGPU-02',['A','E','O']),
+  'p4-multigpu-config':row('MGPU-01',['U','C','B']),
+  'p4-multigpu-vllm-2':row('MGPU-01',['A','E','O']),
+  'p4-multigpu-vllm-4':row('MGPU-01',['A','E','O']),
+  'p4-multigpu-ollama-2':row('MGPU-01',['A','E','O']),
+  'p4-multigpu-ollama-4':row('MGPU-01',['A','E','O']),
   'p4-defaults':row('SHR-01',['U','C','B']),
   'p4-dirty-confirmation':row('SHR-02',['U','B','E']),
   'p4-nvidia-transition':row('SHR-03',['C','A','E','O']),
@@ -65,6 +77,10 @@ export const phase4Variants = {
   'p4-draft-refresh':row('SLOT-05',['U','B','A','E']),
   'p4-release':row('SLOT-06',['U','C','A','E']),
   'p4-edit-own-slot':row('SLOT-07',['U','C','A','E']),
+  'p4-nvidia-card-choice':row('SLOT-05',['U','C','B']),
+  'p4-nvidia-card-release':row('SLOT-06',['U','C','B']),
+  'p4-nvidia-card-edit':row('SLOT-07',['U','C','B']),
+  'p4-nvidia-dra-handoff':row('SHR-03',['U','C','B']),
   'p4-last-slot-race':row('SLOT-09',['U','C','A']),
   'p4-restoration':row('HAR-08',['U','C','A']),
   'p4-cdi-identity':row('BOOT-04',['U','C']),
@@ -75,8 +91,7 @@ export type GpuVariant = keyof typeof phase3Variants | keyof typeof phase4Varian
 const requirements = (variants:Record<string,Definition>,phase:number) => Object.entries(variants).flatMap(([variant,definition]) =>
   definition.layers.map(layer => ({id:definition.id,variant,layer,environment:environmentFor(layer),priority:'P0' as const,phase,
     parameterSet:phase === 3 ? 'installed-exclusive-amd-nvidia' : 'installed-sharing-amd-nvidia'})));
-export const phase3Requirements = requirements(phase3Variants,3).filter(item=>freeTokenRegressionEnabled ||
-  !item.variant.startsWith('p3-ft-'));
+export const phase3Requirements = requirements(phase3Variants,3);
 export const phase4Requirements = requirements(phase4Variants,4);
 export const gpuRequirements = (phase:3|4) => phase === 3 ? phase3Requirements : phase4Requirements;
 /** Bounded diagnosis of classic GPU lifecycle paths; this does not

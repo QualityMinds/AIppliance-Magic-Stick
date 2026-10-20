@@ -2,7 +2,7 @@ import type {CSSProperties} from 'react';
 import {formatMi} from '@magicstick/dashboard-core';
 import type {ComputeMemoryDevice, ModelsPayload, SharedMemoryPool} from '@magicstick/dashboard-contracts';
 import {InfoPopover} from './InfoPopover';
-import {SlotLegend, SlotRing} from './GpuSlots';
+import {sharedSlotPools, SlotLegend, SlotRing} from './GpuSlots';
 
 const known = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const amount = (value?: number | null) => known(value) ? value : null;
@@ -120,7 +120,16 @@ export function MemoryGauge({device, pool}: {device: ComputeMemoryDevice; pool?:
 
 export function ComputeMemory({memory}: {memory?: ModelsPayload['computeMemory']}) {
   const devices = memory?.devices?.length ? memory.devices : [{id: 'cpu-unavailable', name: 'CPU', kind: 'cpu'}];
-  return <section className="compute-memory" aria-label="Compute memory"><p className="eyebrow">Compute Memory</p><div className="memory-grid">
-    {devices.map((device) => <MemoryGauge key={device.id} device={device} pool={memory?.sharedPools?.find((pool) => pool.id === device.sharedPoolId)} />)}
+  const slotPools = sharedSlotPools(devices);
+  const pooledDevices = new Set(slotPools.flatMap((pool) => pool.deviceIds));
+  return <section className="compute-memory" aria-label="Compute memory"><p className="eyebrow">Compute Memory</p>
+    {slotPools.map((pool) => <article key={pool.key} className="gpu-slot-pool" aria-label={pool.name}>
+      <svg viewBox="0 0 256 140" aria-hidden="true"><SlotRing slots={pool.slots} /></svg>
+      <div><strong>{pool.name}</strong><SlotLegend slots={pool.slots} name={pool.name} />
+        <p className="muted">Kubernetes assigns a card from this pool. These slots are counted once, not separately on every card.</p>
+      </div>
+    </article>)}
+    <div className="memory-grid">
+    {devices.map((device) => <MemoryGauge key={device.id} device={pooledDevices.has(device.id) ? {...device, slots: undefined} : device} pool={memory?.sharedPools?.find((pool) => pool.id === device.sharedPoolId)} />)}
   </div></section>;
 }

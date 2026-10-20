@@ -27,10 +27,26 @@ describe('model start and stop controls', () => {
     vi.mocked(api.models).mockResolvedValue(payload());
   });
 
+  it.each([true, false])('keeps a retired engine removable with enabled=%s and blocks edits and starts', async (enabled) => {
+    const model = activation('FreeToken');
+    model.spec!.enabled = enabled;
+    model.status = {phase: enabled ? 'Degraded' : 'Disabled'};
+    vi.mocked(api.models).mockResolvedValue(payload(model));
+    renderModels();
+    expect(await screen.findByText(/This engine is no longer supported/)).toBeVisible();
+    expect(screen.getByRole('button', {name: 'Edit example-model'})).toBeDisabled();
+    expect(screen.queryByRole('button', {name: 'Restart example-model'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Remove'})).toBeEnabled();
+    const action = screen.getByRole('button', {name: `${enabled ? 'Stop' : 'Start'} example-model`});
+    if (enabled) {
+      await userEvent.click(action);
+      await waitFor(() => expect(api.request).toHaveBeenCalledWith('/api/models/example-model/stop', expect.anything()));
+    } else expect(action).toBeDisabled();
+  });
+
   it.each([
     ['OLlama', 'cpu'], ['OLlama', 'amd-gpu'], ['OLlama', 'nvidia-gpu'],
     ['VLLM', 'cpu'], ['VLLM', 'amd-gpu'], ['VLLM', 'nvidia-gpu'],
-    ['FreeToken', 'nvidia-gpu'],
   ])('stops and starts %s on %s without deleting or changing its settings', async (engine, target) => {
     const user = userEvent.setup();
     const serverModels = payload(activation(engine, target));
@@ -46,7 +62,6 @@ describe('model start and stop controls', () => {
     renderModels();
 
     const stop = await screen.findByRole('button', {name: 'Stop example-model'});
-    if (engine === 'FreeToken') expect(stop).toHaveAttribute('title', expect.stringContaining('temporary model downloads are cleared'));
     await user.click(stop);
     expect(api.request).toHaveBeenNthCalledWith(1, '/api/models/example-model/stop', {
       method: 'POST', body: JSON.stringify({expectedRevision: 'generation:example-model-uid:2'}),

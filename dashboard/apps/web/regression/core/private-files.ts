@@ -5,18 +5,27 @@ import {tmpdir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {HarnessError, requireSafe} from './errors.ts';
 
+/** Durable mutation receipts belong beside their exact worker's journal.
+ * A restarted Playwright worker must not overwrite or collide with an earlier
+ * worker's transaction merely because both execute the same case family. */
+export function journalFile(journal:{filename:string},name:string) {
+  requireSafe(/^[a-z0-9][a-z0-9.-]{0,127}$/.test(name) && !name.includes('..'),'PRIVATE_FILE');
+  return join(dirname(journal.filename),name);
+}
+
 export async function privateDirectory(path: string) {
   await mkdir(path, {recursive: true, mode: 0o700});
   const stat = await lstat(path);
   requireSafe(stat.isDirectory() && !stat.isSymbolicLink() && (stat.mode & 0o077) === 0, 'PRIVATE_FILE');
 }
 
-export async function readPrivate(path: string): Promise<string> {
+export async function readPrivate(path: string, maxBytes = 1024 * 1024): Promise<string> {
+  requireSafe(Number.isSafeInteger(maxBytes) && maxBytes > 0 && maxBytes <= 8 * 1024 * 1024, 'PRIVATE_FILE');
   let handle;
   try {
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stat = await handle.stat();
-    requireSafe(stat.isFile() && (stat.mode & 0o077) === 0 && stat.size <= 1024 * 1024, 'PRIVATE_FILE');
+    requireSafe(stat.isFile() && (stat.mode & 0o077) === 0 && stat.size <= maxBytes, 'PRIVATE_FILE');
     return await handle.readFile({encoding: 'utf8'});
   } catch (error) {
     if (error instanceof HarnessError) throw error;

@@ -1,8 +1,10 @@
 import type {Browser, BrowserContext} from '@playwright/test';
 import type {LabConfig} from './config.ts';
+import type {Session} from '@magicstick/dashboard-contracts';
 import {readPrivate} from './private-files.ts';
 import {HarnessError, requireSafe, type Stage} from './errors.ts';
-import {readOnlyApi} from './transport.ts';
+import {DashboardSessionExpired, readOnlyApi} from './transport.ts';
+import {regressionContextOptions, type HttpsPurpose} from './https-policy.ts';
 
 export interface ExactDashboardRequest {
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -94,6 +96,10 @@ export function allowedOwnedEstimate(url: URL, method: string, body: unknown, da
 }
 
 export interface RealLoginOptions {
+  /** Only explicit certificate/preflight/bootstrap checks use strict TLS. */
+  httpsPurpose?: HttpsPurpose;
+  /** Only the private K8S-05 export context accepts and consumes downloads. */
+  allowPrivateDownloads?: true;
   /** Disposable run-owned actor; never stored in storageState or reports. */
   actor?: {username:string;password:string;initialPassword?:string;subject:string;role:'magicstick-admin'|'magicstick-operator'|'magicstick-viewer'|'magicstick-user'};
   allowedStopName?: () => string | undefined;
@@ -109,6 +115,99 @@ export interface RealLoginOptions {
   inferenceOrigin?: string;
 }
 
+interface RunnerSession {
+  config: LabConfig;
+  options: RealLoginOptions;
+  username: string;
+  subject: string;
+  signingIn: boolean;
+  pending?: Promise<void>;
+  failure?: HarnessError;
+}
+// Private in-memory receipts, not exported cookies or durable credentials.
+const runnerSessions = new WeakMap<BrowserContext, RunnerSession>();
+
+function verifySession(session: Session, username: string, config: LabConfig, options: RealLoginOptions, subject?: string) {
+  requireSafe(session.subject && session.username === username && session.roles.includes(options.actor?.role ?? config.expected.role) &&
+    (!options.actor || session.subject === options.actor.subject) && (!subject || session.subject === subject), 'AUTH');
+  if (options.actor && options.actor.role !== 'magicstick-admin') requireSafe(!session.roles.includes('magicstick-admin') &&
+    (options.actor.role === 'magicstick-operator' || !session.roles.includes('magicstick-operator')), 'AUTH');
+}
+
+/** Complete the gateway callback before reading /api/session. Being back on
+ * the dashboard origin alone is not proof that its cookies are installed. */
+async function dashboardSignIn(context: BrowserContext, config: LabConfig, options: RealLoginOptions,
+  username: string, renewal = false) {
+  const page = await context.newPage();
+  let stage: Stage = 'login-form';
+  try {
+    const loginPage = await page.goto(config.dashboardUrl, {waitUntil: 'domcontentloaded', timeout: config.loginTimeoutMs});
+    requireSafe(loginPage?.status() === 200, 'AUTH');
+    const returned = (url: URL) => url.origin === config.dashboardUrl && url.pathname === '/';
+    if (!(renewal && returned(new URL(page.url())))) {
+      requireSafe(new URL(page.url()).origin === config.identityUrl, 'AUTH');
+      const password = (renewal ? undefined : options.actor?.initialPassword) ?? options.actor?.password ??
+        (await readPrivate(config.passwordFile)).trimEnd();
+      requireSafe(password, 'AUTH');
+      await page.locator('#username').fill(username, {timeout: config.loginTimeoutMs});
+      await page.locator('#password').fill(password);
+      stage = 'login-return';
+      if (!renewal && options.actor?.initialPassword) {
+        await page.locator('#kc-login').click();
+        const input = page.locator('input[name="password-new"]');
+        await input.waitFor({state: 'visible', timeout: config.loginTimeoutMs});
+        requireSafe(new URL(page.url()).origin === config.identityUrl, 'AUTH');
+        await input.fill(options.actor.password);
+        await page.locator('input[name="password-confirm"]').fill(options.actor.password);
+        await Promise.all([
+          page.waitForURL(returned, {timeout: config.loginTimeoutMs, waitUntil: 'domcontentloaded'}),
+          input.locator('xpath=ancestor::form').locator('input[type="submit"],button[type="submit"]').click(),
+        ]);
+      } else await Promise.all([
+        page.waitForURL(returned, {timeout: config.loginTimeoutMs, waitUntil: 'domcontentloaded'}),
+        page.locator('#kc-login').click(),
+      ]);
+    }
+    stage = 'login-session';
+    return await readOnlyApi(context.request, config.dashboardUrl, config.requestTimeoutMs).session();
+  } catch (error) {
+    if (error instanceof HarnessError && error.code === 'PRIVATE_FILE') throw error;
+    throw new HarnessError('AUTH', 'Failed', stage);
+  }
+  finally { await page.close(); }
+}
+
+/** Verify the bound user before guarded reads/cleanup/writes. Renew only a
+ * rejected session GET through the normal gateway/IdP flow, once, serialized.
+ * No model/key/settings request is retried and no token is synthesized. */
+export async function ensureDashboardSession(context: BrowserContext): Promise<void> {
+  const receipt = runnerSessions.get(context);
+  if (!receipt) throw new HarnessError('AUTH', 'Failed', 'login-session');
+  if (receipt.failure) throw receipt.failure;
+  if (receipt.pending) return receipt.pending;
+  receipt.pending = (async () => {
+    let session: Session;
+    try { session = await readOnlyApi(context.request, receipt.config.dashboardUrl, receipt.config.requestTimeoutMs).session(); }
+    catch (error) {
+      if (!(error instanceof DashboardSessionExpired)) throw error;
+      receipt.signingIn = true;
+      try { session = await dashboardSignIn(context, receipt.config, receipt.options, receipt.username, true); }
+      finally { receipt.signingIn = false; }
+    }
+    try { verifySession(session, receipt.username, receipt.config, receipt.options, receipt.subject); }
+    catch { throw new HarnessError('AUTH', 'Failed', 'login-session'); }
+  })().catch(async error => {
+    // Lost or changed identity is sticky. Network/product reads remain Failed
+    // without discarding the session needed for a later exact cleanup proof.
+    if (error instanceof HarnessError && error.code === 'AUTH') {
+      receipt.failure = error;
+      await context.close().catch(() => {});
+    }
+    throw error;
+  }).finally(() => { receipt.pending = undefined; });
+  return receipt.pending;
+}
+
 /** Follow the existing human SSO route; never synthesize or export cookies. */
 export async function openInferenceSession(context: BrowserContext, origin: string, timeoutMs: number) {
   requireSafe(new URL(origin).protocol === 'https:' && new URL(origin).origin === origin,'CONFIG');
@@ -116,21 +215,27 @@ export async function openInferenceSession(context: BrowserContext, origin: stri
   try {
     const response=await page.goto(origin+'/ui/playground/',{waitUntil:'domcontentloaded',timeout:timeoutMs});
     requireSafe(response?.status() === 200 && new URL(page.url()).origin === origin,'AUTH');
-  } catch {throw new HarnessError('AUTH','Blocked','login-session');}
+  } catch {throw new HarnessError('AUTH','Failed','login-session');}
   finally {await page.close();}
 }
 
 export async function realLogin(browser: Browser, config: LabConfig, options: RealLoginOptions = {}): Promise<BrowserContext> {
-  const username = options.actor?.username ?? (await readPrivate(config.usernameFile)).trim(),
-    password = options.actor?.initialPassword ?? options.actor?.password ?? (await readPrivate(config.passwordFile)).trimEnd();
-  requireSafe(username.length > 0 && password.length > 0, 'AUTH');
-  const context = await browser.newContext({serviceWorkers: 'block', acceptDownloads: false});
+  const username = options.actor?.username ?? (await readPrivate(config.usernameFile)).trim();
+  requireSafe(username.length > 0, 'AUTH');
+  const context = await browser.newContext({...regressionContextOptions(options.httpsPurpose),
+    acceptDownloads: options.allowPrivateDownloads === true});
   const origins = new Set([config.dashboardUrl, config.identityUrl,
     ...(options.inferenceOrigin ? [options.inferenceOrigin] : [])]);
   // The opt-in live runs permit only exact run-owned lifecycle/edit requests.
   // All other dashboard writes remain blocked even if the page adds an effect.
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
+    // Loading the dashboard during sign-in must not perform product writes,
+    // even if a previously allowed UI action is still armed in the caller.
+    if (url.origin === config.dashboardUrl && !['GET', 'HEAD', 'OPTIONS'].includes(request.method()) &&
+      (!runnerSessions.has(context) || runnerSessions.get(context)?.signingIn)) {
+      await route.abort('blockedbyclient'); return;
+    }
     const allowedStopName = options.allowedStopName?.();
     const allowedStopUid = options.allowedStopUid?.();
     let allowedMutation = false, allowedEstimate = false, exactRequest: ExactDashboardRequest | undefined;
@@ -161,39 +266,15 @@ export async function realLogin(browser: Browser, config: LabConfig, options: Re
     }
     await route.continue();
   });
-  const page = await context.newPage();
-  let stage: Stage = 'login-form';
   try {
-    const loginPage = await page.goto(config.dashboardUrl, {waitUntil: 'domcontentloaded', timeout: config.loginTimeoutMs});
-    requireSafe(loginPage?.status() === 200, 'AUTH');
-    requireSafe(new URL(page.url()).origin === config.identityUrl, 'AUTH');
-    await page.locator('#username').fill(username, {timeout: config.loginTimeoutMs});
-    await page.locator('#password').fill(password);
-    stage = 'login-return';
-    if(options.actor?.initialPassword) {
-      await page.locator('#kc-login').click();
-      const input=page.locator('input[name="password-new"]');
-      await input.waitFor({state:'visible',timeout:config.loginTimeoutMs});
-      requireSafe(new URL(page.url()).origin === config.identityUrl,'AUTH');
-      await input.fill(options.actor.password);
-      await page.locator('input[name="password-confirm"]').fill(options.actor.password);
-      await Promise.all([
-        page.waitForURL(url=>url.origin === config.dashboardUrl,{timeout:config.loginTimeoutMs,waitUntil:'domcontentloaded'}),
-        input.locator('xpath=ancestor::form').locator('input[type="submit"],button[type="submit"]').click(),
-      ]);
-    } else await Promise.all([
-        page.waitForURL(url => url.origin === config.dashboardUrl, {timeout: config.loginTimeoutMs, waitUntil: 'domcontentloaded'}),
-        page.locator('#kc-login').click(),
-      ]);
-    stage = 'login-session';
-    const session = await readOnlyApi(context.request, config.dashboardUrl, config.requestTimeoutMs).session();
-    requireSafe(session.subject && session.username === username && session.roles.includes(options.actor?.role ?? config.expected.role) &&
-      (!options.actor || session.subject === options.actor.subject),'AUTH');
-    if(options.actor && options.actor.role !== 'magicstick-admin') requireSafe(!session.roles.includes('magicstick-admin') &&
-      (options.actor.role === 'magicstick-operator' || !session.roles.includes('magicstick-operator')),'AUTH');
-    await page.close();
+    const session = await dashboardSignIn(context, config, options, username);
+    verifySession(session, username, config, options);
+    runnerSessions.set(context, {config, options, username, subject: session.subject, signingIn: false});
     return context;
-  } catch {
-    await context.close(); throw new HarnessError('AUTH', 'Blocked', stage);
+  } catch (error) {
+    await context.close();
+    if (error instanceof HarnessError && error.code === 'PRIVATE_FILE') throw error;
+    if (error instanceof HarnessError && error.code === 'AUTH') throw new HarnessError('AUTH', 'Failed', error.stage ?? 'login-session');
+    throw new HarnessError('AUTH', 'Failed', 'login-session');
   }
 }

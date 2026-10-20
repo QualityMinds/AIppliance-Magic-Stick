@@ -66,6 +66,28 @@ class SetupValidationTests(unittest.TestCase):
 
 
 class SetupGatewayTests(unittest.TestCase):
+    def test_setup_proxy_matches_the_patched_identity_and_controller_images(self):
+        identity = pathlib.Path(__file__).parents[1]
+        resources = setup.dynamic_resources("magicstick.local", ["192.0.2.50"])
+        setup_proxy = next(resource for _, _, resource in resources if resource["kind"] == "EnvoyProxy")
+        identity_proxy = next(resource for resource in yaml.safe_load_all((identity / "gateway.yaml").read_text())
+                              if resource["kind"] == "EnvoyProxy")
+        gateway = identity.parent / "gateway" / "envoy-gateway"
+        release = yaml.safe_load((gateway / "helmrelease.yaml").read_text())
+        source = yaml.safe_load((gateway / "oci-repository.yaml").read_text())
+        expected = "docker.io/envoyproxy/envoy:distroless-v1.38.6"
+        for proxy in (setup_proxy, identity_proxy):
+            with self.subTest(proxy=proxy["metadata"]["name"]):
+                # No mergeType means Replace: the Helm default alone is not enough.
+                self.assertEqual(proxy["spec"]["provider"]["kubernetes"]
+                                 ["envoyDeployment"]["container"]["image"], expected)
+                self.assertNotIn("bootstrap", proxy["spec"])
+        self.assertEqual(release["spec"]["values"]["global"]["images"]["envoyProxy"]["image"], expected)
+        self.assertEqual(source["spec"]["ref"]["tag"], "v1.8.5")
+        self.assertEqual(identity_proxy["spec"]["filterOrder"], [{
+            "name": "envoy.filters.http.ext_authz", "after": "envoy.filters.http.jwt_authn",
+        }])
+
     def test_dynamic_routes_have_no_public_hostname(self):
         resources = setup.dynamic_resources("magicstick.local", ["192.0.2.50"])
         objects = [resource for _, _, resource in resources]

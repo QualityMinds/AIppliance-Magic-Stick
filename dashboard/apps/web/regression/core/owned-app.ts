@@ -4,15 +4,39 @@ import type {LiveFoundation} from './live-foundation.ts';
 import type {ExactDashboardRequest} from './auth.ts';
 import {AdministrationApi} from './administration-api.ts';
 import {KubectlObserver,verifyObserverRules,type KubeObject} from './observer.ts';
-import {requireSafe} from './errors.ts';
+import {HarnessError,requireSafe,atStage} from './errors.ts';
+import {bounded} from './run-lifecycle.ts';
 import {readPrivate} from './private-files.ts';
 import {ownedJournalName,type JournalEntry} from './journal.ts';
-import {poll} from './poll.ts';
+import {poll,currentReady} from './poll.ts';
 
 export const appTypes=['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const;
 export type AppType=typeof appTypes[number];
 export interface AppFixture {type:AppType; originTemplate:string; adapter?:'semantic-chat-v1'; promptLabel?:string; sendButton?:string; responseSelector?:string; responseMarker:string}
 const resource='appinstances.appliance.magicstick.dev';
+
+/** The HelmRelease is a control-plane object. Its targetNamespace describes
+ * chart workloads, not the namespace in which Flux stores the release. */
+export function appReleaseTarget(item:AppInstance,name:string,applianceNamespace:string) {
+  const status=item.status,hasTarget=Boolean(status?.kind || status?.name || status?.namespace);
+  requireSafe(!hasTarget || status?.kind==='HelmRelease' && status.name===name && status.namespace===applianceNamespace,'OWNERSHIP');
+  return {name,namespace:hasTarget ? String(status!.namespace) : applianceNamespace};
+}
+
+export function appReleaseReady(item:AppInstance,observed:KubeObject,children:KubeObject[],owned:{uid:string;generation:number},namespace:string) {
+  requireSafe(item.metadata?.uid===owned.uid && item.metadata.generation===owned.generation &&
+    observed.metadata.uid===owned.uid && observed.metadata.generation===owned.generation,'OWNERSHIP');
+  const current=item.status?.observedGeneration===owned.generation && observed.status?.observedGeneration===owned.generation;
+  if(current && ['Degraded','Failed'].includes(String(item.status?.phase)))throw new HarnessError('API','Failed','app-ready');
+  return current && item.status?.phase==='Ready' && observed.status?.phase==='Ready' && children.length===1 && children.every(child=>
+    child.metadata.namespace===namespace && child.metadata.name===item.metadata!.name &&
+    child.metadata.labels?.['app.kubernetes.io/managed-by']==='magicstick-operator' &&
+    child.metadata.labels?.['appliance.magicstick.dev/appinstance']===item.metadata!.name &&
+    child.metadata.labels?.['appliance.magicstick.dev/application']===item.spec?.application &&
+    !child.metadata.deletionTimestamp && child.spec?.suspend!==true && child.spec?.targetNamespace===item.spec?.targetNamespace &&
+    typeof child.metadata.uid==='string' && Number.isSafeInteger(child.metadata.generation) &&
+    currentReady(child,child.metadata.uid,Number(child.metadata.generation)));
+}
 
 export function verifyAppCleanerRules(review:{status?:{incomplete?:boolean;resourceRules?:Array<{apiGroups:string[];resources:string[];verbs:string[]}>}}) {
   requireSafe(review.status?.incomplete === false && Array.isArray(review.status.resourceRules),'OBSERVER');
@@ -81,46 +105,80 @@ export class OwnedAppClient {
     requireSafe(appTypes.includes(type) && model.startsWith(this.live.journal.prefix),'OWNERSHIP');
     const requestedName=this.live.journal.prefix+suffix,name=type+'-'+requestedName;
     requireSafe(!await this.read(name) && !await this.cleaner.find(name),'OWNERSHIP');
-    await this.live.journal.requested('app',name);
+    const modules=await this.api.api.modules(),required=modules.catalogJson?.applications?.[type]?.requiredModules;
+    requireSafe(required?.length && required.every(id=>modules.modules[id]?.enabled && modules.modules[id]?.status?.phase==='Ready'),'PREREQUISITE');
     await page.goto(this.live.config.dashboardUrl+'/#/services');
     await page.getByRole('button',{name:'Create Instance',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Create Instance',exact:true});
-    await dialog.getByRole('combobox',{name:'Application',exact:true}).selectOption(type);
+    const application=dialog.getByRole('combobox',{name:'Application',exact:true});
+    const available=await application.locator('option').evaluateAll((options,type)=>options.some(option=>
+      (option as HTMLOptionElement).value===type&&!(option as HTMLOptionElement).disabled),type);
+    requireSafe(available,'CAPABILITY');await application.selectOption(type);
     await dialog.getByLabel('Name',{exact:true}).fill(requestedName);
     const modelField=dialog.getByRole('combobox',{name:type === 'paperclip' ? 'Default Model' : 'Model',exact:true});await modelField.selectOption(model);
     await expect(dialog.getByRole('combobox',{name:'Access',exact:true})).toHaveValue('sso');
     if(publicAccess) await dialog.getByRole('combobox',{name:'Access',exact:true}).selectOption('none');
     await dialog.getByRole('combobox',{name:'Exposure',exact:true}).selectOption('local');
-    const responsePromise=page.waitForRequest(request=>request.method() === 'POST' && new URL(request.url()).pathname === '/api/instances/'+type);
-    // Exact bytes come from the reviewed form (not arbitrary fixture JSON). The
-    // form's create request is fenced by name/type/model/access/namespace below.
-    let uses=0;
-    const handler=async(route:import('@playwright/test').Route)=>{
-      const request=route.request(),body=request.postDataJSON();
-      requireSafe(++uses === 1 && request.method() === 'POST' && body.name === requestedName && body.model === model && body.namespace === 'ai' &&
-        body.enabled === true && body.access.authentication === (publicAccess ? 'none' : 'sso') && body.access.exposure === 'local','MUTATION');
-      await this.live.guard();await route.continue();
-    };
-    await page.route(this.live.config.dashboardUrl+'/api/instances/'+type,handler);
-    try {await dialog.getByRole('button',{name:/^Create (?!Instance$)/}).click();await responsePromise;await expect(dialog).toHaveCount(0);}
-    finally {await page.unroute(this.live.config.dashboardUrl+'/api/instances/'+type,handler);}
-    const item=await poll(()=>this.read(name),value=>Boolean(value?.metadata?.uid),{timeoutMs:30_000,intervalMs:1000,stage:'model-update'});
+    const item=await this.submitCreate(page,type,requestedName,model,publicAccess,()=>dialog.getByRole('button',{name:/^Create (?!Instance$)/}).click());
+    await expect(dialog).toHaveCount(0);
     const observed=await this.cleaner.find(name);
-    requireSafe(item?.metadata?.uid && observed?.metadata.uid === item.metadata.uid && item.metadata.generation === observed.metadata.generation,'OWNERSHIP');
-    await this.live.journal.owned('app',name,item.metadata.uid,item.metadata.generation);
-    this.owned.set(name,{uid:item.metadata.uid,generation:Number(item.metadata.generation)});
+    requireSafe(item?.metadata?.uid&&observed?.metadata.uid===item.metadata.uid&&item.metadata.generation===observed.metadata.generation,'OWNERSHIP');
     requireSafe(item.spec?.application === type && item.spec?.targetNamespace === 'ai' && item.spec.values?.model === model &&
       item.spec.access?.authentication === (publicAccess ? 'none' : 'sso'),'API');return name;
   }
+  /** Acknowledged identity is durable before any later UI/observer assertion. */
+  async submitCreate(page:Page,type:AppType,requestedName:string,model:string,publicAccess:boolean,action:()=>Promise<void>) {
+    const name=type+'-'+requestedName;
+    requireSafe(appTypes.includes(type)&&ownedJournalName('app',name,this.live.journal.prefix)&&model.startsWith(this.live.journal.prefix),'OWNERSHIP');
+    // Exact bytes come from the reviewed form (not arbitrary fixture JSON). The
+    // form's create request is fenced by name/type/model/access/namespace below.
+    let uses=0,forwarded=false,deny:(error:unknown)=>void=()=>{};
+    const denied=new Promise<never>((_resolve,reject)=>{deny=reject;});
+    const handler=async(route:import('@playwright/test').Route)=>{
+      try {
+      const request=route.request(),body=request.postDataJSON();
+      requireSafe(++uses === 1 && request.method() === 'POST' && body.name === requestedName && body.model === model && body.namespace === 'ai' &&
+        body.enabled === true && body.access.authentication === (publicAccess ? 'none' : 'sso') && body.access.exposure === 'local','MUTATION');
+      await this.live.guard();
+      // Form preparation is read-only. Journal only the exact fenced request
+      // immediately before forwarding, never merely opening a disabled form.
+      await this.live.journal.requested('app',name);forwarded=true;await route.continue();
+      }catch(error){deny(error);await route.abort('blockedbyclient').catch(()=>{});}
+    };
+    await page.route(this.live.config.dashboardUrl+'/api/instances/'+type,handler);
+    let item:AppInstance|undefined;
+    try {await bounded(async()=>{
+      const receipt=page.waitForResponse(response=>response.request().method()==='POST' &&
+        response.url()===this.live.config.dashboardUrl+'/api/instances/'+type,{timeout:this.live.config.requestTimeoutMs}).then(async response=>{
+        if(!response.ok()) {
+          if([400,401,403,404,409,422].includes(response.status())&&!await this.read(name)&&!await this.cleaner.find(name))
+            await this.live.journal.rejected('app',name);
+          throw new HarnessError('API','Failed','model-create');
+        }
+        const value=await response.json() as AppInstance;
+        requireSafe(value?.metadata?.name===name&&value.metadata.namespace==='ai-system'&&value.metadata.uid&&
+          Number.isSafeInteger(value.metadata.generation)&&Number(value.metadata.generation)>0,'OWNERSHIP');
+        await this.live.journal.owned('app',name,value.metadata.uid,value.metadata.generation);
+        this.owned.set(name,{uid:value.metadata.uid,generation:Number(value.metadata.generation)});item=value;
+      });
+      const click=action().catch(async error=>{
+        if(forwarded)await receipt.catch(()=>{});throw error;
+      });
+      await Promise.race([Promise.all([receipt,click]),denied]);
+    },this.live.config.requestTimeoutMs+1000,'model-create',()=>page.close());}
+    catch(error){await page.close().catch(()=>{});throw error;}
+    finally {if(!page.isClosed())await page.unroute(this.live.config.dashboardUrl+'/api/instances/'+type,handler);}
+    requireSafe(item,'API');return item;
+  }
   async ready(name:string) {
     const owned=this.owned.get(name);requireSafe(owned,'OWNERSHIP');
-    return poll(async()=>{await this.live.guard();const item=await this.read(name);const observed=await this.cleaner.find(name);
-      requireSafe(item?.metadata?.uid === owned.uid && observed?.metadata.uid === owned.uid,'OWNERSHIP');
-      const children=await this.live.observer.list('helmreleases.helm.toolkit.fluxcd.io','ai');
-      return {item,observed,children:children.filter(child=>child.metadata.ownerReferences?.some(owner=>owner.uid === owned.uid) ||
-        child.metadata.labels?.['appliance.magicstick.dev/appinstance'] === name)};
-    },value=>value.item.status?.phase === 'Ready' && value.children.length > 0 && value.children.every(child=>child.status?.conditions?.some(c=>c.type === 'Ready' && c.status === 'True')),
-    {timeoutMs:900_000,intervalMs:1500,stage:'model-ready'});
+    return atStage('app-ready',()=>poll(async()=>{await this.live.guard();const item=await this.read(name);const observed=await this.cleaner.find(name);
+      requireSafe(item && observed,'OWNERSHIP');
+      const target=appReleaseTarget(item,name,this.live.config.expected.applianceNamespace);
+      const children=await this.live.observer.list('helmreleases.helm.toolkit.fluxcd.io',target.namespace);
+      return {item,observed,target,children:children.filter(child=>child.metadata.name===target.name)};
+    },value=>appReleaseReady(value.item,value.observed,value.children,owned,value.target.namespace),
+    {timeoutMs:900_000,intervalMs:1500,stage:'app-ready'}));
   }
   async remove(name:string) {await this.live.cleanup(this.live.journal,{kind:'app',name});}
   async removeInUi(page:Page,name:string) {

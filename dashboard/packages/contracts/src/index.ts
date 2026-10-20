@@ -12,6 +12,48 @@ export const sessionSchema = z.object({
 
 export type Session = z.infer<typeof sessionSchema>;
 
+export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
+export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export interface RegressionStartRequest {
+  requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[];
+}
+export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
+export type RegressionBlockedKind = 'prerequisite' | 'failure' | 'cancelled' | 'unknown';
+export interface RegressionBlockedCounts {prerequisite: number; failure: number; cancelled: number; unknown: number}
+export interface RegressionBlocker {
+  kind: RegressionBlockedKind; reason?: string; caseId?: string; stage?: string; executionId?: string; traceRunId?: string;
+}
+export interface RegressionProgress {
+  percent?: number; completedPhases?: number; totalPhases?: number; currentPhase?: number;
+  step?: string; currentTest?: string; testIndex?: number; testTotal?: number; executionCounts?: RegressionCounts;
+  executionBlockedCounts?: RegressionBlockedCounts;
+}
+export interface RegressionResult {
+  counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
+  blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts;
+  evidenceCounts?: {fixture: RegressionCounts; live: RegressionCounts};
+  preparation?: {version: 1; outcome: RegressionOutcome; reason?: string; setupStage?: string; detail?: string;
+    message: string; action?: string; recoveredRunIds?: string[]};
+  phases: Array<{phase: number; outcome: RegressionOutcome; counts: RegressionCounts; executionCounts: RegressionCounts;
+    blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts}>;
+  cases: Array<{id: string; description?: string; outcome: RegressionOutcome; layer: string; variant: string; reason: string; message: string; action: string; durationMs: number;
+    phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker}>;
+}
+export interface RegressionRun {
+  id: string; uid: string; createdAt: string; phases: number[]; sourceRevision: string;
+  phase: RegressionOutcome | 'Queued' | 'Preparing' | 'Starting' | 'Running' | 'Recovering' | 'Cancelling' | 'Cancelled';
+  message: string; progress: RegressionProgress; result?: RegressionResult | null; reportAvailable: boolean;
+  credentialsCleaned: boolean; startedAt?: string; finishedAt?: string;
+  operation?: 'tests' | 'recover-lock';
+}
+export interface RegressionStatus {
+  registered: boolean; applianceUid: string; runtimeAvailable: boolean; sourceRevision: string; message: string;
+  recoveryAvailable?: boolean;
+  cleanup?: {available: boolean; message: string; revision?: string; runId?: string; released?: boolean};
+  lock?: {state: 'free' | 'active' | 'stale' | 'blocked'; canRecover: boolean; message: string; revision?: string; runId?: string};
+  runs: RegressionRun[]; executionLocation: 'appliance-kubernetes'; externalRunnerRequired: string[];
+}
+
 export interface LicenseClaims {
   edition: 'free-registered' | 'commercial';
   version: 1;
@@ -138,9 +180,8 @@ export interface KubernetesObjectMeta {
 }
 
 export interface StatusValue {
-  gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; claimName?: string; node: string; device?: string; slotCount?: number; memoryIsolation?: boolean} | null;
-  /** Optional normalized observations from a FreeToken local runtime. */
-  freeTokenStats?: FreeTokenRuntimeStats | null;
+  replication?: {desired: number; ready: number; instances: Array<{name: string; uuid: string; nodeName: string; phase: string; reason?: string; message?: string; modelUid?: string}>} | null;
+  gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; backend?: 'dra' | 'device-plugin'; claimName?: string; node: string; nodeUid?: string; device?: string; devices?: NvidiaGpuSelection[]; gpuCount?: number; claimNames?: string[]; slotCount?: number; memoryIsolation?: boolean} | null;
   phase?: string;
   message?: string;
   [key: string]: unknown;
@@ -174,6 +215,8 @@ export interface ModuleCatalogEntry {
     label?: string;
     placeholder?: string;
     type?: string;
+    modelType?: 'chat' | 'embedding';
+    description?: string;
   }>;
   [key: string]: unknown;
 }
@@ -283,6 +326,12 @@ export interface SharedMemoryPool extends SharedMemoryInventory {
   systemReserveMi?: number | null;
 }
 
+export interface NvidiaGpuSelection {
+  nodeName: string;
+  nodeUid: string;
+  uuid: string;
+}
+
 export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   id: string;
   kind?: string;
@@ -291,6 +340,10 @@ export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   name?: string;
   /** Nodes reporting this physical device; used to show a scheduler node, never a GPU UUID. */
   nodes?: string[];
+  /** DRA-verified full GPU, never a guessed device-plugin assignment. */
+  gpuDevice?: NvidiaGpuSelection;
+  productName?: string;
+  /** Live/planning total; NVIDIA DRA compatibility uses gpuCapacityMi from its inventory instead. */
   totalMi?: number;
   reservedMi?: number;
   unreservedMi?: number | null;
@@ -304,75 +357,6 @@ export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   warning?: string;
   message?: string;
   slots?: GpuSlots;
-  /** Engine-specific device eligibility, populated when the runtime exposes it. */
-  freeToken?: {
-    /** A scheduler node key (`node:<name>`), never a CUDA UUID. */
-    id?: string;
-    supported?: boolean;
-    reason?: string;
-    architecture?: string;
-  };
-}
-
-/** One GPU as evaluated by the pinned FreeToken runtime capability catalog. */
-export interface FreeTokenGpuCapability {
-  id: string;
-  name?: string;
-  /** Scheduling node, when a whole-GPU FreeToken allocation is selectable. */
-  node?: string;
-  computeTarget?: string;
-  vendor?: string;
-  architecture?: string;
-  supported: boolean;
-  reason?: string;
-  totalMi?: number;
-  freeMi?: number | null;
-  unreservedMi?: number | null;
-  /** Host RAM on this scheduling node, not a cluster-wide CPU aggregate. */
-  systemMemoryMi?: number | null;
-  /** Currently usable host RAM on this scheduling node. An explicit zero is capacity zero. */
-  systemAvailableMi?: number | null;
-  /** Whole NVIDIA GPUs that Kubernetes can allocate on this selected node. */
-  gpuCount?: number;
-  /** Maximum whole GPUs a single FreeToken runtime may request on this node. */
-  maxGpuCount?: number;
-}
-
-/**
- * Server-supplied FreeToken limits. The dashboard deliberately treats this as
- * data rather than duplicating a vendor/architecture allow-list in the UI.
- */
-export interface FreeTokenCapabilities {
-  available?: boolean;
-  message?: string;
-  version?: string;
-  supportedVendors?: string[];
-  supportedArchitectures?: string[];
-  supportedPrecisionModes?: string[];
-  devices?: FreeTokenGpuCapability[];
-  unavailableDevices?: FreeTokenGpuCapability[];
-  memoryStrategies?: Array<'auto' | 'offload' | 'cpu' | 'hybrid' | 'fused' | string>;
-  cacheTypes?: Array<'radix' | 'naive' | string>;
-  defaultMemoryRatio?: number;
-  defaultSystemMemoryMi?: number;
-  minimumGpuMemoryMi?: number;
-  minimumSystemMemoryMi?: number;
-  defaults?: {
-    memoryStrategy?: string;
-    systemMemoryMi?: number;
-    contextWindow?: number;
-    maxNumSeqs?: number;
-  };
-  advanced?: {
-    cacheType?: string[];
-    kvReserveTokens?: boolean;
-    cudaGraphMaxBatchSize?: boolean;
-    moeCacheSize?: boolean;
-    maxPrefillLength?: boolean;
-    cpuThreads?: boolean;
-    expertLoad?: boolean | string[];
-    dtype?: boolean | string[];
-  };
 }
 
 export interface CpuResources {
@@ -382,7 +366,18 @@ export interface CpuResources {
 }
 
 export interface VllmConfiguration {
-  visionAttention: 'auto' | 'aotriton' | 'triton' | 'flash-attn-triton';
+  visionAttention?: 'auto' | 'aotriton' | 'triton' | 'flash-attn-triton';
+  parallelism?: 'auto' | 'tensor' | 'pipeline';
+}
+
+export interface MultiGpuCapability {
+  sameNodeOnly?: boolean;
+  matchingCardsOnly?: boolean;
+  deploymentModes?: Array<'single' | 'split' | 'replicated'>;
+  computeTargets: string[];
+  maxDevices: number;
+  strategies: string[];
+  memoryBudgetScope: 'per-device';
 }
 
 export interface RealtimeConfiguration {
@@ -396,7 +391,50 @@ export interface RealtimeConfiguration {
   restartNonce?: string;
 }
 
+/** Presentation policy from the existing runtime catalog, not a second engine registry. */
+export interface LocalModelConfigurationPolicy {
+  sources: Array<'search' | 'preset' | 'direct'>;
+  discovery: 'artifacts' | 'repository';
+  memory: 'estimate' | 'staged';
+  task: 'detect' | 'realtime';
+  maxOutputTokens: boolean;
+}
+
+export type LocalModelEngine = 'VLLM' | 'OLlama';
+export type LocalModelSource = 'search' | 'preset' | 'direct';
+export type GpuDeployment = 'single' | 'split' | 'replicated';
+
+interface LocalModelDraftBase {
+  name: string;
+  engine: LocalModelEngine;
+  computeTarget: string;
+  url: string;
+  source: LocalModelSource;
+  presetId: string;
+  artifactId: string;
+  modelType: string;
+  contextWindow: number;
+  maxNumSeqs: number;
+  maxOutputTokens: string;
+}
+
+export type LocalModelDraft = LocalModelDraftBase & ({
+  kind: 'standard';
+  kvCacheType: string;
+  selectedMi: number;
+  hostMemoryMi: number;
+  cpuOffloading: boolean;
+  gpuDevices: NvidiaGpuSelection[];
+  gpuDeployment: GpuDeployment;
+  parallelism: NonNullable<VllmConfiguration['parallelism']>;
+} | {
+  kind: 'omni';
+  engine: 'VLLM';
+  realtime: RealtimeConfiguration;
+});
+
 export interface RealtimeProfile {
+  configuration?: LocalModelConfigurationPolicy;
   displayName: string;
   model: string;
   description: string;
@@ -441,9 +479,8 @@ export interface VisionAttentionSettings {
 export interface ComputeTargetsPayload {
   default?: string;
   defaultEngine?: string;
-  engineCatalog?: Record<string, {displayName?: string; available?: boolean; message?: string; cpuDefaults?: Partial<Record<'cpu' | 'gpu', CpuResources>>; deploymentSettings?: {visionAttention?: VisionAttentionSettings}; realtimeProfiles?: Record<string, RealtimeProfile>}>;
+  engineCatalog?: Record<string, {displayName?: string; available?: boolean; message?: string; urlScheme?: string; supportsVramEstimate?: boolean; configuration?: LocalModelConfigurationPolicy; cpuDefaults?: Partial<Record<'cpu' | 'gpu', CpuResources>>; deploymentSettings?: {visionAttention?: VisionAttentionSettings}; multiGpu?: MultiGpuCapability; realtimeProfiles?: Record<string, RealtimeProfile>}>;
   realtimeDevices?: RealtimeDevice[];
-  freeTokenCapabilities?: FreeTokenCapabilities;
   targets: ComputeTarget[];
 }
 
@@ -455,6 +492,7 @@ export interface GpuSlots {
   queued?: number;
   scope?: 'device' | 'node' | 'target';
   node?: string;
+  uuid?: string;
   mode?: string;
 }
 
@@ -498,49 +536,11 @@ export interface ModelPreset {
   [key: string]: unknown;
 }
 
-/** Persisted FreeToken-only runtime settings; no vLLM/Ollama settings apply here. */
-export interface FreeTokenAdvancedConfiguration {
-  cacheType?: 'radix' | 'naive' | string;
-  kvReserveTokens?: number | null;
-  cpuThreads?: number | null;
-  cudaGraphMaxBatchSize?: number | null;
-  moeCacheSize?: number | null;
-  maxPrefillLength?: number | null;
-  expertLoad?: string | null;
-  dtype?: string | null;
-}
-
-export interface FreeTokenConfiguration {
-  gpuDevice: string;
-  /** Whole GPUs requested from the selected Kubernetes node. Defaults to one. */
-  gpuCount?: number;
-  /** Aggregate VRAM budget across all requested whole GPUs, in MiB. */
-  gpuMemoryMi: number;
-  /** Kubernetes host-RAM reservation; FreeToken itself has no separate RAM-limit flag. */
-  systemMemoryMi: number;
-  memoryStrategy: 'auto' | 'offload' | 'cpu' | 'hybrid' | 'fused' | string;
-  advanced: FreeTokenAdvancedConfiguration;
-}
-
-/**
- * Normalized optional telemetry from FreeToken's versioned `/v1/stats`
- * endpoint. Values are observations, not scheduler reservations or limits.
- */
-export interface FreeTokenRuntimeStats {
-  source?: string;
-  sampledAt?: string;
-  vramMi?: number;
-  cacheBudgetMi?: number;
-  kvPoolMi?: number;
-  moeCacheMi?: number;
-  tokensPerSecond?: number;
-  decodeTokensPerSecond?: number;
-  prefillTokensPerSecond?: number;
-  activeRequests?: number;
-  completedRequests?: number;
-  lifetimeTokens?: number;
-  p95LatencyMs?: number;
-  ttftMs?: number;
+/** Omitted fields mean unknown; explicit false disables the advertised capability. */
+export interface ModelCapabilities {
+  tools?: boolean;
+  vision?: boolean;
+  reasoning?: boolean;
 }
 
 export interface ModelActivation {
@@ -548,13 +548,14 @@ export interface ModelActivation {
   spec?: Record<string, unknown> & {
     type?: string;
     enabled?: boolean;
-    local?: Record<string, unknown> & {freetoken?: FreeTokenConfiguration; vllm?: VllmConfiguration; realtime?: RealtimeConfiguration};
-    external?: Record<string, unknown>;
+    local?: Record<string, unknown> & {vllm?: VllmConfiguration; realtime?: RealtimeConfiguration; capabilities?: ModelCapabilities};
+    external?: Record<string, unknown> & {capabilities?: ModelCapabilities};
   };
   status?: StatusValue;
 }
 
 export interface RegisteredModel {
+  capabilities?: ModelCapabilities;
   id?: string;
   name?: string;
   type?: string;
@@ -592,6 +593,7 @@ export interface ModelLogContainer {
 
 export interface ModelLogPod {
   name: string;
+  replica?: string;
   phase: string;
   node?: string;
   createdAt?: string;
@@ -607,6 +609,7 @@ export interface ModelLogsPayload {
   tailLines: number;
   omittedPods?: number;
   pods: ModelLogPod[];
+  replicas?: Array<{name: string; uuid: string}>;
 }
 
 export interface Quantization {
@@ -669,10 +672,44 @@ export interface MemoryCalculation {
   notes?: string[];
 }
 
+export interface SystemMemoryEstimate {
+  scope: 'per-pod' | 'per-copy';
+  replicaCount: number;
+  workerCount: number;
+  minimumMi: number | null;
+  recommendedMi: number | null;
+  runningMinimumMi: number | null;
+  runningRecommendedMi: number | null;
+  startupMinimumMi: number | null;
+  startupUpperMi: number | null;
+  maximumMi: number | null;
+  totalRecommendedMi: number | null;
+  weightsOnCpuMi: number;
+  cacheOnCpuMi: number;
+  hostRuntimeMi: number;
+  multimodalCacheMi: number;
+  promptBuffersMi: number;
+  loadingBuffersMi: number;
+  fileCacheUpperMi: number;
+  largeLookupParameters?: number;
+  confidence: 'estimated' | 'unknown';
+  warnings?: string[];
+  calculations?: Record<string, MemoryCalculation>;
+}
+
 export interface MemoryEstimate {
+  /** Null/absent means task metadata is inconclusive, never an inferred Chat default. */
+  detectedModelType?: 'chat' | 'embedding' | null;
   minimumMi: number;
   recommendedMi: number;
   maximumMi?: number | null;
+  gpuCount?: number;
+  gpuParallelism?: 'tensor' | 'pipeline' | 'spread' | 'replicated';
+  memoryBudgetScope?: 'per-device';
+  devices?: Array<GpuAllocationEvidence & {gpuDevice: NvidiaGpuSelection; totalMi?: number | null; freeMi?: number | null; unreservedMi?: number | null}>;
+  systemMemoryMaximumMi?: number | null;
+  systemMemory?: SystemMemoryEstimate;
+  replicaCount?: number;
   weightsMi?: number;
   downloadBytes?: number;
   quantization?: Quantization | null;
@@ -693,6 +730,8 @@ export interface MemoryEstimate {
     engineRuntimeReserveMi?: number;
     attentionKvCacheMi?: number;
     recurrentStateMi?: number;
+    auxiliaryCacheMi?: number;
+    partitionReserveMi?: number;
     fullAttentionLayers?: number;
     recurrentLayers?: number;
   };
@@ -806,6 +845,8 @@ export interface GpuSharingState {
   phase: string;
   message: string;
   device?: {name: string; pool: string; pciAddress: string} | null;
+  draAvailable?: boolean;
+  devices?: Array<{uuid: string; name: string; pool: string; node: string; nodeUid: string; pciAddress?: string; totalMi?: number; claimName: string}>;
   claimName: string;
   activeModels: number;
   admittedModels: string[];
@@ -821,6 +862,7 @@ export interface GpuSharingRequest {
   expectedRevision: string;
   acknowledgeSharing: boolean;
   acknowledgeRestart: boolean;
+  allocationBackend?: 'device-plugin' | 'dra';
 }
 
 export interface HardwareOperator {

@@ -6,11 +6,15 @@ import {requirePhase1Profile} from './phase1-p0.ts';
 type VariantDefinition = {id: string; layers: readonly TestLayer[]};
 
 /**
- * Phase 2 is the finite CPU model-control profile. GPU binding, FreeToken and
+ * Phase 2 is the finite CPU model-control profile. GPU binding and
  * provider sharing remain Phase 3/4 even when their fast contracts are covered
  * by the repository's ordinary test suites.
  */
 export const phase2FastVariants = {
+  'model-task-component': {id: 'DISC-01', layers: ['U']},
+  'model-task-contract': {id: 'DISC-01', layers: ['C']},
+  'model-name-component': {id: 'DISC-01', layers: ['U']},
+  'model-name-contract': {id: 'DISC-01', layers: ['C']},
   'create-choice-component': {id: 'DISC-01', layers: ['U']},
   'create-choice-contract': {id: 'DISC-01', layers: ['C']},
   'hf-search-component': {id: 'DISC-03', layers: ['U']},
@@ -30,6 +34,8 @@ export const phase2FastVariants = {
   'kv-contract': {id: 'ENG-03', layers: ['C']},
   'engine-switch-component': {id: 'ENG-07', layers: ['U']},
   'legacy-default-contract': {id: 'ENG-09', layers: ['C']},
+  'local-configuration-component': {id: 'ENG-09', layers: ['U']},
+  'late-discovery-component': {id: 'ENG-07', layers: ['U']},
   'injection-contract': {id: 'ENG-10', layers: ['C']},
   'memory-component': {id: 'MEM-01', layers: ['U']},
   'memory-contract': {id: 'MEM-01', layers: ['C']},
@@ -45,6 +51,18 @@ export const phase2FastVariants = {
 } as const satisfies Record<string, VariantDefinition>;
 
 export const phase2FixtureVariants = {
+  'model-name-local-ollama-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-local-ollama-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-local-vllm-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-local-vllm-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-external-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-external-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'task-chat-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'task-chat-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'task-embedding-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'task-embedding-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'task-unknown-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'task-unknown-mobile-browser': {id: 'DISC-01', layers: ['B']},
   'create-choice-browser': {id: 'DISC-01', layers: ['B']},
   'hf-search-browser': {id: 'DISC-03', layers: ['B']},
   'hf-policy-browser': {id: 'DISC-04', layers: ['B']},

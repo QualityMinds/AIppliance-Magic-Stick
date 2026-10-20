@@ -8,7 +8,7 @@ import {loadLabConfig} from './core/config.ts';
 import {HarnessError, requireSafe} from './core/errors.ts';
 import {ResourceJournal, newRunId, recoveryJournalPath} from './core/journal.ts';
 import {privateDirectory, writePrivate, readPrivate} from './core/private-files.ts';
-import {completeCases,saveReport, stepCases,reportExitCode,summarize,summarizeExecutions} from './core/report.ts';
+import {completeCases,guardedLiveCases,saveReport, stepCases,reportExitCode,summarize,summarizeExecutions} from './core/report.ts';
 import {childEvidence} from './core/campaign-evidence.ts';
 import {modeDescription} from './core/case-descriptions.ts';
 import {phase0Ids, requirePhase0Profile} from './profiles/phase0-p0.ts';
@@ -22,6 +22,9 @@ import {preparationArguments} from './core/input-preparation.ts';
 import {verifyHostContinuation} from './core/setup-suite.ts';
 import {preparationDiagnostic, requirePreparation, preparationDescription} from './core/preparation-diagnostic.ts';
 import {runnerSession} from './core/runner-session.ts';
+import {progressEvent} from './core/progress.ts';
+import {blockedCounts,inheritRecoveryCause,recoveryCause} from './core/blocking.ts';
+import {regressionBlockedSummary} from '../../../packages/core/src/regression-blocking.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
@@ -32,13 +35,14 @@ const gpuCase = ['phase3-gpu','phase4-sharing'].includes(mode) ? process.argv[3]
 const gpuCases=mode === 'phase3-gpu' ? phase3RuntimeCases : phase4SharingCases;
 const selectedGpuCase = gpuCase && Object.hasOwn(gpuCases,gpuCase) ? gpuCases[gpuCase] : undefined;
 const hostCase = mode === 'phase6-drill' ? process.argv[3] : undefined;
+const liveCase=/^phase[5-8]-live$/.test(mode)?process.argv[3]:undefined;
 const recoveryRunId=mode==='campaign-recover'?process.argv[3]:undefined;
 const output = resolve(process.env.REGRESSION_OUTPUT_DIR ?? '.regression/runs');
 const directory = join(output, runId);
 const playwrightCli = resolve('node_modules/@playwright/test/cli.js');
 const typeScriptCli = resolve('node_modules/typescript/bin/tsc');
 // Invalid drill arguments are handled by the redacted reporting path below.
-const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
+const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
   mode === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] : mode === 'phase2-readonly' ? ['DISC-03'] :
   mode === 'phase2-models' ? selectedModelCase?.ids ?? phase2ModelIds :
   mode === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
@@ -78,12 +82,16 @@ try {
   // Keep the same validated diagnostic scope in both processes.
   if(selectedGpuCase)process.env.REGRESSION_GPU_CASE=gpuCase;
   requireSafe(mode !== 'phase6-drill' || hostDrillIds.includes(hostCase),'CONFIG');
-  requireSafe(!process.env.REGRESSION_REMAINING_CASE || mode === 'phase6-drill','CONFIG');
-  if(hostCase)process.env.REGRESSION_REMAINING_CASE=hostCase;
+  requireSafe(!process.env.REGRESSION_REMAINING_CASE || mode === 'phase6-drill' || liveCase===process.env.REGRESSION_REMAINING_CASE,'CONFIG');
+  if(liveCase)requireSafe(remainingIds(mode,liveCase)?.includes(liveCase),'CONFIG');
+  if(hostCase||liveCase)process.env.REGRESSION_REMAINING_CASE=hostCase??liveCase;
   await privateDirectory(output); await privateDirectory(directory);
   const environment = {...process.env, REGRESSION_MODE: mode, REGRESSION_RUN_ID: runId, REGRESSION_RUN_DIR: directory,
     REGRESSION_MODEL_CASE: selectedModelCase ? modelCase : '', REGRESSION_GPU_CASE: selectedGpuCase ? gpuCase : '',
-    REGRESSION_REMAINING_CASE:hostCase ?? ''};
+    REGRESSION_REMAINING_CASE:hostCase ?? liveCase ?? ''};
+  const dnsPreload=new URL('./core/lab-dns.mjs',import.meta.url).href;
+  if(!(environment.NODE_OPTIONS??'').includes(dnsPreload))
+    environment.NODE_OPTIONS=((environment.NODE_OPTIONS??'')+' --import='+dnsPreload).trim();
   if(recoveryRunId)environment.REGRESSION_RECOVERY_RUN_ID=recoveryRunId;
   home = await mkdtemp(join(tmpdir(), 'magicstick-browser-'));
   if (process.platform === 'linux') environment.HOME = home;
@@ -161,13 +169,14 @@ try {
       if(interruptedSignal)break;
       const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
       console.log(`Regression campaign: Phase ${phase} P0 (isolated + installed layers).`);
+      progressEvent({event:'phase-start',phase,selected});
       child=spawn(process.execPath,[fileURLToPath(import.meta.url),`phase${phase}`],{stdio:'inherit',
         env:{...environment,REGRESSION_CAMPAIGN_RESULT:receipt}});
       const code=await waitChild(child),ids=phaseIds(phase);
       const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:`phase${phase}`,required:ids ?? [],
         fixture:false,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
       const cases=stepCases(report.cases,code,report.acceptable === true,false);
-      if(recoveryFence)environment.REGRESSION_RECOVERY_FENCE='1';else delete environment.REGRESSION_RECOVERY_FENCE;
+      inheritRecoveryCause(environment,cases,recoveryFence);
       recoveryAttempts.push(...report.recoveryAttempts);
       if(result.continuation) {
         try {
@@ -181,14 +190,16 @@ try {
       }
       const outcome=reportExitCode(cases);
       phases.push({phase,runId:result.runId,state:outcome === 0 ? 'Passed' : outcome === 1 ? 'Failed' : 'Blocked',counts:summarize(ids ?? [],cases).counts,
-        executionCounts:summarizeExecutions(cases)});
+        executionCounts:summarizeExecutions(cases),blockedCounts:blockedCounts(cases),executionBlockedCounts:blockedCounts(cases,true)});
+      progressEvent({event:'phase-end',phase,outcome:phases.at(-1).state});
       collected.push(...cases);
       await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,
         allSelectedPhasesPassed:phases.length === selected.length && phases.every(item=>item.state === 'Passed')});
     }
     if(interruptedSignal)for(const phase of selected.filter(value=>!phases.some(item=>item.phase === value))) {
       const cases=completeCases(`phase${phase}`,[],phaseIds(phase),'CANCELLED');
-      collected.push(...cases);phases.push({phase,state:'Blocked',counts:summarize(phaseIds(phase),cases).counts});
+      collected.push(...cases);phases.push({phase,state:'Blocked',counts:summarize(phaseIds(phase),cases).counts,
+        executionCounts:summarizeExecutions(cases),blockedCounts:blockedCounts(cases),executionBlockedCounts:blockedCounts(cases,true)});
     }
     const passed=phases.length === selected.length && phases.every(item=>item.state === 'Passed');
     await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,allSelectedPhasesPassed:passed});
@@ -199,11 +210,15 @@ try {
       (preparation ? preparationDescription(preparation)+'\n' : '')+
       `Evidence rows (case × variant × layer): Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
       `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
+      `Blocked evidence: ${regressionBlockedSummary(blockedCounts(collected))}\n`+
+      `Blocked executable scenarios: ${regressionBlockedSummary(blockedCounts(collected,true))}\n`+
       phases.map(item=>`Phase ${item.phase}: ${item.state} (${item.runId ?? 'not executed: run cancelled'})`).join('\n')+'\nDetailed cases: summary.html; machine results: summary.json and junit.xml\n');
     console.log('Private campaign report: '+join(directory,'all-summary.txt'));
+    progressEvent({event:'campaign-end',runId});
     process.exitCode=passed ? 0 : reportExitCode(collected);
   } else if (Object.hasOwn(phaseSteps,mode)) {
     const collected = [], steps = [],recoveryAttempts=[];
+    const recoveryFenceAtStart=Boolean(environment.REGRESSION_RECOVERY_FENCE);
     const stepsToRun = phaseSteps[mode];
     for (const [index, step] of stepsToRun.entries()) {
       if(interruptedSignal)break;
@@ -211,6 +226,7 @@ try {
       const priorFence=Boolean(environment.REGRESSION_RECOVERY_FENCE);
       const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
       console.log(`Phase ${mode.slice(-1)} P0 step ${index + 1}/${stepsToRun.length}: ${step}`);
+      progressEvent({event:'step-start',step,index:index+1,total:stepsToRun.length});
       console.log(`  ${modeDescription(step)}`);
       child = spawn(process.execPath, [fileURLToPath(import.meta.url),step], {
         env: {...environment,REGRESSION_CAMPAIGN_RESULT:receipt}, stdio: 'inherit',
@@ -218,8 +234,9 @@ try {
       const exit=await waitChild(child);
       const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:step,required:[],fixture,
         sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
-      if(recoveryFence)environment.REGRESSION_RECOVERY_FENCE='1';
-      collected.push(...stepCases(report.cases.map(item => index === stepsToRun.length - 1 && item.variant === 'idle-baseline' ?
+      if(recoveryFence)inheritRecoveryCause(environment,report.cases,true);
+      collected.push(...stepCases(report.cases.map(item => index === stepsToRun.length - 1 && (item.variant === 'idle-baseline' ||
+        step === 'preflight' && item.id === 'HAR-03' && item.reason === 'RECOVERY' && !item.executionId && !item.variant) ?
         {...item, variant: 'final-idle'} : item), exit, report.acceptable === true,
       fixture));
       let continued=true;
@@ -246,7 +263,7 @@ try {
           required:['HAR-07'],fixture:false,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
         collected.push(...stepCases(recovered.report.cases,recoveryExit,recovered.report.acceptable,false));
         const restored=recoveryExit===0&&recovered.report.acceptable&&!recovered.recoveryFence;
-        if(restored)delete environment.REGRESSION_RECOVERY_FENCE;
+        if(restored)inheritRecoveryCause(environment,[],false);
         const reason=recovered.report.cases.find(item=>item.outcome!=='Passed'&&item.reason)?.reason;
         recoveryAttempts.push({runId:result.runId,state:restored?'restored':'blocked',...(reason?{reason}:{} )});
         await writePrivate(join(directory,'campaign-recovery-attempts.json'),{version:1,recoveryAttempts});
@@ -254,7 +271,7 @@ try {
     }
     const report = await saveReport(directory, runId, interruptedSignal ? completeCases(mode,collected,required,'CANCELLED') : collected,
       required, process.env.REGRESSION_SOURCE_REVISION, mode,undefined,
-      {recoveryFenceActive:Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryAttempts});
+      {recoveryFenceActive:Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryAttempts,recoveryFenceAtStart});
     console.log(`Private Phase ${mode.slice(-1)} P0 report: ${join(directory, 'summary.txt')}`);
     const summary=JSON.parse(await readPrivate(join(directory,'summary.json')));
     process.exitCode = (mode === 'phase4' ? report.installedPhase4Accepted : report[`fullPhase${mode.slice(-1)}Accepted`]) ? 0 : reportExitCode(summary.cases);
@@ -275,7 +292,11 @@ try {
   const outcome=error instanceof HarnessError ? error.outcome : 'Failed';
   console.error(new HarnessError(reason,outcome).message);
   try {
-    await saveReport(directory, runId, required.map(id => ({id, outcome, layer: 'A', environment: 'live', durationMs: 0, reason})), required,
+    const entryGuard=reason==='RECOVERY' && process.env.REGRESSION_RECOVERY_FENCE &&
+      mode!=='all' && !Object.hasOwn(phaseSteps,mode);
+    const rows=entryGuard?guardedLiveCases(mode,required,recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)):
+      required.map(id => ({id, outcome, layer: 'A', environment: 'live', durationMs: 0, reason}));
+    await saveReport(directory, runId, rows, required,
       process.env.REGRESSION_SOURCE_REVISION, mode);
     console.log(`Private report: ${join(directory, 'summary.txt')}`);
   } catch { console.error('A safe report could not be written; check private-directory permissions.'); }

@@ -96,7 +96,7 @@ export const Dialog = ({open, title, description, children, onClose}: PropsWithC
   );
 };
 
-export const ConfirmDialog = ({open, title, description, confirmLabel = 'Confirm', valueLabel, expectedValue, busy, error, onClose, onConfirm}: {
+export const ConfirmDialog = ({open, title, description, confirmLabel = 'Confirm', valueLabel, expectedValue, busy, error, confirmDisabled, children, onClose, onConfirm}: PropsWithChildren<{
   open: boolean;
   title: string;
   description: string;
@@ -105,17 +105,19 @@ export const ConfirmDialog = ({open, title, description, confirmLabel = 'Confirm
   expectedValue?: string;
   busy?: boolean;
   error?: unknown;
+  confirmDisabled?: boolean;
   onClose: () => void;
   onConfirm: () => void;
-}) => {
+}>) => {
   const [confirmation, setConfirmation] = useState('');
   useEffect(() => { if (!open) setConfirmation(''); }, [open]);
   const valid = expectedValue === undefined || confirmation === expectedValue;
   return <Dialog open={open} title={title} description={description} onClose={onClose}>
     <div className="stack compact">
+      {children}
       {expectedValue !== undefined && <Field label={valueLabel ?? `Type ${expectedValue} to confirm`}><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" /></Field>}
       <ErrorNotice error={error} />
-      <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button type="button" variant="danger" disabled={!valid || busy} onClick={onConfirm}>{confirmLabel}</Button></div>
+      <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button type="button" variant="danger" disabled={!valid || busy || confirmDisabled} onClick={onConfirm}>{confirmLabel}</Button></div>
     </div>
   </Dialog>;
 };

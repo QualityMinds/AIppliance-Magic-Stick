@@ -6,8 +6,10 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent
 
 
-def load_controller():
-    source = (ROOT / "controller.py").read_text(encoding="utf-8").replace(
+def load_controller(source=None):
+    if source is None:
+        source = (ROOT / "controller.py").read_text(encoding="utf-8")
+    source = source.replace(
         "K8S_SSL = ssl.create_default_context(cafile=SA_CA_PATH)",
         "K8S_SSL = None",
     )
@@ -129,7 +131,7 @@ class KubeAIReadinessTests(unittest.TestCase):
         self.assertEqual(synchronized, [])
 
 
-class FreeTokenCatalogTests(unittest.TestCase):
+class DirectRuntimeCatalogTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.controller = load_controller()
@@ -149,51 +151,65 @@ class FreeTokenCatalogTests(unittest.TestCase):
         self.controller.update(self.originals)
 
     @staticmethod
-    def freetoken_activation(phase="Ready", endpoint="http://qwen.ai.svc.cluster.local:1919/v1"):
+    def realtime_activation(phase="Ready", endpoint="http://qwen.ai.svc.cluster.local:1919/v1"):
         return {
-            "metadata": {"name": "qwen-freetoken"},
+            "metadata": {"name": "qwen-vllm-omni", "generation": 1},
             "spec": {
                 "type": "local",
                 "enabled": True,
                 "local": {
-                    "engine": "FreeToken",
+                    "engine": "VLLM",
+                    "realtime": {"profile": "qwen3-omni"},
                     "modelType": "chat",
                     "contextWindow": 32768,
                     "maxOutputTokens": 4096,
                 },
             },
-            "status": {"phase": phase, "runtimeEndpoint": endpoint},
+            "status": {"phase": phase, "runtimeEndpoint": endpoint, "observedGeneration": 1},
         }
 
-    def test_ready_freetoken_activation_is_published_with_its_runtime_endpoint(self):
-        self.controller["read_model_activations"] = lambda: [self.freetoken_activation()]
+    def test_retired_engine_is_not_published_even_with_old_ready_status(self):
+        activation = self.realtime_activation()
+        activation["spec"]["local"] = {"engine": "FreeToken", "modelType": "chat"}
+        self.controller["read_model_activations"] = lambda: [activation]
+        self.assertEqual(self.controller["desired_deployments"](), {})
+        self.controller["fetch_litellm_models"] = lambda: [{"model_name": "qwen-vllm-omni", "model_info": {
+            "id": "retired-route", "ai_appliance_managed": True, "ai_appliance_source": "freetoken",
+        }}]
+        deleted = []
+        self.controller["litellm_request"] = lambda method, path, body: deleted.append((method, path, body))
+        self.controller["sync_litellm"]()
+        self.assertIn(("POST", "/model/delete", {"id": "retired-route"}), deleted)
+
+    def test_ready_realtime_activation_is_published_with_its_runtime_endpoint(self):
+        self.controller["read_model_activations"] = lambda: [self.realtime_activation()]
 
         deployments = self.controller["desired_deployments"]()
 
-        deployment = deployments["qwen-freetoken"]
+        deployment = deployments["qwen-vllm-omni"]
         self.assertEqual(deployment["litellm_params"], {
-            "model": "openai/qwen-freetoken",
+            "model": "openai/qwen-vllm-omni",
             "api_base": "http://qwen.ai.svc.cluster.local:1919/v1",
             "api_key": "none",
             "order": 0,
         })
-        self.assertEqual(deployment["model_info"]["ai_appliance_source"], "freetoken")
+        self.assertEqual(deployment["model_info"]["ai_appliance_source"], "vllm-omni")
         self.assertEqual(deployment["model_info"]["max_input_tokens"], 32768)
         self.assertEqual(deployment["model_info"]["max_output_tokens"], 4096)
 
-    def test_starting_failed_or_endpointless_freetoken_activation_is_not_published(self):
+    def test_starting_failed_or_endpointless_realtime_activation_is_not_published(self):
         activations = [
-            self.freetoken_activation(phase="Starting"),
-            self.freetoken_activation(phase="Failed"),
-            self.freetoken_activation(phase="Degraded"),
-            self.freetoken_activation(endpoint=""),
+            self.realtime_activation(phase="Starting"),
+            self.realtime_activation(phase="Failed"),
+            self.realtime_activation(phase="Degraded"),
+            self.realtime_activation(endpoint=""),
         ]
         self.controller["read_model_activations"] = lambda: activations
 
         self.assertEqual(self.controller["desired_deployments"](), {})
 
-    def test_disabled_freetoken_route_stays_hidden_even_with_an_old_ready_status(self):
-        activation = self.freetoken_activation()
+    def test_disabled_vllm_omni_route_stays_hidden_even_with_an_old_ready_status(self):
+        activation = self.realtime_activation()
         activation["spec"]["enabled"] = False
         self.controller["read_model_activations"] = lambda: [activation]
         self.assertEqual(self.controller["desired_deployments"](), {})
@@ -201,35 +217,35 @@ class FreeTokenCatalogTests(unittest.TestCase):
         activation["status"]["phase"] = "Starting"
         self.assertEqual(self.controller["desired_deployments"](), {})
         activation["status"]["phase"] = "Ready"
-        self.assertIn("qwen-freetoken", self.controller["desired_deployments"]())
+        self.assertIn("qwen-vllm-omni", self.controller["desired_deployments"]())
 
-    def test_freetoken_requires_a_standard_versioned_openai_endpoint(self):
+    def test_vllm_omni_requires_a_standard_versioned_openai_endpoint(self):
         invalid_endpoints = (
             "http://qwen.ai.svc.cluster.local:1919",
             "http://qwen.ai.svc.cluster.local:1919/v1?token=not-allowed",
-            "file:///tmp/freetoken/v1",
+            "file:///tmp/vllm-omni/v1",
             "http://user:password@qwen.ai.svc.cluster.local:1919/v1",
             "http://outside.example.test:1919/v1",
         )
         for endpoint in invalid_endpoints:
             with self.subTest(endpoint=endpoint):
-                self.assertFalse(self.controller["freetoken_activation_ready"](
-                    self.freetoken_activation(endpoint=endpoint)
+                self.assertFalse(self.controller["direct_runtime_activation_ready"](
+                    self.realtime_activation(endpoint=endpoint)
                 ))
 
-    def test_unready_freetoken_model_is_withdrawn_from_litellm(self):
+    def test_unready_vllm_omni_model_is_withdrawn_from_litellm(self):
         deleted = []
         existing = [
             {
-                "model_name": "qwen-freetoken",
+                "model_name": "qwen-vllm-omni",
                 "model_info": {
-                    "id": "ai-appliance-freetoken-qwen-freetoken",
+                    "id": "ai-appliance-vllm-omni-qwen-vllm-omni",
                     "ai_appliance_managed": True,
-                    "ai_appliance_source": "freetoken",
+                    "ai_appliance_source": "vllm-omni",
                 },
             }
         ]
-        self.controller["read_model_activations"] = lambda: [self.freetoken_activation(phase="Degraded")]
+        self.controller["read_model_activations"] = lambda: [self.realtime_activation(phase="Degraded")]
         self.controller["fetch_litellm_models"] = lambda: [] if deleted else existing
 
         def litellm_request(method, path, body=None, ok=(200, 201, 202)):
@@ -241,8 +257,41 @@ class FreeTokenCatalogTests(unittest.TestCase):
 
         synchronized = self.controller["sync_litellm"]()
 
-        self.assertEqual(deleted, [{"id": "ai-appliance-freetoken-qwen-freetoken"}])
+        self.assertEqual(deleted, [{"id": "ai-appliance-vllm-omni-qwen-vllm-omni"}])
         self.assertEqual(synchronized, [])
+
+
+class PiModelCatalogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.controller = load_controller()
+
+    def test_pi_uses_real_context_and_bounds_output_for_coding_tools(self):
+        for context, output in ((1024, 2048), (8192, 8192), (131072, 16384)):
+            with self.subTest(context=context):
+                result = self.controller["pi_model"]({"id": "local-coder", "contextWindow": context, "maxOutputTokens": output})
+                self.assertEqual(result["contextWindow"], context)
+                self.assertEqual(result["maxTokens"], min(output, 8192, context // 4))
+                self.assertFalse(result["reasoning"])
+                self.assertEqual(result["input"], ["text"])
+
+    def test_pi_unknown_limits_use_conservative_budgets(self):
+        result = self.controller["pi_model"]({"id": "unspecified"})
+        self.assertEqual((result["contextWindow"], result["maxTokens"]), (8192, 2048))
+
+    def test_generated_pi_config_contains_chat_models_and_an_environment_reference(self):
+        data, _ = self.controller["build_catalog"]([
+            {"model_name": "local-coder", "model_info": {"ai_appliance_type": "chat", "contextWindow": 4096, "maxOutputTokens": 2048}},
+            {"model_name": "embedding", "model_info": {"ai_appliance_type": "embedding"}},
+        ])
+        provider = json.loads(data["pi-models.json"])["providers"]["litellm"]
+        self.assertEqual([model["id"] for model in provider["models"]], ["local-coder"])
+        self.assertEqual(provider["api"], "openai-completions")
+        self.assertEqual(provider["apiKey"], "${LITELLM_API_KEY}")
+        self.assertEqual(provider["models"][0]["contextWindow"], 4096)
+        self.assertEqual(provider["models"][0]["maxTokens"], 1024)
+        data, _ = self.controller["build_catalog"]([])
+        self.assertEqual(json.loads(data["pi-models.json"])["providers"]["litellm"]["models"], [])
 
 
 class OpenCodeModelLimitTests(unittest.TestCase):
@@ -416,11 +465,11 @@ class OpenClawCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             config["agents"]["defaults"]["compaction"],
-            {"reserveTokens": 4096, "reserveTokensFloor": 0},
+            {"keepRecentTokens": 4096},
         )
         self.assertEqual(config["tools"]["profile"], "coding")
 
-    def test_catalog_keeps_openclaw_default_floor_for_large_context_models(self):
+    def test_catalog_keeps_openclaw_default_recent_history_for_large_context_models(self):
         data, _ = self.controller["build_catalog"](
             [
                 {
@@ -437,10 +486,10 @@ class OpenClawCatalogTests(unittest.TestCase):
         config = json.loads(data["openclaw.json"])
         self.assertEqual(
             config["agents"]["defaults"]["compaction"],
-            {"reserveTokensFloor": 20000},
+            {"keepRecentTokens": 20000},
         )
 
-    def test_small_openclaw_context_scales_the_reserve_below_four_thousand(self):
+    def test_small_openclaw_context_scales_recent_history_below_four_thousand(self):
         generated = self.controller["openclaw_compaction"](
             [{"id": "small", "contextWindow": 8192}],
             "small",
@@ -448,7 +497,7 @@ class OpenClawCatalogTests(unittest.TestCase):
 
         self.assertEqual(
             generated,
-            {"reserveTokens": 2048, "reserveTokensFloor": 0},
+            {"keepRecentTokens": 2048},
         )
 
 

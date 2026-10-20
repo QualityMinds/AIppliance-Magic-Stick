@@ -34,7 +34,7 @@ You do not have to treat each engine as a separate appliance.
 
 ## What you can do
 
-- **Run and manage models.** Choose Ollama, vLLM or FreeToken on compatible
+- **Run and manage models.** Choose Ollama or vLLM on compatible
   hardware. Find a model, configure its resources, start or stop it, edit supported
   parameters and inspect runtime logs. [Model guide](docs/user-guide/models/manage.md)
 - **Understand your resources.** See CPU/GPU memory and available allocation
@@ -115,14 +115,13 @@ architecture, drivers, model and available resources.
 | Compute target | Configured engine paths |
 |---|---|
 | CPU | Ollama, vLLM |
-| NVIDIA GPU | Ollama, vLLM, FreeToken on eligible devices |
+| NVIDIA GPU | Ollama, vLLM |
 | AMD GPU / ROCm | Ollama, vLLM |
 | Intel GPU / XPU | vLLM |
 
 This is an overview of configured paths, **not a guarantee for every card or
 model**. Check the [catalog-derived compatibility reference](docs/reference/compatibility.md)
-before choosing hardware. FreeToken has its own supported-device policy, memory
-configuration and whole-GPU allocation requirements.
+before choosing hardware.
 
 [![CPU, NVIDIA and AMD memory views in the dashboard, showing free and unreserved memory alongside available GPU slots.](docs/assets/screenshots/models-memory.webp)](docs/assets/screenshots/models-memory.webp)
 

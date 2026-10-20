@@ -1,6 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
-import {join,resolve} from 'node:path';
+import {join,resolve,dirname} from 'node:path';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {readPrivate,writePrivate} from '../core/private-files.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
@@ -8,6 +8,7 @@ import {canonical} from '../core/borrowed-sharing.ts';
 import {AdministrationApi} from '../core/administration-api.ts';
 import {openInferenceSession} from '../core/auth.ts';
 import {disposableUnmanagedKey,UnmanagedKeyFixtureClient,verifyUnmanagedKey} from '../core/unmanaged-key-fixture.ts';
+import type {ModulesPayload} from '@magicstick/dashboard-contracts';
 
 type Rule={apiGroups?:string[];resources?:string[];verbs?:string[];resourceNames?:string[];nonResourceURLs?:string[]};
 export function normalizeRules(rules:Rule[]) {
@@ -23,10 +24,39 @@ async function shipped(path:string) {
   return JSON.parse(execFileSync('python3',['-c','import sys,json,yaml; print(json.dumps(yaml.safe_load(sys.stdin.read())))'],
     {input:source,encoding:'utf8',timeout:5000,maxBuffer:256*1024}));
 }
-async function shippedRbac(path:string) {
-  const source=await readFile(resolve('../../..',path),'utf8');
-  return JSON.parse(execFileSync('python3',['-c','import sys,json,yaml; print(json.dumps([d for d in yaml.safe_load_all(sys.stdin.read()) if d and d.get("kind") in ("Role","RoleBinding")]))'],
-    {input:source,encoding:'utf8',timeout:5000,maxBuffer:256*1024})) as Array<{kind:string;metadata:{name:string;namespace:string};rules?:Rule[];roleRef?:unknown;subjects?:unknown}>;
+type Rbac={kind:string;metadata:{name:string;namespace:string};rules?:Rule[];roleRef?:{kind:string;name:string};subjects?:Array<{kind:string;name:string;namespace?:string}>};
+/** Follow the actual local kustomization resources, not a second hand-maintained
+ * permission inventory. Unreferenced files grant nothing; unexpected live
+ * bindings and any extra rule still fail the exact comparison below. */
+export async function shippedDashboardRbac(root=resolve('../../..'),modules?:ModulesPayload):Promise<Rbac[]> {
+  const visited=new Set<string>();
+  async function read(path:string):Promise<Rbac[]> {
+    requireSafe(path.startsWith(root+'/')&&visited.size<512,'CONFIG');
+    if(visited.has(path))return [];visited.add(path);
+    const source=await readFile(path,'utf8');
+    const documents=JSON.parse(execFileSync('python3',['-c',
+      'import sys,json,yaml; print(json.dumps([d for d in yaml.safe_load_all(sys.stdin.read()) if d and d.get("kind") in ("Kustomization","Role","RoleBinding")]))'],
+    {input:source,encoding:'utf8',timeout:5000,maxBuffer:256*1024}));
+    const result:Rbac[]=[];
+    for(const item of documents) {
+      if(item.kind!=='Kustomization'){result.push(item);continue;}
+      for(const ref of item.resources??[]) {
+        requireSafe(typeof ref==='string'&&!ref.includes('://'),'CONFIG');
+        const child=resolve(dirname(path),ref);
+        result.push(...await read(/\.ya?ml$/.test(child)?child:join(child,'kustomization.yaml')));
+      }
+    }
+    return result;
+  }
+  const documents=await read(join(root,'magic-cluster/apps/dashboard/kustomization.yaml'));
+  for(const [id,item] of Object.entries(modules?.catalogJson?.modules ?? {}))if(modules?.modules[id]?.enabled===true && item.path) {
+    requireSafe(typeof item.path==='string' && !item.path.includes('://'),'CONFIG');
+    documents.push(...await read(join(resolve(root,item.path),'kustomization.yaml')));
+  }
+  const bindings=documents.filter(item=>item.kind==='RoleBinding'&&item.subjects?.some(s=>s.kind==='ServiceAccount'&&
+    s.name==='ai-appliance-dashboard-api'&&s.namespace==='identity-system'));
+  return [...bindings,...documents.filter(item=>item.kind==='Role'&&bindings.some(b=>b.roleRef?.kind==='Role'&&
+    b.roleRef.name===item.metadata.name&&b.metadata.namespace===item.metadata.namespace))];
 }
 export async function rbacWorkflow(live:LiveFoundation) {
   const expected=await shipped('magic-cluster/apps/dashboard/clusterrole.yaml'),binding=await shipped('magic-cluster/apps/dashboard/clusterrolebinding.yaml');
@@ -38,8 +68,9 @@ export async function rbacWorkflow(live:LiveFoundation) {
   requireSafe(relevant.length === 1,'API');
   const actual=relevant[0] as unknown as {metadata:{name:string};roleRef:unknown;subjects:unknown};
   requireSafe(actual.metadata.name === binding.metadata.name && canonical(actual.roleRef) === canonical(binding.roleRef) && canonical(actual.subjects) === canonical(binding.subjects),'API');
-  const shippedNamespaced=(await Promise.all(['host-management','federation-admin','settings','model-secrets','user-admin','license']
-    .map(name=>shippedRbac(`magic-cluster/apps/dashboard/${name}-rbac.yaml`)))).flat();
+  // Enabled modules can deliberately add scoped API grants, e.g. the runner's
+  // own credential namespace. They are not part of the dashboard-only base.
+  const shippedNamespaced=await shippedDashboardRbac(undefined,await live.api.modules());
   const namespaced=await live.observer.list('rolebindings.rbac.authorization.k8s.io');
   const attached=namespaced.filter(item=>(item as unknown as {subjects?:Array<{kind:string;name:string;namespace:string}>}).subjects?.some(subject=>
     subject.kind === 'ServiceAccount' && subject.name === 'ai-appliance-dashboard-api' && subject.namespace === 'identity-system'));

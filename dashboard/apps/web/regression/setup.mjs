@@ -23,6 +23,8 @@ import {bootstrapRegisteredLab,bootstrapTestLicenses} from './core/automatic-boo
 import {parseRegistration} from './core/lab-policy.ts';
 import {AutomaticRecovery} from './core/automatic-recovery.ts';
 import {recoveryAdapters} from './core/recovery-adapters.ts';
+import {parseRecoveryLock} from './core/lock-recovery.ts';
+import {applicationModuleIds,protectedModule} from './core/application-modules.ts';
 
 process.umask(0o077);
 const directory = resolve(process.env.REGRESSION_INPUT_DIR ?? '/inputs');
@@ -39,7 +41,7 @@ async function connect() {
   const config = {dashboardUrl: request.dashboardUrl, identityUrl: request.identityUrl,
     usernameFile: inputFile(request.usernameFile), passwordFile: inputFile(request.passwordFile),
     requestTimeoutMs: 15_000, loginTimeoutMs: 45_000, expected: {role: 'magicstick-admin'}};
-  context = await realLogin(browser, config);
+  context = await realLogin(browser, config, {httpsPurpose: 'certificate'});
   client = new AdministrationApi(context.request, config.dashboardUrl, config.requestTimeoutMs, async () => {
     const session = await client.api.session();
     requireSafe(session.subject === facts.subject && session.username === facts.username && session.roles.includes('magicstick-admin'), 'AUTH');
@@ -145,7 +147,23 @@ async function prepareModuleFixture() {
     resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs'),facts.applianceUid);
   const {lease}=reservation;
   try {
-  const profile=JSON.parse(await readPrivate(join(directory,'remaining-p0.json'))),id=profile.modules?.id;
+  const profile=JSON.parse(await readPrivate(join(directory,'remaining-p0.json')));
+  const snapshot=await client.api.modules();
+  const candidates=new Set([profile.modules?.id,...applicationModuleIds(snapshot,(profile.applications?.fixtures??[]).map(f=>f.type))]);
+  const marker=join(directory,'.setup-module-fixture.json');
+  if(await exists(marker)) {
+    const pending=JSON.parse(await readPrivate(marker));
+    requireSafe(candidates.has(pending.id)&&!protectedModule(pending.id),'CONFLICT');
+    await prepareOneModuleFixture(pending.id,pending.id===profile.modules?.id?profile.modules.parameters??{}:snapshot.modules[pending.id]?.parameters??{},reservation);
+  }
+  for(const id of candidates) {
+    if(!id||protectedModule(id)||snapshot.modules[id]?.enabled===true)continue;
+    await prepareOneModuleFixture(id,id===profile.modules?.id?profile.modules.parameters??{}:snapshot.modules[id]?.parameters??{},reservation);
+  }
+  }finally {await reservation.close();}
+}
+async function prepareOneModuleFixture(id,parameters,reservation) {
+  const {lease}=reservation;
   requireSafe(typeof id === 'string' && /^[a-z0-9-]{1,63}$/.test(id) && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator/.test(id),'PREREQUISITE');
   const modules=await client.api.modules(),catalog=modules.catalogJson?.modules?.[id];
   requireSafe(catalog?.activationMode === 'moduleactivation' && modules.modules[id]?.enabled !== true,'PREREQUISITE');
@@ -155,7 +173,6 @@ async function prepareModuleFixture() {
   requireSafe((await observer.get('appliances.appliance.magicstick.dev','ai-system','local')).metadata.uid === facts.applianceUid,'IDENTITY');
   const matches=(await observer.list('moduleactivations.appliance.magicstick.dev','ai-system')).filter(item=>item.spec?.module === id);
   requireSafe(matches.length <= 1,'CONFLICT');
-  const parameters=profile.modules.parameters ?? {};
   requireSafe(parameters && typeof parameters === 'object' && !Array.isArray(parameters) && Object.entries(parameters).every(([key,value])=>
     typeof value === 'string' && value.length < 128 && catalog.parameters?.some(field=>field.name === key)),'CONFIG');
   const marker=join(directory,'.setup-module-fixture.json');
@@ -177,12 +194,12 @@ async function prepareModuleFixture() {
     {timeoutMs:30_000,intervalMs:1000,stage:'host-readiness'});
   requireSafe(created.metadata.uid,'OWNERSHIP');
   await writePrivate(join(directory,'setup-module-fixture.json'),{version:1,applianceUid:facts.applianceUid,id,uid:created.metadata.uid,state:'verified-disabled'});await rm(marker);
-  }finally {await reservation.close();}
 }
 
 try {
   request = JSON.parse(await readPrivate(join(directory, '.setup-api-request.json')));
-  requireSafe(request.version === 1 && ['inspect','suite-inventory','stop-models','authorize','register','refresh','restore','license-fixtures','verify-fixtures','export-license','module-fixture','recover-actions'].includes(request.mode), 'CONFIG');
+  requireSafe(request.version === 1 && ['inspect','suite-inventory','stop-models','authorize','register','refresh','restore','license-fixtures','verify-fixtures','export-license','module-fixture','recover-actions','recover-lock'].includes(request.mode), 'CONFIG');
+  if(request.mode === 'recover-lock')parseRecoveryLock(request.expectedLock);
   for(const name of ['dashboardUrl', 'identityUrl']) {
     const url = new URL(request[name]);
     requireSafe(url.protocol === 'https:' && url.origin === request[name] && !url.username && !url.password, 'CONFIG');
@@ -238,7 +255,7 @@ try {
         }
         const signer=await exists(filename) ? validateTestLicenseSigner(JSON.parse(await readPrivate(filename)),facts.applianceUid,status.installationId) : createTestLicenseSigner(facts.applianceUid,status.installationId);
         if(!await exists(filename))await writePrivate(filename,signer,true);
-        for(const mode of ['valid','expired','wrong-installation','tampered','short-lived'])
+        for(const mode of ['valid','commercial','expired','wrong-installation','tampered','short-lived'])
           await writePrivate(join(directory,'license-'+mode+'.license'),testLicenseDocument(signer,mode));
         licenseFixture={kid:signer.kid,publicKey:signer.publicKey,fingerprint:signer.fingerprint,installationId:signer.installationId};
       }
@@ -253,9 +270,11 @@ try {
           requireSafe(result.candidate.valid === false,'API');
         }
       }
-      if(['authorize','register','refresh'].includes(request.mode)) {
+      if(['authorize','register','refresh','recover-lock'].includes(request.mode)) {
         sameSetupTarget(facts, request.reviewed);
-        await verifiedEndpoint(facts.inferenceUrl, 15_000, ca);
+        // Lock recovery needs authenticated catalogue absence, not a working
+        // inference endpoint, model fixture, license or a new test campaign.
+        if(request.mode !== 'recover-lock')await verifiedEndpoint(facts.inferenceUrl, 15_000, ca);
         let oidc;
         setupStage = 'kubernetes-access';
         const token = await withSetupAdmin(facts, request.approveAdminGrant, {
@@ -296,19 +315,23 @@ try {
                 console.log('Previous interrupted regression run automatically restored; original failed evidence retained.');
                 return id;
               };
-            });
+            },request.mode === 'recover-lock' ? request.expectedLock : undefined);
             if(bootstrapped.recoveredRunId)recoveredRunIds.push(bootstrapped.recoveredRunId);
-            const license=await client.api.licenseStatus();
-            setupStage = 'license-fixtures';
-            await bootstrapTestLicenses(directory,registration,license.installationId);
-            // The optional trust ConfigMap reloads the API. Wait for the
-            // actual verifier, not merely the Kubernetes patch response.
-            const document=await readPrivate(join(directory,'license-valid.license'));
-            setupStage = 'license-validation';
-            await poll(async()=>{
-              try {return await client.write({method:'POST',path:'/api/license/validate',body:{document}},()=>client.api.inspectLicense(document));}
-              catch(error){if(error instanceof HarnessError && error.code === 'API')return undefined;throw error;}
-            },value=>value?.candidate.valid === true,{timeoutMs:120_000,intervalMs:2500,stage:'host-readiness'});
+            if(request.mode === 'recover-lock')requireSafe(request.expectedLock &&
+              bootstrapped.recoveredRunId === request.expectedLock.runId,'CLEANUP');
+            if(request.mode !== 'recover-lock') {
+              const license=await client.api.licenseStatus();
+              setupStage = 'license-fixtures';
+              await bootstrapTestLicenses(directory,registration,license.installationId);
+              // The optional trust ConfigMap reloads the API. Wait for the
+              // actual verifier, not merely the Kubernetes patch response.
+              const document=await readPrivate(join(directory,'license-valid.license'));
+              setupStage = 'license-validation';
+              await poll(async()=>{
+                try {return await client.write({method:'POST',path:'/api/license/validate',body:{document}},()=>client.api.inspectLicense(document));}
+                catch(error){if(error instanceof HarnessError && error.code === 'API')return undefined;throw error;}
+              },value=>value?.candidate.valid === true,{timeoutMs:120_000,intervalMs:2500,stage:'host-readiness'});
+            }
           }finally{await rm(join(directory,'.setup-bootstrap.kubeconfig'),{force:true});}
         }
       }

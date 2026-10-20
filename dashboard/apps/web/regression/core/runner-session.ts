@@ -4,6 +4,7 @@ import {HeartbeatLoop} from './run-lifecycle.ts';
 import {requireSafe} from './errors.ts';
 import {ResourceJournal,newRunId} from './journal.ts';
 import {LabLease,type LeaseStore} from './lease.ts';
+import {progressEvent} from './progress.ts';
 
 export interface RunnerSession {version:1;runId:string;targetUid:string;state:'running'|'finished';updatedAt:string;interrupted:boolean}
 /** Parent-owned liveness receipt survives a killed Docker container. It is
@@ -13,6 +14,7 @@ export async function runnerSession(directory:string,runId:string,targetUid:stri
   const filename=join(directory,'runner-session.json');
   const value:RunnerSession={version:1,runId,targetUid,state:'running',updatedAt:new Date().toISOString(),interrupted:false};
   await writePrivate(filename,value,true);
+  progressEvent({event:'owner-start',runId,targetUid});
   const heartbeat=new HeartbeatLoop(async()=>{
     value.updatedAt=new Date().toISOString();await writePrivate(filename,value);
   },10_000).start();

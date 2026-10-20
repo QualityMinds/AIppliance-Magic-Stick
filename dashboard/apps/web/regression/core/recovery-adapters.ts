@@ -13,6 +13,7 @@ import {requireSafe} from './errors.ts';
 import type {LiveFoundation} from './live-foundation.ts';
 import type {LabRegistration} from './lab-policy.ts';
 import type {RecoveryAdapters} from './automatic-recovery.ts';
+import {ensureDashboardSession} from './auth.ts';
 
 /** Preparation uses freshly renewed scoped credentials. The transient admin
  * bootstrap context is never used to delete resources or restore product intent. */
@@ -21,10 +22,14 @@ export async function recoveryAdapters(inputs:string,context:BrowserContext,regi
     model=new KubernetesModelCleaner(join(inputs,'model-cleaner.yaml'),'ai-system',timeoutMs),
     apps=new AppCleaner(join(inputs,'app-cleaner.kubeconfig'),timeoutMs);
   await observer.verifyConfiguration();await model.verifyConfiguration();await apps.verifyConfiguration();
+  const authenticatedGuard = (guard: () => Promise<void>) => async () => {
+    await guard(); await ensureDashboardSession(context); await guard();
+  };
   const readonly=new AdministrationApi(context.request,registration.dashboardUrl,timeoutMs,async()=>{throw new Error('Read-only recovery inventory');});
   return {
     store:new KubernetesLeaseStore(join(inputs,'locker.yaml'),'magicstick-regression','lab-lock',timeoutMs),
     verifyTarget:async()=>{
+      await ensureDashboardSession(context);
       const [appliance,nodes,marker]=await Promise.all([observer.get('appliances.appliance.magicstick.dev','ai-system','local'),
         observer.list('nodes'),observer.get('configmaps','magicstick-regression','registered-lab')]);
       const value=marker as KubeObject&{immutable?:boolean;data?:Record<string,string>};
@@ -35,12 +40,17 @@ export async function recoveryAdapters(inputs:string,context:BrowserContext,regi
         value.metadata.labels?.['regression.magicstick.dev/appliance-uid']===registration.applianceUid,'LAB');
     },
     cleanup:(journal,guard)=>{
+      guard = authenticatedGuard(guard);
       const keys=new OwnedKeyClient(context.request,registration.dashboardUrl,timeoutMs,journal.prefix,journal.entries,guard);
+      const keyAdapter=keys.adapter();
       const identityLive={journal,context,guard,config:{dashboardUrl:registration.dashboardUrl,requestTimeoutMs:timeoutMs},
         registerDomainCleanup:()=>{}} as unknown as LiveFoundation;
       const identity=new OwnedIdentityClient(identityLive,true).adapter();
       const modelAdapter=model.adapter(journal.prefix,name=>remainingModelResources(observer,readonly.api,name),guard);
-      return {key:keys.adapter(),identity,
+      return {key:{...keyAdapter,lookup:async entry=>{await guard();return keyAdapter.lookup(entry);},
+        verifyRemoved:async entry=>{await guard();return keyAdapter.verifyRemoved(entry);}},
+        identity:{...identity,lookup:async entry=>{await guard();return identity.lookup(entry);},
+          verifyRemoved:async entry=>{await guard();return identity.verifyRemoved(entry);}},
         model:{...modelAdapter,lookup:async entry=>{
           await guard();const current=await model.find(entry.name);
           if(current&&entry.uid!==null)requireSafe(current.metadata.uid===entry.uid&&current.metadata.generation===entry.generation&&
@@ -67,15 +77,16 @@ export async function recoveryAdapters(inputs:string,context:BrowserContext,regi
       };
     },
     module:(original,guard)=>{
+      guard = authenticatedGuard(guard);
       const id=String(original.spec?.module),api=new AdministrationApi(context.request,registration.dashboardUrl,timeoutMs,guard);
       requireSafe(original.metadata.namespace==='ai-system'&&original.metadata.name&&/^[a-z0-9-]{1,63}$/.test(id),'OWNERSHIP');
       return {read:()=>observer.get('moduleactivations.appliance.magicstick.dev','ai-system',original.metadata.name!),
         set:(enabled,parameters)=>{
-          const body=enabled&&!Object.keys(parameters).length?{}:{parameters},path=`/api/modules/${id}/${enabled?'enable':'disable'}`;
-          return api.write({method:'POST',path,body},()=>enabled?api.api.enableModule(id,parameters):api.api.disableModule(id,parameters));
+          const body=!Object.keys(parameters).length&&(enabled||original.spec?.parameters===undefined)?{}:{parameters},path=`/api/modules/${id}/${enabled?'enable':'disable'}`;
+          return api.write({method:'POST',path,body},()=>enabled?api.api.enableModule(id,parameters):api.api.disableModule(id,'parameters' in body?parameters:undefined));
         }};
     },
-    sharing:(identity,guard)=>sharingAdapter({guard,observer,context,api:readonly.api,config:{dashboardUrl:registration.dashboardUrl,
+    sharing:(identity,guard)=>sharingAdapter({guard:authenticatedGuard(guard),observer,context,api:readonly.api,config:{dashboardUrl:registration.dashboardUrl,
       requestTimeoutMs:timeoutMs,expected:{applianceNamespace:'ai-system'},gpu:{acknowledgeSharingTransitions:true,
         nodeName:identity.nodeName,nodeUid:identity.nodeUid}}} as unknown as LiveFoundation),
     cancel:()=>context.close(),

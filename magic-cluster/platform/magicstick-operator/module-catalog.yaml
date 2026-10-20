@@ -17,6 +17,19 @@ data:
         "other": {"displayName": "Other", "order": 1000}
       },
       "modules": {
+        "regression": {
+          "displayName": "Regression runner",
+          "description": "Runs the existing P0 suite inside a registered disposable test Appliance; reports survive dashboard reloads.",
+          "group": "other",
+          "activationMode": "moduleactivation",
+          "order": 900,
+          "path": "magic-cluster/apps/regression",
+          "kustomizationName": "app-regression",
+          "requires": ["basis", "dashboard"],
+          "requiredCrds": ["regressionruns.appliance.magicstick.dev"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
         "basis": {
           "displayName": "Basis",
           "group": "core",
@@ -101,6 +114,7 @@ data:
           "postBuildSubstitution": true
         },
         "anything-llm": {
+          "litellmKey": {"namespace": "ai", "secretName": "anything-llm-litellm"},
           "displayName": "AnythingLLM",
           "group": "apps",
           "aliases": ["anythingllm", "anythingLlm"],
@@ -115,7 +129,9 @@ data:
           "postBuildSubstitution": true,
           "parameters": [
             {"name": "storage", "label": "Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_ANYTHING_LLM_STORAGE"},
-            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_QDRANT_STORAGE"}
+            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_QDRANT_STORAGE"},
+            {"name": "chatModel", "label": "Chat model", "type": "model", "modelType": "chat", "substitution": "AI_APPLIANCE_ANYTHING_LLM_CHAT_MODEL", "description": "Initial chat model. Saved choices in AnythingLLM are preserved."},
+            {"name": "embeddingModel", "label": "Embedding model", "type": "model", "modelType": "embedding", "substitution": "AI_APPLIANCE_ANYTHING_LLM_EMBEDDING_MODEL", "description": "Initial model for document search. Existing indexes keep their saved embedding model."}
           ]
         },
         "gpu": {
@@ -269,20 +285,6 @@ data:
           "default": false,
           "uninstallPolicy": "keep-data"
         },
-        "freetoken": {
-          "displayName": "FreeToken",
-          "description": "Pinned FreeToken v0.1.3 NVIDIA runtime for supported whole-GPU local models, including same-node tensor parallelism.",
-          "group": "runtime",
-          "activationMode": "moduleactivation",
-          "activationPolicy": "local-model",
-          "order": 45,
-          "path": "magic-cluster/platform/ai/freetoken",
-          "kustomizationName": "platform-freetoken",
-          "requires": ["basis"],
-          "requiredCrds": [],
-          "default": false,
-          "uninstallPolicy": "keep-data"
-        },
         "kubeopencode": {
           "displayName": "KubeOpenCode",
           "group": "apps",
@@ -302,6 +304,19 @@ data:
           "default": false,
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true
+        },
+        "pi-coding": {
+          "displayName": "Pi Coding Agent",
+          "description": "Pi v1.0.0 coding agent with a browser terminal, persistent workspace and sessions, and Magic Stick models.",
+          "group": "apps",
+          "activationMode": "moduleactivation",
+          "order": 120,
+          "path": "magic-cluster/apps/ai/pi-coding",
+          "kustomizationName": "app-pi-coding",
+          "requires": ["basis", "litellm", "model-catalog"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data"
         },
         "odysseus": {
           "displayName": "Odysseus",

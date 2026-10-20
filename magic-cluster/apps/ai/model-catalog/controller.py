@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import copy
 import datetime
 import hashlib
 import json
@@ -22,8 +23,8 @@ POLL_SECONDS = int(os.environ.get("CATALOG_POLL_SECONDS", "30"))
 WATCH_SECONDS = int(os.environ.get("CATALOG_WATCH_SECONDS", str(max(1, POLL_SECONDS // 2))))
 DEFAULT_CHAT_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_CHAT_MODEL", "auto")
 DEFAULT_EMBEDDING_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL", "auto")
-OPENCODE_DEFAULT_CONTEXT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_CONTEXT_TOKENS", "131072"))
-OPENCODE_DEFAULT_OUTPUT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_OUTPUT_TOKENS", "8192"))
+OPENCODE_DEFAULT_CONTEXT_TOKENS = max(1, int(os.environ.get("OPENCODE_DEFAULT_CONTEXT_TOKENS", "8192")))
+OPENCODE_DEFAULT_OUTPUT_TOKENS = max(1, int(os.environ.get("OPENCODE_DEFAULT_OUTPUT_TOKENS", "2048")))
 PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS = max(
     1, int(os.environ.get("PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS", "4096"))
 )
@@ -31,14 +32,14 @@ PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS = max(
     0, int(os.environ.get("PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS", "4096"))
 )
 OPENCLAW_SMALL_CONTEXT_MAX_TOKENS = 32768
-OPENCLAW_SMALL_CONTEXT_RESERVE_MAX_TOKENS = 4096
-OPENCLAW_SMALL_CONTEXT_RESERVE_MIN_TOKENS = 1024
-OPENCLAW_DEFAULT_RESERVE_TOKENS_FLOOR = 20000
+OPENCLAW_SMALL_CONTEXT_KEEP_RECENT_MAX_TOKENS = 4096
+OPENCLAW_DEFAULT_KEEP_RECENT_TOKENS = 20000
 OPENCLAW_TOOLS_PROFILE = "coding"
 RESTART_CONSUMERS = os.environ.get("CONSUMER_RESTART_ENABLED", "true").lower() == "true"
 SYNC_AGENT_TEMPLATES = os.environ.get("AGENT_TEMPLATE_SYNC_ENABLED", "true").lower() == "true"
 AGENT_TEMPLATE_NAMES = [name.strip() for name in os.environ.get("AGENT_TEMPLATE_NAMES", "litellm-default").split(",") if name.strip()]
 AGENT_TEMPLATE_APPINSTANCE_LABEL = "appliance.magicstick.dev/appinstance"
+PREFERRED_MODEL_ANNOTATION = "ai-appliance.io/preferred-model"
 CONSUMER_ANNOTATION = "ai-appliance.io/model-catalog-consumer"
 CATALOG_HASH_ANNOTATION = "ai-appliance.io/catalog-hash"
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
@@ -308,6 +309,23 @@ def external_activation_item(activation):
     return item
 
 
+CAPABILITY_FIELDS = {"tools": "supports_function_calling", "vision": "supports_vision", "reasoning": "supports_reasoning"}
+
+
+def capabilities(value):
+    if not isinstance(value, dict):
+        return {}
+    return {key: value[key] for key in CAPABILITY_FIELDS if type(value.get(key)) is bool}
+
+
+def capability_info(value):
+    known = capabilities(value)
+    # Track declarations separately from LiteLLM's inferred fields so removing
+    # an override can clear it without mistaking inferred metadata for intent.
+    return {**{CAPABILITY_FIELDS[key]: enabled for key, enabled in known.items()},
+            "ai_appliance_capabilities": known}
+
+
 def kubeai_deployment(model):
     metadata = model.get("metadata") or {}
     spec = model.get("spec") or {}
@@ -326,6 +344,10 @@ def kubeai_deployment(model):
         "magicstick_vllm_priority": spec.get("engine") == "VLLM",
         "order": 0,
     }
+    declaration = (metadata.get("annotations") or {}).get("ai-appliance.io/capabilities", "{}")
+    model_info.update(capability_info(json.loads(declaration)))
+    model_info["ai_appliance_unknown_capabilities"] = [key for key in CAPABILITY_FIELDS
+                                                     if key not in model_info["ai_appliance_capabilities"]]
     if context_window:
         model_info["max_input_tokens"] = context_window
     if max_output_tokens:
@@ -368,6 +390,7 @@ def external_deployment(item):
         "ai_appliance_type": model_type,
         "source": "external",
     }
+    model_info.update(capability_info(item.get("capabilities")))
     context_window = positive_int(item.get("contextWindow") or item.get("context_window") or item.get("max_input_tokens"))
     max_output_tokens = positive_int(item.get("maxOutputTokens") or item.get("max_output_tokens"))
     if context_window:
@@ -386,14 +409,8 @@ def local_engine(activation):
     return str(local.get("engine") or "VLLM").strip().lower()
 
 
-def freetoken_runtime_endpoint(activation):
-    """Return a safe, versioned FreeToken OpenAI endpoint from operator status.
-
-    The FreeToken runtime is not a KubeAI backend.  The Magic Stick operator
-    owns its Deployment and writes the internal OpenAI-compatible endpoint only
-    after it has created the matching Service.  The catalog deliberately trusts
-    that status field rather than reconstructing a URL from the model name.
-    """
+def direct_runtime_endpoint(activation):
+    """Validate the operator-owned Realtime Service endpoint before routing."""
     endpoint = str(((activation.get("status") or {}).get("runtimeEndpoint") or "")).strip().rstrip("/")
     if not endpoint:
         return None
@@ -425,8 +442,6 @@ def freetoken_runtime_endpoint(activation):
 
 def direct_runtime_backend(activation):
     local = (activation.get("spec") or {}).get("local") or {}
-    if local_engine(activation) == "freetoken":
-        return "freetoken"
     if local_engine(activation) == "vllm" and (local.get("realtime") or {}).get("profile") == "qwen3-omni":
         return "vllm-omni"
     return ""
@@ -450,7 +465,7 @@ def direct_runtime_activation_ready(activation):
     ):
         # An edit/restart invalidates the old Ready evidence immediately.
         return False
-    return bool(freetoken_runtime_endpoint(activation))
+    return bool(direct_runtime_endpoint(activation))
 
 
 def direct_runtime_deployment(activation):
@@ -460,7 +475,7 @@ def direct_runtime_deployment(activation):
     metadata = activation.get("metadata") or {}
     local = ((activation.get("spec") or {}).get("local") or {})
     name = str(metadata.get("name") or "").strip()
-    endpoint = freetoken_runtime_endpoint(activation)
+    endpoint = direct_runtime_endpoint(activation)
     if not name or not endpoint:
         return None
     features = local.get("features") or []
@@ -477,6 +492,9 @@ def direct_runtime_deployment(activation):
         "features": features,
         "order": 0,
     }
+    model_info.update(capability_info(local.get("capabilities")))
+    model_info["ai_appliance_unknown_capabilities"] = [key for key in CAPABILITY_FIELDS
+                                                     if key not in model_info["ai_appliance_capabilities"]]
     if backend == "vllm-omni":
         model_info["mode"] = "realtime"
         model_info["supports_audio_input"] = True
@@ -499,18 +517,49 @@ def direct_runtime_deployment(activation):
     }
 
 
-def freetoken_activation_ready(activation):
-    return local_engine(activation) == "freetoken" and direct_runtime_activation_ready(activation)
-
-
-def freetoken_deployment(activation):
-    return direct_runtime_deployment(activation) if local_engine(activation) == "freetoken" else None
+def replicated_deployment(model, parents):
+    """Expose healthy, current, UID-owned copies only under the public parent name."""
+    meta = model.get("metadata") or {}
+    labels, annotations = meta.get("labels") or {}, meta.get("annotations") or {}
+    parent = parents.get(labels.get("appliance.magicstick.dev/modelactivation")) or {}
+    pm, spec, status = parent.get("metadata") or {}, parent.get("spec") or {}, parent.get("status") or {}
+    local = spec.get("local") or {}
+    if (not pm.get("uid") or pm.get("deletionTimestamp") or meta.get("deletionTimestamp")
+            or spec.get("enabled", True) is False or local.get("gpuDeployment") != "replicated"
+            or spec.get("type") != "local" or labels.get("app.kubernetes.io/managed-by") != "magicstick-operator"
+            or labels.get("appliance.magicstick.dev/activation-uid") != pm["uid"]
+            or meta.get("namespace") != spec.get("targetNamespace", "ai")
+            or annotations.get("appliance.magicstick.dev/activation-generation") != str(pm.get("generation"))
+            or status.get("observedGeneration") != pm.get("generation")
+            or kubeai_ready_replicas(model) < 1):
+        return None
+    cards = {d.get("uuid") for d in local.get("gpuDevices", [])}
+    if annotations.get("appliance.magicstick.dev/replica-gpu") not in cards:
+        return None
+    ready = any(i.get("name") == meta.get("name") and i.get("modelUid") == meta.get("uid")
+                and i.get("phase") == "Ready" for i in (status.get("replication") or {}).get("instances", []))
+    if not ready or not meta.get("uid"):
+        return None
+    deployment = kubeai_deployment(model)
+    deployment["model_name"] = pm["name"]
+    deployment["model_info"]["magicstick_replica_parent"] = pm["name"]
+    deployment["model_info"]["magicstick_replica_model"] = meta["name"]
+    return deployment
 
 
 def desired_deployments():
     deployments = []
+    activations = read_model_activations()
+    parents = {a.get("metadata", {}).get("name"): a for a in activations}
     for model in list_kubeai_models():
         name = ((model.get("metadata") or {}).get("name") or "").strip()
+        if model.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/model-replica") == "true":
+            deployment = replicated_deployment(model, parents)
+            if deployment:
+                deployments.append(deployment)
+            continue  # Never leak internal replica names as public models.
+        if parents.get(name, {}).get("spec", {}).get("local", {}).get("gpuDeployment") == "replicated":
+            continue  # Retiring legacy single/split runtime.
         if name and kubeai_ready_replicas(model) > 0:
             deployments.append(kubeai_deployment(model))
     for item in read_external_models():
@@ -519,7 +568,7 @@ def desired_deployments():
         name = str(item.get("name") or "").strip()
         if name:
             deployments.append(external_deployment(item))
-    for activation in read_model_activations():
+    for activation in activations:
         if (activation.get("metadata") or {}).get("deletionTimestamp"):
             continue
         spec = activation.get("spec") or {}
@@ -533,7 +582,7 @@ def desired_deployments():
         deployment = direct_runtime_deployment(activation)
         if deployment:
             deployments.append(deployment)
-    return {deployment["model_name"]: deployment for deployment in deployments}
+    return {("replica:" + deployment_id(d) if d["model_info"].get("magicstick_replica_parent") else d["model_name"]): d for d in deployments}
 
 
 def fetch_litellm_models():
@@ -554,28 +603,49 @@ def sync_litellm():
     desired = desired_deployments()
     existing = fetch_litellm_models()
     existing_by_name = {model.get("model_name"): model for model in existing
-                        if model.get("model_name") and not (model.get("model_info") or {}).get("magicstick_mesh_owner")}
+                        if model.get("model_name") and not (model.get("model_info") or {}).get("magicstick_mesh_owner")
+                        and not (model.get("model_info") or {}).get("magicstick_replica_parent")}
+    existing_by_id = {deployment_id(model): model for model in existing if deployment_id(model)}
+    retained = set()
 
-    for name, deployment in desired.items():
-        existing_model = existing_by_name.get(name)
+    for deployment in desired.values():
+        name = deployment["model_name"]
+        replica = bool(deployment["model_info"].get("magicstick_replica_parent"))
+        existing_model = existing_by_id.get(deployment_id(deployment)) if replica else existing_by_name.get(name)
+        if replica and existing_model and (not is_managed(existing_model)
+                or (existing_model.get("model_info") or {}).get("magicstick_replica_parent") != name
+                or (existing_model.get("model_info") or {}).get("magicstick_mesh_owner")):
+            raise ValueError("A foreign deployment occupies a reserved model replica ID")
         if existing_model and deployment_id(existing_model):
             deployment["model_info"]["id"] = deployment_id(existing_model)
+        retained.add(deployment_id(deployment))
         try:
             if existing_model:
-                litellm_request("POST", "/model/update", deployment)
+                previous_info = existing_model.get("model_info") or {}
+                previous = capabilities(previous_info.get("ai_appliance_capabilities"))
+                declared = deployment["model_info"].get("ai_appliance_capabilities") or {}
+                # LiteLLM ignores null merge updates and retains cost-map flags
+                # even after route recreation. Carry an explicit unknown mask
+                # so removed declarations cannot leak into generated consumers.
+                unknown = set(deployment["model_info"].get("ai_appliance_unknown_capabilities") or [])
+                unknown.update(previous_info.get("ai_appliance_unknown_capabilities") or [])
+                unknown.update(key for key in previous if key not in declared)
+                deployment["model_info"]["ai_appliance_unknown_capabilities"] = sorted(
+                    key for key in unknown if key in CAPABILITY_FIELDS and key not in declared)
+                litellm_request("PATCH", "/model/" + urllib.parse.quote(deployment_id(existing_model), safe="") + "/update", deployment)
                 log("updated LiteLLM model " + name)
             else:
                 litellm_request("POST", "/model/new", deployment)
                 log("added LiteLLM model " + name)
         except Exception as error:
-            if existing_model:
+            if existing_model or replica:
                 raise
             log("model/new failed for " + name + ", trying model/update: " + str(error))
             litellm_request("POST", "/model/update", deployment)
 
     for model in existing:
         name = model.get("model_name")
-        if name in desired or not is_managed(model):
+        if deployment_id(model) in retained or not is_managed(model) or (model.get("model_info") or {}).get("magicstick_mesh_owner"):
             continue
         model_id = deployment_id(model)
         if not model_id:
@@ -619,6 +689,12 @@ def catalog_entry(model):
         entry["contextWindow"] = context_window
     if max_output_tokens:
         entry["maxOutputTokens"] = max_output_tokens
+    unknown = info.get("ai_appliance_unknown_capabilities") or []
+    known = {key: info[field] for key, field in CAPABILITY_FIELDS.items()
+             if key not in unknown and type(info.get(field)) is bool}
+    known.update(capabilities(info.get("ai_appliance_capabilities")))
+    if known:
+        entry["capabilities"] = known
     return entry
 
 
@@ -631,6 +707,13 @@ def openclaw_model(model):
     entry = {"id": model["id"], "name": model.get("name") or model["id"]}
     if model.get("contextWindow"):
         entry["contextWindow"] = model["contextWindow"]
+    known = capabilities(model.get("capabilities"))
+    if "reasoning" in known:
+        entry["reasoning"] = known["reasoning"]
+    if "vision" in known:
+        entry["input"] = ["text", "image"] if known["vision"] else ["text"]
+    if "tools" in known:
+        entry["compat"] = {"supportsTools": known["tools"]}
     return entry
 
 
@@ -639,31 +722,64 @@ def openclaw_compaction(models, default_model):
     context_window = positive_int((selected or {}).get("contextWindow"))
     if context_window and context_window <= OPENCLAW_SMALL_CONTEXT_MAX_TOKENS:
         return {
-            "reserveTokens": max(
-                OPENCLAW_SMALL_CONTEXT_RESERVE_MIN_TOKENS,
-                min(OPENCLAW_SMALL_CONTEXT_RESERVE_MAX_TOKENS, context_window // 4),
+            "keepRecentTokens": max(
+                1, min(OPENCLAW_SMALL_CONTEXT_KEEP_RECENT_MAX_TOKENS, context_window // 4),
             ),
-            "reserveTokensFloor": 0,
         }
-    return {"reserveTokensFloor": OPENCLAW_DEFAULT_RESERVE_TOKENS_FLOOR}
+    # OpenClaw 2026.9.8 caps its own reserve at a quarter of the active
+    # model's context. The public schema no longer accepts reserve overrides.
+    return {"keepRecentTokens": OPENCLAW_DEFAULT_KEEP_RECENT_TOKENS}
 
 
 def hermes_model(model):
     entry = {"name": model.get("name") or model["id"]}
     if model.get("contextWindow"):
         entry["context_length"] = model["contextWindow"]
+    entry.update(hermes_capabilities(model))
     return entry
 
 
+def hermes_capabilities(model):
+    known = capabilities(model.get("capabilities"))
+    return {"supports_" + key: enabled for key, enabled in known.items()}
+
+
 def opencode_model(model):
-    context = model.get("contextWindow") or OPENCODE_DEFAULT_CONTEXT_TOKENS
-    output = model.get("maxOutputTokens") or OPENCODE_DEFAULT_OUTPUT_TOKENS
-    return {
+    context = positive_int(model.get("contextWindow")) or OPENCODE_DEFAULT_CONTEXT_TOKENS
+    output = positive_int(model.get("maxOutputTokens")) or min(
+        OPENCODE_DEFAULT_OUTPUT_TOKENS, max(1, context // 4)
+    )
+    entry = {
         "name": model.get("name") or model["id"],
         "limit": {
             "context": context,
             "output": min(output, context),
         },
+    }
+    known = capabilities(model.get("capabilities"))
+    for key, target in (("tools", "tool_call"), ("reasoning", "reasoning")):
+        if key in known:
+            entry[target] = known[key]
+    if "vision" in known:
+        entry["modalities"] = {"input": ["text", "image"] if known["vision"] else ["text"], "output": ["text"]}
+    return entry
+
+
+def pi_model(model):
+    # Pi's upstream defaults are too large for small local models. Keep unknown
+    # limits conservative and leave space for agent instructions and tool output.
+    context = positive_int(model.get("contextWindow")) or 8192
+    output = positive_int(model.get("maxOutputTokens")) or 2048
+    known = capabilities(model.get("capabilities"))
+    return {
+        "id": model["id"],
+        "name": model.get("name") or model["id"],
+        "contextWindow": context,
+        "maxTokens": min(output, 8192, max(1, context // 4)),
+        # Pi requires concrete booleans/modalities. Unknown remains absent in
+        # the canonical catalog; this adapter keeps conservative Pi defaults.
+        "reasoning": known.get("reasoning", False),
+        "input": ["text", "image"] if known.get("vision") is True else ["text"],
     }
 
 
@@ -693,8 +809,21 @@ def build_catalog(litellm_models):
     groups = {}
     for model in sorted(litellm_models, key=lambda value: ((value.get("model_info") or {}).get("order") or 0)):
         if model.get("model_name") and (model.get("model_info") or {}).get("source") != "mesh-export":
-            groups.setdefault(model["model_name"], catalog_entry(model))
-    models = list(groups.values())
+            groups.setdefault(model["model_name"], []).append(catalog_entry(model))
+    models = []
+    for entries in groups.values():
+        entry = entries[0]
+        known = {}
+        for key in CAPABILITY_FIELDS:
+            values = [capabilities(item.get("capabilities")).get(key) for item in entries]
+            if False in values:
+                known[key] = False
+            elif all(value is True for value in values):
+                known[key] = True
+        entry.pop("capabilities", None)
+        if known:
+            entry["capabilities"] = known
+        models.append(entry)
     models.sort(key=lambda item: (item.get("type") or "", item["id"]))
     chat_models = [model for model in models if model.get("type") == "chat"]
     embedding_models = [model for model in models if model.get("type") == "embedding"]
@@ -711,6 +840,7 @@ def build_catalog(litellm_models):
         "paperclipOpenCodeContextHeadroomTokens": PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS,
         "openclawCompaction": openclaw_compaction_config,
         "openclawToolsProfile": OPENCLAW_TOOLS_PROFILE,
+        "piModelConfigVersion": 1,
     }
     catalog_hash = hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
@@ -741,7 +871,7 @@ def build_catalog(litellm_models):
     hermes = {
         "model": {
             "default": default_chat,
-            "provider": "litellm",
+            "provider": "custom:litellm",
             "base_url": LITELLM_API_BASE,
             "api_mode": "chat_completions",
         },
@@ -750,12 +880,14 @@ def build_catalog(litellm_models):
                 "name": "LiteLLM",
                 "base_url": LITELLM_API_BASE,
                 "key_env": "OPENAI_API_KEY",
-                "api_mode": "chat_completions",
+                "transport": "chat_completions",
                 "default_model": default_chat,
                 "discover_models": False,
                 "models": {model["id"]: hermes_model(model) for model in chat_models},
             }
         },
+        "model_overrides": {provider: {model["id"]: hermes_capabilities(model) for model in chat_models}
+                            for provider in ("custom", "custom:litellm")},
     }
     opencode_providers = {
         "litellm": {
@@ -810,6 +942,18 @@ def build_catalog(litellm_models):
         "defaults.env": defaults_env,
         "openclaw.json": json_dumps(openclaw),
         "hermes.yaml": json_dumps(hermes),
+        "pi-models.json": json_dumps({
+            "providers": {
+                "litellm": {
+                    "baseUrl": LITELLM_API_BASE,
+                    "api": "openai-completions",
+                    # Keep this consumer placeholder out of Flux substitution
+                    # while this Python source is deployed via a ConfigMap.
+                    "apiKey": "$" + "{LITELLM_API_KEY}",
+                    "models": [pi_model(model) for model in chat_models],
+                },
+            },
+        }),
         "opencode-providers.json": json_dumps(opencode_providers),
         "paperclip-opencode-providers.json": json_dumps(paperclip_opencode_providers),
         "paperclip-adapter-models.json": json_dumps(paperclip_adapter_models),
@@ -894,12 +1038,11 @@ def sync_agent_templates(data):
                         "models": template_models,
                     },
                 },
-                "model": "litellm/" + default_chat,
-                "small_model": "litellm/" + default_chat,
             },
         },
     }
-    template_names = list(dict.fromkeys(AGENT_TEMPLATE_NAMES + managed_agent_template_names()))
+    managed_names = set(managed_agent_template_names())
+    template_names = list(dict.fromkeys(AGENT_TEMPLATE_NAMES + sorted(managed_names)))
     for name in template_names:
         path = f"/apis/kubeopencode.io/v1alpha1/namespaces/{NAMESPACE}/agenttemplates/{name}"
         try:
@@ -910,7 +1053,28 @@ def sync_agent_templates(data):
                 continue
             log("AgentTemplate sync failed for " + name + ": " + str(error))
             continue
-        updated = deep_merge(existing, patch)
+        updated = deep_merge(copy.deepcopy(existing), patch)
+        config = updated["spec"]["config"]
+        # Replace the model list so withdrawn routes disappear. Preserve the
+        # provider's URL/authentication and the AppInstance's selected models.
+        config["provider"]["litellm"]["models"] = template_models
+        instance_managed = name in managed_names or AGENT_TEMPLATE_APPINSTANCE_LABEL in (
+            (existing.get("metadata") or {}).get("labels") or {}
+        )
+        if not instance_managed:
+            config["model"] = "litellm/" + default_chat
+            config["small_model"] = "litellm/" + default_chat
+        else:
+            if not config.get("model") or config["model"] == "litellm/CHANGEME_MODEL":
+                config["model"] = "litellm/" + default_chat
+            if not config.get("small_model") or config["small_model"] == "litellm/CHANGEME_MODEL":
+                config["small_model"] = config["model"]
+        annotations = updated["spec"].setdefault("podSpec", {}).setdefault("annotations", {})
+        annotations[CATALOG_HASH_ANNOTATION] = hashlib.sha256(
+            json.dumps(config, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        if updated["spec"] == existing.get("spec"):
+            continue
         updated.pop("status", None)
         (updated.get("metadata") or {}).pop("managedFields", None)
         try:
@@ -918,6 +1082,75 @@ def sync_agent_templates(data):
             log("synced AgentTemplate " + name + " with " + str(len(template_models)) + " chat models")
         except RuntimeError as error:
             log("AgentTemplate update failed for " + name + ": " + str(error))
+
+
+def sync_openclaw_instances(data):
+    """Publish per-instance defaults without giving the catalog CR write access."""
+    path = path_with_query(
+        f"/apis/openclaw.rocks/v1alpha1/namespaces/{NAMESPACE}/openclawinstances",
+        {"labelSelector": AGENT_TEMPLATE_APPINSTANCE_LABEL},
+    )
+    try:
+        instances = k8s_request("GET", path).get("items") or []
+    except RuntimeError as error:
+        if " returned 404:" not in str(error):
+            log("OpenClaw instance discovery failed: " + str(error))
+        return
+    chat_catalog = json.loads(data.get("chat-models.json") or "{}")
+    base = json.loads(data["openclaw.json"])
+    for instance in instances:
+        metadata = instance.get("metadata") or {}
+        name, uid = metadata.get("name"), metadata.get("uid")
+        if not name or not uid:
+            continue
+        config_name = name + "-model-catalog"
+        reference = ((instance.get("spec") or {}).get("config") or {}).get("configMapRef") or {}
+        # Legacy/global and user-owned ConfigMap references retain their path.
+        if reference != {"name": config_name, "key": "openclaw.json"}:
+            continue
+        selected = (metadata.get("annotations") or {}).get(PREFERRED_MODEL_ANNOTATION)
+        selected = selected or chat_catalog.get("defaultModel") or ""
+        config = copy.deepcopy(base)
+        defaults = config["agents"]["defaults"]
+        defaults["model"]["primary"] = "litellm/" + selected if selected else ""
+        defaults["compaction"] = openclaw_compaction(chat_catalog.get("models") or [], selected)
+        owner = {"apiVersion": "openclaw.rocks/v1alpha1", "kind": "OpenClawInstance",
+                 "name": name, "uid": uid, "controller": True, "blockOwnerDeletion": False}
+        cm_path = f"/api/v1/namespaces/{NAMESPACE}/configmaps/{config_name}"
+        try:
+            existing = k8s_request("GET", cm_path)
+        except RuntimeError as error:
+            if " returned 404:" not in str(error):
+                log("OpenClaw catalog read failed for " + name + ": " + str(error))
+                continue
+            existing = {}
+        existing_meta = existing.get("metadata") or {}
+        owned = any(
+            all(reference.get(key) == owner[key] for key in ("apiVersion", "kind", "name", "uid"))
+            for reference in existing_meta.get("ownerReferences") or []
+        )
+        if existing and not owned:
+            log("refusing to replace a foreign OpenClaw catalog for " + name)
+            continue
+        labels = dict(existing_meta.get("labels") or {})
+        labels.update({"app.kubernetes.io/managed-by": "ai-model-catalog-controller",
+                       AGENT_TEMPLATE_APPINSTANCE_LABEL: name})
+        desired = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {
+            "name": config_name, "namespace": NAMESPACE,
+            "labels": labels,
+            "annotations": existing_meta.get("annotations") or {},
+            "ownerReferences": [owner],
+        }, "data": {"openclaw.json": json_dumps(config)}}
+        if desired["data"] == existing.get("data"):
+            continue
+        try:
+            if existing_meta.get("resourceVersion"):
+                desired["metadata"]["resourceVersion"] = existing_meta["resourceVersion"]
+                k8s_request("PUT", cm_path, desired)
+            else:
+                k8s_request("POST", f"/api/v1/namespaces/{NAMESPACE}/configmaps", desired)
+        except RuntimeError as error:
+            log("OpenClaw catalog update failed for " + name + ": " + str(error))
 
 
 def labels_match(labels, selector):
@@ -928,6 +1161,8 @@ def is_consumer_pod(pod):
     metadata = pod.get("metadata") or {}
     labels = metadata.get("labels") or {}
     annotations = metadata.get("annotations") or {}
+    if labels.get(CONSUMER_ANNOTATION) == "false" or annotations.get(CONSUMER_ANNOTATION) == "false":
+        return False
     if labels.get(CONSUMER_ANNOTATION) == "true" or annotations.get(CONSUMER_ANNOTATION) == "true":
         return True
     return any(labels_match(labels, selector) for selector in DEFAULT_CONSUMER_SELECTORS)
@@ -954,6 +1189,7 @@ def reconcile_once():
     litellm_models = sync_litellm()
     data, catalog_hash = build_catalog(litellm_models)
     changed = write_catalog(data, catalog_hash)
+    sync_openclaw_instances(data)
     sync_agent_templates(data)
     if changed:
         log("published model catalog hash " + catalog_hash)

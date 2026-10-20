@@ -77,7 +77,7 @@ const payload = (path: string, method: string) => {
   if (path === '/api/api-access' && method === 'POST') return {item: {id: 'new', name: 'Demo'}, key: 'sk-secret-once', apiBases: [{scope: 'local', url: 'https://litellm.magicstick.local/v1'}]};
   if (path === '/api/kubernetes-access') return {users: [{id: 'local', username: 'local-user', displayName: 'Local User', email: 'local@example.com', enabled: true, source: 'Local', accessLevel: 'viewer'}], total: 1, first: 0, max: 100, configuration: {configured: true, apiServer: 'https://192.0.2.44:6443', issuerUrl: 'https://id.magicstick.local/realms/magicstick', credentialPlugin: 'kubectl oidc-login'}};
   if (path === '/api/model-discovery/popular') return {provider: 'huggingface', results: [{id: 'Qwen/Qwen3.5-9B', repo: 'Qwen/Qwen3.5-9B', name: 'Qwen3.5-9B'}], total: 1};
-  if (path === '/api/models/estimate-memory') return {
+  if (path === '/api/models/estimate-memory') return {detectedModelType: 'chat',
     minimumMi: 5500,
     recommendedMi: 6700,
     maximumMi: 59136,
@@ -227,11 +227,25 @@ describe('dashboard feature contracts', () => {
     expect(screen.getByText(/Viewer can inspect cluster resources/)).toBeInTheDocument();
   });
 
-  it('System Status restores GPU, Flux, pod and Gateway route details', async () => {
-    renderPage(<SystemPage />);
-    expect(await screen.findByText('NVIDIA GPU Operator')).toBeInTheDocument();
-    expect(screen.getByText('0 ready / 0 active / 1 known')).toBeInTheDocument();
-    expect(screen.getByText('1/1')).toBeInTheDocument();
-    expect(screen.getByText('default.paperclip.magicstick.local')).toBeInTheDocument();
+  it.each(['overview', 'gpu-operators', 'flux', 'network'] as const)('System Status retains the %s details in its own tab', async (section) => {
+    renderPage(<SystemPage session={session} section={section} onSectionChange={vi.fn()} />);
+    expect(await screen.findByRole('button', {name: 'Refresh status'})).toBeEnabled();
+    if (section === 'overview') {
+      expect(screen.getByText('1/1')).toBeInTheDocument();
+      expect(screen.getByText('0 ready / 0 active / 1 known')).toBeInTheDocument();
+      expect(screen.getByText('3 / 3 accepted')).toBeInTheDocument();
+      expect(screen.queryByText('NVIDIA GPU Operator')).not.toBeInTheDocument();
+    } else if (section === 'gpu-operators') {
+      expect(screen.getByText('NVIDIA GPU Operator')).toBeInTheDocument();
+      expect(screen.getByText('0 ready / 0 active / 1 known')).toBeInTheDocument();
+      expect(screen.getByText('No NVIDIA GPU detected.')).toBeInTheDocument();
+    } else if (section === 'flux') {
+      expect(screen.getByText('flux-system/apps')).toBeInTheDocument();
+      expect(screen.getByText('Ready')).toBeInTheDocument();
+    } else {
+      expect(screen.getByText('default.paperclip.magicstick.local')).toBeInTheDocument();
+      expect(screen.getByText('litellm.magicstick.local')).toBeInTheDocument();
+    }
+    expect(requestLog.every((request) => request.method === 'GET')).toBe(true);
   });
 });

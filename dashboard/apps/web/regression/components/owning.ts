@@ -7,6 +7,13 @@ import {writePrivate} from '../core/private-files.ts';
 import {HarnessError} from '../core/errors.ts';
 import {componentDiagnostic} from '../core/component-diagnostic.ts';
 
+/** Owning U/C suites have inert fixtures, not the campaign's live credentials,
+ * preparation receipts, execution mode or recovery authority. Explicit
+ * Kubernetes fixture tests set their own mode within that isolated process. */
+export function owningEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(source).filter(([name]) => !name.startsWith('REGRESSION_')));
+}
+
 /** Execute the owning Vitest suite without duplicating product behavior here. */
 export async function componentSuite(file: string, requiredTitles: string[]) {
   const directory = await mkdtemp(join(tmpdir(), 'magicstick-units-'));
@@ -15,7 +22,7 @@ export async function componentSuite(file: string, requiredTitles: string[]) {
     const processResult=spawnSync(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', file, '--config', 'regression/components/vitest.config.ts',
       '--configLoader=native', '--maxWorkers=1', '--reporter=json', '--outputFile=' + report],
     {timeout: 180_000, stdio: 'pipe', maxBuffer: 1024 * 1024,
-      env: {...process.env, HOME: directory, XDG_CONFIG_HOME:directory, XDG_DATA_HOME:directory,
+      env: {...owningEnvironment(), HOME: directory, XDG_CONFIG_HOME:directory, XDG_DATA_HOME:directory,
         REGRESSION_UNIT_CACHE_DIR: join(directory, 'cache')}});
     let result:{success:boolean;testResults:Array<{assertionResults:Array<{title?:string;fullName:string;status:string;failureMessages?:string[];location?:{line?:number}}>}>};
     try {result=JSON.parse(await readFile(report,'utf8'));}
@@ -42,7 +49,7 @@ export async function componentSuite(file: string, requiredTitles: string[]) {
 export function pythonSuite(cwd: string, tests: string[]) {
   const result = spawnSync('python3', ['-m', 'unittest', '-v', ...tests], {
     cwd: resolve(cwd), timeout: 180_000, stdio: 'pipe', maxBuffer: 1024 * 1024, encoding: 'utf8',
-    env: {...process.env, PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: [resolve('../../..'),process.env.PYTHONPATH].filter(Boolean).join(':')},
+    env: {...owningEnvironment(), PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: [resolve('../../..'),process.env.PYTHONPATH].filter(Boolean).join(':')},
   });
   const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
   for (const name of tests) expect(output).toContain(name.split('.').at(-1));

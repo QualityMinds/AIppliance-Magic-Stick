@@ -6,6 +6,11 @@ import {recordedApi} from '../fixtures/api-client.ts';
 const dashboard = '../../../magic-cluster/apps/dashboard';
 const controller = '../../../magic-cluster/platform/magicstick-operator/controller';
 
+test('DISC-01 backend validates bounded model names before creating resources', evidenceAnnotations(
+  {id: 'DISC-01', variant: 'model-name-contract', layer: 'C'}), () => pythonSuite(dashboard, [
+  'test_dashboard_api.LocalRuntimeTests.test_creation_names_have_bounded_dns_label_validation',
+]));
+
 test('DISC-01 LIFE-02 shared client keeps local and external create contracts distinct', evidenceAnnotations(
   {id: 'DISC-01', variant: 'create-choice-contract', layer: 'C'},
   {id: 'LIFE-02', variant: 'local-create-contract', layer: 'C'}), async () => {
@@ -75,6 +80,16 @@ test('MEM-01 MEM-05 memory estimates expose their terms and risk remains explici
   {id: 'MEM-05', variant: 'risk-contract', layer: 'C'}), () => pythonSuite(dashboard, [
   'test_memory_calculations.MemoryCalculationTests.test_all_ollama_targets_explain_reserves_totals_and_download',
   'test_memory_calculations.MemoryCalculationTests.test_all_vllm_targets_and_cpu_hybrid_safety',
+  'test_memory_calculations.MemoryCalculationTests.test_tensor_cache_and_runtime_follow_each_shard_not_the_full_model',
+  'test_memory_calculations.MemoryCalculationTests.test_tensor_gqa_replication_keeps_one_kv_head_per_rank',
+  'test_memory_calculations.MemoryCalculationTests.test_pipeline_cache_uses_local_layers_and_retains_largest_stage_budget',
+  'test_memory_calculations.MemoryCalculationTests.test_hybrid_cache_adds_state_and_side_caches_without_context_scaling_state',
+  'test_memory_calculations.MemoryCalculationTests.test_mla_latent_cache_is_replicated_and_unknown_attention_is_not_zero',
+  'test_memory_calculations.MemoryCalculationTests.test_gpu_host_ram_separates_serving_transfer_and_reclaimable_file_cache',
+  'test_memory_calculations.MemoryCalculationTests.test_host_startup_lower_bound_uses_shards_per_worker_not_full_checkpoint',
+  'test_memory_calculations.MemoryCalculationTests.test_replica_ram_is_per_copy_and_total_is_not_worker_multiplied_twice',
+  'test_memory_calculations.MemoryCalculationTests.test_unknown_metadata_and_other_gpu_nodes_cannot_invent_ram_capacity',
+  'test_nvidia_card_api.NvidiaCardApiTests.test_group_startup_ram_underbudget_needs_explicit_risk_without_changing_budget',
   'test_cpu_offloading.CpuOffloadingTests.test_explicit_memory_risk_acceptance_preserves_small_and_unverifiable_budgets',
   'test_cpu_offloading.CpuOffloadingTests.test_risk_acceptance_does_not_bypass_invalid_values_or_replica_limits',
 ]));
@@ -109,3 +124,7 @@ test('LOG-01 LOG-04 backend resolves bounded current, previous and init output f
   'test_model_logs.ModelLogsTests.test_logs_are_resolved_from_the_local_activation_and_owned_pods',
   'test_model_logs.ModelLogsTests.test_tail_is_bounded_and_missing_output_does_not_fail_the_dialog',
 ]));
+
+
+test('DISC-01 server resolves automatic model tasks and rejects unknown tasks before saving', evidenceAnnotations(
+  {id: 'DISC-01', variant: 'model-task-contract', layer: 'C'}), () => pythonSuite(dashboard, ['test_model_tasks.ModelTaskTests']));

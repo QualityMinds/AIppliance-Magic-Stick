@@ -1,0 +1,139 @@
+name: Regression runner
+
+on:
+  push:
+    branches: [main, develop]
+    paths: &runner-inputs
+      - .dockerignore
+      - .github/**
+      - dashboard/**
+      - core/**
+      - tools/**
+      - tests/**
+      - magic-cluster/**
+      - magic-host/**
+      - magic-installer/**
+      - licenses/**
+      - LICENSE
+      - LICENSING.md
+      - LICENSE-RELEASE.json
+      - THIRD_PARTY_NOTICES.md
+      - CHANGELOG.md
+      - README.md
+      - .gitleaks.toml
+      - install-from-linux.sh
+      - docs/development/regression-test-catalog.md
+  pull_request:
+    paths: *runner-inputs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-runner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: write
+      packages: write
+    env:
+      DOCKER_BUILDKIT: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build regression runner from current source
+        id: build
+        run: bash tools/regression.sh build
+      - name: Record built runner size and filesystem layers
+        run: docker image inspect magicstick-regression:local --format 'Size={{.Size}} bytes; filesystem layers={{len .RootFS.Layers}}'
+      - name: Verify the packaged setup entrypoint imports before reading private inputs
+        run: |
+          set +e
+          result=$(docker run --rm --network none --entrypoint node \
+            magicstick-regression:local regression/setup.mjs 2>&1)
+          status=$?
+          set -e
+          safe_code=$(printf '%s\n' "$result" | grep -oE '\[(PRIVATE_FILE|CONFIG|UNEXPECTED|TLS|AUTH|API)\]|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|SyntaxError|TypeError' | head -1 || true)
+          safe_target=$(printf '%s\n' "$result" | sed -nE "s/.*Cannot find (package|module) '([^']+)'.*/\2/p" | head -1)
+          case "$safe_target" in
+            *[!a-zA-Z0-9_@./-]*|'') safe_target=unclassified ;;
+          esac
+          printf 'Packaged setup probe: exit=%s, code=%s, target=%s\n' "$status" "${safe_code:-unclassified}" "$safe_target"
+          test "$status" -eq 2
+          printf '%s\n' "$result" | grep -Fq '[PRIVATE_FILE]'
+      - name: Verify native Kubernetes test and cleanup entrypoints before private access
+        run: |
+          for entrypoint in kubernetes.mjs kubernetes-recovery.mjs; do
+            set +e
+            result=$(docker run --rm --network none --entrypoint node \
+              -e REGRESSION_RUN_UID= magicstick-regression:local "regression/$entrypoint" 2>&1)
+            status=$?
+            set -e
+            safe_code=$(printf '%s\n' "$result" | grep -oE 'Invalid run identity\.|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX|SyntaxError|TypeError' | head -1 || true)
+            printf 'Packaged Kubernetes probe: entrypoint=%s, exit=%s, code=%s\n' "$entrypoint" "$status" "${safe_code:-unclassified}"
+            test "$status" -eq 1
+            printf '%s\n' "$result" | grep -Fq 'Error: Invalid run identity.'
+          done
+      - name: Verify fixture reporting with a failed live preparation context
+        run: |
+          docker run --rm --network none --entrypoint node \
+            -e REGRESSION_MODE=selftest -e REGRESSION_PREPARATION_FAILED=Failed \
+            -e REGRESSION_RUN_DIR=/tmp/inherited-preparation \
+            magicstick-regression:local node_modules/@playwright/test/cli.js test \
+            --config regression/playwright.config.ts --reporter=line \
+            --grep 'fresh explicit prerequisites remain distinct|synthetic prerequisite reports are isolated'
+      - name: Verify isolated contracts and native recovery tests in the built image
+        run: |
+          bash tools/regression.sh typecheck
+          bash tools/regression.sh selftest
+          bash tools/regression.sh phase4-fast
+          bash tools/regression.sh phase6-fast
+          bash tools/regression.sh phase8-fast
+      - name: Exercise model Chromium fixtures in the built image
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash tools/regression.sh phase2-fixtures
+      - name: Exercise Realtime Chromium fixtures in the built image
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash tools/regression.sh phase7-fixtures
+      - name: Exercise administration and regression-dashboard Chromium fixtures
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash tools/regression.sh phase8-fixtures
+      - name: Publish tested Linux AMD64 runner and promote only its original channel
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REVISION: ${{ github.sha }}
+          CHANNEL: ${{ github.ref_name }}
+        run: |
+          image="ghcr.io/qualityminds/magicstick-regression:sha-$SOURCE_REVISION"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag magicstick-regression:local "$image"
+          docker push "$image"
+          reference="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
+          digest="${reference##*@}"
+          # Appliances have no publisher token; never promote a private image
+          # which only this authenticated CI runner can download.
+          docker logout ghcr.io
+          docker pull "ghcr.io/qualityminds/magicstick-regression@$digest"
+          test "$(docker image inspect "ghcr.io/qualityminds/magicstick-regression@$digest" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_REVISION"
+          test "$(docker image inspect "ghcr.io/qualityminds/magicstick-regression@$digest" --format '{{.Os}}/{{.Architecture}}')" = 'linux/amd64'
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python3 tools/promote_regression_image.py --source "$SOURCE_REVISION" --digest "$digest" --branch "$CHANNEL" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-runner-isolated-reports
+          # Only the harness's allowlisted archives; no private inputs or journals.
+          path: .regression/private/runs/*/report-artifacts.tar.gz
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

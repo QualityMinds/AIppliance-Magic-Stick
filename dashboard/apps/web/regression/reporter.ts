@@ -1,7 +1,7 @@
 import type {FullConfig, FullResult, Reporter, Suite, TestCase, TestResult,TestStep} from '@playwright/test/reporter';
-import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {HarnessError, reasons, stages, blockedReasons, type ReasonCode, type Stage} from './core/errors.ts';
+import {executionIdentity} from './core/shared-workflow.ts';
 import {phase1FastVariants, phase1FixtureVariants, phase1LiveVariants} from './profiles/phase1-p0.ts';
 import {phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases} from './profiles/phase2-p0.ts';
 import {gpuModeIds} from './profiles/gpu-p0.ts';
@@ -10,7 +10,11 @@ import {reportVariants, saveReport, type CaseResult} from './core/report.ts';
 import {environmentFor, fileLayer, testLayers, type Evidence} from './core/evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions, publicScenarioTitle} from './core/case-descriptions.ts';
 import {disabledExperimentalEngines} from './core/engine-policy.ts';
+import {progressEvent} from './core/progress.ts';
 import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type ExecutionTrace,type TraceStep} from './core/execution-trace.ts';
+import {checkedBlocker} from './core/blocking.ts';
+import {regressionBlockedKind} from '../../../packages/core/src/regression-blocking.ts';
+import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './core/runtime-diagnostic.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
  * fixed allowlisted marker can carry an explicit failure into safe reports. */
@@ -41,6 +45,7 @@ export default class SafeReporter implements Reporter {
   private steps=new Map<TestCase,Map<TestStep,{index:number;finished:boolean}>>();
   private omittedSteps=new Map<TestCase,number>();
   private traces:ExecutionTrace[]=[];
+  private suiteFailures=new Map<Suite,NonNullable<ReturnType<typeof checkedBlocker>>>();
   onStepBegin(test:TestCase,_result:TestResult,step:TestStep) {
     let items=this.steps.get(test);if(!items){items=new Map();this.steps.set(test,items);}
     if(items.size<2000)items.set(step,{index:items.size+1,finished:false});
@@ -81,6 +86,7 @@ export default class SafeReporter implements Reporter {
     const {ids, evidence} = this.mapping(test);
     process.stdout.write(`[${position}/${this.total}] START ${ids.join(', ') || 'Unmapped test'}\n`);
     const scenario = publicScenarioTitle(test.title, test.location.file);
+    progressEvent({event:'test-start',position,total:this.total,ids,description:scenario ?? ids.map(caseDescription).join(' ')});
     if (scenario) process.stdout.write(`  Scenario: ${scenario}\n`);
     for (const id of [...new Set(evidence.map(item => item.id))]) {
       const selected = evidence.filter(item => item.id === id);
@@ -93,12 +99,29 @@ export default class SafeReporter implements Reporter {
   onTestEnd(test: TestCase, result: TestResult) {
     const {ids, evidence} = this.mapping(test);
     const failures=result.errors.map(error=>harnessFailure(error.message));
-    const failure=failures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
+    const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>();
     // A primary assertion/timeout must not hide a secondary teardown fence.
-    const recoveryRequired=failures.some(value=>value&&['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(value.code));
-    const code=failures.some(value=>!value) ? 'UNEXPECTED' : failure?.code;
+    const recoveryReasons=['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'];
+    const cleanupFailures=result.status === 'passed' ? [] : [...recorded.keys()].filter(step=>['test.step','hook'].includes(step.category))
+      .map(step=>harnessFailure(step.error?.message)).filter(value=>value&&recoveryReasons.includes(value.code));
+    const failure=failures.find(value=>value?.outcome === 'Failed') ?? cleanupFailures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
+    const recoveryRequired=[...failures,...cleanupFailures].some(value=>value&&recoveryReasons.includes(value.code));
+    // Playwright's serial suites skip later tests after a failed sibling. This
+    // is a failure dependency, not a newly missing fixture. Explicit skips keep
+    // their own prerequisite/unknown meaning; unrelated suites are not adopted.
+    let predecessor:ReturnType<typeof checkedBlocker>;
+    if(failure?.code==='DEPENDENCY')for(const annotation of test.annotations.filter(item=>item.type==='regression-dependency'))try {
+      const cause=checkedBlocker(JSON.parse(annotation.description ?? ''));
+      if(cause && cause.traceRunId===process.env.REGRESSION_RUN_ID && cause.caseId && cause.executionId)predecessor=cause;
+    }catch{this.unexpected=true;}
+    if(result.status==='skipped' && !test.annotations.some(item=>['skip','fixme'].includes(item.type)))
+      for(let suite:Suite|undefined=test.parent;suite;suite=suite.parent) {
+        predecessor=this.suiteFailures.get(suite);if(predecessor)break;
+      }
+    const code=predecessor ? 'DEPENDENCY' : failures.some(value=>!value) ? 'UNEXPECTED' : failure?.code;
     const outcome = result.status === 'passed' ? (result.retry > 0 ? 'Failed' : 'Passed') : result.status === 'skipped' ? 'Blocked' :
-      failureOutcome(code,result.errors.map(error=>error.message));
+      failureOutcome(code,[...result.errors.map(error=>error.message),...cleanupFailures.map(value=>
+        new HarnessError(value!.code,value!.outcome,value!.stage).message)]);
     const stage=failure?.stage;
     const key=(item:Evidence)=>`${item.id}/${item.variant ?? ''}/${item.layer}`;
     const progressed=new Map<string,{state:string;durationMs:number}>();
@@ -111,11 +134,9 @@ export default class SafeReporter implements Reporter {
       }
       for(const item of step.items)progressed.set(key(item),step);
     }catch{this.unexpected=true;}
-    const executionId=createHash('sha256').update(process.env.REGRESSION_RUN_ID ?? 'fixture')
-      .update(String(test.id ?? test.title)).digest('hex').slice(0,24);
+    const executionId=executionIdentity(process.env.REGRESSION_RUN_ID ?? 'fixture',String(test.id ?? test.title));
     const runId=process.env.REGRESSION_RUN_ID,traceRunId=this.positions.has(test)?runId:undefined,
       source=safeTraceSource(test.location),scenario=publicScenarioTitle(test.title,test.location.file);
-    const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>();
     const steps:TraceStep[]=[...recorded].map(([step,entry])=>{
       const at=safeTraceSource(step.location),category=traceCategories.includes(step.category as TraceStep['category'])?
         step.category as TraceStep['category']:'test.step';
@@ -129,21 +150,51 @@ export default class SafeReporter implements Reporter {
           step.error&&outcome!=='Passed'?{reason:'UNEXPECTED' as const}:{} )};
     });
     const omittedSteps=this.omittedSteps.get(test);
+    const runtimeDiagnostics:RuntimeDiagnostic[]=[];
+    for(const attachment of result.attachments??[]) {
+      if(runtimeDiagnostics.length>=4)break;
+      if(attachment.name==='magicstick-runtime-diagnostic' && attachment.contentType==='application/json' &&
+        attachment.body && attachment.body.length<=32*1024)try {
+        runtimeDiagnostics.push(parseRuntimeDiagnostic(JSON.parse(attachment.body.toString('utf8'))));
+      }catch{/* No arbitrary/malformed attachment is exported. */}
+    }
     if(traceRunId)this.traces.push({version:1,runId:traceRunId,executionId,outcome,durationMs:Math.max(0,result.duration),steps,
       ...(omittedSteps?{omittedSteps}:{}),...(source?{source}:{}),...(scenario?{scenario}:{}),
-      ...(recoveryRequired?{recoveryRequired:true}:{} )});
+      ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} )});
     this.steps.delete(test);this.omittedSteps.delete(test);
+    const root=evidence.find(item=>progressed.get(key(item))?.state==='failed');
+    const untrackedFailure=outcome==='Failed' && stepAnnotations.length>0 && !root;
+    const blockedBy=predecessor ?? checkedBlocker({kind:outcome==='Failed'?'failure':regressionBlockedKind(code),
+      reason:code,stage,executionId,traceRunId,
+      caseId:code==='PREPARATION_FAILED'?'HAR-02':untrackedFailure?'HAR-10':root?.id ?? ids[0]});
+    // Retain the cause only in its owning suite. Propagating it to file/project
+    // ancestors would misattribute skips in independent sibling suites.
+    if(outcome==='Failed' && blockedBy && test.parent && !this.suiteFailures.has(test.parent))
+      this.suiteFailures.set(test.parent,blockedBy);
     for (const item of evidence) {
       const step=progressed.get(key(item)),passed=step?.state === 'passed' && result.retry === 0;
       const dependent=stepAnnotations.length > 0 && !step;
       const itemOutcome=passed ? 'Passed' : dependent ? 'Blocked' : outcome;
       this.cases.push({id:item.id,outcome:itemOutcome,layer:item.layer,environment:environmentFor(item.layer),executionId,executionOutcome:outcome,
         ...(traceRunId?{traceRunId}:{}),...(recoveryRequired?{recoveryRequired:true}:{}),
+        ...(itemOutcome==='Blocked'?{blockedBy}:{}),
         durationMs:step?.durationMs ?? (dependent ? 0 : result.duration),
         ...(passed ? {} : dependent ? {reason:'DEPENDENCY' as const} : code ? {reason:code} : itemOutcome === 'Failed' ? {reason:'UNEXPECTED' as const} : {}),
         ...(item.variant ? {variant:item.variant as CaseResult['variant']} : {}),...(!passed && !dependent && stage ? {stage} : {})});
     }
+    // A failure between annotated assertions or in teardown must not disappear
+    // from the case counts merely because earlier steps already passed. Keep
+    // those passes and add an explicit, trace-linked harness failure instead.
+    if(untrackedFailure) {
+      const layer=fileLayer(test.location.file) ?? 'U';
+      this.cases.push({id:'HAR-10',layer,environment:environmentFor(layer),outcome:'Failed',executionOutcome:'Failed',
+        executionId,...(traceRunId?{traceRunId}:{}),durationMs:result.duration,reason:code ?? 'UNEXPECTED',
+        ...(stage?{stage}:{}),...(recoveryRequired?{recoveryRequired:true}:{})});
+    }
     const position = this.positions.get(test);
+    progressEvent({event:'test-end',position,total:this.total,ids,outcome,durationMs:result.duration,
+      ...(outcome==='Blocked'?{blockedBy}:{}),
+      ...(code?{reason:code}:outcome==='Blocked'?{reason:'PREREQUISITE'}:{}),...(stage?{stage}:{} )});
     const reason = code ?? (outcome === 'Failed' ? 'UNEXPECTED' : undefined);
     process.stdout.write(`${position ? `[${position}/${this.total}] ` : ''}${ids.join(', ') || 'Unmapped test'}: ${outcome} — ${durationDescription(result.duration)}\n`);
     if (reason) process.stdout.write(`  Reason (${reason}): ${reasons[reason]}${stage ? ` Stage: ${stage}.` : ''}\n`);

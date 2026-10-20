@@ -4,7 +4,7 @@
 
 `spec.local.realtime` selects the catalog-owned Qwen3-Omni duplex profile under
 the existing `VLLM` engine. Its managed Deployment/Service use the same direct
-runtime catalog path as FreeToken, not KubeAI. Current-generation Ready evidence
+runtime catalog path, outside KubeAI. Current-generation Ready evidence
 and a namespace-local runtime endpoint are required before publication. The
 generated LiteLLM `model_info.mode` and catalog type are `realtime`; it is not a
 default ordinary chat model. Disabled or unready activations are withdrawn.
@@ -13,6 +13,13 @@ The HF repository selected through search or direct input is persisted in
 no model/config compatibility allowlist. Quantized and unknown architectures can
 be tried; the runtime decides whether it can load them. Experimental compute
 selection includes NVIDIA, AMD, Intel and CPU, with matching runtime images.
+Create/Edit use the shared local-model form. Context and concurrent sessions are
+in its runtime section; RAM and GPU fraction are in memory; the collapsed
+**Advanced** section contains CPU reservation/limit, image and thinker offload.
+`local.cpuResources` uses the existing VLLM catalog defaults and Pod scheduling
+policy, independently of stage memory. Resetting CPU overrides preserves the
+Realtime configuration. Ordinary KV-cache, parallelism and MiB-budget fields
+are not accepted by the current duplex adapter.
 Omni can consume one NVIDIA time-slicing or AMD DRA slot alongside ordinary
 models. Slot intent is counted before a Pod exists and matched runtime Pods are
 not charged twice; a slot is not an isolated GPU-memory quota. Only exclusive
@@ -78,6 +85,9 @@ existing shared ResourceClaim without an additional extended-resource request.
 Shared mode uses exactly one slot: replicas of one GPU are not multiple GPUs.
 Exclusive allocation supports the shipped one-/two-device stage plans.
 Selecting Omni does not stop other models or change the sharing policy.
+NVIDIA exact-card DRA is currently an ordinary vLLM/Ollama adapter, not an Omni
+adapter. Keep **Device plugin** selected for NVIDIA Realtime, and stop Realtime
+models before changing to DRA. Existing AMD DRA Realtime support is unchanged.
 
 Memory and compute are not isolated between consumers. Users must coordinate
 budgets themselves; the 90% default is not automatically reduced in shared mode.
@@ -90,7 +100,7 @@ drain managed Omni and KubeAI workloads while retaining activations/downloads.
 Existing profile IDs and saved configurations remain readable. The default
 repository is a convenience, not an allowlist. Model source/profile remain
 immutable in the existing editor; create a new activation to switch either.
-Realtime uses its own typed settings, not ordinary vLLM/Ollama/FreeToken knobs.
+Realtime uses its own typed settings, not ordinary vLLM/Ollama knobs.
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1
@@ -159,7 +169,7 @@ scoped compatibility repair to the container's `config/omni_config.py`:
   ownership checks are never disabled. Talker/codec retain zero offload.
 - Unknown or inconsistently patched source fails closed. The repair is
   idempotent and affects only the ephemeral Realtime container, not the host,
-  base image, ordinary vLLM, Ollama or FreeToken. Zero offload does not patch.
+  base image, ordinary vLLM or Ollama. Zero offload does not patch.
 
 This is a Magic Stick compatibility change, **not upstream Omni support** for
 the argument in that revision. A runtime upgrade requires reviewing/removing
@@ -177,7 +187,7 @@ runtime image the upstream parser owns its fields and no source is patched.
 
 ## Lifecycle and routing
 
-Like the direct FreeToken runtime, the Magic Stick operator creates a managed
+The Magic Stick operator creates a managed
 Deployment and ClusterIP Service. Realtime also owns a generated ConfigMap for
 the stage configuration. KubeAI is neither provisioned for this profile nor
 placed in its WebSocket path. Existing RBAC, model slots, revision-bound edits,

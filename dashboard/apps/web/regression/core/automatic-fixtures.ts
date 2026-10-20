@@ -2,14 +2,14 @@ import type {ManagedHost,NetworkSettings,HostOperationRequest} from '@magicstick
 import type {LabConfig,GpuLabProfile,GpuModelFixture,RuntimeModelFixture} from './config.ts';
 import {catalogFixture,preparedProfile,type PreparationSnapshot,type PreparationOptions} from './input-preparation.ts';
 import {labPolicy} from './lab-policy.ts';
-import {freeTokenNodeCapacity} from './freetoken-inventory.ts';
-import {freeTokenRegressionEnabled} from './engine-policy.ts';
 import type {HostDrillRecipes} from './host-drill-recipes.ts';
 import {requireSafe} from './errors.ts';
+import {moduleResourceLinks} from '@magicstick/dashboard-core';
+import {realtimeRegressionEnabled} from './engine-policy.ts';
 
 /** Choose test fixtures from the deployed product catalog, including its small
  * CPU text fixtures for compatible GPU runtimes. No user-maintained model list. */
-export function automaticGpuProfile(snapshot:PreparationSnapshot,defaults:Record<string,any>):GpuLabProfile|undefined {
+export function automaticGpuProfile(snapshot:PreparationSnapshot,_defaults:Record<string,any>):GpuLabProfile|undefined {
   const devices=Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []);
   const host=snapshot.hosts.filter(h=>h.available && snapshot.nodes.some(n=>n.metadata.uid === h.nodeUid))
     .sort((a,b)=>a.name.localeCompare(b.name)).find(h=>devices.some(d=>d.nodeUid === h.nodeUid && ['amd','nvidia'].includes(d.vendor)));
@@ -18,9 +18,9 @@ export function automaticGpuProfile(snapshot:PreparationSnapshot,defaults:Record
     nodeName:host.name,nodeUid:host.nodeUid,bootId:host.bootId,sharedSlots:2,devices:{},models:{}};
   for(const provider of ['amd','nvidia'] as const) {
     const selected=devices.filter(d=>d.nodeUid === host.nodeUid && d.vendor === provider);
-    // Current sharing contract manages exactly one physical device/provider.
-    // A multi-device topology is not silently rewritten or represented as one.
-    if(selected.length !== 1)continue;
+    // AMD currently requires one physical device; NVIDIA sharing is node-wide
+    // and the MGPU workflow independently chooses every exact DRA card.
+    if(!selected.length || provider === 'amd' && selected.length !== 1)continue;
     profile.devices[provider]={id:selected[0]!.id,pciAddress:selected[0]!.pciAddress};
     const target=`${provider}-gpu` as const,capability=snapshot.models.computeTargets.targets.find(t=>t.id === target);
     for(const engine of ['OLlama','VLLM'] as const) {
@@ -31,15 +31,9 @@ export function automaticGpuProfile(snapshot:PreparationSnapshot,defaults:Record
       const cache=caches.includes(preferred) ? preferred : caches.includes('auto') ? 'auto' : caches[0];if(!cache)continue;
       profile.models[`${provider}${engine === 'OLlama' ? 'Ollama' : 'Vllm'}` as keyof GpuLabProfile['models']]={...chosen,
         computeTarget:target,kvCacheType:cache,contextWindow:Math.min(1024,chosen.contextWindow),
-        memoryRequiredMi:Math.ceil(chosen.memoryRequiredMi/100)*100} as GpuModelFixture;
+        memoryRequiredMi:Math.ceil(chosen.memoryRequiredMi/100)*100,automaticSizing:true} as GpuModelFixture;
     }
   }
-  if(freeTokenRegressionEnabled && profile.devices.nvidia && defaults.freetoken)try {
-    const capacity=freeTokenNodeCapacity(snapshot.models,host.name),fixture=structuredClone(defaults.freetoken);
-    fixture.freetoken.gpuDevice=`node:${host.name}`;
-    if(capacity.gpuAvailableMi >= fixture.freetoken.gpuMemoryMi && capacity.systemAvailableMi >= fixture.freetoken.systemMemoryMi)
-      profile.models.freetoken=fixture;
-  }catch{/* Only FreeToken-dependent cases are blocked by absent VRAM telemetry. */}
   return Object.keys(profile.devices).length ? profile : undefined;
 }
 
@@ -47,13 +41,24 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   const options:PreparationOptions={phases:[...labPolicy.phases],approve:[...labPolicy.scopes] as PreparationOptions['approve'],independentRecovery:false};
   const profile=preparedProfile({},snapshot,options);
   profile.unmanagedKey={approveDisposableProbe:true,createDisposableFixture:true};
-  const optional=Object.entries(snapshot.modules.catalogJson?.modules ?? {}).filter(([id,item])=>item.activationMode === 'moduleactivation' &&
-    snapshot.modules.modules[id]?.enabled !== true && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator/.test(id))
-    .sort(([a],[b])=>a.localeCompare(b))[0];
-  if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:{}};
+  // Instance-provider bases can be intentionally empty (Odysseus/Pi); group
+  // "apps" alone does not promise a standalone service. Prefer a disabled
+  // standalone module, otherwise borrow an actual routed service. The workflow
+  // additionally refuses any module used by a saved application instance.
+  const instanceModules=new Set(Object.values(snapshot.modules.catalogJson?.applications ?? {}).flatMap(item=>item.requiredModules ?? []));
+  const optional=Object.entries(snapshot.modules.catalogJson?.modules ?? {}).filter(([id,item])=>item.activationMode === 'moduleactivation' && item.group==='apps' &&
+    snapshot.modules.modules[id] && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(id) &&
+    (snapshot.modules.modules[id]?.enabled === true ? moduleResourceLinks(id,item,snapshot.status).length > 0 : !instanceModules.has(id)))
+    .sort(([a],[b])=>Number(snapshot.modules.modules[a]?.enabled)-Number(snapshot.modules.modules[b]?.enabled) || a.localeCompare(b))[0];
+  if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:snapshot.modules.modules[optional[0]]?.parameters ?? {}};
   const compatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
   const alternate=compatibility?.profiles?.filter(p=>p.id !== compatibility.selectedProfile).sort((a,b)=>a.id.localeCompare(b.id))[0];
-  if(alternate)profile.moduleProfile={approveTemporaryProfile:true,profileId:alternate.id,allowExperimental:alternate.experimental === true};
+  const amdPin=lab.gpu?.devices.amd;
+  const eligibleAmd=amdPin && Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []).some(device=>
+    device.vendor==='amd' && device.id===amdPin.id && device.pciAddress===amdPin.pciAddress && device.nodeUid===lab.gpu!.nodeUid &&
+    device.node===lab.gpu!.nodeName && device.eligible===true);
+  if(alternate && eligibleAmd)profile.moduleProfile={approveTemporaryProfile:true,profileId:alternate.id,allowExperimental:alternate.experimental === true};
+  else delete profile.moduleProfile;
   // Repository-owned semantic adapter. It inspects actual app controls and
   // does not ask the operator to invent CSS selectors for every run.
   const suffix=new URL(lab.dashboardUrl).hostname;
@@ -65,7 +70,7 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   if(previous.mesh?.peerConfig)profile.mesh={...previous.mesh,approveTwoAppliances:true,approveGpuTransitions:true};
   for(const key of ['securityCi','companion'])if(snapshot.ci?.[key])profile[key]={...snapshot.ci[key],...(previous[key]?.tokenFile ? {tokenFile:previous[key].tokenFile} : {})};
   const profiles=snapshot.models.computeTargets.engineCatalog?.VLLM?.realtimeProfiles ?? {};
-  const candidates=(snapshot.models.computeTargets.realtimeDevices ?? []).filter(d=>d.supported && d.node === lab.gpu?.nodeName &&
+  const candidates=(snapshot.models.computeTargets.realtimeDevices ?? []).filter(d=>realtimeRegressionEnabled() && d.supported && d.node === lab.gpu?.nodeName &&
     profiles[d.profile]?.gpuCounts.includes(1) && ['nvidia-gpu','amd-gpu'].includes(d.computeTarget ?? '')).sort((a,b)=>
     Number(profiles[a.profile]?.defaultSystemMemoryMi)-Number(profiles[b.profile]?.defaultSystemMemoryMi));
   const device=candidates[0],capability=device && profiles[device.profile];
@@ -73,7 +78,7 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
     const context=Math.min(1024,capability.defaultContextWindow,capability.maxContextWindow ?? 1024);
     const fixture={engine:'VLLM',computeTarget:device.computeTarget,url:'hf://'+capability.model,memoryRequiredMi:capability.defaultSystemMemoryMi,
       contextWindow:context,maxNumSeqs:1,realtime:{profile:device.profile,gpuNode:device.node,gpuCount:1,
-        gpuMemoryMi:Math.floor(Number(device.gpuMemoryMi)*0.8),systemMemoryMi:capability.defaultSystemMemoryMi,cpuOffloadGiB:0}};
+        gpuMemoryFraction:0.8,systemMemoryMi:capability.defaultSystemMemoryMi,thinkerCpuOffloadGiB:0}};
     profile.realtime={approveGpuTransitions:true,fixtures:['exclusive','shared'].map(mode=>({mode,maxModels:2,fixture:structuredClone(fixture)}))};
   }
   return profile;

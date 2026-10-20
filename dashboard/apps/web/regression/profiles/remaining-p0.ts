@@ -1,10 +1,10 @@
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
+import {realtimeRegressionEnabled} from '../core/engine-policy.ts';
 
 export type RemainingPhase = 5 | 6 | 7 | 8;
 export type LiveGate = 'applications' | 'identity' | 'license' | 'federation' | 'maintenance' | 'network' | 'channel' | 'cache' | 'reboot' | 'mesh' | 'companion' | 'realtime' | 'repeat' | 'supply-chain';
-export interface P0Definition {id:string; phase:RemainingPhase; layers:TestLayer[]; group:string; gate?:LiveGate}
+export interface P0Definition {id:string; phase:RemainingPhase; layers:TestLayer[]; group:string; gate?:LiveGate; variantSuffix?:string}
 const row = (phase:RemainingPhase,id:string,layers:string,group:string,gate?:LiveGate):P0Definition =>
   ({phase,id,layers:layers.split('') as TestLayer[],group,...(gate ? {gate} : {})});
 
@@ -12,7 +12,7 @@ const row = (phase:RemainingPhase,id:string,layers:string,group:string,gate?:Liv
  * remains separate from isolated API/worker/component tests. */
 const definitions:P0Definition[] = [
   row(5,'MOD-03','AE','modules','applications'), row(5,'MOD-04','AE','modules','applications'),
-  row(5,'MOD-06','UCAE','modules','applications'), row(5,'MOD-09','UCB','modules'), row(5,'MOD-10','UCAE','credentials','identity'),
+  row(5,'MOD-06','UCBAE','modules','applications'), row(5,'MOD-09','UCB','modules'), row(5,'MOD-10','UCAE','credentials','identity'),
   row(5,'APP-02','AE','apps','applications'), row(5,'APP-05','CAE','apps','applications'),
   row(5,'APP-06','AE','apps','applications'), row(5,'APP-07','UCAE','credentials','applications'),
   row(5,'APP-09','UCA','apps','applications'), row(5,'APP-10','UAE','apps','applications'),
@@ -41,7 +41,7 @@ const definitions:P0Definition[] = [
   row(6,'CHANNEL-02','UCB','channel'), row(6,'CHANNEL-04','UC','channel'), row(6,'CHANNEL-05','UC','channel'),
   row(6,'CHANNEL-06','CAEO','channel','channel'), row(6,'CHANNEL-07','UCO','channel','channel'), row(6,'CHANNEL-08','UCAO','channel','channel'),
   row(6,'CACHE-02','UCAB','cache'), row(6,'CACHE-03','UCB','cache'), row(6,'CACHE-04','UCAEO','cache','cache'),
-  row(6,'CACHE-05','UC','cache'), row(6,'CACHE-06','UCA','cache','cache'), row(6,'CACHE-07','UCA','cache','cache'),
+  row(6,'CACHE-05','UC','cache'), row(6,'CACHE-06','UCA','cache','cache'),
   row(6,'BOOT-01','UCB','host'), row(6,'BOOT-02','CAO','boot','reboot'), row(6,'BOOT-03','CAO','boot','reboot'),
   row(6,'BOOT-04','UCAO','boot','reboot'), row(6,'BOOT-05','UC','boot'),
 
@@ -53,20 +53,24 @@ const definitions:P0Definition[] = [
 
   row(8,'SEC-01','UCA','security'), row(8,'SEC-02','UCB','security'), row(8,'SEC-03','UCA','supply-chain','supply-chain'),
   row(8,'SEC-04','CA','security'), row(8,'UX-02','UBE','forms'), row(8,'PERF-02','UCAN','repeat','repeat'),
+  {...row(8,'UX-02','E','mesh-form'),variantSuffix:'mesh'},
+  {...row(8,'UX-02','E','gpu-form'),variantSuffix:'gpu'},
 ];
 export const remainingVariants:Record<string,P0Definition> = Object.fromEntries(definitions.map(definition =>
-  [`p${definition.phase}-${definition.id.toLowerCase()}`,definition]));
-/** Keep historical definitions readable, but do not execute or require an
- * experimental engine's dedicated cache scenario in the normal campaign. */
-export const remainingVariantEnabled=(definition:P0Definition)=>freeTokenRegressionEnabled || definition.id !== 'CACHE-07';
+  [`p${definition.phase}-${definition.id.toLowerCase()}${definition.variantSuffix?'-'+definition.variantSuffix:''}`,definition]));
+/** Retain experimental definitions for later reactivation and old reports,
+ * without executing them or synthesizing missing-evidence/Blocked rows. */
+export const remainingVariantEnabled=(definition:P0Definition)=>definitions.includes(definition) &&
+  (definition.gate!=='realtime' || realtimeRegressionEnabled());
 export const remainingPhases = [5,6,7,8] as const;
 export function remainingPhase(mode?:string):RemainingPhase|undefined {
   return /^phase[5-8](?:-fast|-fixtures|-live)?$/.test(mode ?? '') || mode === 'phase6-drill' ? Number(mode![5]) as RemainingPhase : undefined;
 }
-export const hostDrillIds=definitions.filter(item=>item.phase === 6 && item.gate && item.id !== 'CACHE-07').map(item=>item.id);
-export function remainingRequirements(mode:string,selectedId=mode === 'phase6-drill' ? process.env.REGRESSION_REMAINING_CASE : undefined) {
+export const hostDrillIds=definitions.filter(item=>item.phase === 6 && item.gate).map(item=>item.id);
+export function remainingRequirements(mode:string,selectedId=mode === 'phase6-drill'||/^phase[5-8]-live$/.test(mode) ? process.env.REGRESSION_REMAINING_CASE : undefined) {
   const phase = remainingPhase(mode); if (!phase) return undefined;
   if(mode === 'phase6-drill')requireSafe(selectedId && hostDrillIds.includes(selectedId),'CONFIG');
+  if(selectedId)requireSafe((mode==='phase6-drill'||/^phase[5-8]-live$/.test(mode))&&definitions.some(item=>remainingVariantEnabled(item)&&item.phase===phase&&item.id===selectedId&&item.layers.some(layer=>'AEON'.includes(layer))),'CONFIG');
   const layers = mode.endsWith('-fast') ? ['U','C'] : mode.endsWith('-fixtures') ? ['B'] :
     mode.endsWith('-live') || mode === 'phase6-drill' ? ['A','E','O','N'] : undefined;
   const required=Object.entries(remainingVariants).filter(([,definition]) => remainingVariantEnabled(definition) && definition.phase === phase && (!selectedId || definition.id === selectedId))

@@ -91,8 +91,8 @@ class VllmDeploymentTests(unittest.TestCase):
         for engine, target in (("VLLM", "nvidia-gpu"), ("VLLM", "cpu"), ("VLLM", "intel-gpu"), ("OLlama", "amd-gpu")):
             with self.subTest(engine=engine, target=target), self.assertRaises(ValueError):
                 self.resource({"engine": engine, "computeTarget": target, "vllm": {"visionAttention": "triton"}})
-        with self.assertRaisesRegex(ValueError, "only for vLLM"):
-            self.c["freetoken_runtime_resources"]({"metadata": {"name": "example"}, "spec": {"local": {
+        with self.assertRaisesRegex(ValueError, "unsupported local.engine"):
+            self.c["kubeai_model_resource"]({"metadata": {"name": "example"}, "spec": {"local": {
                 "engine": "FreeToken", "computeTarget": "nvidia-gpu", "url": "hf://example/model",
                 "vllm": {"visionAttention": "triton"}}}}, {}, self.catalog)
 
@@ -106,8 +106,10 @@ class VllmDeploymentTests(unittest.TestCase):
         crd = yaml.safe_load((ROOT / "crds/modelactivations.appliance.magicstick.dev.yaml").read_text())
         schema = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["local"]["properties"]["vllm"]["properties"]["visionAttention"]
         self.assertEqual(set(schema["enum"]), {item["value"] for item in self.definition["options"]})
-        self.assertEqual(schema["default"], self.definition["default"])
-        self.assertEqual(schema["default"], "triton")
+        # Do not inject AMD vision settings into a NVIDIA parallelism-only
+        # object. The engine/target-aware normalizer still supplies this default.
+        self.assertNotIn("default", schema)
+        self.assertEqual(self.definition["default"], "triton")
         self.assertEqual(self.definition["computeTargets"], ["amd-gpu"])
 
     def test_api_and_controller_share_the_validation_contract(self):

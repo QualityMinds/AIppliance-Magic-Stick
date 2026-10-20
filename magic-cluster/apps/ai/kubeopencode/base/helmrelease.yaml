@@ -9,16 +9,28 @@ spec:
   chart:
     spec:
       chart: kubeopencode
-      version: "0.1.6"
+      version: "0.1.9"
       sourceRef:
         kind: HelmRepository
         name: kubeopencode
         namespace: flux-system
   install:
     createNamespace: false
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
   values:
+    controller:
+      image:
+        tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141
+    kubeopencodeConfig:
+      systemImage:
+        image: ghcr.io/kubeopencode/kubeopencode:v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141
+        imagePullPolicy: IfNotPresent
     server:
       enabled: true
+      image:
+        tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141
       service:
         port: 2746
       ingress:

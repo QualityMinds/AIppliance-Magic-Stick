@@ -17,8 +17,8 @@ Use the reviewed source/image pins rather than copying a second version inventor
   pins the proxy version. Verify dynamic model/key APIs, explicit allowed routes,
   trusted callbacks and order-based routing when updating it. The adapter keeps
   explicit route lists instead of relying on a key-type shortcut.
-- Existing vLLM CPU/NVIDIA v0.23.0 and AMD/Intel v0.26.0; the
-  [priority scheduler](https://docs.vllm.ai/en/v0.26.0/api/vllm/v1/core/sched/scheduler/)
+- Ordinary vLLM CPU/NVIDIA/AMD/Intel 0.31.0 images, pinned by digest; the
+  [priority scheduler](https://docs.vllm.ai/en/v0.31.0/api/vllm/v1/core/sched/scheduler/)
   supports server-assigned request priorities.
 
 The source includes unit/API/UI tests, `probe_litellm.py` for non-mutating tests

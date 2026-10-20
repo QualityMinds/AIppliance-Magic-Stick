@@ -53,8 +53,8 @@ The CRD is namespaced, with plural `appliances` and short names `msapp` and
 The default public install uses the GPU-neutral profile `ai-workstation` and
 `spec.source.name: flux-system` because readonly-public mode creates that Git
 source. It seeds LiteLLM and the model catalog for external providers. KubeAI
-is requested for ordinary vLLM/Ollama `ModelActivation` resources. FreeToken
-and Realtime use direct Deployments instead. An
+is requested for ordinary vLLM/Ollama `ModelActivation` resources. Realtime uses
+direct Deployments instead. An
 accelerator-backed model additionally depends on the matching NVIDIA, AMD, or
 Intel module. Independently, the shared NFD module is static and vendor
 operator activations are created when their hardware is detected.
@@ -84,12 +84,95 @@ test image, script or node selector. Profile selection does not itself mean
 that a driver, GPU resource or inference engine is ready.
 
 `ModuleActivation/gpu.spec.parameters.gpuSharing` holds the independent NVIDIA
-configuration: `exclusive` or `time-slicing`, selected node name/UID, namespace
-`ai` and 2–16 shared slots. The common GPU-sharing API translates its public
+configuration: `allocationBackend` (`device-plugin` by default, or `dra`),
+`exclusive`, `time-slicing` or `dra-shared`, selected node name/UID, namespace
+`ai` and 2–16 shared slots per physical GPU. The common GPU-sharing API translates its public
 `exclusive`/`shared` modes into these provider-specific values. Missing settings
 preserve the existing NVIDIA device-plugin default. Hardware operator status
 `hardwareOperators.gpu.sharing` reports management, desired mode, observed phase,
-slot limit and admitted models. No NVIDIA DRA migration is implied.
+slot limit and admitted models. Opt-in NVIDIA DRA additionally reports verified
+card UUIDs, claim names, per-card capacity, assignments and transition errors.
+The controller coordinates device-plugin/DRA handoff; it does not replace
+ClusterPolicy with GPUCluster. See the [controlled transition](../administration/gpu-sharing.md#opting-into-exact-card-dra-allocation).
+
+For ordinary NVIDIA vLLM/Ollama models, optional `ModelActivation.spec.local.gpuDevice`
+contains `nodeName`, `nodeUid` and `uuid` (a whole `GPU-…` UUID). Create/Edit persist
+that identity; the API rejects missing/full/unready cards and the controller
+fails closed if the backend or selected hardware changes. The nullable Edit
+field explicitly clears a DRA selection when returning to automatic
+device-plugin placement. CPU, AMD, Realtime do not accept this
+NVIDIA exact-card contract. Existing settings without it remain compatible.
+
+`local.gpuDeployment` selects `single`, `split` or `replicated`. If omitted,
+one selected card means single and multiple selected cards mean split, preserving
+existing configurations. Explicit modes require exact NVIDIA DRA selection.
+
+For one model distributed over multiple NVIDIA cards (`split`), use `local.gpuDevices`
+instead of `gpuDevice`. Both representations are mutually exclusive. The list
+contains 1–16 distinct `{nodeName, nodeUid, uuid}` objects on one node; every
+card must have a verified positive physical capacity; GPU models and capacities
+may differ. The smallest unreserved/physical ceiling bounds the equal per-card
+budget. There is one
+model replica and one Pod. A group is admitted only when every selected card
+has a free slot. `vramMi` is the budget **per card**; `memoryRequiredMi` and
+`cpuResources` apply once to the whole Pod. This is not cross-node placement or
+a hard GPU-memory isolation boundary.
+
+For NVIDIA vLLM groups, `local.vllm.parallelism` accepts `auto`, `tensor` or
+`pipeline`. The pinned runtime checks model dimensions, pipeline support and
+all CUDA UUIDs before launching workers. Ollama groups use the existing runtime
+with `OLLAMA_SCHED_SPREAD=true`, not vLLM parameters. `status.gpuSharing` includes
+`gpuCount`, `devices`, `claimNames` and `slotCount`; the original single-card
+fields remain for older consumers. Editing a group to one card clears
+`gpuDevices` and group-only parallelism while retaining the model identity.
+
+```yaml
+local:
+  engine: VLLM
+  computeTarget: nvidia-gpu
+  gpuDeployment: split
+  gpuDevices:
+    - {nodeName: ai, nodeUid: "<current-node-uid>", uuid: "<first-GPU-uuid>"}
+    - {nodeName: ai, nodeUid: "<current-node-uid>", uuid: "<second-GPU-uuid>"}
+  vramMi: 12000
+  memoryRequiredMi: 16400
+  vllm:
+    parallelism: auto
+```
+
+Use verified inventory values for the placeholders and a supported model URL or
+preset. See [multi-GPU operation](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
+
+For `gpuDeployment: replicated`, select 2–16 same-node NVIDIA cards and omit
+`vllm.parallelism`. Every card runs a complete independent copy. VRAM, RAM and
+CPU settings apply **per copy**, so total host RAM/CPU scale with selected-card
+count. `minReplicas`/`maxReplicas` must remain 1; they apply to each internal
+KubeAI Model, not to the parent count. The parent is still one ModelActivation
+and one public LiteLLM model alias.
+
+Ordinary single/split runtimes also bind new KubeAI Models to the activation UID.
+Stop/removal verifies the current Model's managed labels and UID/resource version,
+requests foreground deletion and waits for all matching runtime Pods, including
+terminal/terminating Pods, before reporting Disabled or releasing the activation
+finalizer. Legacy Models without an activation-UID label retain their managed
+name-label compatibility; conflicting UID labels are refused. An orphan Pod from
+older background deletion fences completion without being adopted or force-deleted.
+
+The operator owns one internal `msr-<hash>` KubeAI Model per parent UID/GPU UUID.
+Labels bind it to the parent name and UID (`appliance.magicstick.dev/modelactivation`,
+`activation-uid`, `model-replica` under the same prefix); annotations bind the
+parent generation and GPU UUID. Cross-namespace owner references are not used.
+The activation finalizer deletes only owned children, using UID/resource-version
+preconditions, and waits for their Pods before completing removal. Changes drain
+old copies before creating replacements; foreign children are not adopted.
+
+`status.replication` contains `desired`, `ready`, and `instances`, with each
+instance's name, GPU/node identity, Model UID, phase, reason and message. Recovery
+attempts and Pod-creation observations remain scoped to individual copies.
+Ready counters alone do not prove readiness: the controller also requires a
+non-terminating Ready Pod owned by that exact child. The catalog publishes only
+currently ready copies of the current parent generation; a failed copy does not
+hide healthy copies. See [replica routing](model-catalog.md#replicated-local-models).
 
 `Appliance.status.hardwareOperators.amd-gpu.compatibility` contains the selected
 profile, catalog profiles and per-node evidence including `profileId`,
@@ -100,7 +183,8 @@ profile, catalog profiles and per-node evidence including `profileId`,
 Upstream support is reported distinctly from a locally passed validation.
 `compatibility.sharing` records the allocation transition and actual DRA device
 inventory. `ModelActivation.status.gpuSharing` records allocation mode and node,
-plus the shared claim and PCI device for AMD DRA. See [GPU sharing](../administration/gpu-sharing.md) for these optional
+plus the shared claim and PCI device for AMD DRA, or `backend`, node UID and GPU
+UUID for NVIDIA DRA. See [GPU sharing](../administration/gpu-sharing.md) for these optional
 contracts and their non-isolating memory semantics.
 `compatibility.validationRequired` is `false`. Host/driver and resource eligibility
 remain required; engine tests are advisory. `runtimeReady` describes adoption of
@@ -178,6 +262,31 @@ See [paperclip-agents.md](paperclip-agents.md) for the generated adapter,
 network, model, and credential contracts.
 
 ## Runtime CRs
+
+`RegressionRun` is namespaced in `ai-system`. Its immutable spec binds the
+Appliance UID, Node UIDs, Phase 0–8 selection, requesting administrator and
+tested runner image/source. Only `cancelRequested` can change after creation.
+`operation` defaults to `tests`, with a nonempty phase selection. Recovery-only
+intent uses `operation: recover-lock`, `phases: []` and an immutable
+`lockRecovery` snapshot of the Lease UID/resource version and original journal
+run ID. It cannot select test phases or bypass journal verification.
+The existing Magic Stick Operator creates one non-retrying, deadline-bound Job
+in `magicstick-regression`, with UID labels (no cross-namespace owner reference),
+read-only container root, no GPU/host/Docker mounts, and affinity to the retained
+report store's node. Status records progress, real test outcomes, report
+availability and generated-account cleanup. Reports and private journals are
+separate PVC directories; the report server mounts only the sanitized directory.
+See [the API](dashboard-api.md#regression-runs) and [runner guide](../development/regression-remaining-p0.md#in-the-dashboard).
+
+An interrupted run may reference its original generated account through the
+immutable `accountRunName` / `accountRunUid` pair. The operator verifies that
+Secret's owner UID; only verified setup recovery releases the identity. Private
+directories retain mode `0700`; `fsGroupChangePolicy: OnRootMismatch` avoids
+recursively broadening their permissions when the retained PVC is remounted.
+Recovery uses a distinct credential-ready annotation and runner entrypoint:
+older operators cannot mistake it for a full-suite request, and older images
+without the recovery entrypoint fail closed. Zero-phase recovery progress and
+reports describe cleanup, not test-suite acceptance.
 
 `HostOperation` is a separate namespaced runtime request for node-local
 `prepare-gpu`, `configure-gpu-memory`, `configure-network`, `scan-wifi`, `reboot`
@@ -418,21 +527,6 @@ edit API accepts `local: {vllm: {visionAttention: "auto"}}` (or a manual value).
 The controller applies the same catalog validation to direct CR requests.
 See [vision attention deployment](compute-targets.md#vllm-vision-attention-deployment)
 for exact CLI/environment mappings and runtime requirements.
-
-### FreeToken deployment fields
-
-`spec.local.engine: FreeToken` selects the dedicated runtime. Settings live only
-under `spec.local.freetoken`; vLLM/Ollama offloading and KV-cache controls do not
-apply. `gpuDevice` selects the node inventory entry, `gpuCount` requests whole
-NVIDIA devices, and `gpuMemoryMi` is an aggregate planned VRAM budget.
-`systemMemoryMi` is the Pod RAM request and limit, not a native FreeToken flag.
-`memoryStrategy` accepts the catalog's bounded choices and defaults to `auto`.
-
-Context and concurrency remain `local.contextWindow` and `local.maxNumSeqs`.
-Optional `advanced` values and `restartNonce` are defined in the
-[ModelActivation schema](../../magic-cluster/platform/magicstick-operator/crds/modelactivations.appliance.magicstick.dev.yaml).
-API/controller capability checks remain stricter than the structural schema.
-See [FreeToken runtime mapping](freetoken.md) for exact flags and limitations.
 
 ### Realtime profile fields
 

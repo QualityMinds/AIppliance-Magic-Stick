@@ -6,7 +6,10 @@ and rejects security-control regressions in the shipped implementation.
 """
 from pathlib import Path
 import json
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -14,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def unsafe_tls(source):
-    return bool(re.search(r"rejectUnauthorized\s*:\s*false|ssl\._create_unverified_context\s*\(|verify\s*=\s*False|CERT_NONE|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['\"]?0", source))
+    return bool(re.search(r"rejectUnauthorized\s*:\s*false|ignoreHTTPSErrors\s*:\s*true|ssl\._create_unverified_context\s*\(|verify\s*=\s*False|CERT_NONE|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['\"]?0", source))
 
 
 class RegressionSecurityTests(unittest.TestCase):
@@ -100,9 +103,56 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertNotIn('magicstick-license-trust', source)
 
     def test_detector_rejects_disabled_tls_in_ts_and_python(self):
-        for source in ["new Agent({rejectUnauthorized: false})", "ssl._create_unverified_context()", "requests.get(url, verify=False)", "ctx.verify_mode = ssl.CERT_NONE"]:
+        for source in ["new Agent({rejectUnauthorized: false})", "newContext({ignoreHTTPSErrors: true})", "ssl._create_unverified_context()", "requests.get(url, verify=False)", "ctx.verify_mode = ssl.CERT_NONE"]:
             self.assertTrue(unsafe_tls(source))
         self.assertFalse(unsafe_tls("create_default_context(cafile=path); new Agent({ca: certificate})"))
+
+    def test_runner_runtime_has_git_and_ci_executes_the_channel_contracts(self):
+        runtime = (ROOT / 'dashboard/apps/web/regression/Dockerfile').read_text().rsplit('\nFROM ', 1)[1]
+        install = re.search(r'apt-get install -y --no-install-recommends ([^\n]+)', runtime)
+        self.assertIsNotNone(install)
+        self.assertIn('git', install.group(1).split())
+        workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())
+        steps = workflow['jobs']['regression-image']['steps']
+        check = next(index for index, step in enumerate(steps)
+                     if 'bash tools/regression.sh phase6-fast' in step.get('run', ''))
+        publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
+        self.assertLess(check, publish)
+
+    def test_ci_checks_reporting_isolation_with_failed_live_preparation_before_publication(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())
+        steps = workflow['jobs']['regression-image']['steps']
+        import_check = next(index for index, step in enumerate(steps)
+                            if step.get('name') == 'Verify the packaged setup entrypoint imports before reading private inputs')
+        self.assertIn('--network none', steps[import_check]['run'])
+        self.assertIn('regression/setup.mjs', steps[import_check]['run'])
+        self.assertIn('[PRIVATE_FILE]', steps[import_check]['run'])
+        check = next(index for index, step in enumerate(steps)
+                     if step.get('name') == 'Verify fixture reporting with a failed live preparation context')
+        command = steps[check]['run']
+        self.assertIn('--network none', command)
+        self.assertIn('REGRESSION_PREPARATION_FAILED=Failed', command)
+        self.assertIn('REGRESSION_MODE=selftest', command)
+        self.assertIn('fresh explicit prerequisites remain distinct', command)
+        self.assertIn('synthetic prerequisite reports are isolated', command)
+        publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
+        self.assertLess(import_check, publish)
+        self.assertLess(check, publish)
+
+    def test_ci_loads_both_native_kubernetes_entrypoints_without_private_inputs_or_network(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())
+        steps = workflow['jobs']['regression-image']['steps']
+        check = next(index for index, step in enumerate(steps)
+                     if step.get('name') == 'Verify native Kubernetes test and cleanup entrypoints before private access')
+        command = steps[check]['run']
+        for required in ('--network none', '--entrypoint node', '-e REGRESSION_RUN_UID=',
+                         'for entrypoint in kubernetes.mjs kubernetes-recovery.mjs',
+                         '"regression/$entrypoint"', 'test "$status" -eq 1', 'Error: Invalid run identity.'):
+            self.assertIn(required, command)
+        self.assertNotIn('--experimental-transform-types', command)
+        self.assertNotIn('--volume', command)
+        publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
+        self.assertLess(check, publish)
 
     def test_shipped_runtime_keeps_certificate_verification(self):
         paths = list((ROOT / 'core').rglob('*.py')) + list((ROOT / 'dashboard/packages').rglob('*.ts')) + list((ROOT / 'dashboard/apps/cli/src').rglob('*.ts'))
@@ -113,6 +163,24 @@ class RegressionSecurityTests(unittest.TestCase):
             checked += 1
             self.assertFalse(unsafe_tls(path.read_text()), f'Unsafe TLS setting: {path.relative_to(ROOT)}')
         self.assertGreater(checked, 20)
+
+    def test_functional_tls_exception_is_local_to_the_runner_and_never_bootstrap_or_global(self):
+        directory = ROOT / 'dashboard/apps/web/regression'
+        exceptions = []
+        for path in [*directory.rglob('*.ts'), *directory.rglob('*.mjs')]:
+            if '.spec.' not in path.name and unsafe_tls(path.read_text()):
+                exceptions.append(path.relative_to(directory).as_posix())
+        self.assertEqual(exceptions, ['core/https-policy.ts'])
+        for filename in ['setup.mjs', 'prepare.mjs', 'harness/preflight.e2e.spec.ts']:
+            source = (directory / filename).read_text()
+            self.assertRegex(source, r"httpsPurpose\s*:\s*'certificate'")
+            self.assertIn('verifiedEndpoint(', source)
+        source = (directory / 'core/https-policy.ts').read_text()
+        self.assertNotRegex(source, r'process\.env\s*\[')
+        self.assertNotRegex(source, r'globalAgent\.')
+        self.assertIn("ignoreHTTPSErrors: purpose === 'functional'", source)
+        self.assertIn('rejectUnauthorized: true', (directory / 'core/setup-bootstrap.ts').read_text())
+        self.assertNotIn('functionalNodeTlsOptions', (directory / 'core/oidc-exec.ts').read_text())
 
     def test_known_undici_fixes_are_pinned_in_current_lock(self):
         lock = yaml.safe_load((ROOT / 'dashboard/pnpm-lock.yaml').read_text())
@@ -144,6 +212,85 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertEqual(audit, 'pnpm audit --audit-level high')
         for unsafe in ['|| true', '--fix', '--ignore-registry-errors', '--ignore-unfixable']:
             self.assertNotIn(unsafe, audit)
+
+    def test_python_jwt_fixes_are_consistent_and_audited_for_both_products(self):
+        manifests = ['dashboard/apps/api/requirements.txt', 'magic-cluster/apps/ai/private-mesh/requirements.txt']
+        versions = []
+        for path in manifests:
+            version, = re.findall(r'^PyJWT\[crypto\]==(\d+\.\d+\.\d+)$', (ROOT / path).read_text(), re.M)
+            versions.append(version)
+            self.assertGreaterEqual(tuple(map(int, version.split('.'))), (2, 15, 0))
+        self.assertEqual(len(set(versions)), 1)
+        workflow = yaml.safe_load((ROOT / '.github/workflows/dependency-security.yml').read_text())
+        triggers = workflow.get('on', workflow.get(True))
+        for event in ['push', 'pull_request']:
+            for path in manifests:
+                self.assertIn(path, triggers[event]['paths'])
+        job = workflow['jobs']['python-advisories']
+        self.assertIs(job['strategy']['fail-fast'], False)
+        self.assertEqual(job['strategy']['matrix']['requirements'], manifests)
+        audit = next(item for item in job['steps'] if item.get('name') == 'Query current Python advisories')
+        self.assertIn('pip_audit --strict', audit['run'])
+        self.assertEqual(audit['env']['REQUIREMENTS'], '${{ matrix.requirements }}')
+        for unsafe in ['|| true', '--ignore-vuln', '--disable-pip', '--no-deps']:
+            self.assertNotIn(unsafe, audit['run'])
+
+    def test_runtime_update_policy_fallback_retains_checked_patch_not_a_fake_pr(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/runtime-image-updates.yml').read_text())
+        steps = workflow['jobs']['updates']['steps']
+        proposal = next(item for item in steps if item.get('id') == 'proposal')
+        self.assertIn('git diff --binary --', proposal['run'])
+        for path in ['magic-cluster/apps/instances/odysseus/files/runtime-images.json', 'licenses/dependency-inventory.json']:
+            self.assertIn(path, proposal['run'])
+        archive = next(item for item in steps if item.get('name') == 'Archive the reviewed patch')
+        self.assertEqual(archive['with']['if-no-files-found'], 'error')
+        self.assertEqual(archive['with']['name'], 'runtime-image-update-proposal')
+        automatic = next(item for item in steps if item.get('name') == 'Propose a reviewed update on develop')
+        self.assertEqual(automatic['if'], "steps.proposal.outputs.changed == 'true' && vars.RUNTIME_IMAGE_PR_ENABLED == 'true'")
+        manual = next(item for item in steps if item.get('name') == 'Explain the policy-compatible manual proposal')
+        self.assertIn("vars.RUNTIME_IMAGE_PR_ENABLED != 'true'", manual['if'])
+        self.assertIn('::warning::', manual['run'])
+        self.assertIn('No image has been promoted', manual['run'])
+        for step in steps:
+            self.assertNotIn('continue-on-error', step)
+            self.assertNotIn('|| true', step.get('run', ''))
+        self.assertLess(steps.index(archive), steps.index(automatic))
+
+    def test_runtime_update_proposal_script_distinguishes_no_change_and_applicable_patch(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/runtime-image-updates.yml').read_text())
+        script = next(item['run'] for item in workflow['jobs']['updates']['steps'] if item.get('id') == 'proposal')
+        paths = ['magic-cluster/apps/instances/odysseus/files/runtime-images.json', 'licenses/dependency-inventory.json']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for path in [*paths, 'unrelated.txt']:
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('original fixture\n')
+
+            def git(*args):
+                return subprocess.run(['git', *args], cwd=root, check=True, capture_output=True, text=True)
+
+            git('init', '--quiet')
+            git('add', '.')
+            git('-c', 'user.name=Regression Fixture', '-c', 'user.email=fixture@example.com',
+                '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Synthetic proposal baseline')
+            env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_OUTPUT': str(root / 'outputs'),
+                   'GITHUB_STEP_SUMMARY': str(root / 'summary')}
+            subprocess.run(['bash', '-e', '-c', script], cwd=root, env=env, check=True, capture_output=True)
+            patch = root / 'runtime-image-updates.patch'
+            self.assertEqual(patch.read_text(), '')
+            self.assertEqual((root / 'outputs').read_text(), 'changed=false\n')
+            self.assertIn('No runtime image update is needed', (root / 'summary').read_text())
+
+            for path in [*paths, 'unrelated.txt']:
+                (root / path).write_text('reviewed candidate fixture\n')
+            subprocess.run(['bash', '-e', '-c', script], cwd=root, env=env, check=True, capture_output=True)
+            self.assertEqual((root / 'outputs').read_text().splitlines(), ['changed=false', 'changed=true'])
+            self.assertIn('runtime-image-update-proposal', (root / 'summary').read_text())
+            for path in paths:
+                self.assertIn('diff --git a/' + path, patch.read_text())
+            self.assertNotIn('unrelated.txt', patch.read_text())
+            git('apply', '--reverse', '--check', str(patch))
 
     def test_cli_and_hostname_parsers_have_adversarial_owning_tests(self):
         source = (ROOT / 'dashboard/packages/core/src/index.ts').read_text()

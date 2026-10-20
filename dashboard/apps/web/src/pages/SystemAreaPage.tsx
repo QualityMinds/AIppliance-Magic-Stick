@@ -3,20 +3,18 @@ import type {Session} from '@magicstick/dashboard-contracts';
 import {Button} from '../components';
 import {LicensePage} from './LicensePage';
 import {SettingsPage, type SettingsSectionId} from './SettingsPage';
-import {SystemPage} from './SystemPage';
+import {SystemPage, type StatusSectionId} from './SystemPage';
 import {UsersPage} from './UsersPage';
 import {HardwarePage} from './HardwarePage';
 import {HostPowerPanel} from './HostManagement';
-import {ModelCachePage} from './ModelCachePage';
 
-export type SystemSectionId = 'settings' | 'license' | 'users' | 'hardware' | 'status' | 'power' | 'model-cache';
+export type SystemSectionId = 'settings' | 'license' | 'users' | 'hardware' | 'status' | 'power';
 
 const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; identity?: boolean}> = [
   {id: 'settings', label: 'Settings', admin: true},
   {id: 'license', label: 'License', admin: true},
   {id: 'users', label: 'Users', admin: true, identity: true},
   {id: 'hardware', label: 'Hardware'},
-  {id: 'model-cache', label: 'Model cache', admin: true},
   {id: 'status', label: 'System Status'},
   {id: 'power', label: 'Computer power', admin: true},
 ];
@@ -28,12 +26,14 @@ export const allowedSystemSections = (session: Session) => sections.filter((sect
   && (!section.identity || session.identityManagementAvailable !== false)
 ));
 
-export const SystemAreaPage = ({session, section, settingsSection, onSectionChange, onSettingsSectionChange}: {
+export const SystemAreaPage = ({session, section, settingsSection, statusSection, onSectionChange, onSettingsSectionChange, onStatusSectionChange}: {
   session: Session;
   section: SystemSectionId;
   settingsSection: SettingsSectionId;
+  statusSection: StatusSectionId;
   onSectionChange: (section: SystemSectionId) => void;
   onSettingsSectionChange: (section: SettingsSectionId) => void;
+  onStatusSectionChange: (section: StatusSectionId) => void;
 }) => {
   const allowed = allowedSystemSections(session);
   const active = allowed.some((item) => item.id === section) ? section : 'status';
@@ -55,9 +55,8 @@ export const SystemAreaPage = ({session, section, settingsSection, onSectionChan
       {active === 'license' && <LicensePage />}
       {active === 'users' && <UsersPage />}
       {active === 'hardware' && <HardwarePage session={session} />}
-      {active === 'status' && <SystemPage />}
+      {active === 'status' && <SystemPage session={session} section={statusSection} onSectionChange={onStatusSectionChange} />}
       {active === 'power' && canAdminister(session) && <HostPowerPanel />}
-      {active === 'model-cache' && canAdminister(session) && <ModelCachePage />}
     </div>
   </div>;
 };

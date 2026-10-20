@@ -26,11 +26,10 @@ maintenance window, optional automatic restarts and manual package maintenance.
 It shows held/kernel/GPU packages and reboot requirements without automatically
 updating the hardware stack or container images. See [Ubuntu updates](../administration/ubuntu-updates.md).
 
-**System → Model cache** (`#/system/model-cache`) is an administrator-only tab
+**System → System Status → Model cache** (`#/system/status/model-cache`) is an administrator-only tab
 showing disk free space and per-engine model-cache sizes. Explicit, exact-host
 confirmation clears unused Hugging Face/Ollama files through the host worker;
-active models and stale inventory block cleanup. FreeToken's temporary cache is
-released by stopping its model. See [model cache management](../administration/model-cache.md).
+active models and stale inventory block cleanup. See [model cache management](../administration/model-cache.md).
 
 **System → Settings → Network** is an administrator-only subtab for Ethernet/Wi-Fi,
 DHCP/static IPv4, DNS, route metrics and Wi-Fi scanning. Changes require

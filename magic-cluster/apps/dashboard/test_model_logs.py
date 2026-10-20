@@ -45,6 +45,37 @@ def pod(name="qwen-pod", model="qwen", owned=True):
 
 
 class ModelLogsTests(unittest.TestCase):
+    def test_replica_ownership_reader_is_namespace_scoped_to_the_api_service_account(self):
+        role, binding = list(yaml.safe_load_all((ROOT / "model-logs-rbac.yaml").read_text()))
+        self.assertEqual(role["metadata"]["namespace"], "ai")
+        self.assertEqual(role["rules"], [{"apiGroups": ["kubeai.org"], "resources": ["models"], "verbs": ["get", "list"]}])
+        self.assertEqual(binding["subjects"], [{"kind": "ServiceAccount", "name": "ai-appliance-dashboard-api", "namespace": "identity-system"}])
+
+    def test_replica_logs_require_parent_and_child_uid_and_allow_per_copy_selection(self):
+        parent = activation(); parent["metadata"]["uid"] = "parent-uid"
+        parent["spec"]["local"]["gpuDeployment"] = "replicated"
+        models, pods = [], []
+        for index in range(6):
+            name = "msr-copy-" + str(index)
+            models.append({"metadata": {"name": name, "namespace": "ai", "uid": name + "-uid", "labels": {
+                "app.kubernetes.io/managed-by": "magicstick-operator", "appliance.magicstick.dev/modelactivation": "qwen",
+                "appliance.magicstick.dev/activation-uid": "parent-uid", "appliance.magicstick.dev/model-replica": "true"}}})
+            current = pod(name + "-pod", name); current["metadata"]["ownerReferences"][0]["uid"] = name + "-uid"
+            pods.append(current)
+        foreign = pod("foreign", "msr-copy-5"); foreign["metadata"]["ownerReferences"][0]["uid"] = "replaced-child"
+        pods.append(foreign)
+        models[0]["metadata"]["labels"]["appliance.magicstick.dev/activation-uid"] = "old-parent"
+        with patch.dict(self.api, {"model_activation": lambda _: parent,
+                "list_resource": lambda path: models if "/models?" in path else pods,
+                "request_text": lambda *_: "ready"}):
+            result = self.api["model_runtime_logs"]("qwen")
+            self.assertEqual(len(result["replicas"]), 5)
+            self.assertEqual((len(result["pods"]), result["omittedPods"]), (4, 1))
+            result = self.api["model_runtime_logs"]("qwen", {"replica": ["msr-copy-5"]})
+            self.assertEqual([p["name"] for p in result["pods"]], ["msr-copy-5-pod"])
+            with self.assertRaises(self.api["RequestError"]):
+                self.api["model_runtime_logs"]("qwen", {"replica": ["msr-copy-0"]})
+
     @classmethod
     def setUpClass(cls):
         cls.api = load_server()

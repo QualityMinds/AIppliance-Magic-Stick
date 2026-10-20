@@ -1,21 +1,33 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
+{{- $key := default (dict "name" (printf "%s-litellm" $instance.name) "key" "LITELLM_API_KEY" "revision" "") $instance.litellmKey -}}
+{{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "" $values.model)) -}}
 apiVersion: openclaw.rocks/v1alpha1
 kind: OpenClawInstance
 metadata:
   name: {{ $instance.name }}
   namespace: {{ $instance.namespace }}
+  {{- if $model }}
+  annotations:
+    ai-appliance.io/preferred-model: {{ $model | quote }}
+  {{- end }}
   labels:
     app.kubernetes.io/name: openclaw
     app.kubernetes.io/instance: {{ $instance.name }}
     appliance.magicstick.dev/appinstance: {{ $instance.name }}
 spec:
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: "2026.9.8"
+    digest: sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8
   podAnnotations:
-    ai-appliance.io/model-catalog-consumer: "true"
+    appliance.magicstick.dev/litellm-key-revision: {{ $key.revision | quote }}
+    # The native operator watches the instance ConfigMap and rolls its Pod.
+    ai-appliance.io/model-catalog-consumer: "false"
   config:
     mergeMode: merge
     configMapRef:
-      name: ai-model-catalog
+      name: {{ printf "%s-model-catalog" $instance.name }}
       key: openclaw.json
     forcePaths:
       - models.providers
@@ -26,8 +38,8 @@ spec:
     - name: LITELLM_API_KEY
       valueFrom:
         secretKeyRef:
-          name: litellm-masterkey-secret
-          key: LITELLM_MASTER_KEY
+          name: {{ $key.name | quote }}
+          key: {{ $key.key | quote }}
   storage:
     persistence:
       enabled: true

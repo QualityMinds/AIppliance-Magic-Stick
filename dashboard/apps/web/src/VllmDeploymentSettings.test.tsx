@@ -31,7 +31,7 @@ const models: ModelsPayload = {
   },
   computeMemory: {devices: ['amd-gpu', 'nvidia-gpu'].map((id) => ({id, kind: 'gpu', computeTarget: id, totalMi: 24000, unreservedMi: 20000, freeMi: 20000}))},
 };
-const estimate = {minimumMi: 6000, recommendedMi: 7000, maximumMi: 20000, computeTarget: 'amd-gpu', weightsMi: 5000, kvCacheMi: 500, reserveMi: 500, confidence: 'high' as const};
+const estimate = {detectedModelType: 'chat' as const, minimumMi: 6000, recommendedMi: 7000, maximumMi: 20000, computeTarget: 'amd-gpu', weightsMi: 5000, kvCacheMi: 500, reserveMi: 500, confidence: 'high' as const};
 const renderModels = () => render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}})}><ModelsPage session={session} /></QueryClientProvider>);
 const modelForEdit = (choice?: VisionAttentionSettings['default']) => ({...models, activations: [{
   metadata: {name: 'vision-model', resourceVersion: '17'},

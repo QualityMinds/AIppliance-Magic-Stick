@@ -104,7 +104,7 @@ describe('Provider-independent GPU sharing configuration', () => {
     await userEvent.click(nvidia.getByRole('button', {name: 'Apply NVIDIA sharing'}));
     expect(writes).toEqual([]);
     await userEvent.click(screen.getByRole('button', {name: 'Apply and restart NVIDIA models'}));
-    await waitFor(() => expect(writes).toEqual([{provider: 'nvidia', mode: 'shared', maxModels: 3, nodeName: 'example-node', nodeUid: 'example-uid', expectedRevision: '9', acknowledgeSharing: true, acknowledgeRestart: true}]));
+    await waitFor(() => expect(writes).toEqual([{provider: 'nvidia', allocationBackend: 'device-plugin', mode: 'shared', maxModels: 3, nodeName: 'example-node', nodeUid: 'example-uid', expectedRevision: '9', acknowledgeSharing: true, acknowledgeRestart: true}]));
   });
 
   it('does not show providers assigned to another node', async () => {
@@ -113,6 +113,27 @@ describe('Provider-independent GPU sharing configuration', () => {
     await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument());
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(writes).toEqual([]);
+  });
+
+  it('requires a confirmed backend change for exact NVIDIA cards and keeps legacy defaults', async () => {
+    providers = [{...state, provider: 'nvidia', backend: 'time-slicing', experimental: false, draAvailable: true}];
+    await mount();
+    const apply = screen.getByRole('button', {name: 'Apply NVIDIA sharing'});
+    expect(screen.getByLabelText('NVIDIA GPU allocation backend')).toHaveValue('device-plugin');
+    expect(apply).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText('NVIDIA GPU allocation backend'), 'dra');
+    expect(apply).toBeEnabled();
+    await userEvent.click(apply);
+    expect(writes).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', {name: 'Apply and restart NVIDIA models'}));
+    await waitFor(() => expect(writes).toEqual([expect.objectContaining({provider: 'nvidia', allocationBackend: 'dra', mode: 'exclusive', expectedRevision: '7'})]));
+  });
+
+  it('does not offer NVIDIA DRA below the supported hardware and Kubernetes floor', async () => {
+    providers = [{...state, provider: 'nvidia', backend: 'time-slicing', experimental: false, draAvailable: false}];
+    await mount();
+    expect(screen.getByRole('option', {name: 'DRA · select individual cards (Kubernetes 1.36+)'})).toBeDisabled();
+    expect(writes).toHaveLength(0);
   });
 
   it('disables invalid slot limits and unchanged managed settings', async () => {

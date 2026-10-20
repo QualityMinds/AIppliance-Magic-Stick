@@ -105,6 +105,27 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
   });
 }));
 
+test('HAR-10 HAR-11 isolated CI profiles retain failure diagnostics without private inputs or raw errors',async()=>isolated(async directory=>{
+  for(const mode of ['selftest','phase4-fast','phase8-fast','phase2-fixtures','phase7-fixtures']) {
+    const runId=newRunId(),run=join(directory,runId);await privateDirectory(run);
+    const recorded=trace(runId);await saveExecutionTrace(run,recorded);
+    await writePrivate(join(run,'journal.json'),{password:secret});
+    await writePrivate(join(run,'browser-temp','error-context.json'),{cookie:secret});
+    await writePrivate(join(run,'component-failure.json'),{version:2,suite:'src/LicensePage.test.tsx',status:1,raw:secret,
+      failedAssertions:[{index:4,status:'failed',title:componentTitle,category:'assertion',failureMessages:[secret]}]});
+    const result=await saveReport(run,runId,[{id:'UX-02',layer:'U',environment:'fixture',durationMs:1,outcome:'Failed',reason:'COMPONENT',
+      executionId:recorded.executionId,traceRunId:runId,executionOutcome:'Failed'}],['UX-02'],'unknown',mode);
+    expect(result.acceptable).toBe(false);expect(result.executionCounts.Failed).toBe(1);
+    const archive=join(run,'report-artifacts.tar.gz');expect((await lstat(archive)).mode&0o077).toBe(0);
+    const members=execFileSync('tar',['-tzf',archive],{encoding:'utf8'}).trim().split('\n');
+    expect(members).toEqual(['summary.json','summary.txt','summary.html','junit.xml',
+      `report-artifacts/${runId}/traces/${recorded.executionId}.json`,
+      `report-artifacts/${runId}/component-failure.json`,'report-artifacts.json']);
+    for(const name of members)expect(execFileSync('tar',['-xOzf',archive,name],{encoding:'utf8'}),mode).not.toContain(secret);
+    expect(await readFile(join(run,'summary.html'),'utf8')).toContain('report-artifacts.tar.gz');
+  }
+}));
+
 test('HAR-11 archive creation refuses a preexisting symbolic link instead of writing outside the private report',async()=>isolated(async directory=>{
   const foreign=join(directory,'foreign'),run=join(directory,newRunId());await privateDirectory(run);await writePrivate(foreign,secret);
   await symlink(foreign,join(run,'report-artifacts.tar.gz'));

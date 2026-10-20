@@ -97,3 +97,15 @@ class ModuleParameterTests(unittest.TestCase):
                     self.assertEqual(method, 'POST')
                     self.assertTrue(path.endswith('/moduleactivations'))
                     self.assertEqual(body['spec']['parameters'], {})
+
+    def test_model_selectors_accept_only_current_catalog_ids_of_the_declared_task(self):
+        with patch.dict(self.api, {'generated_model_catalog': lambda: {'models': [
+            {'id': 'example-chat', 'type': 'chat'}, {'id': 'example-embedding', 'type': 'embedding'}]}}):
+            selection = {'chatModel': 'example-chat', 'embeddingModel': 'example-embedding'}
+            self.assertEqual(self.payload('anything-llm', selection)['spec']['parameters'], selection)
+            self.assertEqual(self.payload('anything-llm', {'chatModel': '', 'embeddingModel': ''})['spec']['parameters'],
+                             {'chatModel': '', 'embeddingModel': ''})
+            for parameter, value in [('chatModel', 'example-embedding'), ('embeddingModel', 'example-chat'),
+                                     ('chatModel', 'removed-model')]:
+                with self.subTest(parameter=parameter, value=value), self.assertRaises(self.api['RequestError']):
+                    self.payload('anything-llm', {parameter: value})

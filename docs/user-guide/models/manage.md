@@ -6,6 +6,11 @@ Open **Models** with Operator or Administrator access. Check whether application
 or mesh consumers are using a model before interrupting it. Catalog-only models
 without a Magic Stick activation can be read-only.
 
+When creating a local or external model, use a unique name of 1–63 lowercase
+letters, numbers or hyphens, starting and ending with a letter or number. The
+form explains invalid or duplicate names before you submit. An existing model's
+name cannot be changed in Edit.
+
 | Action | What happens |
 |---|---|
 | Edit | Opens the saved configuration. Review and save supported changes; runtime-affecting changes can reload the model. |
@@ -20,7 +25,7 @@ without a Magic Stick activation can be read-only.
 *Live test-appliance capture, 24 September 2026. This small, owner-authorized
 test model illustrates the controls; its parameters are not sizing recommendations.*
 
-The common **Start/Stop** workflow covers Ollama, vLLM, FreeToken, Realtime and
+The common **Start/Stop** workflow covers Ollama, vLLM, Realtime and
 external activations. For external models it changes local routing only.
 Restart controls depend on the engine; Stop followed by Start is the common
 reload workflow when no separate Restart action is offered.
@@ -60,6 +65,27 @@ Choose **Edit**, adjust the supported fields, and review the memory budget befor
 selecting **Save changes**. The model source, engine and hardware target remain
 unchanged in this dialog. Saving runtime-affecting settings can restart the model.
 
+Create and Edit share the local configuration form for Ollama, vLLM and Omni.
+The runtime and memory sections show that engine's settings. **Advanced** starts
+collapsed and includes CPU reservation/limit for all three; use **Use automatic
+CPU settings** to remove an override. Unchanged or reverted settings disable
+Save, and background status refreshes preserve your draft. Omni retains its
+profile, custom model source and stage settings when you edit another field.
+
+With NVIDIA DRA, choose physical GPUs from one checkbox list. For a model split
+across cards, the calculator and its **Breakdown** both show group totals; host
+RAM and the model download remain separate. Replicated model copies retain a
+full per-copy budget. See [GPU sharing](../../administration/gpu-sharing.md) for
+the difference between splitting and replicating a model.
+
+GPU models also show **System RAM** separately from VRAM. Compare **While
+serving**, **At startup · estimated range** and **Conservative recommended
+budget**; startup includes transfer buffers and a reclaimable file-cache
+envelope. For multi-GPU/offloading models, **Use recommended RAM allocation**
+changes only the host budget. Existing or manually entered values survive
+recalculation. A single-GPU model without offloading keeps its current resource
+profile and displays the RAM recommendation as advisory.
+
 [![Model editing dialog with type, context size, output limit, concurrency and KV-cache settings.](../../assets/screenshots/model-edit.webp)](../../assets/screenshots/model-edit.webp)
 
 *Unchanged editing form for the stopped test model, 24 September 2026. This crop
@@ -70,7 +96,7 @@ No edits were saved for this capture.*
 
 Stop passes through removal while Pods and GPU allocations terminate. Memory and
 slots may not become free immediately. Start can download weights again, especially
-for temporary FreeToken caches. **Ready** means routable; test an inference request
+when replacing runtime Pods. **Ready** means routable; test an inference request
 before returning the model to users.
 
 If another administrator changed the model while you were editing, refresh the

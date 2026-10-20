@@ -1,5 +1,8 @@
 import {test,expect,type APIRequestContext} from '@playwright/test';
-import {createHash,createPublicKey,verify} from 'node:crypto';
+import {createHash,createPublicKey,createPrivateKey,sign,verify} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {resolve} from 'node:path';
+import {owningEnvironment} from '../components/owning.ts';
 import type {ManagedHost,ModelsPayload,ModulesPayload,SystemStatusPayload} from '@magicstick/dashboard-contracts';
 import type {LabConfig} from '../core/config.ts';
 import {savedSetupOptions,suiteInventory,verifyHostContinuation,type SetupConsent} from '../core/setup-suite.ts';
@@ -45,7 +48,7 @@ test('HAR-10 suite discovery allowlists actual optional modules and never export
     spec:{type:'local',enabled:true,apiKey:'DO-NOT-EXPORT'}}],computeTargets:{targets:[]}} as unknown as ModelsPayload;
   const modules={modules:{optional:{enabled:false,parameters:{version:'current'}}},catalogJson:{modules:{
     optional:{activationMode:'moduleactivation',parameters:[{name:'version',label:'Version'}]},
-    'nvidia-gpu':{activationMode:'moduleactivation'},identity:{activationMode:'moduleactivation'},
+    'nvidia-gpu':{activationMode:'moduleactivation'},identity:{activationMode:'moduleactivation'},regression:{activationMode:'moduleactivation'},
     unrelated:{activationMode:'appinstance'}},applications:{openclaw:{},unknown:{}}}} as unknown as ModulesPayload;
   const result=suiteInventory(models,modules,{} as SystemStatusPayload,[]);
   expect(result.optionalModules.map(item=>item.id)).toEqual(['optional']);expect(result.applications).toEqual(['openclaw']);
@@ -61,7 +64,7 @@ test('HAR-10 disposable license signer is Ed25519 and bound to the exact install
 });
 test('HAR-10 signed license fixtures prove real expiry, wrong installation and signature tampering',annotation,()=>{
   const signer=createTestLicenseSigner(uid,installation),now=Date.now();
-  for(const mode of ['valid','expired','wrong-installation','tampered','short-lived'] as const) {
+  for(const mode of ['valid','commercial','expired','wrong-installation','tampered','short-lived'] as const) {
     const document=JSON.parse(testLicenseDocument(signer,mode,now));
     const [header,payload,signature]=document.token.split('.');
     const claims=JSON.parse(Buffer.from(payload,'base64url').toString());
@@ -69,8 +72,36 @@ test('HAR-10 signed license fixtures prove real expiry, wrong installation and s
     expect(claims.installationId === installation).toBe(mode !== 'wrong-installation');
     expect(claims.expiresAt > Math.floor(now/1000)).toBe(mode !== 'expired');
     if(mode === 'short-lived')expect(claims.expiresAt-Math.floor(now/1000)).toBe(120);
-    expect(claims.features).toEqual(['federated-sso']);expect(document).not.toHaveProperty('privateKey');
+    expect(claims.edition).toBe(mode==='commercial'?'commercial':'free-registered');
+    expect(claims.features).toEqual(mode==='commercial'?['commercial-production','federated-sso']:['federated-sso']);expect(document).not.toHaveProperty('privateKey');
   }
+});
+test('LIC-02 LIC-03 generated signed fixtures satisfy the real product verifier, not signature checks alone',annotation,()=>{
+  const signer=createTestLicenseSigner(uid,installation),now=Date.now();
+  const modes=['valid','commercial','expired','wrong-installation','tampered','short-lived'] as const;
+  const documents:Record<string,string>=Object.fromEntries(modes.map(mode=>[mode,testLicenseDocument(signer,mode,now)]));
+  // Reproduce the invalid commercial fixture with a genuinely valid signature:
+  // omitting commercial-production must fail the owning verifier's contract.
+  const envelope=JSON.parse(documents.commercial!),[header,payload]=envelope.token.split('.');
+  const claims=JSON.parse(Buffer.from(payload,'base64url').toString());claims.features=['federated-sso'];
+  const unsigned=header+'.'+Buffer.from(JSON.stringify(claims)).toString('base64url');
+  documents['commercial-missing-entitlement']=JSON.stringify({...envelope,token:unsigned+'.'+sign(null,Buffer.from(unsigned),createPrivateKey(signer.privateKey)).toString('base64url')});
+  const result=spawnSync('python3',['-c',[
+    'import json,sys',
+    'from licensing import LicenseError,public_keys,verify_document',
+    'data=json.load(sys.stdin); keys=public_keys({"keys":{data["kid"]:data["publicKey"]}}); results={}',
+    'for mode,document in data["documents"].items():',
+    ' try:',
+    '  verified=verify_document(document,keys,data["installationId"],now=data["now"]); results[mode]={"state":verified["state"],"valid":verified["valid"]}',
+    ' except LicenseError as error: results[mode]={"state":error.code,"valid":False}',
+    'print(json.dumps(results))',
+  ].join('\n')],{cwd:resolve('../api'),input:JSON.stringify({kid:signer.kid,publicKey:signer.publicKey,installationId:installation,now:Math.floor(now/1000),documents}),
+    env:{...owningEnvironment(),PYTHONDONTWRITEBYTECODE:'1'},encoding:'utf8',timeout:10_000,maxBuffer:128*1024});
+  expect(result.error).toBeUndefined();expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({valid:{state:'valid',valid:true},commercial:{state:'valid',valid:true},
+    expired:{state:'expired',valid:false},'wrong-installation':{state:'wrong_installation',valid:false},
+    tampered:{state:'invalid_signature',valid:false},'short-lived':{state:'valid',valid:true},
+    'commercial-missing-entitlement':{state:'invalid_entitlements',valid:false}});
 });
 
 const host:ManagedHost={name:'fixture',nodeUid,bootId:'boot-1',kernel:'kernel-test',available:true,message:'Fixture',

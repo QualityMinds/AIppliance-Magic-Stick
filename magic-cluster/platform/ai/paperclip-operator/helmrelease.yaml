@@ -9,19 +9,21 @@ spec:
   chart:
     spec:
       chart: paperclip-operator
-      version: "0.18.0"
+      version: "0.19.1"
       sourceRef:
         kind: HelmRepository
         name: paperclip-operator
         namespace: flux-system
   install:
     createNamespace: true
+    crds: CreateReplace
   upgrade:
     force: true
+    crds: CreateReplace
   values:
     crds:
       install: true
       keep: true
     image:
-      repository: ghcr.io/qualityminds/magicstick-paperclip-operator
-      tag: sha-1f9867b542b9b7b10fbc77f631a97a7cb25324be
+      repository: ghcr.io/paperclipinc/paperclip-operator
+      tag: v0.19.1

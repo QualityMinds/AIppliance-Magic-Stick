@@ -1,11 +1,27 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
+{{- $key := default (dict "name" (printf "%s-litellm" $instance.name) "key" "LITELLM_API_KEY" "revision" "") $instance.litellmKey -}}
 {{- $ingress := default dict $values.ingress -}}
 {{- $agentExecution := default dict $values.agentExecution -}}
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" (default $values.model $agentExecution.defaultModel))) -}}
 {{- $imageRepository := dig "image" "repository" "ghcr.io/paperclipai/paperclip" $values -}}
-{{- $imageTag := dig "image" "tag" "sha-df0e5bd" $values -}}
-{{- $openCodeRuntimeImage := dig "openCode" "runtimeImage" "ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d" $agentExecution -}}
+{{- $imageTag := dig "image" "tag" "2026.1001.0" $values -}}
+{{- $imageDigest := dig "image" "digest" "" $values -}}
+{{- if and (not $imageDigest) (eq $imageRepository "ghcr.io/paperclipai/paperclip") (eq $imageTag "2026.1001.0") -}}
+{{- $imageDigest = "sha256:08dbadebd4d40550eb336c25c3691f582322a88bae3f1cca101c5dd096bdc9d3" -}}
+{{- end -}}
+{{- $image := printf "%s:%s" $imageRepository $imageTag -}}
+{{- if $imageDigest -}}{{- $image = printf "%s@%s" $imageRepository $imageDigest -}}{{- end -}}
+{{- $openCodeRuntimeImage := dig "openCode" "runtimeImage" "ghcr.io/paperclipai/agent-runtime-opencode@sha256:06b207047eb2efcede3f5c85d493fbe976ad653a7fafe41cf6df76dd02e12ae6" $agentExecution -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $instance.name }}-runtime-compatibility
+  namespace: {{ $instance.namespace }}
+data:
+  runtime-preload.cjs: |
+{{ .Files.Get "files/runtime-preload.cjs" | indent 4 }}
+---
 apiVersion: paperclip.inc/v1alpha1
 kind: Instance
 metadata:
@@ -17,11 +33,15 @@ metadata:
     appliance.magicstick.dev/appinstance: {{ $instance.name }}
 spec:
   podAnnotations:
+    appliance.magicstick.dev/litellm-key-revision: {{ $key.revision | quote }}
     ai-appliance.io/model-catalog-consumer: "true"
   image:
     repository: {{ $imageRepository | quote }}
     tag: {{ $imageTag | quote }}
-  # Paperclip v2026.707.0 injects the contents of an agent's instructions into
+{{- if $imageDigest }}
+    digest: {{ $imageDigest | quote }}
+{{- end }}
+  # Paperclip 2026.1001.0 injects the contents of an agent's instructions into
   # the remote prompt, but then tells the agent to read their control-plane-only
   # source path from inside the sandbox. Its Kubernetes integration also drops
   # the /workspace path returned by realizeWorkspace and falls back to /tmp for
@@ -30,7 +50,7 @@ spec:
   # the OpenCode adapter use the provider's actual workspace consistently.
   initContainers:
     - name: prepare-paperclip-adapter-patch
-      image: {{ printf "%s:%s" $imageRepository $imageTag | quote }}
+      image: {{ $image | quote }}
       imagePullPolicy: IfNotPresent
       command: [/bin/sh, -ec]
       args:
@@ -39,6 +59,7 @@ spec:
           adapter_source="$adapter_source_dir/execute.ts"
           adapter_target=/patched-adapter/execute.ts
 
+          test "$(sha256sum "$adapter_source" | cut -d ' ' -f 1)" = 49b21e101f5cdeec456d57098e21e76d0947d744e0ba1c8ade93e0d942fbac75
           test "$(grep -F -c 'The above agent instructions were loaded from ${resolvedInstructionsFilePath}.' "$adapter_source")" -eq 1
           test "$(grep -F -c 'Resolve any relative file references from ${instructionsDir}.' "$adapter_source")" -eq 1
           cp -R "$adapter_source_dir/." /patched-adapter/
@@ -61,7 +82,7 @@ spec:
             "    executionTarget: ctx.executionTarget,",
             "    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,",
             "  });",
-            "  // Paperclip v2026.707.0 loses the cwd returned by the Kubernetes",
+            "  // Paperclip 2026.1001.0 loses the cwd returned by the Kubernetes",
             "  // realizeWorkspace hook and supplies its generic /tmp fallback here.",
             "  // The Kubernetes runtime is mounted and executed at /workspace.",
             "  const executionTarget =",
@@ -98,10 +119,16 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
   extraVolumes:
+    - name: paperclip-runtime-compatibility
+      configMap:
+        name: {{ $instance.name }}-runtime-compatibility
     - name: paperclip-adapter-patch
       emptyDir:
         sizeLimit: 1Mi
   extraVolumeMounts:
+    - name: paperclip-runtime-compatibility
+      mountPath: /etc/magicstick-paperclip
+      readOnly: true
     - name: paperclip-adapter-patch
       mountPath: /app/packages/adapters/opencode-local/src/server
       readOnly: true
@@ -121,7 +148,7 @@ spec:
   # directly or adding a second application login.
   sidecars:
     - name: gateway-loopback-proxy
-      image: {{ printf "%s:%s" $imageRepository $imageTag | quote }}
+      image: {{ $image | quote }}
       imagePullPolicy: IfNotPresent
       command: [node, -e]
       args:
@@ -148,7 +175,7 @@ spec:
           ]);
           const pluginKey = "paperclip.kubernetes-sandbox-provider";
           const pluginPackage = "@paperclipai/plugin-kubernetes";
-          const pluginPackageVersion = "2026.707.0";
+          const pluginPackageVersion = "2026.1001.0";
           const paperclipBaseSkill = "paperclipai/paperclip/paperclip";
           const paperclipBootstrapMarker = "[MagicStick Paperclip heartbeat v2]";
           const paperclipBootstrapInstruction = `${paperclipBootstrapMarker} Before doing any task work, call the skill tool to load the \"paperclip\" skill. Immediately after loading it, use the bash tool and build every Paperclip request from \"$PAPERCLIP_API_URL\"; never use a literal localhost or 127.0.0.1 port such as 3020 or 3100. The injected URL is the run-scoped callback bridge. Follow the skill's heartbeat procedure, create task documents through the Paperclip API instead of leaving deliverables only in the sandbox, and set a final task disposition before exiting.`;
@@ -255,7 +282,7 @@ spec:
             const plugins = await apiRequest("GET", "/api/plugins");
             if (!Array.isArray(plugins)) throw new Error("GET /api/plugins did not return a plugin list");
             let plugin = plugins.find((candidate) => candidate.pluginKey === pluginKey);
-            if (!plugin || plugin.status === "error" || plugin.status === "incompatible") {
+            if (!plugin || plugin.version !== pluginPackageVersion || plugin.status === "error" || plugin.status === "incompatible") {
               if (installAttempted) {
                 throw new Error(`Kubernetes plugin did not become ready after installation (status=${plugin?.status ?? "missing"})`);
               }
@@ -270,7 +297,7 @@ spec:
               enableAttempted = true;
               plugin = await apiRequest("POST", `/api/plugins/${encodeURIComponent(plugin.id)}/enable`, {});
             }
-            if (plugin?.status !== "ready") {
+            if (plugin?.status !== "ready" || plugin.version !== pluginPackageVersion) {
               throw new Error(`Kubernetes plugin is not ready yet (status=${plugin?.status ?? "unknown"})`);
             }
           };
@@ -470,11 +497,23 @@ spec:
     managed:
       storageSize: {{ dig "database" "managed" "storageSize" "10Gi" $values | quote }}
   env:
+    # The upstream operator appends spec.env last. These native overrides keep
+    # local_trusted on loopback without maintaining a custom operator image.
+    - name: PAPERCLIP_BIND
+      value: loopback
+    - name: HOST
+      value: 127.0.0.1
+    - name: PAPERCLIP_API_URL
+      value: {{ printf "http://%s.%s.svc.cluster.local:3100" $instance.name $instance.namespace | quote }}
+    - name: NODE_OPTIONS
+      value: --require /etc/magicstick-paperclip/runtime-preload.cjs
+    - name: MAGICSTICK_COMPATIBILITY_REVISION
+      value: {{ .Files.Get "files/runtime-preload.cjs" | sha256sum | quote }}
     - name: OPENAI_API_KEY
       valueFrom:
         secretKeyRef:
-          name: litellm-masterkey-secret
-          key: LITELLM_MASTER_KEY
+          name: {{ $key.name | quote }}
+          key: {{ $key.key | quote }}
     - name: OPENAI_BASE_URL
       value: http://litellm.ai.svc.cluster.local:4000/v1
     - name: PAPERCLIP_ADAPTER_MODELS

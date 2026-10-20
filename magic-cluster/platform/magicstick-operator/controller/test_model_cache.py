@@ -19,7 +19,7 @@ class ModelCacheGateTests(unittest.TestCase):
         controller['list_items'] = lambda _: [{'spec': {'action': 'clear-model-cache'}}]
         controller['ensure_model_finalizer'] = lambda _: None
         controller['patch_model_status'] = lambda *args, **kwargs: None
-        for engine in ('VLLM', 'OLlama', 'FreeToken'):
+        for engine in ('VLLM', 'OLlama'):
             activation = {'metadata': {'name': 'example-model', 'namespace': 'ai-system', 'generation': 1},
                 'spec': {'type': 'local', 'local': {'engine': engine}}}
             phase, status = controller['reconcile_model_activation'](activation, {}, {})

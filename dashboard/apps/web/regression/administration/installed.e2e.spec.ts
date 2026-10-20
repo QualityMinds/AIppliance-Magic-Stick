@@ -1,13 +1,13 @@
 import {test,expect,type Browser,type BrowserContext} from '@playwright/test';
-import {join} from 'node:path';
+import {regressionContextOptions} from '../core/https-policy.ts';
 import type {LabConfig} from '../core/config.ts';
 import {loadLabConfig} from '../core/config.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {gpuWorkerJournal} from '../core/gpu-scenario.ts';
 import {AdministrationApi} from '../core/administration-api.ts';
 import {OwnedIdentityClient} from '../core/owned-identity.ts';
-import {HarnessError,requireSafe} from '../core/errors.ts';
-import {readPrivate} from '../core/private-files.ts';
+import {HarnessError,requireSafe,atStage} from '../core/errors.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {realLogin,openInferenceSession} from '../core/auth.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
@@ -15,7 +15,7 @@ import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants,remainingVariantEnabled,type P0Definition} from '../profiles/remaining-p0.ts';
 import {runHostDrill} from '../core/host-drill.ts';
 import {realtimeWorkflow} from './realtime-live.ts';
-import {gpuMemoryDraft,settingsDrafts} from './form-checks.ts';
+import {gpuMemoryDraft,settingsDrafts,meshDraft,gpuSharingDrafts} from './form-checks.ts';
 import {kubernetesWorkflow} from './kubernetes-live.ts';
 import {applicationsWorkflow} from './apps-live.ts';
 import {modulesWorkflow,moduleProfileWorkflow} from './modules-live.ts';
@@ -24,8 +24,10 @@ import {withUnlicensedBaseline} from '../core/license-baseline.ts';
 import {meshWorkflow,stableMesh} from './mesh-live.ts';
 import {federationWorkflow} from './federation-live.ts';
 import {rbacWorkflow,unmanagedKeyWorkflow,securityCiWorkflow} from './security-live.ts';
-import {cacheProtection,freeTokenCache} from './cache-live.ts';
+import {cacheProtection} from './cache-live.ts';
 import {companionWorkflow} from './companion-live.ts';
+import {workloadPodInventory,repeatInventoryChanges} from '../core/repeat-inventory.ts';
+import {SharedWorkflow} from '../core/shared-workflow.ts';
 
 type Profile={version:1;identity?:{approveDisposableUsers:true};repeat?:{cycles:number;maximumMemoryGrowthMi:number;maximumNonCacheDiskGrowthBytes:number}};
 let config:LabConfig,live:LiveFoundation|undefined,client:AdministrationApi;
@@ -33,6 +35,7 @@ const phase=remainingPhase(process.env.REGRESSION_MODE);
 const workflows=new Map<string,Promise<Set<string>>>();
 const contexts:BrowserContext[]=[];
 let writesBlocked=0;
+let shared:SharedWorkflow;
 async function privateProfile():Promise<Profile> {
   requireSafe(process.env.REGRESSION_REMAINING_PROFILE,'PREREQUISITE');
   try {
@@ -132,7 +135,9 @@ async function repeatWorkflow() {
     Number.isSafeInteger(limits.maximumNonCacheDiskGrowthBytes) && limits.maximumNonCacheDiskGrowthBytes >= 0 &&
     limits.maximumNonCacheDiskGrowthBytes <= 10*1024**3 && config.smokeModel && config.inferenceUrl,'PREREQUISITE');
   await openInferenceSession(live!.context,config.inferenceUrl,config.loginTimeoutMs);
+  await live!.cleanup(); // Earlier cases' own resources are not the baseline.
   const baseline=await sample();
+  await writePrivate(journalFile(live!.journal,'repeat-baseline.json'),{version:1,...baseline},true);
   for(let cycle=0;cycle<limits.cycles;cycle++) {
     const created=await live!.createModel('repeat-'+cycle);
     const key=await live!.createKey('repeat-key-'+cycle);
@@ -151,32 +156,39 @@ async function repeatWorkflow() {
     await live!.journal.modelGeneration(created.client.name,created.uid,stopped.generation,started.generation);
     await live!.waitReady(created.client,created.uid,started.generation); await inference.chat(created.client.name,config.smokeModel.url.split('://')[1]);
     await live!.cleanup(); checked(live!.journal.recoveryPlan().length === 0);
-    const after=await sample();
-    const {writePrivate}=await import('../core/private-files.ts');
-    await writePrivate(join(process.env.REGRESSION_RUN_DIR!,`cycle-${cycle}.json`),{version:1,cycle,
+    // Consumer rollouts caused by the catalog may briefly overlap old/new
+    // Pods. Wait for the original workload counts, not original Pod UIDs.
+    let after=await sample();
+    try {after=await poll(async()=>{after=await sample();return after;},value=>repeatInventoryChanges(baseline,value).length===0,
+      {timeoutMs:120_000,intervalMs:1000,stage:'cleanup'});}
+    finally {await writePrivate(journalFile(live!.journal,`cycle-${cycle}.json`),{version:1,cycle,
       memoryGrowthMi:baseline.freeMi-after.freeMi,nonCacheDiskGrowthBytes:baseline.diskFree-after.diskFree-(after.cacheBytes-baseline.cacheBytes),
-      cacheGrowthBytes:after.cacheBytes-baseline.cacheBytes,objectCountsStable:after.modelIds === baseline.modelIds && after.podIds === baseline.podIds &&
-        after.intentIds === baseline.intentIds && after.claimIds === baseline.claimIds && after.routeIds === baseline.routeIds && after.keyIds === baseline.keyIds},true);
-    checked(after.modelIds === baseline.modelIds && after.podIds === baseline.podIds && after.intentIds === baseline.intentIds &&
-      after.claimIds === baseline.claimIds && after.routeIds === baseline.routeIds && after.keyIds === baseline.keyIds &&
+      cacheGrowthBytes:after.cacheBytes-baseline.cacheBytes,objectCountsStable:repeatInventoryChanges(baseline,after).length===0,
+      objectChanges:repeatInventoryChanges(baseline,after)},true);}
+    checked(repeatInventoryChanges(baseline,after).length===0 &&
       baseline.freeMi-after.freeMi <= limits.maximumMemoryGrowthMi &&
       baseline.diskFree-after.diskFree-(after.cacheBytes-baseline.cacheBytes) <= limits.maximumNonCacheDiskGrowthBytes);
   }
   return new Set(['PERF-02']);
 }
 async function sample() {
-  const [models,pods,intents,claims,routes,hosts,keys]=await Promise.all([live!.api.models(),live!.observer.list('pods','ai'),
-    live!.observer.list('modelactivations.appliance.magicstick.dev','ai-system'),live!.observer.list('resourceclaims.resource.k8s.io','ai'),
-    live!.observer.list('httproutes.gateway.networking.k8s.io','identity-system'),client.api.hostManagement(),live!.keys.list()]);
+  const [models,pods,replicaSets,intents,claims,routes,hosts,keys]=await Promise.all([
+    atStage('baseline-models',()=>live!.api.models()),atStage('baseline-pods',()=>live!.observer.list('pods','ai')),
+    atStage('baseline-pods',()=>live!.observer.list('replicasets.apps','ai')),
+    atStage('baseline-intents',()=>live!.observer.list('modelactivations.appliance.magicstick.dev','ai-system')),
+    atStage('baseline-claims',()=>live!.observer.list('resourceclaims.resource.k8s.io','ai')),
+    atStage('baseline-routes',()=>live!.observer.list('httproutes.gateway.networking.k8s.io','identity-system')),
+    atStage('baseline-host',()=>client.api.hostManagement()),atStage('baseline-keys',()=>live!.keys.list())]);
   const cpu=models.computeMemory?.devices?.find(item=>item.computeTarget === 'cpu');
   const host=hosts.nodes.find(item=>config.expected.nodes.some(node=>node.uid === item.nodeUid));
   requireSafe(Number.isFinite(cpu?.freeMi) && Number.isFinite(host?.modelCache?.freeBytes) && Array.isArray(host?.modelCache?.caches),'PREREQUISITE');
   const ids=(items:Array<{metadata:{uid?:string}}>)=>items.map(item=>item.metadata.uid).sort().join(',');
-  return {modelIds:models.activations.map(item=>item.metadata?.uid).sort().join(','),podIds:ids(pods),intentIds:ids(intents),claimIds:ids(claims),routeIds:ids(routes),
+  return {modelIds:models.activations.map(item=>item.metadata?.uid).sort().join(','),podIds:workloadPodInventory(pods,replicaSets),intentIds:ids(intents),claimIds:ids(claims),routeIds:ids(routes),
     keyIds:keys.items.map(item=>item.id).sort().join(','),freeMi:cpu!.freeMi!,diskFree:host!.modelCache!.freeBytes!,
     cacheBytes:host!.modelCache!.caches.reduce((sum,item)=>sum+Number(item.usedBytes ?? 0),0)};
 }
 async function oneWorkflow(name:string,execute:()=>Promise<Set<string>>,id:string) {
+  if(name==='applications' || name==='modules')return shared.execute(name,id,test.info(),execute);
   let running=workflows.get(name); if(!running) {running=execute();workflows.set(name,running);}
   requireSafe((await running).has(id),'PREREQUISITE');
 }
@@ -218,11 +230,15 @@ async function runCase(definition:P0Definition,browser:Browser) {
   if(['USER-02','USER-03','USER-04','USER-05','AUTH-04','AUTH-08','LOG-03'].includes(id))
     return oneWorkflow('identity',()=>identityWorkflow(browser),id);
   if(id === 'MOD-10') return oneWorkflow('credentials',()=>credentialWorkflow(browser),id);
-  if(id.startsWith('K8S-')) return oneWorkflow('kubernetes',()=>kubernetesWorkflow(live!,browser),id);
+  if(id === 'K8S-02') return test.step('Verify Viewer OIDC and read-only Kubernetes RBAC',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-03') return test.step('Verify Operator Kubernetes RBAC and disabled intent CRUD',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-04') return test.step('Verify and immediately revoke the isolated Kubernetes administrator grant',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-05') return test.step('Verify real kubeconfig clipboard and private download exports',()=>kubernetesWorkflow(live!,browser,id));
+  if(id === 'K8S-06') return test.step('Verify Kubernetes access switching and fresh-login revocation',()=>kubernetesWorkflow(live!,browser,id));
   if(id.startsWith('APP-') || id.startsWith('ACL-')) return oneWorkflow('applications',()=>applicationsWorkflow(live!,browser),id);
   if(['MOD-03','MOD-04'].includes(id)) return oneWorkflow('modules',()=>modulesWorkflow(live!),id);
   if(id === 'MOD-06')return moduleProfileWorkflow(live!);
-  if(['LIC-02','LIC-03','LIC-04'].includes(id)) return oneWorkflow('license',()=>licensingWorkflow(live!),id);
+  if(id==='LIC-02'||id==='LIC-03'||id==='LIC-04')return licensingWorkflow(live!,id);
   if(['SSO-02','SSO-04','SSO-05'].includes(id)) return oneWorkflow('federation',()=>federationWorkflow(live!,browser),id);
   if(['MESH-03','MESH-04','MESH-05','MESH-06','MESH-07'].includes(id)) return oneWorkflow('mesh',()=>meshWorkflow(live!,browser),id);
   if(id === 'PERF-02') return oneWorkflow('repeat',repeatWorkflow,id);
@@ -230,12 +246,21 @@ async function runCase(definition:P0Definition,browser:Browser) {
   if(id === 'SEC-04')return rbacWorkflow(live!);
   if(id === 'SEC-03')return securityCiWorkflow(live!);
   if(id === 'CACHE-02')return cacheProtection(live!);
-  if(id === 'CACHE-07')return freeTokenCache(live!);
   if(id === 'MESH-09')return companionWorkflow(live!);
   if(id === 'UX-02') {
     const page=await live!.context.newPage(),host=(await live!.api.hostManagement()).nodes.find(item=>item.available);
     requireSafe(host,'PREREQUISITE');
-    try{await settingsDrafts(page,config.dashboardUrl,host.name);checked(writesBlocked === 0);}finally{await page.close();}
+    try {
+      if(definition.group==='mesh-form') {
+        const mesh=await client.api.mesh();requireSafe(mesh.configured&&mesh.relay,'PREREQUISITE');
+        await meshDraft(page,config.dashboardUrl);
+      } else if(definition.group==='gpu-form') {
+        const providers=(await live!.api.gpuSharing()).providers.filter(p=>p.nodeUid===host.nodeUid&&p.available).map(p=>p.provider.toUpperCase());
+        requireSafe(providers.length>0,'CAPABILITY');await page.goto(config.dashboardUrl+'/#/system/hardware');
+        await gpuSharingDrafts(page,host.name,providers);
+      } else await settingsDrafts(page,config.dashboardUrl,host.name,{mesh:false,hardware:false});
+      checked(writesBlocked === 0);
+    }finally{await page.close();}
     return;
   }
   if(id.startsWith('RT-')) return oneWorkflow('realtime',()=>realtimeWorkflow(live!),id);
@@ -284,10 +309,10 @@ async function runCase(definition:P0Definition,browser:Browser) {
         data:{protocol:'oidc',metadataUrl:'https://fixture.invalid/.well-known/openid-configuration'},headers:{Origin:config.dashboardUrl,'X-MagicStick-CSRF':'dashboard'},timeout:config.requestTimeoutMs,maxRedirects:0});
       checked(response.status() === 403);
     }
-    });
+    },id==='SSO-01'?'sso-01':'lic-01');
   }
   if(['AUTH-03','AUTH-05','SEC-01'].includes(id)) {
-    const anonymous=await browser.newContext({serviceWorkers:'block',acceptDownloads:false});
+    const anonymous=await browser.newContext(regressionContextOptions());
     try {for(const path of ['/api/session','/api/users','/api/license','/api/api-access','/api/mesh']) {
       const response=await anonymous.request.get(config.dashboardUrl+path,{timeout:config.requestTimeoutMs,maxRedirects:0,
         headers:{'X-Auth-Request-User':'attacker','X-Auth-Request-Groups':'magicstick-admin'}});
@@ -304,7 +329,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
     const key=await live!.createKey('secrecy-'+id.toLowerCase());
     const listed=JSON.stringify(await live!.keys.list()); checked(!listed.includes(key.secret));
     if(id === 'KEY-05') {
-      const anonymous=await browser.newContext({serviceWorkers:'block',acceptDownloads:false});
+      const anonymous=await browser.newContext(regressionContextOptions());
       try {
         for(const path of ['/api/users','/api/license','/api/mesh']) {
           const response=await anonymous.request.get(config.dashboardUrl+path,{headers:{Authorization:'Bearer '+key.secret},timeout:config.requestTimeoutMs,maxRedirects:0});
@@ -322,6 +347,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
 test.beforeAll(async({browser},testInfo)=>{
   requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RUN_DIR && process.env.REGRESSION_RUN_ID,'CONFIG');
   config=await loadLabConfig(process.env.REGRESSION_CONFIG);
+  shared=new SharedWorkflow(process.env.REGRESSION_RUN_DIR,{runId:process.env.REGRESSION_RUN_ID,targetUid:config.expected.applianceUid});
   const {journal}=await gpuWorkerJournal(process.env.REGRESSION_RUN_DIR,testInfo.workerIndex,config.expected.applianceUid);
   live=await LiveFoundation.open(browser,config,journal,{inferenceOrigin:config.inferenceUrl,onBlockedMutation:()=>writesBlocked++});
   client=new AdministrationApi(live.context.request,config.dashboardUrl,config.requestTimeoutMs,live.guard);

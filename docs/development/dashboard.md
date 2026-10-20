@@ -47,13 +47,13 @@ The React implementation retains the established tab-by-tab feature contract:
 | Area | React parity contract |
 |---|---|
 | Overview | Appliance and object counts, discovered module and instance URLs with local/public/direct classification and copy/open actions, plus appliance, module, instance, model, removal, and Flux attention items. |
-| Models | CPU and per-GPU memory gauges; preset, direct-reference, Hugging Face, and Ollama discovery; popular and family shortcuts; paginated repositories and quantizations/tags; metadata, download size, context, memory estimator, over-capacity markers, creation, revision-safe parameter editing, progress, registered catalog models, removal, and local-runtime cleanup. |
-| Services | Catalog-driven Applications, AI Runtime, and Platform groups; dependency-aware enable/disable controls; parameters; credentials; collapsible instances; progress, messages, routes, removal, and all OpenClaw, Hermes, Paperclip, KubeOpenCode, and Odysseus create options. |
+| Models | One catalog-driven local configuration form for Ollama, vLLM and experimental Omni Create/Edit; shared CPU controls and engine-specific source/hardware/memory options; CPU and per-GPU memory gauges; presets, direct references and registry discovery; metadata, memory estimates, revision-safe editing, lifecycle and logs. |
+| Services | Catalog-driven Applications, AI Runtime, and Platform groups; dependency-aware enable/disable controls; parameters; credentials; collapsible instances; progress, messages, routes, removal, and all OpenClaw, Hermes, Paperclip, KubeOpenCode, Odysseus, and Pi Coding Agent create options. |
 | API Access | Endpoint display/copy, named-key creation, one-time secret display/copy, non-secret metadata, refresh, and guarded revocation. |
 | Mesh | Administrator-only top-level page immediately after API Access; optional module activation, membership, invitations, local-model sharing, relay configuration, and status. Former Settings Mesh links redirect here. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
 | Federated SSO | Entitlement status, stable issuer and per-provider callback, OIDC/SAML metadata validation, redacted provider state, exact role mappings, guarded save/delete, and local-recovery guidance. |
-| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; federated SSO; Hardware profiles and validation; administrator-only Model cache cleanup at `#/system/model-cache`; hardware, Flux, Pod, Service, Ingress, and route status; and administrator-only Computer power controls at `#/system/power`. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
+| System | Category tabs for Settings, License, Users, Hardware, System Status and Computer power. Settings retains its own subtabs. System Status has a separate role-filtered tab bar: Overview resource counts and summaries; GPU Operators; Flux reasons/messages; Network & routes; administrator-only Model cache at `#/system/status/model-cache`; and license-free administrator regression execution/reports at `#/system/status/regression`. Only the selected status tool mounts and queries its API, independent of resource-status loading/errors. Old `#/system/model-cache` and `#/system/regression` hashes redirect to the matching nested status page. Existing Settings, License and Users compatibility links and administrator-only power controls remain intact. |
 
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
@@ -90,6 +90,20 @@ The dashboard may read Kubernetes status and create or patch
 `ModuleActivation`, `ModelActivation`, and `AppInstance` resources. It must not
 directly create workloads, Flux Kustomizations, HelmReleases, or specialized
 operator CRs.
+The administrator regression page also creates `RegressionRun` runtime intent;
+the same operator owns its Job. The API provisions only its private generated
+test identity, exposes sanitized artifacts and reclaims the identity after exact
+Pod termination and verified setup recovery. Interrupted runs retain their exact
+generated identity and private restoration receipt for the next run. It never
+receives a user-supplied test script or image.
+The start dialog selects one or more P0 phases (0–8, all by default) through the
+shared start API. The API validates and sorts the immutable selection; the
+existing operator passes it to the Kubernetes runner. Subset runs keep automatic
+cleanup and baseline checks, and show only their selected-phase progress/results.
+Enabling, registering, starting, cancelling and downloading reports are core
+functions with no license prerequisite. Test registration binds a disposable
+installation, not a licensing edition; keep license queries out of that control
+path. License/SSO scenarios retain their own signed-fixture/entitlement checks.
 Provider Secrets created from user-entered model credentials must stay scoped to
 that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.

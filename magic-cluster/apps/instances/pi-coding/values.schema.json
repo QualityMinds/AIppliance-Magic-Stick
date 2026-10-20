@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["instance"],
+  "properties": {
+    "instance": {
+      "type": "object",
+      "required": ["name", "namespace", "application", "localHost", "localName", "values"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string", "enum": ["ai"]},
+        "application": {"const": "pi-coding"},
+        "localHost": {"type": "string", "minLength": 1},
+        "localName": {"type": "string", "minLength": 1},
+        "values": {
+          "type": "object",
+          "required": ["model"],
+          "properties": {
+            "model": {"type": "string", "minLength": 1, "pattern": "^[^\\s]+$", "not": {"enum": ["CHANGEME_MODEL", "litellm/CHANGEME_MODEL", "openai/CHANGEME_MODEL"]}},
+            "storage": {
+              "type": "object",
+              "properties": {
+                "size": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|[kMGTPE])?$"}
+              }
+            },
+            "resources": {"type": "object"}
+          }
+        }
+      }
+    }
+  }
+}

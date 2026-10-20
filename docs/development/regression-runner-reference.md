@@ -27,6 +27,16 @@ after submission remain ambiguous. Normal interruption forwards the signal and
 allows two minutes for teardown; cleanup itself has a ten-minute ceiling and
 attempts independently owned resources even if a borrowed-setting restore fails.
 
+Guarded foundation and recovery operations verify the bound Dashboard user.
+Only an unauthenticated `/api/session` GET triggers one serialized renewal
+through the normal gateway/IdP login flow; the callback must finish first.
+The verified subject, username and required role must remain unchanged, and
+the Lease is rechecked before submitting intent. Changed identity or failed
+renewal fences the browser session. Forbidden/unavailable reads stay Failed;
+model, key and settings writes are never retried by authentication renewal.
+Foundation teardown is recorded separately: its failure retains the recovery
+fence without replacing the original scenario error.
+
 The next `all` refresh uses the same persistent private run directory. It checks
 the server marker, expired Lease plus a 60-second drain, parent liveness or a
 completed legacy report, exact root/worker journals and every UID/generation.
@@ -71,7 +81,8 @@ has no universal attachment format, so unsupported CI viewers can use the
 property/path or open `summary.html`. Step counts are diagnostics, not additional
 catalogue acceptance or a replacement for the scenario/evidence counts.
 
-Each canonical phase and `all` produces `report-artifacts.tar.gz`. It includes
+Each canonical phase, `all`, `selftest` and `phaseN-fast` / `phaseN-fixtures`
+produces `report-artifacts.tar.gz`, including after a failed isolated check. It includes
 only summaries, JUnit, its manifest and re-validated trace/component attachments.
 The aggregate copies child attachments into its own archive, so extracting one
 archive is sufficient; sibling private run directories are not required.
@@ -97,6 +108,55 @@ You no longer need to recreate JSON files before each run. The input assistant
 reuses accepted credentials, model fixtures, application adapters and budgets.
 Only external prerequisites that cannot safely be discovered need one-time
 provisioning. Preparation is not a test run and never records `Passed` evidence.
+
+### Runner image
+
+The local runner uses digest-pinned, multi-platform `node:24-bookworm-slim` and
+`golang:1.26.5-alpine3.24` bases. Playwright installs only the exact Chromium
+headless shell and FFmpeg versions resolved by the frozen workspace lockfile.
+The registered workflows launch headless Chromium; a future headed or other
+browser workflow must explicitly extend the image installation.
+
+BuildKit bind mounts provide the `.dockerignore`-filtered source, the existing AMD
+patch and the compiled native recovery test. All selected source directories,
+runtime dependencies, browser and built web bundle enter one runtime `RUN`
+layer. Download/install caches are removed before that layer is committed.
+The native binary remains built for `TARGETARCH` with `CGO_ENABLED=0`, the same
+upstream revision and the existing patch; no native test is replaced by a mock.
+The non-root, read-only Compose runner and its private mounts are unchanged.
+Git is installed in the final runtime, not just the builder: channel contracts
+create real local Git repositories. Owning Python/Vitest subprocesses exclude
+all `REGRESSION_*` campaign variables, including execution mode, credentials and
+preparation-diagnostic paths. Explicit Kubernetes fixtures set their own mode;
+an inert fixture cannot overwrite a real preparation receipt.
+
+Registry measurements on **2026-10-10**, for the pinned `linux/amd64` manifests:
+
+| Base download | Previous base | Current base |
+|---|---|---|
+| Runner | Playwright Resolute: 956.11 MiB | Node Bookworm Slim: 77.08 MiB |
+| Native-test builder | Go Bookworm: 283.03 MiB | Go Alpine: 68.07 MiB |
+
+These are compressed base-layer download totals, not final runner sizes or peak
+disk-space requirements. The current runner adds its selected browser and
+dependencies. The previous runtime's 20 `COPY` instructions and three `RUN`
+instructions become no `COPY` and one `RUN`; fewer committed filesystem layers
+reduce the full-layer copies made by `vfs`. Actual build failures still come
+directly from Docker; the launcher imposes no guessed disk-capacity threshold.
+
+The `regression-image` job in
+[Regression runner](../../.github/workflows/regression-runner.yml)
+builds the actual runner on GitHub's `ubuntu-24.04` runner for relevant pushes
+and pull requests. It then runs typecheck, harness selftests, Phase 4/6/8 fast
+contracts (including native AMD recovery tests), and Phase 2/7 Chromium fixtures
+inside the newly built, non-root, read-only Compose container. No lab setup or
+appliance credentials are supplied. Only allowlisted report archives are uploaded.
+The job also records actual image size and filesystem-layer count.
+
+Use this CI job to verify a development image build instead of repeating the
+Docker build in the agent workspace. The local `build` command remains available
+for one-time lab setup. Verify the CI result against the exact source commit;
+ordinary dashboard/CLI/API image builds do not validate the runner Dockerfile.
 
 ### 1. One-time setup
 
@@ -350,7 +410,7 @@ particular consent is missing, is scoped to the phase/operation, and is labelled
 as a proposal-only command to run after review. The same measures are saved in
 `readiness.txt` and structured `plan.json`; none is executed automatically.
 The mixed-GPU blocker distinguishes missing hardware/selection, sharing consent,
-fixtures, FreeToken telemetry and unsupported/over-capacity memory settings.
+fixtures and unsupported/over-capacity memory settings.
 Private inventories contain no raw
 API responses, user lists, license documents, invitations, cookies or Secrets.
 Accepted files are never overwritten by discovery alone.
@@ -377,7 +437,7 @@ Use the printed reasons rather than granting every scope at once:
 
 | Phase | Measures for complete live prerequisites |
 |---|---|
-| 3, 4; also GPU-dependent 6–8 | Use a Ready managed node with one AMD and one NVIDIA GPU, advertised Ollama/vLLM/FreeToken fixtures and current physical VRAM/system-RAM telemetry. Review the GPU proposal and approve sharing transitions with `prepare --phases 3-4 --approve gpu` only if allowed. Approval alone cannot repair missing metrics, insufficient memory or unsupported hardware. |
+| 3, 4; also GPU-dependent 6–8 | Use a Ready managed node with one AMD and one NVIDIA GPU, advertised Ollama/vLLM fixtures and current physical VRAM/system-RAM telemetry. Review the GPU proposal and approve sharing transitions with `prepare --phases 3-4 --approve gpu` only if allowed. Approval alone cannot repair missing metrics, insufficient memory or unsupported hardware. |
 | 5: applications/modules | Answer ordinary setup's five actual UI adapter questions; select an advertised disabled non-critical optional module and alternate AMD profile. Approved setup prepares/verifies the disabled intent and creates the separate app cleaner. Actual application controls still need review. |
 | 5: users/Kubernetes | Approve disposable users/grants and the verified architecture-specific Linux plugin download, or select a reviewed binary. The wizard saves its checksum and the private typed configuration. |
 | 5: licenses/API restart | Approve generated test issuer/local public trust, document-only no-file baseline, replacement and separate API restart. Scoped credentials and signed rejection files are created automatically. First activation retention remains a separate answer. |
@@ -434,13 +494,12 @@ bash tools/regression.sh prepare --phases 3-5 --approve gpu,identity,kubernetes
 
 | Scope | Future test operation it approves |
 |---|---|
-| `gpu` | Managed AMD/NVIDIA sharing transitions; matching devices and current FreeToken telemetry are still required |
+| `gpu` | Managed AMD/NVIDIA sharing transitions; matching devices and current memory telemetry are still required |
 | `identity`, `kubernetes` | Disposable actors and grants to those actors |
 | `modules`, `amd-profile` | Previously reviewed disabled optional module / advertised alternate AMD profile |
 | `license`, `api-restart`, `first-license` | License replacement, separate API-Pod restart, or retention after first activation; independently selected |
 | `federation` | Previously supplied controlled test IdP/provider fixtures |
 | `mesh`, `realtime` | Previously supplied second-appliance / exclusive-and-shared runtime fixtures and transitions |
-| `cache` | FreeToken cache test on owned inactive test data |
 
 These flags generate consent in a proposal; they do **not** execute the operation.
 Unknown scopes and blanket `all` approval are rejected. If prerequisites are
@@ -654,7 +713,7 @@ is not evidence that these external conditions or their outcomes exist.
 `mesh` needs **two distinct, pinned and leased appliances**, Mesh installed but
 no existing membership, shared verified CA trust and reachable enrollment origin.
 A one-node simulation is not remote inference. Tests join through UI, reject
-revoked/reused invites, export CPU/Ollama, NVIDIA/vLLM and FreeToken one at a time,
+revoked/reused invites, export CPU/Ollama, NVIDIA/vLLM one at a time,
 infer remotely without a second model Pod, change limits/relay, revoke/unshare
 and clean only owned membership and models.
 
@@ -746,10 +805,18 @@ updated suite remains the lab owner's next step.
 
 ## Experimental engine test scope
 
-The current repository policy excludes FreeToken-specific regression cases;
-this does not disable the product engine or its builds. The policy is defined in
-`dashboard/apps/web/regression/core/lab-policy.ts`, shared by preparation,
-selection and reporting. Historical FreeToken case definitions remain readable.
+Omni/Realtime regression is temporarily excluded while that product path remains
+experimental. `lab-policy.ts` lists `VLLM-Omni`; `engine-policy.ts` applies it to
+RT case selection, owning/fixture/live coverage and automatic preparation. Phase
+7 retains Mesh/companion. Direct `phase7-live RT-xx` selection is rejected before
+live setup rather than producing an empty pass. Reports disclose the exclusion;
+ordinary Ollama/vLLM and the product's Omni feature are unchanged. Keep the
+retained RT cases and re-enable the policy only after Realtime is ready, with
+matching CI images and fresh focused acceptance. Old reports are not rewritten.
+
+FreeToken has been removed from the product and active regression profiles.
+The retired IDs remain documented for historical report interpretation; removal
+and legacy-model cleanup are covered by the owning lifecycle suites.
 
 For a bounded check of only the two classic vLLM GPU lifecycles:
 

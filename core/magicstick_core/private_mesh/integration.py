@@ -119,13 +119,13 @@ class ModelSync:
             local = service.local_models()
             for name, backend in local.items():
                 if ready_local_model(backend):
-                    base = backend["apiBase"] if backend["source"] == "freetoken" else self.kubeai_base
+                    base = self.kubeai_base
                     desired["local/" + name] = self._deployment("local/" + name, name, base, "local", engine=backend["engine"])
             for share in exports:
                 name = exports[share]["localModel"]
                 backend = local.get(name)
                 if ready_local_model(backend):
-                    base = backend["apiBase"] if backend["source"] == "freetoken" else self.kubeai_base
+                    base = self.kubeai_base
                     desired[share] = self._deployment(share, name, base, "mesh-export", engine=backend["engine"])
         with service.store.change() as current:
             imports = current["imports"]

@@ -52,6 +52,13 @@ out the cluster Deployments; host convergence updates the console runtime while
 retaining its persisted state. External GitOps installations must adopt the pins
 in their owning repository. Fixed tags and commits do not move automatically.
 
+On registered regression labs, host convergence first reserves the existing
+test Lease and refuses active/queued test or cleanup runs and any held test
+Lease. It renews that reservation through the actual Flux rollout, then releases
+only its own UID-bound reservation. Failed or unverified convergence keeps the
+lab fenced: inspect `ansible-pull.service` and Flux readiness before host recovery;
+the test cleanup button never clears a host maintenance reservation.
+
 If a source push has not appeared on an appliance, inspect these distinct stages:
 
 - **Build:** did all three images publish successfully?

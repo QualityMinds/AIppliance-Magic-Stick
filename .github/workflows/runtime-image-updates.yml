@@ -38,7 +38,34 @@ jobs:
             --set instance.localHost=example-review.odysseus.example.local \
             --set-json 'instance.values={}' >/tmp/image-review.yaml
           git diff --check
+      - name: Retain the validated update proposal
+        id: proposal
+        run: |
+          git diff --binary -- \
+            magic-cluster/apps/instances/odysseus/files/runtime-images.json \
+            licenses/dependency-inventory.json > "$RUNNER_TEMP/runtime-image-updates.patch"
+          if [ -s "$RUNNER_TEMP/runtime-image-updates.patch" ]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            echo 'Validated runtime updates are available in the runtime-image-update-proposal artifact.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'No runtime image update is needed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Archive the reviewed patch
+        if: steps.proposal.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-image-update-proposal
+          path: ${{ runner.temp }}/runtime-image-updates.patch
+          if-no-files-found: error
+          retention-days: 30
+      - name: Explain the policy-compatible manual proposal
+        if: steps.proposal.outputs.changed == 'true' && vars.RUNTIME_IMAGE_PR_ENABLED != 'true'
+        run: |
+          echo '::warning::Automatic PR creation is not enabled. Download the validated proposal artifact and open a human-reviewed PR to develop. No image has been promoted.'
+          echo 'Automatic PR creation requires enterprise/organization permission and RUNTIME_IMAGE_PR_ENABLED=true. The resolver, tests, chart render and artifact checks remain mandatory.' >> "$GITHUB_STEP_SUMMARY"
       - name: Propose a reviewed update on develop
+        if: steps.proposal.outputs.changed == 'true' && vars.RUNTIME_IMAGE_PR_ENABLED == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

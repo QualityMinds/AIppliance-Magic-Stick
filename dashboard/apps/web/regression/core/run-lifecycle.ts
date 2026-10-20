@@ -1,5 +1,17 @@
 import {HarnessError, type Stage} from './errors.ts';
 
+/** Teardown always runs, but cannot replace the first scenario failure. The
+ * caller records cleanup as a separate step so its recovery fence survives. */
+export async function withCleanup<T>(action: () => Promise<T>, cleanup: () => Promise<void>): Promise<T> {
+  let failed = false;
+  try { return await action(); }
+  catch (error) { failed = true; throw error; }
+  finally {
+    try { await cleanup(); }
+    catch (error) { if (!failed) throw error; }
+  }
+}
+
 /** One serialized heartbeat, independent of browser/polling progress. Failure
  * is sticky: a later successful read must not revive a fenced runner. */
 export class HeartbeatLoop {
@@ -42,5 +54,8 @@ export async function bounded<T>(action:()=>Promise<T>,timeoutMs:number,stage:St
     void cancellation.then(()=>reject(expired));
   },timeoutMs);});
   try {const value=await Promise.race([action(),deadline]);if(expired)throw expired;return value;}
+  // cancel() can close a page and reject the action before the deadline
+  // promise settles. Preserve the known timeout, not a secondary closed-page error.
+  catch(error) {if(expired)throw expired;throw error;}
   finally {clearTimeout(timer);await cancellation;}
 }

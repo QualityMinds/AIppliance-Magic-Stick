@@ -1,5 +1,6 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
+{{- $key := default (dict "name" (printf "%s-litellm" $instance.name) "key" "LITELLM_API_KEY" "revision" "") $instance.litellmKey -}}
 {{- $images := (.Files.Get "files/runtime-images.json" | fromJson).images -}}
 {{- $defaultAppImage := printf "%s@%s" $images.odysseus.repository $images.odysseus.digest -}}
 {{- $appImage := $defaultAppImage -}}
@@ -199,6 +200,7 @@ spec:
         app.kubernetes.io/component: app
       annotations:
         ai-appliance.io/model-catalog-consumer: "true"
+        appliance.magicstick.dev/litellm-key-revision: {{ $key.revision | quote }}
     spec:
       containers:
         - name: app
@@ -210,8 +212,8 @@ spec:
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: litellm-masterkey-secret
-                  key: LITELLM_MASTER_KEY
+                  name: {{ $key.name | quote }}
+                  key: {{ $key.key | quote }}
             - name: OPENAI_BASE_URL
               value: http://litellm.ai.svc.cluster.local:4000/v1
             - name: ODYSSEUS_DEFAULT_MODEL
@@ -251,8 +253,8 @@ spec:
             - name: LITELLM_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: litellm-masterkey-secret
-                  key: LITELLM_MASTER_KEY
+                  name: {{ $key.name | quote }}
+                  key: {{ $key.key | quote }}
             - name: ODYSSEUS_DEFAULT_MODEL
               value: {{ $model | quote }}
           readinessProbe:

@@ -2,10 +2,20 @@ import {HarnessError, requireSafe, reasons, type ReasonCode} from './errors.ts';
 import {readPrivate} from './private-files.ts';
 
 export const setupStages = ['request', 'tls', 'login', 'discovery', 'kubernetes-access', 'oidc-session',
-  'bootstrap-file', 'lab-bootstrap', 'run-recovery', 'license-fixtures', 'license-validation'] as const;
+  'bootstrap-file', 'lab-bootstrap', 'run-recovery', 'license-fixtures', 'license-validation',
+  'input-discovery', 'input-validation', 'input-acceptance'] as const;
 export const setupDetails = ['ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
   'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED', 'ERR_CERT_AUTHORITY_INVALID',
-  'ERR_HTTP2_PROTOCOL_ERROR'] as const;
+  'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'] as const;
+/** Read only the fixed marker emitted by our setup worker; raw stderr is
+ * neither a public explanation nor a report attachment. */
+export function setupWorkerMarker(line: string) {
+  const match = /^\[SETUP_STAGE:([a-z-]+)\](?: \[detail:([A-Z_0-9]+)\])?$/.exec(line);
+  if (!match || !setupStages.includes(match[1] as typeof setupStages[number]) ||
+      match[2] && !setupDetails.includes(match[2] as typeof setupDetails[number])) return;
+  return {setupStage: match[1] as typeof setupStages[number],
+    ...(match[2] ? {detail: match[2] as typeof setupDetails[number]} : {})};
+}
 export interface PreparationDiagnostic {
   version: 1;
   outcome: 'Passed' | 'Failed' | 'Blocked';
@@ -48,7 +58,7 @@ export async function preparationDiagnostic(): Promise<PreparationDiagnostic | u
  * checks that could not start. Its dependent live cases remain Blocked. */
 export async function requirePreparation() {
   const diagnostic = await preparationDiagnostic();
-  if (diagnostic&&diagnostic.outcome!=='Passed') throw new HarnessError(diagnostic.outcome === 'Failed' ? 'DEPENDENCY' : diagnostic.reason ?? 'PREREQUISITE', 'Blocked');
+  if (diagnostic&&diagnostic.outcome!=='Passed') throw new HarnessError(diagnostic.outcome === 'Failed' ? 'PREPARATION_FAILED' : diagnostic.reason ?? 'PREREQUISITE', 'Blocked');
 }
 
 export function preparationDescription(diagnostic: PreparationDiagnostic) {

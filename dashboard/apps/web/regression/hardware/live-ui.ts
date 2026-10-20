@@ -1,15 +1,22 @@
 import {expect,type Page} from '@playwright/test';
-import type {ModelActivation} from '@magicstick/dashboard-contracts';
-import type {GpuModelFixture} from '../core/config.ts';
 import {GpuScenario,type GpuCreated} from '../core/gpu-scenario.ts';
-import {OwnedModelClient,activation,editRevision} from '../core/owned-model.ts';
-import {canonical} from '../core/borrowed-sharing.ts';
+import {activation,editRevision} from '../core/owned-model.ts';
 import {requireSafe} from '../core/errors.ts';
-import {freeTokenNodeCapacity} from '../core/freetoken-inventory.ts';
+import {browserMutation} from '../core/browser-action.ts';
+import {modelActionButton,modelLifecycleReceipt,modelCard} from '../core/model-ui.ts';
+export {modelCard} from '../core/model-ui.ts';
+import type {HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 
-export function modelCard(page:Page,name:string) {
-  return page.locator('.panel').filter({has:page.getByRole('heading',{name,exact:true})}).last();
+/** Several physical cards deliberately share the same vendor heading. Scope
+ * the accordion by verified PCI identity, never by the first matching title. */
+export async function gpuConfigurationUi(page:Page,device:HardwareGpuDevice) {
+  const region=page.getByRole('region',{name:`GPU ${device.name} · ${device.pciAddress}`,exact:true});
+  await expect(region).toBeVisible({timeout:60_000});
+  const details=region.locator(':scope > details');
+  if(await details.getAttribute('open')===null)await details.locator(':scope > summary').click();
+  return region;
 }
+
 export async function installedReadyUi(page:Page,name:string) {
   // Ready is rendered twice (badge and progress caption). The semantic
   // progress target is unique and ModelsPage has a 15-second polling interval.
@@ -26,76 +33,22 @@ export async function logsUi(scenario:GpuScenario,page:Page,model:GpuCreated) {
 /** Real browser lifecycle with an exact request fence, durable generation CAS
  * and independent Pod/route observations. No arbitrary model can be targeted. */
 export async function lifecycleUi(scenario:GpuScenario,page:Page,model:GpuCreated,action:'stop'|'start'|'restart') {
+  await scenario.openModels(page);
+  const button=await modelActionButton(page,model.client.name,action);
   const before = activation(await model.client.models(),model.client.name);
   requireSafe(before?.metadata?.uid === model.uid && before.metadata.generation === model.generation,'OWNERSHIP');
   const body = {expectedRevision:editRevision(before)};
   scenario.allowed.splice(0,scenario.allowed.length,{method:'POST',path:`/api/models/${model.client.name}/${action}`,body});
-  await scenario.openModels(page);
-  const response = page.waitForResponse(r=>new URL(r.url()).pathname === `/api/models/${model.client.name}/${action}` && r.request().method() === 'POST');
-  await page.getByRole('button',{name:`${action[0]!.toUpperCase()+action.slice(1)} ${model.client.name}`,exact:true}).click();
-  const http = await response; requireSafe(http.status() === 200,'API');
-  const after = (await http.json() as {activation?:ModelActivation}).activation;
-  requireSafe(after?.metadata?.uid === model.uid && Number(after.metadata.generation) > model.generation,'API');
-  await scenario.live.journal.modelGeneration(model.client.name,model.uid,model.generation,Number(after.metadata.generation));
-  model.generation = Number(after.metadata.generation); scenario.allowed.length = 0;
+  try {
+    await browserMutation(page,{url:scenario.config.dashboardUrl+`/api/models/${model.client.name}/${action}`,body,
+      timeoutMs:scenario.config.requestTimeoutMs,guard:scenario.live.guard,stage:action==='stop'?'model-stopped':'model-ready',
+      acknowledge:async response=>{
+        requireSafe(response.status()===200,'API');
+        const after=modelLifecycleReceipt(before,await response.json(),action);
+        await scenario.live.journal.modelGeneration(model.client.name,model.uid,model.generation,after.generation);
+        model.generation=after.generation;
+      }},()=>button.click());
+  } finally {scenario.allowed.length=0;}
   if (action !== 'stop') {await scenario.ready(model); return;}
   await scenario.waitStopped(model);
-}
-
-export async function freeTokenForm(scenario:GpuScenario,page:Page,fixture:GpuModelFixture) {
-  await scenario.openModels(page); await page.getByRole('button',{name:'Create',exact:true}).click();
-  const dialog = page.getByRole('dialog',{name:'Create Model'});
-  await dialog.getByLabel('Inference Engine').selectOption('FreeToken');
-  await dialog.getByLabel('Hardware').selectOption('nvidia-gpu');
-  await dialog.getByLabel('Model source').selectOption('direct');
-  await dialog.getByLabel('Hugging Face model reference').fill(fixture.url);
-  await expect(dialog.getByLabel('Memory strategy')).toHaveValue('auto');
-  await expect(dialog.getByLabel('KV Cache')).toHaveCount(0);
-  await expect(dialog.getByLabel('FreeToken GPU count')).toHaveValue('1');
-  const advanced = dialog.locator('details').filter({has:page.getByText('Advanced Settings',{exact:true})});
-  await expect(advanced).not.toHaveAttribute('open','');
-  const models = await scenario.live.api.models();
-  const capacity=freeTokenNodeCapacity(models,scenario.config.gpu!.nodeName),{capability,device}=capacity;
-  requireSafe(device.id === fixture.freetoken!.gpuDevice && capacity.maxGpuCount === 1 &&
-    capacity.gpuAvailableMi > 0 && capacity.systemAvailableMi > 0,'CAPABILITY');
-  const gpu = dialog.getByRole('slider',{name:'FreeToken GPU memory'}),ram = dialog.getByRole('slider',{name:'FreeToken system RAM'});
-  const gpuMax = Number(await gpu.getAttribute('max')),ramMax = Number(await ram.getAttribute('max'));
-  requireSafe(gpuMax > 0 && gpuMax <= capacity.gpuAvailableMi && ramMax > 0 && ramMax <= capacity.systemAvailableMi,'CAPABILITY');
-  await dialog.getByLabel('GPU memory limit total (MiB)').fill(String(gpuMax+1));
-  await expect(dialog.getByLabel('GPU memory limit total (MiB)')).toHaveValue(String(gpuMax));
-  await dialog.getByLabel('GPU memory limit total (MiB)').fill(String(fixture.freetoken!.gpuMemoryMi));
-  await dialog.getByLabel('System RAM reservation (MiB)').fill(String(ramMax+1));
-  await expect(dialog.getByLabel('System RAM reservation (MiB)')).toHaveValue(String(ramMax));
-  await dialog.getByLabel('System RAM reservation (MiB)').fill(String(fixture.freetoken!.systemMemoryMi));
-  await advanced.locator('summary').click();
-  await dialog.getByLabel('Context length').fill(String(fixture.contextWindow));
-  await dialog.getByLabel('Maximum running requests').fill('1');
-  if (fixture.freetoken!.advanced.cacheType) {
-    requireSafe(capability.advanced?.cacheType?.includes(fixture.freetoken!.advanced.cacheType),'CAPABILITY');
-    await dialog.getByLabel('Cache type').selectOption(fixture.freetoken!.advanced.cacheType);
-  }
-  return dialog;
-}
-
-export async function createFreeTokenUi(scenario:GpuScenario,page:Page,fixture:GpuModelFixture):Promise<GpuCreated> {
-  const label = 'freetoken',name = scenario.live.journal.prefix+label;
-  requireSafe(!(await scenario.live.cleaner.find(name)),'OWNERSHIP');
-  const client = new OwnedModelClient(scenario.live.context.request,scenario.config.dashboardUrl,scenario.config.requestTimeoutMs,
-    name,fixture,scenario.live.journal.prefix,scenario.live.guard);
-  const dialog = await freeTokenForm(scenario,page,fixture); await dialog.getByLabel('Name').fill(name);
-  const body = client.payload();
-  scenario.allowed.splice(0,scenario.allowed.length,{method:'POST',path:'/api/models/local',body});
-  await scenario.live.guard(); await scenario.live.journal.requested('model',name);
-  const response = page.waitForResponse(r=>new URL(r.url()).pathname === '/api/models/local' && r.request().method() === 'POST');
-  await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeEnabled(); await dialog.getByRole('button',{name:'Add Local Model'}).click();
-  const http = await response;
-  // An accepted response is not ownership. Resolve exact UID/generation before
-  // teardown can delete anything; an ambiguous create remains requested.
-  const observed = await scenario.live.cleaner.find(name);
-  if (!observed && [400,401,403,404,409,422].includes(http.status())) await scenario.live.journal.rejected('model',name);
-  requireSafe(http.status() === 200 && observed?.metadata.uid && observed.metadata.generation &&
-    canonical((observed.spec?.local as {freetoken?:unknown}|undefined)?.freetoken) === canonical(fixture.freetoken),'API');
-  await scenario.live.journal.owned('model',name,observed.metadata.uid,observed.metadata.generation);
-  client.adopt(observed.metadata.uid); scenario.allowed.length = 0;
-  return {client,fixture,uid:observed.metadata.uid,generation:observed.metadata.generation};
 }

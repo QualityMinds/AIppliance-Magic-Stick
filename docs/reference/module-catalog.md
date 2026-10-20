@@ -38,6 +38,7 @@ Each module definition may contain:
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` as Flux post-build substitution. |
 | `parameters` | Allowed dashboard fields stored in `ModuleActivation.spec.parameters`; unknown names/non-string values are rejected before a write. Each field may declare its Flux `substitution` variable. |
 | `credentials.provider` | Optional fixed dashboard credential provider. The API supports only explicitly implemented providers and never accepts arbitrary Secret names from catalog data. |
+| `litellmKey` | Optional inference-key lifecycle declaration. `true` on an application provisions `<instance-name>-litellm` in its target namespace. A singleton module specifies `{ "namespace": "ai", "secretName": "anything-llm-litellm" }`. The common controller handles creation, suspension/rotation and finalizer cleanup. |
 
 Do not maintain a second hardcoded module list in dashboard code or docs. Add a
 module to the catalog and let the operator and dashboard discover it there.
@@ -48,6 +49,16 @@ login and API master key; the secret value remains in Kubernetes until an
 authorized user explicitly opens the panel.
 
 ## Runtime Activation
+
+`regression` is an optional, administrator-only module for a registered disposable
+test Appliance. It depends on `basis` and `dashboard` and is disabled by default.
+Its base installs the report store, retained 10 GiB state PVC and scoped RBAC;
+starting tests creates `RegressionRun` intent, then the operator owns one tested,
+digest-pinned runner Job. The Services toggle or merely opening its System page
+never starts tests. Disabling is refused while a run or credential recovery is
+pending. State/receipts remain on disable; ordinary module test fixtures exclude
+the regression runner so the suite cannot uninstall itself. See
+[the short guide](../development/regression-remaining-p0.md#in-the-dashboard).
 
 `private-mesh` is an opt-in core runtime module, not a static Flux component.
 Dashboard activation and runtime use require administrator authorization, not a license file. Its
@@ -126,6 +137,12 @@ For example, an OpenClaw instance requires `openclaw-operator`, `litellm`, and
 `model-catalog`. Odysseus instances require the `odysseus` app module plus
 `litellm` and `model-catalog`. Flux renders every instance from its application
 chart; the Magic Stick Operator does not create application workloads directly.
+
+Pi Coding Agent uses the optional `pi-coding` module and instance chart with
+`litellm` and `model-catalog`. It needs no application-specific CRD. The module base
+is an empty capability marker; each instance chart owns its terminal Deployment,
+Service, bootstrap ConfigMap and retained workspace PVC. See
+[Pi configuration](application-controls.md#pi-coding-instances).
 
 The Odysseus instance chart registers the selected `spec.values.model` as a
 shared model on a managed LiteLLM endpoint through the Odysseus API. A small

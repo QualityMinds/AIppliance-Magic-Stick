@@ -4,8 +4,7 @@ import {parseLabConfig, type LabConfig, type RuntimeModelFixture} from './config
 import type {KubeObject} from './observer.ts';
 import {requireSafe} from './errors.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle} from './preflight.ts';
-import {freeTokenNodeCapacity} from './freetoken-inventory.ts';
-import {engineRegressionEnabled,freeTokenRegressionEnabled} from './engine-policy.ts';
+import {engineRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
@@ -18,7 +17,7 @@ type Json = Record<string, any>;
 export const approvals = ['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile','federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills'] as const;
 export type Approval = typeof approvals[number];
 export interface PreparationOptions {phases:number[]; approve:Approval[]; drill?:'BOOT-02'; independentRecovery:boolean; automatic?:boolean}
-export type GpuInputIssue='mixed-hardware'|'device-selection'|'sharing-approval'|'fixtures'|'freetoken-telemetry'|'freetoken-budget';
+export type GpuInputIssue='mixed-hardware'|'device-selection'|'sharing-approval'|'fixtures';
 export interface PreparationSnapshot {
   appliance:Appliance; observedAppliance:KubeObject; nodes:KubeObject[]; hosts:ManagedHost[];
   models:ModelsPayload; status:SystemStatusPayload; modules:ModulesPayload;
@@ -71,22 +70,27 @@ export function preparationArguments(args:string[]):PreparationOptions & {accept
 /** Select the smallest advertised text fixture, not a parallel model catalog.
  * It remains a test candidate, not proof of inference or memory adequacy. */
 export function catalogFixture(models:ModelsPayload,engine:'OLlama'|'VLLM',target:'cpu'|'amd-gpu'|'nvidia-gpu'):RuntimeModelFixture|undefined {
+  return catalogFixtures(models,engine,target)[0];
+}
+
+export function catalogFixtures(models:ModelsPayload,engine:'OLlama'|'VLLM',target:'cpu'|'amd-gpu'|'nvidia-gpu'):RuntimeModelFixture[] {
   const capability=models.computeTargets.targets.find(item=>item.id === target);
-  if(!capability?.available || !capability.engines?.includes(engine) || capability.engineAvailability?.[engine]?.available === false)return;
+  if(!capability?.available || !capability.engines?.includes(engine) || capability.engineAvailability?.[engine]?.available === false)return [];
   const candidates=Object.values(models.presets).flatMap(item=>item.variants ?? []).filter(item=>
     item.engine === engine && item.computeTarget === target && (!item.modelType || item.modelType === 'chat') &&
     Number.isSafeInteger(item.memoryRequiredMi) && Number(item.memoryRequiredMi) >= 1024 && Number(item.memoryRequiredMi) <= (target === 'cpu' ? 8192 : 32768) &&
     (engine === 'OLlama' ? /^ollama:\/\// : /^hf:\/\//).test(item.url ?? '')).sort((a,b)=>Number(a.memoryRequiredMi)-Number(b.memoryRequiredMi) || String(a.url).localeCompare(String(b.url)));
-  const chosen=candidates[0];if(!chosen)return;
-  const artifact=chosen.artifacts?.find(item=>item.id === chosen.defaultArtifact);
   const cache=(capability.kvCacheTypes?.[engine] ?? []).map(item=>item.value);
   const preferred=engine === 'OLlama' ? target === 'cpu' ? 'f16' : 'q8_0' : target === 'cpu' ? 'auto' : 'fp8';
-  if(!cache.includes(preferred))return;
-  return {engine,computeTarget:target,url:artifact?.url ?? chosen.url!,memoryRequiredMi:Number(artifact?.memoryRequiredMi ?? chosen.memoryRequiredMi),
-    contextWindow:Math.min(2048,Number(chosen.contextWindow ?? 1024)),maxNumSeqs:1,kvCacheType:preferred} as RuntimeModelFixture;
+  if(!cache.includes(preferred))return [];
+  return candidates.map(chosen=>{
+    const artifact=chosen.artifacts?.find(item=>item.id === chosen.defaultArtifact);
+    return {engine,computeTarget:target,url:artifact?.url ?? chosen.url!,memoryRequiredMi:Number(artifact?.memoryRequiredMi ?? chosen.memoryRequiredMi),
+      contextWindow:Math.min(2048,Number(chosen.contextWindow ?? 1024)),maxNumSeqs:1,kvCacheType:preferred} as RuntimeModelFixture;
+  });
 }
 
-function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:PreparationOptions,defaults:Json):{profile?:Json;issues:GpuInputIssue[]} {
+function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:PreparationOptions,_defaults:Json):{profile?:Json;issues:GpuInputIssue[]} {
   const issues:GpuInputIssue[]=[];
   const devices=Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []);
   const hosts=snapshot.hosts.filter(host=>snapshot.nodes.some(node=>node.metadata.uid === host.nodeUid));
@@ -104,22 +108,10 @@ function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:Preparati
   const models=previous.gpu?.models ? structuredClone(previous.gpu.models) : {
     amdOllama:catalogFixture(snapshot.models,'OLlama','amd-gpu'),amdVllm:catalogFixture(snapshot.models,'VLLM','amd-gpu'),
     nvidiaOllama:catalogFixture(snapshot.models,'OLlama','nvidia-gpu'),nvidiaVllm:catalogFixture(snapshot.models,'VLLM','nvidia-gpu'),
-    ...(freeTokenRegressionEnabled ? {freetoken:structuredClone(defaults.freetoken)} : {}),
   };
-  // Old accepted inputs may contain a FreeToken fixture. It is not a
-  // prerequisite for the currently selected classic-engine regression scope.
-  if(!freeTokenRegressionEnabled)delete models.freetoken;
-  if(!['amdOllama','amdVllm','nvidiaOllama','nvidiaVllm'].every(key=>models[key]) ||
-    freeTokenRegressionEnabled && !models.freetoken?.freetoken) {issues.push('fixtures');return {issues};}
-  // The catalog and separate current telemetry must both support the fixture.
-  // Do not turn unknown VRAM into host RAM or borrow another GPU's counters.
-  if(freeTokenRegressionEnabled)try {
-    models.freetoken.freetoken.gpuDevice=`node:${pair.host.name}`;
-    const ft=freeTokenNodeCapacity(snapshot.models,pair.host.name);
-    if(!ft.capability.memoryStrategies?.includes(models.freetoken.freetoken.memoryStrategy) ||
-      ft.gpuAvailableMi < models.freetoken.freetoken.gpuMemoryMi || ft.systemAvailableMi < models.freetoken.freetoken.systemMemoryMi)
-      issues.push('freetoken-budget');
-  } catch {issues.push('freetoken-telemetry');}
+  // Accepted profiles from older releases may still contain this retired fixture.
+  delete models.freetoken;
+  if(!['amdOllama','amdVllm','nvidiaOllama','nvidiaVllm'].every(key=>models[key])) {issues.push('fixtures');return {issues};}
   if(issues.length)return {issues};
   return {issues,profile:{acknowledgeSharingTransitions:true,nodeName:pair.host.name,nodeUid:pair.host.nodeUid,bootId:pair.host.bootId,
     sharedSlots:2,devices:{amd:selected(pair.amd[0]!),nvidia:selected(pair.nvidia[0]!)},models}};
@@ -168,15 +160,17 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
         ['originTemplate','promptLabel','sendButton','responseSelector','responseMarker']).every(key=>filled(fixture[key])),
         'The reviewed HTTPS template and actual prompt/send/response controls are incomplete.']]);
   }
-  add('applications','optional-module',[[filled(profile.modules?.id),'No reviewed disabled optional-module fixture was selected.'],
+  add('applications','optional-module',[[filled(profile.modules?.id),'No idle standalone optional-service fixture was selected.'],
     [approved(profile.modules,'approveOptionalModule'),'The optional-module enable/disable test has not been approved.']],!approved(profile.modules,'approveOptionalModule'));
   add('applications','amd-profile',[[filled(profile.moduleProfile?.profileId),'No advertised alternate AMD profile fixture was selected.'],
     [approved(profile.moduleProfile,'approveTemporaryProfile'),'The temporary AMD profile change has not been approved.']],!approved(profile.moduleProfile,'approveTemporaryProfile'));
-  add('identity','oidc-plugin',[[file(profile.kubernetes?.plugin?.filename,snapshot) && /^[a-f0-9]{64}$/.test(profile.kubernetes?.plugin?.sha256 ?? ''),
-    'The executable Linux OIDC plugin and its verified SHA-256 are missing or unreadable.'],
-    [approved(profile.kubernetes,'approveAdminGrant'),'Kubernetes grants to disposable test users have not been approved.']],!approved(profile.kubernetes,'approveAdminGrant'));
+  add('kubernetes','oidc-plugin',[[file(profile.kubernetes?.plugin?.filename,snapshot) && /^[a-f0-9]{64}$/.test(profile.kubernetes?.plugin?.sha256 ?? ''),
+    'The executable Linux OIDC plugin and its verified SHA-256 are missing or unreadable.']]);
+  add('kubernetes-admin','oidc-plugin',[[approved(profile.kubernetes,'approveAdminGrant'),
+    'The isolated Kubernetes cluster-administrator grant has not been approved.']],!approved(profile.kubernetes,'approveAdminGrant'));
   add('license','licenses',[[file(profile.license?.validFile,snapshot) && profile.license?.invalidFiles?.length === 3 &&
-    profile.license.invalidFiles.every((path:string)=>file(path,snapshot)),'The four private issuer/rejection license fixtures are incomplete or unreadable.'],
+    (!profile.license.commercialFile||file(profile.license.commercialFile,snapshot))&&
+    profile.license.invalidFiles.every((path:string)=>file(path,snapshot)),'The private issuer/rejection license fixtures are incomplete or unreadable.'],
     [approved(profile.license,'approveLicenseReplacement'),'Temporary license replacement/restoration has not been approved.']],!approved(profile.license,'approveLicenseReplacement'));
   add('license','api-restarter',[[file(profile.license?.restart?.kubeconfig,snapshot),'The distinct narrow API-Pod restarter credential is missing or unreadable.'],
     [approved(profile.license?.restart,'approveApiRestart'),'The API-Pod restart has not been approved separately.']],!approved(profile.license?.restart,'approveApiRestart'));
@@ -216,9 +210,7 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
     'mixed-hardware':'No unambiguous managed node with exactly one detected AMD GPU and one NVIDIA GPU is available.',
     'device-selection':'The retained GPU identities no longer match, or more than one mixed node needs an explicit reviewed selection.',
     'sharing-approval':'Temporary AMD/NVIDIA sharing transitions have not been approved for this installation.',
-    fixtures:'The advertised small AMD/NVIDIA Ollama/vLLM fixtures or the reviewed FreeToken fixture are incomplete.',
-    'freetoken-telemetry':'The FreeToken capability or current physical NVIDIA VRAM/system-RAM telemetry could not be verified.',
-    'freetoken-budget':'The FreeToken memory strategy or retained GPU/RAM budget does not fit current supported capacity.',
+    fixtures:'The advertised small AMD/NVIDIA Ollama/vLLM fixtures are incomplete.',
   };
   return options.phases.map(phase=>{
     const shared=[...base],gpuPhase=[3,4,6,7,8].includes(phase);
@@ -236,6 +228,8 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
       if(item.gate && physicalGates.includes(item.gate) && hostDrillIds.includes(item.id) && recipes && !recipes.cases[item.id])needed.push({id:'physical-drill',
         missing:[`The reviewed typed recipe for ${item.id} was not completed in setup.`]});
       if(item.group === 'kubernetes')needed.push(...(gates.identity ?? []));
+      if(item.group === 'kubernetes' && item.id !== 'K8S-05')needed.push(...(gates.kubernetes ?? []));
+      if(item.id === 'K8S-04')needed.push(...(gates['kubernetes-admin'] ?? []));
       if(item.id === 'KEY-04' && (!approved(profile.unmanagedKey,'approveDisposableProbe') || !filled(profile.unmanagedKey?.id) && profile.unmanagedKey?.createDisposableFixture !== true))needed.push({id:'unmanaged-key',
         missing:[...(!filled(profile.unmanagedKey?.id) && profile.unmanagedKey?.createDisposableFixture !== true ? ['No real disposable unmanaged-key fixture or automatic fixture plan was supplied.'] : []),
           ...(!approved(profile.unmanagedKey,'approveDisposableProbe') ? ['The denied-delete probe on that disposable fixture has not been approved.'] : [])]});
@@ -275,19 +269,23 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
     invalidFiles:['/inputs/license-expired.license','/inputs/license-wrong-installation.license','/inputs/license-tampered.license'],
     restart:{approveApiRestart:false,kubeconfig:'/inputs/api-restarter.kubeconfig'}};
   profile.license.baseline ??= {approveNoFileBaseline:false,kubeconfig:'/inputs/license-resetter.kubeconfig'};
-  profile.cache ??= {approveFreeToken:false};
+  profile.license.commercialFile ??= '/inputs/license-commercial.license';
+  profile.cache ??= {};
   profile.repeat ??= {cycles:3,maximumMemoryGrowthMi:1024,maximumNonCacheDiskGrowthBytes:268435456};
   const flags:Record<string,[string,string][]>={identity:[['identity','approveDisposableUsers']],kubernetes:[['kubernetes','approveAdminGrant']],
     license:[['license','approveLicenseReplacement'],['license.baseline','approveNoFileBaseline']],federation:[['federation','approveDisposableProviders']],
     'api-restart':[['license.restart','approveApiRestart']],'first-license':[['license','allowFirstActivation']],
     modules:[['modules','approveOptionalModule']],'amd-profile':[['moduleProfile','approveTemporaryProfile']],
-    mesh:[['mesh','approveTwoAppliances'],['mesh','approveGpuTransitions']],realtime:[['realtime','approveGpuTransitions']],cache:[['cache','approveFreeToken']],
+    mesh:[['mesh','approveTwoAppliances'],['mesh','approveGpuTransitions']],realtime:[['realtime','approveGpuTransitions']],cache:[],
     'unmanaged-key':[['unmanagedKey','approveDisposableProbe']]};
   for(const flag of options.approve)for(const [section,field] of flags[flag] ?? []) {
     let object=profile;for(const part of section.split('.')) {object[part] ??= {};object=object[part];}object[field]=true;
   }
   if(snapshot.ci?.securityCi)profile.securityCi={...profile.securityCi,...snapshot.ci.securityCi};
   if(snapshot.ci?.companion)profile.companion={...profile.companion,...snapshot.ci.companion};
+  // Old accepted inputs must not resurrect a temporarily excluded scenario.
+  // Existing recovery journals remain intact and are still cleaned normally.
+  if(!realtimeRegressionEnabled())delete profile.realtime;
   return profile;
 }
 

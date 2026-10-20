@@ -141,6 +141,22 @@ class RealtimeApiTests(unittest.TestCase):
         self.assertNotIn("kvCacheType", config)
         self.assertNotIn("cpuOffloading", config)
 
+    def test_common_cpu_controls_roundtrip_and_reset_without_changing_stage_memory(self):
+        with self.setup_context():
+            local = {**local_model(), "cpuResources": {"requestMillicores": 1500, "limitMillicores": 0}}
+            created = self.api["model_activation_payload"]("local", {"name": "omni-cpu", "local": local})
+            self.assertEqual(created["spec"]["local"]["cpuResources"], local["cpuResources"])
+            before, merged = self.api["merged_local_model_settings"](created, {"contextWindow": 4096})
+            self.assertEqual(merged["cpuResources"], local["cpuResources"])
+            self.assertEqual(merged["realtime"], before["realtime"])
+            _, reset = self.api["merged_local_model_settings"](created, {"cpuResources": None})
+            reloaded = self.api["model_activation_payload"]("local", {"name": "omni-cpu", "local": reset})
+            self.assertNotIn("cpuResources", reloaded["spec"]["local"])
+            self.assertEqual(reloaded["spec"]["local"]["realtime"], before["realtime"])
+            for policy in ({"requestMillicores": 0}, {"requestMillicores": 2000, "limitMillicores": 1000}):
+                with self.subTest(policy=policy), self.assertRaises(ValueError):
+                    self.api["model_activation_payload"]("local", {"name": "omni-cpu", "local": {**local, "cpuResources": policy}})
+
     def test_time_slicing_is_selectable_without_treating_slots_as_physical_gpus(self):
         node = gpu_node()
         node["metadata"]["labels"]["nvidia.com/gpu.replicas"] = "2"

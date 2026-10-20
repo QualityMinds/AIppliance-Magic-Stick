@@ -17,7 +17,7 @@ const fixture = {
 const plan = {enabled: true, mode: 'weights' as const, vramBudgetMi: 12000, weightsOnGpuMi: 8000, weightsOnCpuMi: 4000,
   kvOnGpuMi: 2000, kvOnCpuMi: 0, hostRuntimeMi: 6144, ramMinimumMi: 10200, ramRecommendedMi: 12300,
   ramMaximumMi: 32000, gpuMinimumMi: 11000, gpuRecommendedMi: 12000, fitsVram: true, estimated: true};
-const base = {minimumMi: 15000, recommendedMi: 18000, computeTarget: 'nvidia-gpu', weightsMi: 12000, kvCacheMi: 2000, reserveMi: 1000};
+const base = {detectedModelType: 'chat' as const, minimumMi: 15000, recommendedMi: 18000, computeTarget: 'nvidia-gpu', weightsMi: 12000, kvCacheMi: 2000, reserveMi: 1000};
 
 beforeEach(() => {
   vi.resetAllMocks();

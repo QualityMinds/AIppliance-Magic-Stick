@@ -13,7 +13,6 @@ case "$mode" in
       'Credentials and fixtures are prepared automatically. No per-test approvals or ACCEPT forms.' \
       'Full runs may stop models, change settings, clear caches and reboot the registered lab.' \
       'Every selected test reports Passed, Failed or Blocked; independent tests continue.' \
-      'FreeToken-specific tests are temporarily excluded; the product engine remains enabled.' \
       'Optional subset: all --phases 2-4; isolated checks: phaseN-fast / phaseN-fixtures.' \
       'Reports: .regression/private/runs. Exit 0 = Passed, 1 = Failed, 2 = Blocked only.' \
       'Guide: docs/development/regression-remaining-p0.md; setup --help for CI access inputs.'

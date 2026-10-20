@@ -1,6 +1,30 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
+{{- $key := default (dict "name" (printf "%s-litellm" $instance.name) "key" "LITELLM_API_KEY" "revision" "") $instance.litellmKey -}}
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" $values.model)) -}}
+{{- $capabilities := default dict $values.modelCapabilities -}}
+{{- $repository := dig "image" "repository" "docker.io/nousresearch/hermes-agent" $values -}}
+{{- $tag := dig "image" "tag" "v2026.9.24" $values -}}
+{{- $digest := dig "image" "digest" "" $values -}}
+{{- if and (not $digest) (eq $repository "docker.io/nousresearch/hermes-agent") (eq $tag "v2026.9.24") -}}
+{{- $digest = "sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7" -}}
+{{- end -}}
+{{- $image := printf "%s:%s" $repository $tag -}}
+{{- if $digest -}}{{- $image = printf "%s@%s" $repository $digest -}}{{- end -}}
+{{- $publicHost := dig "ingress" "host" "" $values -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $instance.name }}-dashboard-proxy
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+data:
+  dashboard-proxy.cjs: |
+{{ .Files.Get "files/dashboard-proxy.cjs" | indent 4 }}
+---
 apiVersion: hermes.agent/v1
 kind: HermesInstance
 metadata:
@@ -15,31 +39,116 @@ spec:
   # created by operator 0.1.17 migrate away from its persisted true default.
   shareProcessNamespace: false
   image:
-    repository: {{ dig "image" "repository" "ghcr.io/paperclipinc/hermes-agent" $values | quote }}
-    tag: {{ dig "image" "tag" "v0.16.0" $values | quote }}
+    repository: {{ $repository | quote }}
+    tag: {{ $tag | quote }}
+    {{- if $digest }}
+    digest: {{ $digest | quote }}
+    {{- end }}
   config:
     raw:
-      model: {{ $model | quote }}
-      base_url: http://litellm.ai.svc.cluster.local:4000/v1
+      # Native config is managed by the operator; skip migrations of its
+      # read-only ConfigMap mount. The selected release uses schema version 46.
+      _config_version: 46
+      model:
+        default: {{ $model | quote }}
+        provider: custom:litellm
+        base_url: http://litellm.ai.svc.cluster.local:4000/v1
+        api_mode: chat_completions
+      providers:
+        litellm:
+          name: LiteLLM
+          base_url: http://litellm.ai.svc.cluster.local:4000/v1
+          # Profile-scoped auxiliary calls must read this instance's managed
+          # Secret too; a blank/stale native .env must not shadow it.
+          key_cmd: cat /var/run/secrets/magicstick-litellm/api-key
+          transport: chat_completions
+          default_model: {{ $model | quote }}
+          discover_models: false
+          # Prevent the native 256k unknown-model fallback on local routes.
+          context_length: {{ dig "modelContextTokens" 8192 $values }}
+          models:
+            {{ $model | quote }}:
+              context_length: {{ dig "modelContextTokens" 8192 $values }}
+              {{- if hasKey $capabilities "vision" }}
+              supports_vision: {{ $capabilities.vision }}
+              {{- end }}
+      model_overrides:
+        {{- range $provider := list "custom" "custom:litellm" }}
+        {{ $provider | quote }}:
+          {{ $model | quote }}:
+            context_window: {{ dig "modelContextTokens" 8192 $values }}
+            {{- range $key, $enabled := $capabilities }}
+            supports_{{ $key }}: {{ $enabled }}
+            {{- end }}
+        {{- end }}
   env:
-    - name: OPENAI_API_KEY
-      valueFrom:
-        secretKeyRef:
-          name: litellm-masterkey-secret
-          key: LITELLM_MASTER_KEY
-    # The gateway on 8443 is an API surface and intentionally returns 404 at
-    # /. Enable the bundled browser dashboard separately and let the shared
-    # Envoy SSO route be its authentication boundary. "Insecure" disables a
-    # second Hermes login; the Service remains ClusterIP-only and restricted by
-    # the operator-managed NetworkPolicy.
+    - name: MAGICSTICK_LITELLM_KEY_REVISION
+      value: {{ $key.revision | quote }}
+    # Operator 0.2.0 does not hash config.raw into the Pod template. A changed
+    # model/context or proxy must therefore change an env value to roll the Pod
+    # and replace its config.yaml subPath mount.
+    - name: MAGICSTICK_CONFIG_REVISION
+      value: {{ list $model (dig "modelContextTokens" 8192 $values) $capabilities (.Files.Get "files/dashboard-proxy.cjs" | sha256sum) | toJson | sha256sum | quote }}
+    # The current upstream dashboard requires a login on non-loopback binds.
+    # Its supported local reverse-proxy path retains the native SPA token;
+    # Envoy SSO authenticates users before they reach the Pod-IP proxy on 9119.
     - name: HERMES_DASHBOARD
       value: "true"
     - name: HERMES_DASHBOARD_HOST
-      value: "0.0.0.0"
+      value: "127.0.0.1"
     - name: HERMES_DASHBOARD_PORT
-      value: "9119"
-    - name: HERMES_DASHBOARD_INSECURE
-      value: "true"
+      value: "9118"
+    - name: HERMES_SKIP_CONFIG_MIGRATION
+      value: "1"
+  sidecars:
+    - name: dashboard-proxy
+      image: {{ $image | quote }}
+      command: [node, /etc/magicstick-hermes/dashboard-proxy.cjs]
+      env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: HERMES_PROXY_HOSTS
+          value: {{ list $instance.localHost $publicHost | toJson | quote }}
+      volumeMounts:
+        - name: dashboard-proxy
+          mountPath: /etc/magicstick-hermes
+          readOnly: true
+      readinessProbe:
+        httpGet:
+          path: /api/health
+          port: 9119
+          httpHeaders:
+            - name: Host
+              value: {{ $instance.localHost | quote }}
+        periodSeconds: 5
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 100m, memory: 128Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        capabilities:
+          drop: [ALL]
+  extraVolumes:
+    - name: dashboard-proxy
+      configMap:
+        name: {{ $instance.name }}-dashboard-proxy
+    - name: litellm-key
+      secret:
+        secretName: {{ $key.name | quote }}
+        defaultMode: 0440
+        items:
+          - key: {{ $key.key | quote }}
+            path: api-key
+  extraVolumeMounts:
+    - name: litellm-key
+      mountPath: /var/run/secrets/magicstick-litellm
+      readOnly: true
   storage:
     persistence:
       enabled: true
@@ -51,6 +160,14 @@ spec:
     networkPolicy:
       enabled: true
       allowedIngressNamespaces: [ai, envoy-gateway-system]
+      additionalEgress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: litellm
+          ports:
+            - protocol: TCP
+              port: 4000
   networking:
     service:
       type: ClusterIP

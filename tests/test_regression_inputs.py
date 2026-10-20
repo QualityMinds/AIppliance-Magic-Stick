@@ -7,10 +7,12 @@ import importlib.util
 import io
 import json
 import os
+import ssl
 import stat
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('regression_input_setup', ROOT / 'tools/regression_inputs.py')
@@ -19,6 +21,36 @@ spec.loader.exec_module(setup)
 
 
 class RegressionInputTests(unittest.TestCase):
+    def test_keychain_ca_probe_requires_tls12_before_handshake_and_preserves_hostname(self):
+        certificate = '-----BEGIN CERTIFICATE-----\nsynthetic-public-ca\n-----END CERTIFICATE-----'
+        context = MagicMock()
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+
+        def handshake(*args, **kwargs):
+            self.assertGreaterEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+            self.assertEqual(kwargs['server_hostname'], 'lab.example.test')
+            return MagicMock()
+
+        context.wrap_socket.side_effect = handshake
+        with patch.object(setup.sys, 'platform', 'darwin'), \
+                patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=certificate)), \
+                patch.object(setup.ssl, 'SSLContext', return_value=context) as factory, \
+                patch.object(setup.socket, 'create_connection', return_value=MagicMock()):
+            self.assertEqual(setup.keychain_appliance_ca('https://lab.example.test'), certificate + '\n')
+        factory.assert_called_once_with(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations.assert_called_once_with(cadata=certificate)
+        context.wrap_socket.assert_called_once()
+
+    def test_keychain_ca_probe_rejects_failed_certificate_verification(self):
+        certificate = '-----BEGIN CERTIFICATE-----\nsynthetic-public-ca\n-----END CERTIFICATE-----'
+        context = MagicMock()
+        context.wrap_socket.side_effect = ssl.SSLCertVerificationError('synthetic verification failure')
+        with patch.object(setup.sys, 'platform', 'darwin'), \
+                patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=certificate)), \
+                patch.object(setup.ssl, 'SSLContext', return_value=context), \
+                patch.object(setup.socket, 'create_connection', return_value=MagicMock()):
+            self.assertIsNone(setup.keychain_appliance_ca('https://lab.example.test'))
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='regression private inputs ')
         self.addCleanup(self.directory.cleanup)
@@ -299,6 +331,19 @@ class RegressionInputTests(unittest.TestCase):
         with patch('builtins.input', side_effect=['0', 'foreign']), patch('sys.stdout', io.StringIO()), self.assertRaises(setup.SetupError):
             setup.suite_consent(facts, approved)
 
+    def test_setup_does_not_ask_for_or_reuse_excluded_realtime_scope(self):
+        facts = {'applianceUid': 'appliance-uid', 'inventory': {'nodes': [{'nodeUid': 'node-uid'}], 'realtime': []}}
+        saved = {'applianceUid': 'appliance-uid', 'nodeUids': ['node-uid'], 'phases': [7],
+                 'scopes': ['gpu', 'mesh', 'realtime'], 'reviewedScopes': ['gpu', 'mesh', 'realtime']}
+        def answer(prompt):
+            return 'appliance-uid' if prompt.startswith('Type that UID') else ''
+        output = io.StringIO()
+        with patch('builtins.input', side_effect=answer), patch('sys.stdout', output):
+            consent = setup.suite_consent(facts, saved)
+        self.assertEqual(consent['scopes'], ['gpu', 'mesh'])
+        self.assertNotIn('realtime', consent['reviewedScopes'])
+        self.assertNotIn('Omni', output.getvalue())
+
     def test_complete_setup_runs_all_forms_reviewed_bootstrap_and_final_acceptance_without_pre_activation(self):
         facts, args = self.auto_inputs()
         args.minimal = False
@@ -542,6 +587,76 @@ class RegressionInputTests(unittest.TestCase):
         self.assertNotIn('synthetic-private', str(rejection.exception))
         self.assertNotIn('Private upstream', str(rejection.exception))
         self.assertFalse((self.root / '.setup-api-request.json').exists())
+
+    def test_kubernetes_setup_reuses_the_worker_without_docker_or_secret_arguments(self):
+        facts, _ = self.auto_inputs()
+        seed = {**facts, 'usernameFile': 'username.txt', 'passwordFile': 'password.txt', 'caFile': 'appliance-ca.pem'}
+        calls = []
+        def command(arguments, **options):
+            calls.append(arguments)
+            self.assertEqual(arguments, ['node', str(setup.EXAMPLES / 'setup.mjs')])
+            self.assertNotIn('synthetic-password', json.dumps(arguments) + json.dumps(options.get('env', {})))
+            self.write('.setup-api-result.json', facts)
+            return argparse.Namespace(returncode=0, stdout='', stderr='')
+        with patch.dict(os.environ, {'REGRESSION_EXECUTION': 'kubernetes'}), patch.object(setup.subprocess, 'run', side_effect=command):
+            result = setup.setup_api(self.root, seed, 'inspect')
+        self.assertEqual(result['subject'], facts['subject'])
+        self.assertEqual(len(calls), 1)
+        self.assertFalse((self.root / '.setup-api-request.json').exists())
+
+    def test_kubernetes_preparation_uses_the_same_preparer_not_a_compose_adapter(self):
+        calls = []
+        def command(arguments, **options):
+            calls.append(arguments)
+            return argparse.Namespace(returncode=0)
+        with patch.dict(os.environ, {'REGRESSION_EXECUTION': 'kubernetes'}), patch.object(setup.subprocess, 'run', side_effect=command):
+            setup.run_preparation(self.root, ['--automatic'])
+        self.assertEqual(calls, [['node', str(setup.EXAMPLES / 'prepare.mjs'), '--automatic']])
+
+    def test_input_preparation_preserves_fixed_worker_reason_stage_and_outcome_without_raw_output(self):
+        for execution in ['kubernetes', 'docker']:
+            for code, returncode, outcome in [('REVISION', 1, 'Failed'), ('CONFIG', 1, 'Failed'),
+                                              ('OBSERVER', 2, 'Blocked'), ('LOCK_BUSY', 2, 'Blocked')]:
+                with self.subTest(execution=execution, code=code):
+                    result = argparse.Namespace(returncode=returncode,
+                        stderr='[' + code + '] synthetic-private-token\n',
+                        stdout='Container created\n[SETUP_STAGE:input-validation] [detail:ENOENT]\n')
+                    with patch.dict(os.environ, {'REGRESSION_EXECUTION': execution}), \
+                            patch.object(setup.subprocess, 'run', return_value=result), self.assertRaises(setup.SetupError) as rejection:
+                        setup.run_preparation(self.root, ['--automatic'])
+                    error = rejection.exception
+                    self.assertEqual((error.code, error.outcome, error.stage, error.detail),
+                                     (code, outcome, 'input-validation', 'ENOENT'))
+                    self.assertNotIn('synthetic-private', str(error))
+                    self.assertNotIn('Container created', str(error))
+
+    def test_input_preparation_unknown_and_import_failures_have_only_bounded_diagnostics(self):
+        cases = [
+            ('synthetic-private-error\n[SETUP_STAGE:synthetic-secret] [detail:synthetic-secret]\n', 1, 'UNEXPECTED', None),
+            ("Cannot find /synthetic-private-path; code: 'ERR_MODULE_NOT_FOUND'\n", 1, 'UNEXPECTED', 'ERR_MODULE_NOT_FOUND'),
+            ('synthetic-private-error\n', 2, 'PREREQUISITE', None),
+        ]
+        for output, returncode, code, detail in cases:
+            with self.subTest(code=code, detail=detail), patch.object(setup.subprocess, 'run',
+                    return_value=argparse.Namespace(returncode=returncode, stderr=output, stdout='')), \
+                    self.assertRaises(setup.SetupError) as rejection:
+                setup.run_preparation(self.root, ['--automatic'])
+            self.assertEqual((rejection.exception.code, rejection.exception.stage, rejection.exception.detail),
+                             (code, 'input-discovery', detail))
+            self.assertNotIn('synthetic-private', str(rejection.exception))
+            self.assertNotIn('synthetic-secret', str(rejection.exception))
+
+    def test_input_preparation_worker_failure_reaches_the_attempt_status_file(self):
+        output = self.root / '.preparation-ABC123'
+        environment = {'REGRESSION_PRIVATE_DIR': str(self.root), 'REGRESSION_PREPARATION_STATUS_FILE': str(output)}
+        result = argparse.Namespace(returncode=1, stderr='[REVISION] synthetic-private-token\n[SETUP_STAGE:input-validation]\n', stdout='')
+        with patch.dict(os.environ, environment), patch.object(setup.subprocess, 'run', return_value=result), \
+                patch.object(setup, 'registered_setup', side_effect=lambda directory, args: setup.run_preparation(directory, ['--automatic'])), \
+                patch('sys.stderr', io.StringIO()) as error_output:
+            self.assertEqual(setup.main(['--refresh']), 1)
+        self.assertEqual(json.loads(setup.private_read(output)),
+                         {'version': 1, 'outcome': 'Failed', 'reason': 'REVISION', 'setupStage': 'input-validation'})
+        self.assertNotIn('synthetic-private', error_output.getvalue() + setup.private_read(output))
 
     def test_worker_rejections_survive_compose_stream_multiplexing_without_private_output(self):
         facts, _ = self.auto_inputs()

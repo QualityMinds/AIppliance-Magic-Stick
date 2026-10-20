@@ -1,4 +1,4 @@
-import {test, expect, type BrowserContext, type Page} from '@playwright/test';
+import {test, expect, type BrowserContext, type Page,type TestInfo} from '@playwright/test';
 import type {MemoryEstimate, ModelActivation} from '@magicstick/dashboard-contracts';
 import {join} from 'node:path';
 import {loadLabConfig, type LabConfig, type LocalModelFixture} from '../core/config.ts';
@@ -10,9 +10,12 @@ import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
 import {HarnessError, requireSafe,type Stage} from '../core/errors.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
-import {evidenceAnnotations, type Evidence} from '../core/evidence.ts';
+import {evidenceAnnotations,evidenceStep, type Evidence} from '../core/evidence.ts';
 import {readPrivate} from '../core/private-files.ts';
 import {browserMutation,MutationNotSubmitted} from '../core/browser-action.ts';
+import {modelActionButton,modelLifecycleReceipt,modelCard} from '../core/model-ui.ts';
+import {withCleanup} from '../core/run-lifecycle.ts';
+import {proveRoutedInference,preserveRuntimeFailure} from '../core/runtime-evidence.ts';
 
 type Created = {client: OwnedModelClient; journal: ResourceJournal; name: string; uid: string; generation: number;
   fixture: LocalModelFixture; estimate: MemoryEstimate};
@@ -31,9 +34,9 @@ function estimatorBody(fixture: LocalModelFixture, contextWindow = fixture.conte
     ...(memoryRequiredMi === undefined ? {} : {memoryRequiredMi})};
 }
 
-function creationEstimateBody(fixture: LocalModelFixture) {
+function creationEstimateBody(fixture: LocalModelFixture, modelType = 'auto') {
   return {engine: fixture.engine, computeTarget: 'cpu', url: fixture.url, contextWindow: fixture.contextWindow,
-    maxNumSeqs: 1, modelType: 'chat', kvCacheType: fixture.kvCacheType};
+    maxNumSeqs: 1, modelType, kvCacheType: fixture.kvCacheType};
 }
 
 function alternateContext(current: number) { return current === 1024 ? 2048 : Math.max(256, Math.min(4096, Math.floor(current / 2))); }
@@ -64,9 +67,9 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
   }
 
   async function browserRequest(page:Page,method:ExactDashboardRequest['method'],path:string,body:unknown,
-    action:()=>Promise<void>,stage:Stage='model-update') {
+    action:()=>Promise<void>,stage:Stage='model-update',acknowledge?:(response:JsonHttpResponse)=>Promise<void>) {
     return browserMutation(page,{url:config.dashboardUrl+path,method,body,timeoutMs:config.requestTimeoutMs,
-      guard:live!.guard,stage},action);
+      guard:live!.guard,stage,acknowledge},action);
   }
 
   async function recordCreated(response: JsonHttpResponse, item: ResourceJournal, name: string, client?: OwnedModelClient) {
@@ -107,6 +110,14 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       creationEstimateBody(fixture),()=>dialog.getByLabel(fixture.engine==='OLlama'?'Ollama model reference':'Hugging Face URL').fill(fixture.url),'model-estimate'));
     requireSafe(estimateHttp.status() === 200, 'API');
     const estimate = await estimateHttp.json() as MemoryEstimate;
+    requireSafe(!estimate.detectedModelType || estimate.detectedModelType === 'chat', 'CAPABILITY');
+    if (!estimate.detectedModelType) {
+      const manual = creationEstimateBody(fixture, 'chat');
+      allowed.push({method:'POST',path:'/api/models/estimate-memory',body:manual,mutating:false});
+      const response = await browserRequest(page,'POST','/api/models/estimate-memory',manual,
+        ()=>dialog.getByRole('combobox',{name:'Model task',exact:true}).selectOption('chat').then(()=>{}),'model-estimate');
+      requireSafe(response.status() === 200, 'API');
+    }
     const currentModels = await client.models();
     const capacities = [...(currentModels.computeMemory?.devices ?? [])
       .filter(device => device.computeTarget === 'cpu' || device.id === 'cpu').map(device => device.unreservedMi),
@@ -119,7 +130,8 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       fixture, item.prefix, live!.guard, estimate.confidence !== 'high');
     await dialog.getByLabel('Name').fill(name);
     await dialog.getByLabel('RAM budget (MiB)').fill(String(fixture.memoryRequiredMi));
-    const payload = client.payload();
+    const basePayload = client.payload();
+    const payload = {...basePayload, local: {...basePayload.local, modelType: estimate.detectedModelType ? 'auto' : 'chat'}};
     allowed = [{method: 'POST', path: '/api/models/local', body: payload}];
     await item.requested('model', name);
     let response:JsonHttpResponse;
@@ -138,8 +150,9 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
   async function updateGeneration(model: Created, response: JsonHttpResponse) {
     requireSafe(response.status() >= 200 && response.status() < 300, 'API');
     const updated = responseActivation(await response.json());
-    requireSafe(updated.metadata?.uid === model.uid && Number.isSafeInteger(updated.metadata.generation) &&
-      Number(updated.metadata.generation) > model.generation, 'API');
+    requireSafe(updated.metadata?.uid === model.uid && updated.metadata.name===model.name &&
+      updated.metadata.namespace===config.expected.applianceNamespace && Number.isSafeInteger(updated.metadata.generation) &&
+      Number(updated.metadata.generation) === model.generation+1, 'API');
     await model.journal.modelGeneration(model.name, model.uid, model.generation, Number(updated.metadata.generation));
     model.generation = Number(updated.metadata.generation); return updated;
   }
@@ -151,22 +164,38 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
     {timeoutMs: 300_000, intervalMs: 1000, stage: 'model-stopped'});
   }
 
-  async function exerciseLocal(fixture: LocalModelFixture, label: string) {
-    const page = await context.newPage(); let model: Created | undefined;
-    try {
-      model = await test.step('Create CPU model through the dashboard',()=>createLocal(page, fixture, label));
-      const starting = activation(await model.client.models(), model.name);
-      requireSafe(starting?.metadata?.uid === model.uid && starting.spec?.local?.engine === fixture.engine &&
+  async function exerciseLocal(fixture: LocalModelFixture, label: 'ollama'|'vllm',info:TestInfo) {
+    const page = await context.newPage(); let created: Created | undefined;
+    const evidence=[...common(label),...(label==='ollama'?[{id:'ENG-02',variant:'alias-ollama',layer:'A' as const},
+      {id:'ROUTE-02',variant:'catalog-transitions',layer:'A' as const}]:[])];
+    const prove=<T>(ids:string[],action:()=>Promise<T>)=>ids.length?evidenceStep(info,evidence.filter(item=>ids.includes(item.id)),action):action();
+    await withCleanup(async()=>{
+      await prove(['LIFE-02','ENG-01'],async()=>{
+      created = await test.step('Create CPU model through the dashboard',()=>createLocal(page, fixture, label));
+      const starting = activation(await created.client.models(), created.name);
+      requireSafe(starting?.metadata?.uid === created.uid && starting.spec?.local?.engine === fixture.engine &&
         starting.spec.local.computeTarget === 'cpu' && starting.spec.local.url === fixture.url &&
         starting.spec.local.kvCacheType === fixture.kvCacheType, 'API');
-      const ready = await test.step('Wait for current CPU runtime generation',()=>live!.waitReady(model!.client, model!.uid, model!.generation));
+      });
+      requireSafe(created,'OWNERSHIP');const model=created;
+      await prove(['ENG-03'],async()=>{
+      const ready = await test.step('Wait for current CPU runtime generation',async()=>{
+        try{return await live!.waitReady(model.client,model.uid,model.generation);}
+        catch(error){await preserveRuntimeFailure(live!,model,'model-ready',error);throw error;}
+      });
       const readyItem = ready.item;
       requireSafe(readyItem && readyItem.status?.requestedKvCacheType === fixture.kvCacheType, 'API');
       requireSafe(typeof readyItem.status?.effectiveKvCacheType === 'string' &&
         readyItem.status.effectiveKvCacheType.length > 0, 'API');
-      await test.step('Verify routed CPU model inference',async()=>{
-        requireSafe(await inference.advertised(model!.name), 'API'); await inference.chat(model!.name);
+      await page.reload({waitUntil:'domcontentloaded'});
+      const card=modelCard(page,model.name);
+      await expect(card.getByText(`KV requested: ${fixture.kvCacheType}`,{exact:true})).toBeVisible({timeout:60_000});
+      await expect(card.getByText(`KV active: ${readyItem.status.effectiveKvCacheType}`,{exact:true})).toBeVisible({timeout:60_000});
       });
+      await prove(['LIFE-02','ENG-01',...(label==='ollama'?['ENG-02','ROUTE-02']:[])],()=>test.step('Verify routed CPU model inference',async()=>{
+        await proveRoutedInference(live!,inference,model);
+      }));
+      await prove(['LOG-01'],async()=>{
       const logs = await model.client.logs();
       requireSafe(logs.model === model.name && logs.tailLines === 300 && logs.pods.length > 0, 'API');
       await page.reload({waitUntil: 'domcontentloaded'});
@@ -174,8 +203,10 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await expect(page.getByRole('dialog', {name: `Runtime logs · ${model.name}`})).toBeVisible();
       await expect(page.getByRole('dialog', {name: `Runtime logs · ${model.name}`}).locator('pre').first()).not.toBeEmpty();
       await page.getByRole('dialog', {name: `Runtime logs · ${model.name}`}).getByRole('button', {name: 'Close dialog'}).click();
+      });
 
       const changedContext = alternateContext(fixture.contextWindow), changedMemory = fixture.memoryRequiredMi + 100;
+      await prove(['MEM-06','LIFE-08'],async()=>{
       allowed = [
         {method: 'POST', path: `/api/models/${model.name}/estimate-memory`, body: estimatorBody(fixture, fixture.contextWindow, fixture.memoryRequiredMi), mutating: false},
         {method: 'POST', path: `/api/models/${model.name}/estimate-memory`, body: estimatorBody(fixture, changedContext, fixture.memoryRequiredMi), mutating: false},
@@ -207,6 +238,8 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await dialog.getByLabel('Context Size').fill(String(fixture.contextWindow)); await expect(save).toBeDisabled();
       await dialog.getByLabel('Context Size').fill(String(changedContext));
       await dialog.getByLabel('RAM budget (MiB)').fill(String(changedMemory));
+      });
+      const save=page.getByRole('dialog',{name:`Edit Model · ${model.name}`}).getByRole('button',{name:'Save changes'});
       const current = activation(await model.client.models(), model.name);
       requireSafe(current?.metadata?.uid === model.uid && current.metadata.generation === model.generation, 'OWNERSHIP');
       const staleRevision = editRevision(current);
@@ -226,13 +259,16 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
           ...(risky!==(current.spec?.local?.allowMemoryRisk===true)?{allowMemoryRisk:risky}:{})}};
       allowed.push({method: 'PUT', path: `/api/models/${model.name}`, body: updateBody});
       await expect(save).toBeEnabled();
+      await prove(['LIFE-07'],async()=>{
       const updateResponse=await test.step('Save CPU model parameters',()=>browserRequest(page,'PUT',`/api/models/${model!.name}`,updateBody,
-        ()=>save.click()));
-      await updateGeneration(model,updateResponse); allowed = [];
+        ()=>save.click(),'model-update',response=>updateGeneration(model!,response).then(()=>{})));
+      requireSafe(updateResponse.ok(),'API'); allowed = [];
       const updatedReady = await live!.waitReady(model.client, model.uid, model.generation);
       requireSafe(updatedReady.item?.spec?.local?.contextWindow === changedContext &&
         updatedReady.item.spec.local.memoryRequiredMi === changedMemory, 'API');
       await inference.chat(model.name);
+      });
+      await prove(['LIFE-09'],async()=>{
       await model.client.rejectsStaleContextUpdate(staleRevision, fixture.contextWindow);
 
       await page.reload({waitUntil: 'domcontentloaded'});
@@ -242,32 +278,40 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await expect(page.getByRole('dialog', {name: `Edit Model · ${model.name}`}).getByLabel('Context Size')).toHaveValue(String(changedContext));
       await expect(page.getByRole('dialog', {name: `Edit Model · ${model.name}`}).getByLabel('RAM budget (MiB)')).toHaveValue(String(changedMemory));
       await page.getByRole('dialog', {name: `Edit Model · ${model.name}`}).getByRole('button', {name: 'Cancel'}).click();
+      });
+      const stopButton=await modelActionButton(page,model.name,'stop');
       const beforeStop = activation(await model.client.models(), model.name)!;
       allowed = [{method: 'POST', path: `/api/models/${model.name}/stop`, body: {expectedRevision: editRevision(beforeStop)}}];
       const stopResponse=await test.step('Stop CPU model through the dashboard',()=>browserRequest(page,'POST',`/api/models/${model!.name}/stop`,allowed[0]!.body,
-        ()=>page.getByRole('button',{name:`Stop ${model!.name}`}).click(),'model-stopped'));
-      await updateGeneration(model,stopResponse); allowed = [];
+        ()=>stopButton.click(),'model-stopped',async response=>{
+          modelLifecycleReceipt(beforeStop,await response.json(),'stop');await updateGeneration(model!,response);
+        }));
+      requireSafe(stopResponse.ok(),'API'); allowed = [];
       await test.step('Verify CPU runtime and route are stopped',()=>waitStopped(model!));
       requireSafe(!(await inference.advertised(model.name)), 'API'); await inference.refusesStopped(model.name);
+      await prove(['LIFE-13'],async()=>{
       await page.reload({waitUntil: 'domcontentloaded'});
-      await expect(page.getByRole('button', {name: `Start ${model.name}`})).toBeVisible();
+      const startButton=await modelActionButton(page,model.name,'start');
       const beforeStart = activation(await model.client.models(), model.name)!;
       allowed = [{method: 'POST', path: `/api/models/${model.name}/start`, body: {expectedRevision: editRevision(beforeStart)}}];
       const startResponse=await test.step('Start CPU model through the dashboard',()=>browserRequest(page,'POST',`/api/models/${model!.name}/start`,allowed[0]!.body,
-        ()=>page.getByRole('button',{name:`Start ${model!.name}`}).click(),'model-ready'));
-      await updateGeneration(model,startResponse); allowed = [];
+        ()=>startButton.click(),'model-ready',async response=>{
+          modelLifecycleReceipt(beforeStart,await response.json(),'start');await updateGeneration(model!,response);
+        }));
+      requireSafe(startResponse.ok(),'API'); allowed = [];
       const restartedReady = await live!.waitReady(model.client, model.uid, model.generation);
       requireSafe(restartedReady.item?.spec?.local?.contextWindow === changedContext &&
         restartedReady.item.spec.local.memoryRequiredMi === changedMemory, 'API');
       await inference.chat(model.name);
-    } finally {
+      });
+    },async()=>{
       allowed = [];
       try {
-        if (model)await test.step('Remove the owned CPU model and verify route absence',async()=>{
-          await live!.cleanup(model!.journal); requireSafe(!(await inference.advertised(model!.name)), 'CLEANUP');
+        if (created)await test.step('Remove the owned CPU model and verify route absence',async()=>{
+          await live!.cleanup(created!.journal); requireSafe(!(await inference.advertised(created!.name)), 'CLEANUP');
         });
       }finally{await page.close();}
-    }
+    });
   }
 
   test.beforeAll(async ({browser}) => {
@@ -313,10 +357,10 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
     evidenceAnnotations(...common('ollama'),
       {id: 'ENG-02', variant: 'alias-ollama', layer: 'A'},
       {id: 'ROUTE-02', variant: 'catalog-transitions', layer: 'A'}),
-    () => exerciseLocal(config.phase2!.ollamaModel, 'ollama'));
+    ({},info) => exerciseLocal(config.phase2!.ollamaModel, 'ollama',info));
 
   test('LIFE-02 LIFE-07 LIFE-08 LIFE-09 LIFE-13 ENG-01 ENG-03 MEM-06 LOG-01 CPU vLLM',
-    evidenceAnnotations(...common('vllm')), () => exerciseLocal(config.phase2!.vllmModel, 'vllm'));
+    evidenceAnnotations(...common('vllm')), ({},info) => exerciseLocal(config.phase2!.vllmModel, 'vllm',info));
 
   test('ENG-10 unsupported target is rejected and raw runtime settings never enter saved intent', evidenceAnnotations(
     {id: 'ENG-10', variant: 'unsupported-request', layer: 'A'}), async () => {

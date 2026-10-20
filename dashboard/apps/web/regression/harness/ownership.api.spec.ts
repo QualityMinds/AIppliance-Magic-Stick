@@ -2,7 +2,7 @@ import {test, expect, type BrowserContext} from '@playwright/test';
 import {join} from 'node:path';
 import type {LabConfig} from '../core/config.ts';
 import {loadLabConfig} from '../core/config.ts';
-import {realLogin} from '../core/auth.ts';
+import {ensureDashboardSession, realLogin} from '../core/auth.ts';
 import {readOnlyApi} from '../core/transport.ts';
 import {KubernetesLeaseStore, KubectlObserver} from '../core/observer.ts';
 import {LabLease} from '../core/lease.ts';
@@ -22,6 +22,11 @@ test.describe.serial('live owned API-key cleanup subset', () => {
   let lockAcquired = false;
   let baselineIds: Set<string>;
 
+  async function guard() {
+    requireSafe(lock && context, 'LOCK_LOST'); await lock.assertHeld();
+    await ensureDashboardSession(context); await lock.assertHeld();
+  }
+
   test.beforeAll(async ({browser}) => {
     requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RUN_DIR, 'CONFIG');
     config = await loadLabConfig(process.env.REGRESSION_CONFIG);
@@ -40,7 +45,7 @@ test.describe.serial('live owned API-key cleanup subset', () => {
     verifyIdle(hosts.nodes, models, config);
     journal = await ResourceJournal.resume(join(process.env.REGRESSION_RUN_DIR, 'journal.json'), config.expected.applianceUid);
     keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries,
-      async () => { requireSafe(lock, 'LOCK_LOST'); await lock.assertHeld(); });
+      guard);
     baselineIds = new Set((await keys.list()).items.map(item => item.id));
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
       journal.runId, config.expected.applianceUid, Date.now, 120);
@@ -53,7 +58,8 @@ test.describe.serial('live owned API-key cleanup subset', () => {
       if (lock && journal && keys) {
         await lock.heartbeat();
         const adapter = keys.adapter();
-        await journal.cleanup({key: adapter, model: adapter, app: adapter, identity: adapter}, () => lock!.assertHeld());
+        await journal.cleanup({key: adapter, model: adapter, app: adapter, identity: adapter}, guard);
+        await guard();
         const current = new Set((await keys.list()).items.map(item => item.id));
         requireSafe([...baselineIds].every(id => current.has(id)) &&
           journal.entries.filter(item => item.kind === 'key').every(item => item.uid && !current.has(item.uid)), 'CLEANUP');
@@ -78,7 +84,7 @@ test.describe.serial('live owned API-key cleanup subset', () => {
     requireSafe(lock, 'LOCK_LOST');
     await lock.heartbeat();
     const adapter = keys.adapter();
-    await journal.cleanup({key: adapter, model: adapter, app: adapter, identity: adapter}, () => lock!.assertHeld());
+    await journal.cleanup({key: adapter, model: adapter, app: adapter, identity: adapter}, guard);
   }
 
   test('HAR-05 journal-owned live API key is revoked by immutable ID without touching existing keys', async () => {

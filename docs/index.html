@@ -243,7 +243,7 @@
           </div>
         </div>
         <div class="faq-list tob-more">
-          <details><summary>Where do the models come from?<span aria-hidden="true">+</span></summary><p>Magic Stick can connect external model endpoints through LiteLLM and run local models through KubeAI with Ollama or vLLM, or directly with FreeToken. The model source depends on your setup.</p></details>
+          <details><summary>Where do the models come from?<span aria-hidden="true">+</span></summary><p>Magic Stick can connect external model endpoints through LiteLLM and run local models through KubeAI with Ollama or vLLM. The model source depends on your setup.</p></details>
           <details><summary>How does sign-in work?<span aria-hidden="true">+</span></summary><p>Magic Stick uses Keycloak and Envoy Gateway for central sign-in to the dashboard and appropriately configured application routes. Application-specific permissions remain within the applications.</p></details>
           <details><summary>What technical knowledge do I need?<span aria-hidden="true">+</span></summary><p>Installation and ongoing operation need technical ownership. The exact requirements depend on your deployment route. If you are planning a team deployment, involve your IT team or service provider early.</p></details>
           <details><summary>What runs under the hood?<span aria-hidden="true">+</span></summary><p>Kubernetes with Flux keeps the platform configured. The Magic Stick Operator prepares model runtimes from your dashboard settings, and LiteLLM gives applications one model API. Read the <a href="concepts/architecture.md">architecture overview</a> for the details.</p></details>

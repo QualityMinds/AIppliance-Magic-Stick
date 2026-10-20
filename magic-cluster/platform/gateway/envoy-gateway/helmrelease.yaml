@@ -15,6 +15,12 @@ spec:
   upgrade:
     crds: ${AI_APPLIANCE_ENVOY_CRDS_POLICY:=Skip}
   values:
+    # Patch releases fix auth-filter crashes. Attached EnvoyProxy resources also
+    # pin this image because their default Replace merge does not inherit it.
+    global:
+      images:
+        envoyProxy:
+          image: docker.io/envoyproxy/envoy:distroless-v1.38.6
     deployment:
       replicas: 1
       envoyGateway:

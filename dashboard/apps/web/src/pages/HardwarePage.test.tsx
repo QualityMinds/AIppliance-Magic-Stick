@@ -113,7 +113,8 @@ describe('physical GPU hardware view', () => {
     mount();
     await screen.findByText('Node: example-node');
     expect(screen.getAllByRole('heading', {name: 'GPU Configuration NVIDIA'})).toHaveLength(2);
-    expect(screen.queryByLabelText('NVIDIA allocation mode')).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('NVIDIA allocation mode')).toHaveLength(1);
+    expect(screen.getAllByLabelText('NVIDIA GPU allocation backend')).toHaveLength(1);
   });
 
   it.each(['Ollama', 'vLLM'])('confirms and submits %s for all GPUs on this node', async (name) => {

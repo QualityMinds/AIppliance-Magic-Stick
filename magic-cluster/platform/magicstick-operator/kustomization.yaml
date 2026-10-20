@@ -7,6 +7,8 @@ resources:
   - crds/appinstances.appliance.magicstick.dev.yaml
   - crds/modelactivations.appliance.magicstick.dev.yaml
   - crds/hostoperations.appliance.magicstick.dev.yaml
+  - crds/regressionruns.appliance.magicstick.dev.yaml
+  - regression-rbac.yaml
   - rbac.yaml
   - kubernetes-access-rbac.yaml
   - module-catalog.yaml
@@ -20,3 +22,12 @@ resources:
   - controller-configmap.yaml
   - deployment.yaml
   - default-appliance.yaml
+configMapGenerator:
+  - name: magicstick-operator-controller
+    namespace: ai-system
+    behavior: merge
+    files:
+      - service_keys.py
+      - regression_runs.py
+generatorOptions:
+  disableNameSuffixHash: true

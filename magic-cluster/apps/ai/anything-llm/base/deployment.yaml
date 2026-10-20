@@ -5,7 +5,7 @@ metadata:
   namespace: ai
   annotations:
     configmap.reloader.stakater.com/reload: anything-llm-config
-    secret.reloader.stakater.com/reload: qdrant-auth-secret,litellm-masterkey-secret
+    secret.reloader.stakater.com/reload: qdrant-auth-secret,anything-llm-litellm
   labels:
     app: anything-llm
 spec:
@@ -22,6 +22,9 @@ spec:
       labels:
         app: anything-llm
     spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       initContainers:
         - name: wait-model-catalog
           image: busybox:1.36
@@ -44,29 +47,54 @@ spec:
             - name: ai-model-catalog
               mountPath: /catalog
               readOnly: true
+        - name: initialize-model-settings
+          image: mintplexlabs/anythingllm:1.17.0@sha256:f26f30df46916b6e953e3a47ca98f48817726e3df635e62d4bfdd133292ecfff
+          command: [node, /bootstrap/model-bootstrap.cjs]
+          envFrom:
+            - configMapRef:
+                name: anything-llm-config
+          volumeMounts:
+            - name: ai-model-catalog
+              mountPath: /catalog
+              readOnly: true
+            - name: model-bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+            - name: anything-llm-storage
+              mountPath: /app/server/storage
       containers:
         - name: anything-llm
-          image: mintplexlabs/anythingllm:1.12.1
+          image: mintplexlabs/anythingllm:1.17.0@sha256:f26f30df46916b6e953e3a47ca98f48817726e3df635e62d4bfdd133292ecfff
           ports:
             - name: http
               containerPort: 3001
               protocol: TCP
           envFrom:
-            - configMapRef:
-                name: anything-llm-config
             - secretRef:
                 name: qdrant-auth-secret
           env:
+            # Managed connections and credentials follow the deployment;
+            # editable preferences are loaded from the persisted native .env.
+            - name: STORAGE_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: anything-llm-config
+                  key: STORAGE_DIR
+            - name: LITE_LLM_BASE_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: anything-llm-config
+                  key: LITE_LLM_BASE_PATH
+            - name: QDRANT_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: anything-llm-config
+                  key: QDRANT_ENDPOINT
             - name: LITE_LLM_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: litellm-masterkey-secret
-                  key: LITELLM_MASTER_KEY
-            - name: EMBEDDING_MODEL_PREF
-              valueFrom:
-                configMapKeyRef:
-                  name: ai-model-catalog
-                  key: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
+                  name: anything-llm-litellm
+                  key: LITELLM_API_KEY
           resources:
             requests:
               cpu: 200m
@@ -81,10 +109,16 @@ spec:
           volumeMounts:
             - name: anything-llm-storage
               mountPath: /app/server/storage
+            - name: anything-llm-storage
+              mountPath: /app/server/.env
+              subPath: anythingllm.env
       volumes:
         - name: ai-model-catalog
           configMap:
             name: ai-model-catalog
+        - name: model-bootstrap
+          configMap:
+            name: anything-llm-model-bootstrap
         - name: anything-llm-storage
           persistentVolumeClaim:
             claimName: anything-llm-storage

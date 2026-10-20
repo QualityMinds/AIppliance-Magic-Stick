@@ -10,13 +10,89 @@ import {BorrowedSharing,SharingWriteRejected,sharingSpec,type SharingSnapshot,ty
 import {GpuScenario,gpuWorkerJournal,unfinishedJob,runtimePodConverged,type GpuCreated} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
 import type {ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
-import {freeTokenNodeCapacity} from '../core/freetoken-inventory.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {modelStopped,stopDiagnostic,waitModelStopped,type ModelStopState} from '../core/model-stop.ts';
+import {writePrivate} from '../core/private-files.ts';
+import {nvidiaValidationBinding,prepareValidation,requestValidationUi,completedValidation} from './validation-workflow.ts';
+import {pinnedGpuModules,requireGpuProvider} from './prerequisites.ts';
+import type {GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
+import {gpuFixtureEstimateBody,sizedGpuFixture} from '../core/gpu-fixture.ts';
+import type {GpuModelFixture} from '../core/config.ts';
+import type {MemoryEstimate} from '@magicstick/dashboard-contracts';
 
 let directory:string;
+test('MGPU-01 MGPU-02 GPU estimates replace CPU budgets and preserve per-card and per-copy scope',()=>{
+  for(const count of [2,4])for(const gpuDeployment of ['split','replicated'] as const)for(const engine of ['OLlama','VLLM'] as const) {
+    const fixture:GpuModelFixture={engine,computeTarget:'nvidia-gpu',gpuDeployment,automaticSizing:true,
+      gpuDevices:Array.from({length:count},(_,i)=>({uuid:`GPU-${i}`,nodeUid:'node',nodeName:'ai'})),
+      url:engine==='VLLM'?'hf://fixture/small':'ollama://fixture',memoryRequiredMi:4100,contextWindow:1024,maxNumSeqs:1};
+    const estimate={minimumMi:1500,recommendedMi:2301,maximumMi:24000,gpuCount:count,memoryBudgetScope:'per-device',
+      systemMemory:{scope:gpuDeployment==='replicated'?'per-copy':'per-pod',replicaCount:gpuDeployment==='replicated'?count:1,
+        minimumMi:4096,recommendedMi:8201,maximumMi:65000}} as MemoryEstimate;
+    expect(sizedGpuFixture(fixture,estimate)).toMatchObject({memoryRequiredMi:2400,systemMemoryMi:8300});
+    expect(gpuFixtureEstimateBody(fixture)).not.toHaveProperty('memoryRequiredMi');
+    for(const wrong of [{...estimate,gpuCount:1},{...estimate,memoryBudgetScope:undefined},
+      {...estimate,systemMemory:{...estimate.systemMemory!,replicaCount:9}}, {...estimate,recommendedMi:NaN}])
+      expect(()=>sizedGpuFixture(fixture,wrong)).toThrow('[API]');
+    expect(()=>sizedGpuFixture(fixture,{...estimate,maximumMi:2000})).toThrow('[CAPABILITY]');
+  }
+});
+test('HW-06 validation accepts legacy or exact DRA binding and rejects another identical NVIDIA card',()=>{
+  const device={vendor:'nvidia',node:'fixture-node',nodeUid:'fixture-uid',pciAddress:'0000:01:00.0'} as HardwareGpuDevice;
+  const card={uuid:'GPU-exact',name:'gpu-0',pool:'fixture-node',node:'fixture-node',nodeUid:'fixture-uid',pciAddress:device.pciAddress,claimName:'exact-claim'};
+  const state={backend:'dra',devices:[card]} as GpuSharingState;
+  const pod:KubeObject={metadata:{},spec:{nodeName:device.node,resourceClaims:[{name:'gpu',resourceClaimName:card.claimName}],
+    initContainers:[{name:'engine',resources:{claims:[{name:'gpu'}]}}]}};
+  const claim:KubeObject={metadata:{name:card.claimName,namespace:'ai'},status:{allocation:{devices:{results:[{driver:'gpu.nvidia.com',pool:card.pool,device:card.name}]}}}};
+  const slices:KubeObject[]=[{metadata:{},spec:{driver:'gpu.nvidia.com',nodeName:card.node,devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}}];
+  nvidiaValidationBinding(pod,device,state,claim,slices);
+  for(const patch of [{uuid:'GPU-other'},{name:'gpu-other'},{claimName:'other'},{pool:'other-node'},{pciAddress:'0000:02:00.0'}])
+    expect(()=>nvidiaValidationBinding(pod,device,{...state,devices:[{...card,...patch}]},claim,slices)).toThrow('[CAPABILITY]');
+  expect(()=>nvidiaValidationBinding(pod,device,state,claim,[])).toThrow('[CAPABILITY]');
+  const legacy:KubeObject={metadata:{},spec:{nodeName:device.node,initContainers:[{name:'engine',resources:{limits:{'nvidia.com/gpu':'1'}}}]}};
+  nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'});
+  expect(()=>nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'},undefined,[],4)).toThrow('[CAPABILITY]');
+  expect(()=>nvidiaValidationBinding(legacy,device,state,claim,slices)).toThrow('[CAPABILITY]');
+});
+test('HW-06 SLOT-03 prepare exact-card DRA through borrowed settings before attempting the Verify UI',async()=>{
+  const lab=config();delete lab.gpu!.devices.amd;
+  const devices=Array.from({length:4},(_,index)=>({id:index===0?lab.gpu!.devices.nvidia!.id:`card-${index}`,vendor:'nvidia',
+    node:lab.gpu!.nodeName,nodeUid:lab.gpu!.nodeUid,bootId:lab.gpu!.bootId,eligible:true,hostDriverReady:true,
+    pciAddress:index===0?lab.gpu!.devices.nvidia!.pciAddress:`0000:0${index+2}:00.0`,validationAvailable:false})) as HardwareGpuDevice[];
+  let backend='time-slicing',draAvailable=true,transitions:unknown[]=[];
+  const scenario={config:lab,inventory:async()=>({devices}),state:async()=>({backend,draAvailable,mode:'shared',maxModels:2}),
+    transition:async(...args:unknown[])=>{transitions.push(args);backend='dra';for(const device of devices)device.validationAvailable=true;}} as unknown as GpuScenario;
+  expect((await prepareValidation(scenario,'OLlama','nvidia')).map(device=>device.id)).toEqual([lab.gpu!.devices.nvidia!.id]);
+  expect(transitions).toEqual([['nvidia','shared',2,'dra']]);
+  expect(await prepareValidation(scenario,'VLLM','all')).toHaveLength(4);expect(transitions).toHaveLength(1);
+  backend='time-slicing';draAvailable=false;transitions=[];for(const device of devices)device.validationAvailable=false;
+  // The request cannot touch the browser, create a verification receipt or
+  // mutate the allocator when the exact-card prerequisite does not exist.
+  const untouchedPage=new Proxy({},{get:()=>{throw new Error('Browser should not be touched');}});
+  await expect(requestValidationUi(scenario,untouchedPage as never,'OLlama','nvidia',0))
+    .rejects.toMatchObject({code:'GPU_VALIDATION',outcome:'Blocked',stage:'gpu-validation'});
+  expect(transitions).toEqual([]);
+  devices.splice(1);backend='time-slicing';devices[0]!.validationAvailable=true;
+  expect(await prepareValidation(scenario,'OLlama','nvidia')).toHaveLength(1);expect(transitions).toEqual([]);
+  devices[0]!.validation={OLlama:{state:'running'}};
+  await expect(prepareValidation(scenario,'OLlama','nvidia')).rejects.toMatchObject({code:'BUSY',stage:'gpu-validation'});
+});
+
+test('HW-03 SHR-04 optional-vendor module reads use only registered physical providers',()=>{
+  const lab=config();expect(pinnedGpuModules(lab)).toEqual(['amd-gpu','gpu']);delete lab.gpu!.devices.amd;
+  expect(pinnedGpuModules(lab)).toEqual(['gpu']);expect(()=>requireGpuProvider(lab,'nvidia')).not.toThrow();
+  expect(()=>requireGpuProvider(lab,'amd')).toThrow('[GPU_PROVIDER]');
+});
+test('HW-06 terminal failed validation stops with a concrete stage before polling stale device success',async()=>{
+  const request={requestId:'diagnostic-fixture',deviceIds:['fixture-card'],engine:'OLlama' as const,startedAt:Date.now()};
+  const job:KubeObject={metadata:{uid:'validation-uid',annotations:{'appliance.magicstick.dev/validation-request':request.requestId,
+    'appliance.magicstick.dev/validation-device':'fixture-card','appliance.magicstick.dev/validation-engine':'OLlama'}},
+    status:{conditions:[{type:'Failed',status:'True'}]}};
+  const scenario={config:config(),live:{guard:async()=>{},observer:{list:async()=>[job]}},
+    inventory:async()=>{throw new Error('A terminal failed Job must not be polled until a deadline');}} as unknown as GpuScenario;
+  await expect(completedValidation(scenario,request)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-validation'});
+});
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
 test.afterEach(async()=>{await rm(directory,{recursive:true,force:true});});
 function config():LabConfig {
@@ -36,9 +112,7 @@ function config():LabConfig {
       devices:{amd:{id:'fixture-uid/0000:01:00.0',pciAddress:'0000:01:00.0'},nvidia:{id:'fixture-uid/0000:02:00.0',pciAddress:'0000:02:00.0'}},
       models:{amdOllama:classic('OLlama','amd-gpu'),amdVllm:classic('VLLM','amd-gpu'),
         nvidiaOllama:classic('OLlama','nvidia-gpu'),nvidiaVllm:classic('VLLM','nvidia-gpu'),
-        freetoken:{engine:'FreeToken',computeTarget:'nvidia-gpu',url:'hf://fixture/supported',memoryRequiredMi:32768,
-          contextWindow:1024,maxNumSeqs:1,freetoken:{gpuDevice:'node:fixture-node',gpuCount:1,memoryStrategy:'auto',
-            gpuMemoryMi:24576,systemMemoryMi:32768,advanced:{cacheType:'radix'}}}}}};
+        }}};
 }
 test('HAR-02 GPU profile rejects missing consent, stale boot, unbounded fixtures and cross-engine settings',()=>{
   const parsed=parseLabConfig(config(),directory);requireGpuProfile(parsed);
@@ -47,9 +121,6 @@ test('HAR-02 GPU profile rejects missing consent, stale boot, unbounded fixtures
     (c:LabConfig)=>{(c.gpu!.acknowledgeSharingTransitions as boolean)=false;},
     (c:LabConfig)=>{c.gpu!.bootId='stale-boot';},
     (c:LabConfig)=>{c.gpu!.devices.nvidia=c.gpu!.devices.amd;},
-    (c:LabConfig)=>{c.gpu!.models.freetoken!.kvCacheType='fp8';},
-    (c:LabConfig)=>{c.gpu!.models.freetoken!.freetoken!.gpuCount=2;},
-    (c:LabConfig)=>{c.gpu!.models.freetoken!.freetoken!.gpuMemoryMi=32769;},
     (c:LabConfig)=>{c.gpu!.models.amdOllama!.memoryRequiredMi=32769;},
     (c:LabConfig)=>{c.gpu!.models.nvidiaVllm!.contextWindow=262144;},
     (c:LabConfig)=>{(c.gpu! as unknown as Record<string,unknown>).ignoreBoot=true;},
@@ -65,6 +136,17 @@ test('HAR-08 a failed attempt is still an active diagnostic until its Job has a 
     expect(unfinishedJob({metadata:{},status:{conditions:[{type,status:'False'}]}})).toBe(true);
     expect(unfinishedJob({metadata:{},status:{conditions:[{type,status:'True'}]}})).toBe(false);
   }
+});
+test('SLOT-02 current node inventory supplies one, two and four NVIDIA pool capacities and refuses conflicting or duplicate cards',async()=>{
+  const scenario=Object.create(GpuScenario.prototype) as GpuScenario,lab=config();
+  Object.defineProperty(scenario,'config',{value:lab});let size=1,advertised:string|undefined='1',duplicate=false;
+  Object.defineProperty(scenario,'inventory',{value:async()=>({devices:Array.from({length:size},(_,index)=>({
+    id:`card-${duplicate?0:index}`,vendor:'nvidia',nodeUid:lab.gpu!.nodeUid})),node:{metadata:{labels:advertised===undefined?{}:{'nvidia.com/gpu.count':advertised}}}})});
+  Object.defineProperty(scenario,'state',{value:async()=>({mode:'shared',maxModels:2})});
+  for(const cards of [1,2,4]){size=cards;advertised=String(cards);expect(await scenario.physicalCount('nvidia')).toBe(cards);expect(await scenario.slotCapacity('nvidia')).toBe(cards*2);}
+  advertised=undefined;expect(await scenario.physicalCount('nvidia')).toBe(4);
+  advertised='1';await expect(scenario.physicalCount('nvidia')).rejects.toThrow('[IDENTITY]');
+  advertised='4';duplicate=true;await expect(scenario.physicalCount('nvidia')).rejects.toThrow('[IDENTITY]');
 });
 test('HAR-10 Stop acceptance retains configuration and separately verifies runtime and catalog withdrawal',()=>{
   const stopped={item:{metadata:{generation:2},spec:{type:'local',enabled:false}},pods:[],models:{models:[]}} as unknown as ModelStopState;
@@ -118,7 +200,7 @@ test('HAR-10 successful Stop records its duration and safe initial Pod/container
       uid:'12345678-1234-1234-1234-123456789abc',containers:[{containerID:'containerd://'+'a'.repeat(64)}],
     }]}});
 });
-test('HAR-05 classic fixture names obey KubeAI bounds before any write intent without truncating FreeToken names',async()=>{
+test('HAR-05 classic fixture names obey KubeAI bounds before any write intent',async()=>{
   const journal=await ResourceJournal.create(join(directory,'name-bounds.json'),newRunId(),'fixture-appliance');
   const prefix=journal.prefix,name=prefix+'a'.repeat(40-prefix.length);let requests=0,guards=0;
   const request={fetch:async()=>{requests++;throw new Error('No request is allowed.');}} as unknown as APIRequestContext;
@@ -126,8 +208,6 @@ test('HAR-05 classic fixture names obey KubeAI bounds before any write intent wi
     expect(new OwnedModelClient(request,'https://dashboard.example.local',1000,name,fixture,prefix,async()=>{}).payload().name).toBe(name);
     expect(()=>new OwnedModelClient(request,'https://dashboard.example.local',1000,name+'a',fixture,prefix,async()=>{})).toThrow('[CONFIG]');
   }
-  expect(new OwnedModelClient(request,'https://dashboard.example.local',1000,name+'aa',config().gpu!.models.freetoken!,
-    prefix,async()=>{}).payload().name).toBe(name+'aa');
   const live={context:{request},config:config(),guard:async()=>{guards++;}} as unknown as LiveFoundation;
   await expect(LiveFoundation.prototype.createModel.call(live,'a'.repeat(41-prefix.length),journal,
     config().gpu!.models.nvidiaOllama!)).rejects.toMatchObject({code:'CONFIG'});
@@ -161,12 +241,26 @@ test('HAR-10 rollout readiness rejects old context, terminating replicas and sta
   expect(runtimePodConverged([vpod],vllm)).toBe(true);
   (vpod.spec.containers as Array<{args:string[]}>)[0]!.args[0]='--max-model-len=1024';
   expect(runtimePodConverged([vpod],vllm)).toBe(false);
-  const ft=structuredClone(item);ft.spec!.local!.engine='FreeToken';
-  const fpod=structuredClone(pod);fpod.spec={containers:[{name:'freetoken',image:'fixture:local',env:[
-    {name:'MAGICSTICK_FREETOKEN_CONTEXT_LENGTH',value:'2048'},{name:'MAGICSTICK_FREETOKEN_MAX_RUNNING_REQUESTS',value:'1'}]}]};
-  expect(runtimePodConverged([fpod],ft)).toBe(true);
-  (fpod.spec.containers as Array<{env:Array<{name:string;value:string}>}>)[0]!.env[0]!.value='1024';
-  expect(runtimePodConverged([fpod],ft)).toBe(false);
+});
+test('HAR-10 replica readiness requires every current child UID, matching runtime and non-terminating Pod',()=>{
+  const item:ModelActivation={metadata:{uid:'parent',generation:1},spec:{type:'local',local:{engine:'OLlama',computeTarget:'nvidia-gpu',
+    gpuDeployment:'replicated',gpuDevices:[{uuid:'gpu-a'},{uuid:'gpu-b'}],contextWindow:2048,maxNumSeqs:1}},status:{replication:{desired:2,ready:2,
+    instances:['a','b'].map(id=>({name:`copy-${id}`,uuid:`gpu-${id}`,nodeName:'fixture-node',modelUid:`uid-${id}`,phase:'Ready'}))}}};
+  const pods:KubeObject[]=['a','b'].map(id=>({metadata:{uid:`pod-${id}`,labels:{'appliance.magicstick.dev/activation-uid':'parent'},
+    ownerReferences:[{apiVersion:'kubeai.org/v1',kind:'Model',name:`copy-${id}`,uid:`uid-${id}`,controller:true}]},
+    status:{phase:'Running',conditions:[{type:'Ready',status:'True'}]},spec:{containers:[{name:'server',image:'fixture:local',env:[
+      {name:'MAGICSTICK_ENGINE',value:'OLlama'},{name:'MAGICSTICK_COMPUTE_TARGET',value:'nvidia-gpu'},
+      {name:'OLLAMA_CONTEXT_LENGTH',value:'2048'},{name:'OLLAMA_NUM_PARALLEL',value:'1'}]}]}}));
+  expect(runtimePodConverged(pods,item)).toBe(true);
+  expect(runtimePodConverged(pods.slice(0,1),item)).toBe(false);
+  for(const change of [
+    (pod:KubeObject)=>{pod.metadata.ownerReferences![0]!.uid='old-child';},
+    (pod:KubeObject)=>{pod.metadata.labels!['appliance.magicstick.dev/activation-uid']='foreign-parent';},
+    (pod:KubeObject)=>{pod.metadata.deletionTimestamp='now';},
+    (pod:KubeObject)=>{pod.status!.conditions![0]!.status='False';},
+  ]) {const invalid=structuredClone(pods);change(invalid[0]!);expect(runtimePodConverged(invalid,item)).toBe(false);}
+  const failed=structuredClone(item);failed.status!.replication!.instances![1]!.phase='Degraded';
+  expect(runtimePodConverged(pods,failed)).toBe(false);
 });
 test('HAR-07 a context PUT accepts only the direct same-UID next-generation receipt and journals it before cleanup',async()=>{
   const journal=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'fixture-appliance');
@@ -194,26 +288,7 @@ test('HAR-07 a context PUT accepts only the direct same-UID next-generation rece
     catch(error) {expect(error).toMatchObject({code:'API',outcome:'Failed',stage:'model-update'});}
   }
 });
-if(freeTokenRegressionEnabled)test('FT-02 scheduler-only capability inventory resolves independent live VRAM without cross-node or CPU fallback',()=>{
-  const data:ModelsPayload={activations:[],models:[],presets:{},computeTargets:{default:'cpu',targets:[
-    {id:'nvidia-gpu',kind:'gpu',engines:['FreeToken'],available:true}],freeTokenCapabilities:{available:true,supportedVendors:['nvidia'],
-    devices:[{id:'node:fixture-node',node:'fixture-node',supported:true,gpuCount:1,maxGpuCount:1,
-      systemMemoryMi:125629,systemAvailableMi:116746}]}},computeMemory:{devices:[
-      {id:'nvidia-physical',kind:'gpu',vendor:'nvidia',computeTarget:'nvidia-gpu',nodes:['fixture-node'],metricsAvailable:true,
-        totalMi:48540,unreservedMi:42000,freeMi:41000,freeToken:{id:'node:fixture-node',supported:true}}]}};
-  expect(freeTokenNodeCapacity(data,'fixture-node')).toMatchObject({gpuPhysicalMi:48540,gpuAvailableMi:41000,
-    systemPhysicalMi:125629,systemAvailableMi:116746,maxGpuCount:1});
-  const zero=structuredClone(data);zero.computeMemory!.devices![0]!.freeMi=0;
-  expect(freeTokenNodeCapacity(zero,'fixture-node').gpuAvailableMi).toBe(0);
-  for(const change of [
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.freeMi=null;},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.metricsAvailable=false;},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.nodes=['other-node'];},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.kind='cpu';},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.freeToken!.id='node:other-node';},
-    (d:ModelsPayload)=>{d.computeTargets.freeTokenCapabilities!.devices![0]!.systemAvailableMi=null;},
-  ]) {const invalid=structuredClone(data);change(invalid);expect(()=>freeTokenNodeCapacity(invalid,'fixture-node')).toThrow('[CAPABILITY]');}
-});
+
 test('HAR-07 worker replacement cannot overwrite or adopt earlier ownership and restore receipts',async()=>{
   const original=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'fixture-appliance');
   await original.requested('model',original.prefix+'model');
@@ -232,19 +307,54 @@ test('HAR-07 worker replacement cannot overwrite or adopt earlier ownership and 
     'worker-1/../journal.json','worker-1/worker-2/journal.json','journal.json/extra'])
     expect(recoveryJournalPath(root+path,true)).toBe(false);
 });
-test('HAR-10 a Degraded positive runtime fails early and retains bounded private logs before cleanup',async()=>{
+test('MGPU-01 MGPU-02 consecutive successful scenarios in the same worker retain separate recoverable journals',async()=>{
+  const root=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'fixture-appliance');
+  const scenarios=[];
+  for(let caseIndex=0;caseIndex<3;caseIndex++) {
+    const next=await gpuWorkerJournal(directory,0,'fixture-appliance',true);
+    const name=next.journal.prefix+'model';await next.journal.requested('model',name);
+    await next.journal.owned('model',name,'uid-'+caseIndex,1);
+    await writePrivate(join(next.directory,'gpu-baseline.json'),{caseIndex},true);
+    scenarios.push(next);
+  }
+  expect(new Set(scenarios.map(item=>item.journal.runId)).size).toBe(3);
+  expect(scenarios.map(item=>item.directory)).toEqual([1,2,3].map(index=>join(directory,'worker-'+index)));
+  for(const [index,item] of scenarios.entries()) {
+    expect((await ResourceJournal.resume(item.journal.filename,'fixture-appliance')).entries[0]!.uid).toBe('uid-'+index);
+    expect(JSON.parse(await readFile(join(item.directory,'gpu-baseline.json'),'utf8'))).toEqual({caseIndex:index});
+    expect(recoveryJournalPath('/private/runs/'+root.runId+'/worker-'+(index+1)+'/journal.json',true)).toBe(true);
+  }
+  expect((await ResourceJournal.resume(root.filename,'fixture-appliance')).entries).toEqual([]);
+});
+test('HAR-10 a Degraded positive runtime fails early and retains bounded private logs before cleanup',async({},info)=>{
     const scenario=Object.create(GpuScenario.prototype) as GpuScenario;
     Object.defineProperty(scenario,'directory',{value:directory});let reads=0;
     Object.defineProperty(scenario,'live',{value:{journal:{runId:newRunId()},modelState:async()=>{
-      reads++;return {item:{metadata:{generation:2},status:{phase:'Degraded',observedGeneration:reads === 1 ? 1 : 2}}};
+      reads++;return {item:{metadata:{uid:'fixture-model',generation:2},spec:{local:{engine:'VLLM',computeTarget:'amd-gpu'}},
+        status:{phase:'Degraded',observedGeneration:reads === 1 ? 1 : 2}},pods:[]};
     }}});
     const model={client:{name:'reg-fixture-model',logs:async()=>({pods:[],tailLines:300})},
       fixture:config().gpu!.models.amdVllm!,uid:'fixture-model',generation:2} as unknown as GpuCreated;
     await expect(scenario.ready(model)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'model-ready'});
-    expect(reads).toBe(2);
+    // Two readiness reads reject the stale observation and fail promptly; a
+    // third read captures only structural diagnostics before cleanup.
+    expect(reads).toBe(3);
+    const attachment=info.attachments.find(item=>item.name==='magicstick-runtime-diagnostic');
+    expect(JSON.parse(attachment!.body!.toString())).toMatchObject({engine:'VLLM',target:'amd-gpu',phase:'Degraded',currentStatus:true,pods:[]});
     expect(JSON.parse(await readFile(join(directory,'runtime-reg-fixture-model.json'),'utf8')))
       .toMatchObject({engine:'VLLM',target:'amd-gpu',stage:'model-ready',reason:'CAPABILITY'});
     expect(JSON.parse(await readFile(join(directory,'logs-reg-fixture-model.json'),'utf8'))).toEqual({pods:[],tailLines:300});
+});
+test('HAR-06 HAR-10 optional runtime diagnostic IO never replaces the original model failure',async()=>{
+  const file=join(directory,'not-a-directory');await writePrivate(file,{});
+  const scenario=Object.create(GpuScenario.prototype) as GpuScenario;
+  Object.defineProperty(scenario,'directory',{value:file});
+  Object.defineProperty(scenario,'live',{value:{journal:{runId:newRunId()},modelState:async()=>({
+    item:{metadata:{uid:'fixture-model',generation:2},spec:{local:{engine:'VLLM',computeTarget:'amd-gpu'}},
+      status:{phase:'Degraded',observedGeneration:2}},pods:[]})}});
+  const model={client:{name:'reg-fixture-model',logs:async()=>({pods:[],tailLines:300})},
+    fixture:config().gpu!.models.amdVllm!,uid:'fixture-model',generation:2} as unknown as GpuCreated;
+  await expect(scenario.ready(model)).rejects.toMatchObject({code:'CAPABILITY',stage:'model-ready',outcome:'Failed'});
 });
 test('HAR-10 GPU acceptance needs every variant-layer tuple and keeps maintenance gates open',async()=>{
   for(const phase of [3,4] as const) {

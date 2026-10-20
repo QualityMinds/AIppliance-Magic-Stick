@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ManagedHost, Session} from '@magicstick/dashboard-contracts';
 import {ModelCachePage} from './ModelCachePage';
-import {allowedSystemSections, isSystemSection} from './SystemAreaPage';
+import {allowedStatusSections, isStatusSection} from './SystemPage';
 
 let host: ManagedHost;
 const writes: Array<Record<string, unknown>> = [];
@@ -16,8 +16,7 @@ describe('Model cache management', () => {
     host = {name: 'example-node', nodeUid: 'node-uid', bootId: 'boot-a', kernel: 'test', available: true, message: '', modelCache: {
       id: 'a'.repeat(64), supported: true, blocked: false, reclaimableBytes: 30e9, totalBytes: 250e9, freeBytes: 50e9,
       caches: [{id: 'huggingface', name: 'Hugging Face / vLLM', usedBytes: 20e9, clearable: true},
-        {id: 'ollama', name: 'Ollama', usedBytes: 10e9, clearable: true},
-        {id: 'freetoken', name: 'FreeToken (temporary)', usedBytes: 0, clearable: false}],
+        {id: 'ollama', name: 'Ollama', usedBytes: 10e9, clearable: true}],
     }};
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
@@ -33,8 +32,7 @@ describe('Model cache management', () => {
     mount();
     expect(await screen.findByText('Hugging Face / vLLM')).toBeInTheDocument();
     expect(screen.getByText('Free disk space')).toBeInTheDocument();
-    expect(screen.getByText('FreeToken (temporary)')).toBeInTheDocument();
-    expect(screen.getByText('0 B')).toBeInTheDocument();
+    expect(screen.queryByText('FreeToken (temporary)')).not.toBeInTheDocument();
     expect(writes).toEqual([]);
     await userEvent.click(screen.getByRole('button', {name: 'Refresh cache'}));
     expect(writes).toEqual([]);
@@ -75,10 +73,10 @@ describe('Model cache management', () => {
   });
 
   it('registers the tab only for administrators, including direct route handling', () => {
-    expect(isSystemSection('model-cache')).toBe(true);
+    expect(isStatusSection('model-cache')).toBe(true);
     for (const role of ['magicstick-user', 'magicstick-operator', 'magicstick-viewer', 'magicstick-admin']) {
       const session = {subject: 'test-user', username: 'example', roles: [role]} as Session;
-      expect(allowedSystemSections(session).some((section) => section.id === 'model-cache')).toBe(role === 'magicstick-admin');
+      expect(allowedStatusSections(session).some((section) => section.id === 'model-cache')).toBe(role === 'magicstick-admin');
     }
   });
 });

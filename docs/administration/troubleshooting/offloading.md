@@ -27,7 +27,12 @@ kubectl -n ai get model example-hybrid \
 ```
 
 vLLM must contain exactly one `--kv-cache-dtype=auto` or
-`--kv-cache-dtype=fp8`; FP8 also contains `--calculate-kv-scales`. Ollama must
+`--kv-cache-dtype=fp8`. The controller does not generate the removed
+`--calculate-kv-scales` option for current runtime pins. The wrapper also removes
+that obsolete switch from legacy saved arguments in vLLM 0.28+, using the actual
+package version. FP8 remains selected; scales come from the
+checkpoint or upstream defaults, not the removed runtime-calibration feature.
+Ollama must
 contain `OLLAMA_KV_CACHE_TYPE=f16|q8_0|q4_0` and
 `OLLAMA_FLASH_ATTENTION=1`. An empty effective value while requested is present
 means the configured runtime has not become Ready; inspect model-pod current and

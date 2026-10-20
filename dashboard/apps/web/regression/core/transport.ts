@@ -4,6 +4,12 @@ import {HarnessError, requireSafe} from './errors.ts';
 
 const reads = new Set(['/api/session', '/api/appliance', '/api/models', '/api/modules', '/api/instances', '/api/settings', '/api/status', '/api/host-management', '/api/hardware/gpu-sharing']);
 
+/** Only an unauthenticated session GET can request normal SSO renewal. A
+ * forbidden read, network error or product write must never trigger replay. */
+export class DashboardSessionExpired extends HarnessError {
+  constructor() { super('AUTH', 'Failed', 'login-session'); }
+}
+
 export function readOnlyFetch(request: Pick<APIRequestContext, 'fetch'>, baseUrl: string, timeoutMs: number): typeof fetch {
   const origin = new URL(baseUrl).origin;
   return async (input, init = {}) => {
@@ -13,6 +19,7 @@ export function readOnlyFetch(request: Pick<APIRequestContext, 'fetch'>, baseUrl
     try {
       const response = await request.fetch(url.href, {method: 'GET', headers: {'Accept': 'application/json'},
         timeout: timeoutMs, maxRedirects: 0, failOnStatusCode: false});
+      if (url.pathname === '/api/session' && response.status() === 401) throw new DashboardSessionExpired();
       requireSafe(response.status() === 200 && (response.headers()['content-type'] ?? '').includes('application/json'), 'API');
       const body = await response.body();
       requireSafe(body.length < 8 * 1024 * 1024, 'API');

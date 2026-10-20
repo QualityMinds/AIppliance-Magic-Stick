@@ -10,6 +10,7 @@ data:
   controller.py: |
     #!/usr/bin/env python3
     import json
+    import base64
     import hashlib
     import os
     import re
@@ -21,6 +22,8 @@ data:
     import urllib.request
     from datetime import datetime, timezone
     from decimal import Decimal
+    from service_keys import ServiceKeys, KeyError as ServiceKeyError
+    from regression_runs import RegressionRuns
 
     APPLIANCE_GROUP = "appliance.magicstick.dev"
     APPLIANCE_VERSION = "v1alpha1"
@@ -59,10 +62,6 @@ data:
     CPU_MEMORY_PROFILE_UNIT_MI = 16
     DEFAULT_VLLM_CPU_MEMORY_MI = 4096
     DEFAULT_OLLAMA_CPU_MEMORY_MI = 2048
-    FREETOKEN_RUNTIME_CONFIG_NAME = "magicstick-freetoken-runtime"
-    FREETOKEN_RUNTIME_CONFIG_NAMESPACE = "ai-system"
-    FREETOKEN_PORT = 1919
-    FREETOKEN_HEALTH_TIMEOUT_SECONDS = 5
     OLLAMA_MODEL_API_TIMEOUT_SECONDS = 5
     MODEL_POD_CREATION_TIMEOUT_SECONDS = 120
     MODEL_RUNTIME_FAILURE_RESTARTS = 3
@@ -105,7 +104,6 @@ data:
     }
 
     KUBEAI_LOCAL_MODEL_BASE_MODULES = ["kubeai", "litellm", "model-catalog"]
-    FREETOKEN_LOCAL_MODEL_BASE_MODULES = ["freetoken", "litellm", "model-catalog"]
     EXTERNAL_MODEL_MODULES = ["litellm", "model-catalog"]
 
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
@@ -882,6 +880,8 @@ data:
                 message = "ModuleActivation is being deleted; generated Kustomization is being removed so Flux can prune resources."
                 patch_module_status(activation, phase, module_spec["kustomizationName"], "Removing", message, generation)
                 return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
+            if module_spec.get("litellmKey"):
+                reconcile_service_key(activation, module_spec, delete=True)
             remove_module_finalizer(activation)
             phase = "Disabled"
             message = "ModuleActivation is deleted; generated Kustomization has been removed."
@@ -897,6 +897,8 @@ data:
                 return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
             phase = "Disabled"
             message = "ModuleActivation is disabled; generated Kustomization has been removed."
+            if module_spec.get("litellmKey"):
+                reconcile_service_key(activation, module_spec, delete=True)
             patch_module_status(activation, phase, "", "Disabled", message, generation)
             return phase, {"phase": phase, "kustomization": "", "message": message}
 
@@ -925,6 +927,8 @@ data:
             patch_module_status(activation, phase, module_spec["kustomizationName"], "WaitingForModules", message, generation)
             return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
 
+        if module_spec.get("litellmKey"):
+            reconcile_service_key(activation, module_spec)
         apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source, parameters))
         kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
 
@@ -1017,8 +1021,9 @@ data:
         pod_creation=None,
         pod_recovery=None,
         runtime_endpoint="",
-        free_token_stats=None,
+
         cpu_resources=None,
+        replication=None,
     ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
@@ -1038,12 +1043,10 @@ data:
             "vramRequiredMi": int(vram_mi or 0),
             "memoryRequiredMi": int(memory_mi or 0),
             "cpuResources": cpu_resources,
+            "replication": replication,
             "cpuOffloading": bool(((activation.get("spec") or {}).get("local") or {}).get("cpuOffloading")),
             "memoryUsage": memory_usage,
-            # FreeToken owns a separate, stable status contract.  Do not put
-            # these values into memoryUsage: that field remains the existing
-            # Ollama/KubeAI engine-reported usage shape.
-            "freeTokenStats": free_token_stats,
+
             "memoryArchitecture": memory_architecture,
             "sharedPoolId": shared_pool_id,
             "gpuAllocationMode": gpu_allocation_mode,
@@ -1079,15 +1082,11 @@ data:
             return "VLLM"
         if normalized == "OLLAMA":
             return "OLlama"
-        if normalized == "FREETOKEN":
-            return "FreeToken"
         raise ValueError("unsupported local.engine: " + str(value))
 
 
     def normalize_kv_cache_type(engine, value):
         engine = normalize_local_engine(engine)
-        if engine == "FreeToken":
-            raise ValueError("FreeToken uses local.freetoken.advanced cache settings, not local.kvCacheType")
         default = "f16" if engine == "OLlama" else "auto"
         normalized = str(value or default).strip().lower().replace("-", "_")
         normalized = {"standard": default, "q8": "q8_0", "q4": "q4_0"}.get(normalized, normalized)
@@ -1119,7 +1118,7 @@ data:
         profile = profiles.get(requested_engine)
         if isinstance(profile, dict):
             return profile
-        if requested_engine in ("VLLM", "FreeToken"):
+        if requested_engine == "VLLM":
             return {
                 "defaultResourceProfile": definition.get("defaultResourceProfile"),
                 "resourceProfilesByResource": definition.get("resourceProfilesByResource") or {},
@@ -1152,6 +1151,7 @@ data:
     ):
         if model_type != "local":
             return list(EXTERNAL_MODEL_MODULES)
+        engine = normalize_local_engine(engine)
         if catalog is None or compute_catalog is None:
             provider = {
                 "nvidia-gpu": "gpu",
@@ -1162,11 +1162,7 @@ data:
         else:
             target = compute_target_definition(compute_target, compute_catalog, engine)
             providers = capability_modules(catalog, target.get("requiredCapabilities") or [])
-        runtime_modules = (
-            FREETOKEN_LOCAL_MODEL_BASE_MODULES
-            if normalize_local_engine(engine) == "FreeToken"
-            else KUBEAI_LOCAL_MODEL_BASE_MODULES
-        )
+        runtime_modules = list(KUBEAI_LOCAL_MODEL_BASE_MODULES)
         if realtime:
             # The upstream Omni WebSocket server is a direct runtime; neither
             # its provisioning nor its route uses KubeAI's chat-only proxy.
@@ -1183,6 +1179,8 @@ data:
 
 
     def nvidia_gpu_capacity():
+        if NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+            return int(NVIDIA_SHARING_STATE.get("slotLimit") or 0) if NVIDIA_SHARING_STATE.get("phase") == "Ready" else 0
         total = 0
         for node in list_items("/api/v1/nodes"):
             status = node.get("status") or {}
@@ -1329,9 +1327,11 @@ data:
             config = json.loads(raw)
         except (ValueError, TypeError):
             raise ValueError("GPU sharing configuration is not valid JSON")
-        if not isinstance(config, dict) or set(config) - {"mode", "nodeName", "nodeUid", "namespace", "maxModels", "allowExperimental"}:
+        if not isinstance(config, dict) or set(config) - {"mode", "nodeName", "nodeUid", "namespace", "maxModels", "allowExperimental", "allocationBackend"}:
             raise ValueError("Unsupported GPU sharing configuration")
-        shared_mode = "dra-shared" if provider == "amd" else "time-slicing"
+        if config.get("allocationBackend", "device-plugin") not in ("device-plugin", "dra") or provider == "amd" and "allocationBackend" in config:
+            raise ValueError("Unsupported GPU allocation backend")
+        shared_mode = "dra-shared" if provider == "amd" or config.get("allocationBackend") == "dra" else "time-slicing"
         if config.get("mode") not in ("exclusive", shared_mode):
             raise ValueError("Unknown GPU sharing mode")
         if config["mode"] != "exclusive" or provider == "nvidia":
@@ -1409,11 +1409,13 @@ data:
         namespace = model.get("spec", {}).get("targetNamespace") or "ai"
         if "realtime" in (model.get("spec", {}).get("local") or {}):
             return delete_realtime_runtime(name, namespace)
+        if (model.get("spec", {}).get("local") or {}).get("gpuDeployment") == "replicated" or (model.get("status") or {}).get("replication"):
+            retire_model_replicas(model)
         return delete_kubeai_model(name, namespace)
 
 
     def reconcile_nvidia_sharing(nodes, activation):
-        """Select a shipped device-plugin config, never migrate ClusterPolicy to DRA."""
+        """Keep ClusterPolicy; optionally hand off node allocation to standalone DRA."""
         NVIDIA_SHARING_STATE.clear()
         state = NVIDIA_SHARING_STATE
         state.update(managed=False, phase="Ready", memoryIsolation=False)
@@ -1425,6 +1427,9 @@ data:
                 raise ValueError("NVIDIA module is disabled; sharing configuration was not applied")
             config = gpu_sharing_config(activation, "nvidia")
             state.update(config)
+            if config.get("allocationBackend") == "dra" or any(
+                    node_labels(n).get("appliance.magicstick.dev/nvidia-dra-config") for n in nodes):
+                return reconcile_nvidia_dra(nodes, activation, config, state)
             candidates = [n for n in nodes if positive_int(node_labels(n).get("nvidia.com/gpu.count"))]
             if len(candidates) != 1 or not node_ready(candidates[0]):
                 raise ValueError("Sharing management currently requires one ready NVIDIA GPU node")
@@ -1432,8 +1437,9 @@ data:
             labels = node_labels(node)
             if node_name(node) != config["nodeName"] or node.get("metadata", {}).get("uid") != config["nodeUid"]:
                 raise ValueError("The saved NVIDIA node identity changed; refresh Hardware")
-            if positive_int(labels.get("nvidia.com/gpu.count")) != 1 or not nvidia_whole_gpu_available(node):
-                raise ValueError("NVIDIA sharing management currently requires one physical GPU without MIG")
+            physical_count = positive_int(labels.get("nvidia.com/gpu.count"))
+            if not physical_count or not nvidia_whole_gpu_available(node):
+                raise ValueError("NVIDIA sharing requires whole physical GPUs without MIG")
             key = "magicstick-exclusive" if config["mode"] == "exclusive" else "magicstick-shared-" + str(config["maxModels"])
             current_key = labels.get("nvidia.com/device-plugin.config", "")
             if current_key not in ("", "any", "magicstick-exclusive") and not re.fullmatch(r"magicstick-shared-(?:[2-9]|1[0-6])", current_key):
@@ -1468,14 +1474,14 @@ data:
                            {"metadata": {"labels": {"nvidia.com/device-plugin.config": key}}})
                 state.update(phase="Starting", message="Waiting for NVIDIA to apply the selected sharing configuration.")
                 return state
-            slots = config["maxModels"] if config["mode"] == "time-slicing" else 1
+            slots = physical_count * (config["maxModels"] if config["mode"] == "time-slicing" else 1)
             plugin_ready = any(p.get("spec", {}).get("nodeName") == node_name(node)
                                and p.get("metadata", {}).get("namespace") == "gpu-operator"
                                and not p.get("metadata", {}).get("deletionTimestamp") and pod_is_ready(p)
                                and any(o.get("kind") == "DaemonSet" and o.get("name") == "nvidia-device-plugin-daemonset"
                                        for o in p.get("metadata", {}).get("ownerReferences") or []) for p in all_pods)
             if (not plugin_ready or positive_int((node.get("status", {}).get("allocatable") or {}).get("nvidia.com/gpu")) != slots
-                    or (positive_int(labels.get("nvidia.com/gpu.replicas")) or 1) != slots):
+                    or (positive_int(labels.get("nvidia.com/gpu.replicas")) or 1) != slots // physical_count):
                 state.update(phase="Starting", message="Waiting for NVIDIA device-plugin readiness and matching advertised slots.")
                 return state
             state.update(phase="Ready", slotLimit=slots, admittedModels=sharing_admitted_models(models, config["namespace"], slots),
@@ -1492,6 +1498,8 @@ data:
         state = NVIDIA_SHARING_STATE
         if runtime.get("computeTarget") != "nvidia-gpu" or not state.get("managed"):
             return
+        if state.get("allocationBackend") == "dra":
+            return apply_nvidia_dra_profile(resource, runtime)
         require_sharing_slot(resource, state)
         release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
         base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
@@ -1517,6 +1525,419 @@ data:
         resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
         runtime["gpuSharing"] = {"mode": state["mode"], "node": state["nodeName"]}
         resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/gpu-sharing-mode"] = state["mode"]
+
+
+    def nvidia_dra_inventory(slices, node):
+        """Only complete, current-generation full-GPU pools; UUID is the binding."""
+        pools = {}
+        for item in slices:
+            spec = item.get("spec") or {}
+            if spec.get("driver") != "gpu.nvidia.com" or spec.get("nodeName") != node_name(node):
+                continue
+            pool = spec.get("pool") or {}
+            pools.setdefault(pool.get("name"), []).append(item)
+        devices = []
+        for name, items in pools.items():
+            if not name:
+                continue
+            generation = max(int(i["spec"].get("pool", {}).get("generation") or 0) for i in items)
+            current = [i for i in items if int(i["spec"]["pool"].get("generation") or 0) == generation]
+            counts = {int(i["spec"]["pool"].get("resourceSliceCount") or 0) for i in current}
+            if counts != {len(current)}:
+                raise ValueError("Waiting for complete NVIDIA DRA inventory")
+            for item in current:
+                for device in item["spec"].get("devices") or []:
+                    attrs = device.get("attributes") or (device.get("basic") or {}).get("attributes") or {}
+                    if (attrs.get("type") or {}).get("string") != "gpu":
+                        continue
+                    uuid = (attrs.get("uuid") or {}).get("string", "")
+                    if not re.fullmatch(r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", uuid) or not device.get("name"):
+                        raise ValueError("NVIDIA DRA did not publish a stable GPU UUID")
+                    capacity = device.get("capacity") or (device.get("basic") or {}).get("capacity") or {}
+                    devices.append({"uuid": uuid, "name": device["name"], "pool": name,
+                        "node": node_name(node), "nodeUid": node["metadata"]["uid"],
+                        "productName": (attrs.get("productName") or {}).get("string", "NVIDIA GPU"),
+                        "pciAddress": (attrs.get("resource.kubernetes.io/pciBusID") or {}).get("string", ""),
+                        "totalMi": node_memory_mi((capacity.get("memory") or {}).get("value")) or 0})
+        if len({d["uuid"] for d in devices}) != len(devices):
+            raise ValueError("NVIDIA DRA inventory contains duplicate GPU identities")
+        return sorted(devices, key=lambda d: (d["pciAddress"], d["uuid"]))
+
+
+    def nvidia_dra_claim(config, device):
+        identity = config["nodeUid"] + ":" + device["uuid"] + ":" + config["namespace"]
+        name = "magicstick-nvidia-" + hashlib.sha256(identity.encode()).hexdigest()[:20]
+        return {"apiVersion": "resource.k8s.io/v1", "kind": "ResourceClaim", "metadata": {
+            "name": name, "namespace": config["namespace"],
+            "labels": {"app.kubernetes.io/managed-by": FIELD_MANAGER, "appliance.magicstick.dev/gpu-sharing": "nvidia"},
+            "annotations": {"appliance.magicstick.dev/node-uid": config["nodeUid"],
+                            "appliance.magicstick.dev/gpu-identity": device["uuid"]}},
+            "spec": {"devices": {"requests": [{"name": "gpu", "exactly": {
+                "deviceClassName": "gpu.nvidia.com", "allocationMode": "ExactCount", "count": 1,
+                "selectors": [{"cel": {"expression": "device.attributes['gpu.nvidia.com'].uuid == " + json.dumps(device["uuid"])}}]}}]}}}
+
+
+    def nvidia_model_devices(local):
+        """Normalize legacy one-card intent without changing its identity."""
+        if "gpuDevice" in local and "gpuDevices" in local:
+            raise ValueError("Use gpuDevices or the legacy gpuDevice, not both")
+        selections = local.get("gpuDevices", [local["gpuDevice"]] if local.get("gpuDevice") else [])
+        if not isinstance(selections, list) or ("gpuDevices" in local and not 1 <= len(selections) <= 16):
+            raise ValueError("gpuDevices must contain between 1 and 16 distinct NVIDIA cards")
+        for selection in selections:
+            if not isinstance(selection, dict) or set(selection) != {"nodeName", "nodeUid", "uuid"} or any(
+                    not isinstance(v, str) or not v for v in selection.values()) or not re.fullmatch(
+                    r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", selection["uuid"]):
+                raise ValueError("Choose valid NVIDIA GPU UUIDs and current node identities")
+        if len({s["uuid"] for s in selections}) != len(selections):
+            raise ValueError("Choose each physical GPU only once")
+        if len({(s["nodeName"], s["nodeUid"]) for s in selections}) > 1:
+            raise ValueError("All GPUs for one model must be on the same node")
+        return sorted(selections, key=lambda s: s["uuid"])
+
+
+    def nvidia_assignment_devices(assignment):
+        return assignment.get("devices") or [assignment]
+
+
+    def nvidia_dra_assignments(models, devices, pods, limit):
+        """Reserve enabled intents once; terminating/foreign Pods retain their slots."""
+        by_uuid = {d["uuid"]: d for d in devices}
+        claim_devices = {d["claimName"]: d["uuid"] for d in devices}
+        used = {uuid: 0 for uuid in by_uuid}
+        placements = {}
+        for pod in pods:
+            if pod.get("status", {}).get("phase") in ("Succeeded", "Failed"):
+                continue
+            claims = (pod.get("spec") or {}).get("resourceClaims") or []
+            metadata = pod.get("metadata") or {}
+            if metadata.get("namespace") != "ai":
+                continue  # Claim names are namespace-local, not global GPU IDs.
+            model = (metadata.get("labels") or {}).get("appliance.magicstick.dev/modelactivation")
+            for claim in claims:
+                uuid = claim_devices.get(claim.get("resourceClaimName"))
+                if uuid:
+                    used[uuid] += 1
+                    if model and managed_gpu_sharing_pod(pod) and metadata.get("namespace") == "ai":
+                        placements.setdefault(model, set()).add(uuid)
+        assigned = {}
+        errors = {}
+        for model in sorted(models, key=lambda m: (m.get("metadata", {}).get("creationTimestamp", ""), m["metadata"]["name"])):
+            spec, metadata = model.get("spec") or {}, model["metadata"]
+            if spec.get("enabled", True) is False or metadata.get("deletionTimestamp"):
+                continue
+            name = metadata["name"]
+            local = spec.get("local") or {}
+            if spec.get("targetNamespace", "ai") != "ai":
+                errors[name] = "NVIDIA card selection requires the ai namespace."
+                continue
+            if "realtime" in local or str(local.get("engine", "VLLM")).upper() not in ("VLLM", "OLLAMA"):
+                errors[name] = "NVIDIA card selection currently supports ordinary vLLM and Ollama models. Use device-plugin allocation for this runtime."
+                continue
+            if max(int(local.get("minReplicas", 1)), int(local.get("maxReplicas", 1))) != 1:
+                errors[name] = "NVIDIA DRA card selection requires one replica per model."
+                continue
+            try:
+                selections = nvidia_model_devices(local)
+            except ValueError as error:
+                errors[name] = str(error)
+                continue
+            previous = (model.get("status") or {}).get("gpuSharing") or {}
+            uuids = [s["uuid"] for s in selections]
+            if selections and any(not any(d["uuid"] == selection["uuid"] and d["nodeUid"] == selection["nodeUid"]
+                                     and d["node"] == selection["nodeName"] for d in devices) for selection in selections):
+                errors[name] = "The selected NVIDIA GPU identity changed. Refresh Models and choose the card again."
+                continue
+            if len(uuids) > 1 and any(not positive_int(by_uuid[u].get("totalMi")) for u in uuids):
+                errors[name] = "Multi-GPU models require a verified physical capacity for every NVIDIA card."
+                continue
+            live = placements.get(name, set())
+            replicated = local.get("gpuDeployment") == "replicated"
+            if live and (uuids and (not live.issubset(set(uuids)) if replicated else set(uuids) != live) or not uuids and len(live) > 1):
+                errors[name] = "Waiting for the previous NVIDIA GPU Pod to stop before changing cards."
+                continue
+            if live and not replicated:
+                selected = [by_uuid[u] for u in sorted(live)]
+                assigned[name] = {**selected[0], "devices": selected} if len(selected) > 1 else selected[0]
+                continue
+            if not uuids:
+                previous_uuid = previous.get("device")
+                uuid = previous_uuid if previous_uuid in by_uuid else next((u for u in used if used[u] < limit), None)
+                uuids = [uuid] if uuid else []
+            pending = [u for u in uuids if u not in live]
+            if not uuids or any(used[u] >= limit for u in pending):
+                errors[name] = "Waiting for a free slot on the selected NVIDIA GPU."
+                continue
+            # Reserve the complete group or nothing. Never hold one card while
+            # waiting for another; the single controller serializes admission.
+            for uuid in pending:
+                used[uuid] += 1
+            selected = [by_uuid[u] for u in uuids]
+            assigned[name] = {**selected[0], "devices": selected} if len(selected) > 1 else selected[0]
+        return assigned, errors
+
+
+    def nvidia_dra_slot_usage(assignments, devices, pods):
+        claims = {d["claimName"]: d["uuid"] for d in devices}
+        used = {d["uuid"]: 0 for d in devices}
+        live = set()
+        for pod in pods:
+            meta = pod.get("metadata") or {}
+            if meta.get("namespace") != "ai" or pod.get("status", {}).get("phase") in ("Succeeded", "Failed"):
+                continue
+            model = meta.get("labels", {}).get("appliance.magicstick.dev/modelactivation")
+            for claim in pod.get("spec", {}).get("resourceClaims", []):
+                uuid = claims.get(claim.get("resourceClaimName"))
+                if uuid:
+                    used[uuid] += 1
+                    if model and managed_gpu_sharing_pod(pod):
+                        live.add((model, uuid))
+        for name, assignment in assignments.items():
+            for device in nvidia_assignment_devices(assignment):
+                if (name, device["uuid"]) not in live:
+                    used[device["uuid"]] += 1
+        return used
+
+
+    def nvidia_dra_policies():
+        # Reuse the existing fail-closed KubeAI adapter. The server validates the
+        # UUID and the controller supplies a claim, never a user CUDA env override.
+        policy, binding = dra_admission_resources()
+        serialized = json.dumps([policy, binding]).replace("magicstick-amd-dra", "magicstick-nvidia-dra")
+        serialized = serialized.replace("amd-gpu", "nvidia-gpu").replace("appliance.magicstick.dev/amd-dra", "appliance.magicstick.dev/nvidia-dra")
+        serialized = serialized.replace("~1amd-dra", "~1nvidia-dra").replace("magicstick-amd-shared-", "magicstick-nvidia-")
+        policy, binding = json.loads(serialized)
+        policy["spec"]["variables"] = [{"name": "claims", "expression":
+            "object.spec.containers[0].env.exists(e, e.name == 'MAGICSTICK_DRA_CLAIMS') ? "
+            "object.spec.containers[0].env.filter(e, e.name == 'MAGICSTICK_DRA_CLAIMS' && has(e.value) && e.value.matches('^magicstick-nvidia-[a-f0-9]{20}(,magicstick-nvidia-[a-f0-9]{20}){0,15}$'))[0].value.split(',') : "
+            "[object.spec.containers[0].env.filter(e, e.name == 'MAGICSTICK_DRA_CLAIM' && has(e.value) && e.value.matches('^magicstick-nvidia-[a-f0-9]{20}$'))[0].value]"}]
+        policy["spec"]["mutations"][0]["jsonPatch"]["expression"] = """[
+            JSONPatch{op: 'add', path: '/spec/resourceClaims', value: variables.claims.map(c, {'name': string(c), 'resourceClaimName': string(c)})},
+            JSONPatch{op: 'add', path: '/spec/containers/0/resources/claims', value: variables.claims.map(c, {'name': string(c)})},
+            JSONPatch{op: 'remove', path: '/spec/containers/0/resources/requests/appliance.magicstick.dev~1nvidia-dra'},
+            JSONPatch{op: 'remove', path: '/spec/containers/0/resources/limits/appliance.magicstick.dev~1nvidia-dra'}
+        ]"""
+        return policy, binding
+
+
+    def reconcile_nvidia_dra(nodes, activation, config, state):
+        desired = config.get("allocationBackend") == "dra"
+        state.update(allocationBackend="dra" if desired else "device-plugin", devices=[], assignments={}, admittedModels=[])
+        candidates = [n for n in nodes if positive_int(node_labels(n).get("nvidia.com/gpu.count"))]
+        if len(candidates) != 1 or not node_ready(candidates[0]):
+            raise ValueError("NVIDIA DRA currently requires one ready node with one or more whole GPUs")
+        node = candidates[0]
+        labels = node_labels(node)
+        if node_name(node) != config["nodeName"] or node["metadata"].get("uid") != config["nodeUid"]:
+            raise ValueError("The saved NVIDIA node identity changed; refresh Hardware")
+        if desired and (not version_at_least(node.get("status", {}).get("nodeInfo", {}).get("kubeletVersion", ""), "1.36.0")
+                        or not nvidia_whole_gpu_available(node)):
+            raise ValueError("NVIDIA card selection requires Kubernetes 1.36+ and full GPUs without MIG")
+        policy = get_json("/apis/nvidia.com/v1/clusterpolicies/cluster-policy") or {}
+        current_key = labels.get("nvidia.com/device-plugin.config", "")
+        if ((policy.get("spec", {}).get("devicePlugin", {}).get("config") or {}).get("name") != "time-slicing-config"
+                or current_key not in ("", "any", "magicstick-exclusive") and not re.fullmatch(r"magicstick-shared-(?:[2-9]|1[0-6])", current_key)):
+            raise ValueError("External NVIDIA allocation configuration was not modified")
+        pods = list_items("/api/v1/pods")
+        active = [p for p in pods if p.get("status", {}).get("phase") not in ("Succeeded", "Failed")]
+        managed = [p for p in active if managed_gpu_sharing_pod(p)
+                   and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/compute-target") == "nvidia-gpu"]
+        models = [m for m in model_activations() if m.get("spec", {}).get("type", "local") == "local" and local_compute_target(m) == "nvidia-gpu"]
+        digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:20] if desired else ""
+        changing = labels.get("appliance.magicstick.dev/nvidia-dra-config", "") != digest
+        if changing:
+            # Include claims owned by other applications. An allocated claim
+            # may have no Pod yet; removing its driver would strand Unprepare.
+            all_claims = list_items("/apis/resource.k8s.io/v1/resourceclaims")
+            foreign_claims = set()
+            for claim in all_claims:
+                meta = claim.get("metadata") or {}
+                gpu = any(r.get("driver") == "gpu.nvidia.com"
+                          for r in claim.get("status", {}).get("allocation", {}).get("devices", {}).get("results", []))
+                requested = any((r.get("exactly") or r).get("deviceClassName") == "gpu.nvidia.com"
+                                for r in claim.get("spec", {}).get("devices", {}).get("requests", []))
+                owned = meta.get("namespace") == "ai" and (meta.get("labels") or {}).get("app.kubernetes.io/managed-by") == FIELD_MANAGER and (meta.get("labels") or {}).get("appliance.magicstick.dev/gpu-sharing") == "nvidia"
+                if (gpu or requested) and not owned:
+                    foreign_claims.add((meta.get("namespace", "default"), meta.get("name", "")))
+                    if gpu or claim.get("status", {}).get("reservedFor"):
+                        raise ValueError("Release external NVIDIA DRA claims before changing allocation backend")
+            for pod in active:
+                if pod in managed:
+                    continue
+                spec = pod.get("spec") or {}
+                uses_gpu = any(positive_int((c.get("resources", {}).get(k) or {}).get("nvidia.com/gpu"))
+                    for c in spec.get("containers", []) + spec.get("initContainers", []) for k in ("limits", "requests"))
+                uses_claim = any(str(c.get("resourceClaimName", "")).startswith("magicstick-nvidia-")
+                    or (pod.get("metadata", {}).get("namespace", "default"), c.get("resourceClaimName")) in foreign_claims
+                    for c in spec.get("resourceClaims", []))
+                if uses_gpu or uses_claim:
+                    raise ValueError("Stop unmanaged NVIDIA GPU workloads before changing allocation backend")
+            incompatible = [m for m in models if m.get("spec", {}).get("enabled", True) is not False
+                and ("realtime" in (m.get("spec", {}).get("local") or {}) or str(m.get("spec", {}).get("local", {}).get("engine", "")).upper() == "FREETOKEN")]
+            if desired and incompatible:
+                raise ValueError("Stop FreeToken and Realtime models before switching NVIDIA to DRA; their device-plugin configurations are retained")
+            for model in models:
+                retire_gpu_sharing_model(model)
+            if managed:
+                state.update(phase="Switching", message="Waiting for NVIDIA models to stop; settings and cached downloads are retained.")
+                return state
+        claims = list_items("/apis/resource.k8s.io/v1/namespaces/ai/resourceclaims?labelSelector=appliance.magicstick.dev%2Fgpu-sharing%3Dnvidia")
+        if not desired:
+            for claim in claims:
+                meta = claim.get("metadata") or {}
+                if (meta.get("labels") or {}).get("app.kubernetes.io/managed-by") != FIELD_MANAGER or (meta.get("annotations") or {}).get("appliance.magicstick.dev/node-uid") != config["nodeUid"]:
+                    raise ValueError("An external or stale NVIDIA claim needs manual review")
+                if claim.get("status", {}).get("reservedFor") or any(
+                    c.get("resourceClaimName") == meta.get("name") for p in active for c in p.get("spec", {}).get("resourceClaims", [])):
+                    state.update(phase="Switching", message="Waiting for NVIDIA claims to be released; the DRA driver stays registered for Unprepare.")
+                    return state
+                if not meta.get("uid") or not meta.get("resourceVersion"):
+                    raise ValueError("Cannot safely remove a NVIDIA claim without its Kubernetes identity")
+                if not meta.get("deletionTimestamp"):
+                    delete_json("/apis/resource.k8s.io/v1/namespaces/ai/resourceclaims/" + meta["name"],
+                        {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": meta["uid"], "resourceVersion": meta["resourceVersion"]}})
+            if claims:
+                state.update(phase="Switching", message="Waiting for unused NVIDIA claims to be deleted.")
+                return state
+            if labels.get("nvidia.com/dra-kubelet-plugin") == "true":
+                patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {"nvidia.com/dra-kubelet-plugin": "false",
+                    "appliance.magicstick.dev/nvidia-dra-ready": "false"}}})
+                state.update(phase="Switching", message="Stopping NVIDIA DRA before restoring the device plugin.")
+                return state
+            if any(p.get("metadata", {}).get("namespace") == "nvidia-dra-driver" and p.get("spec", {}).get("nodeName") == node_name(node) for p in active):
+                state.update(phase="Switching", message="Waiting for the NVIDIA DRA kubelet plugin to stop.")
+                return state
+            values = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-nvidia-dra-values") or {}
+            raw = json.loads((values.get("data") or {}).get("values.json") or "{}")
+            if raw.get("resources", {}).get("gpus", {}).get("enabled") is not False:
+                raw.setdefault("resources", {}).setdefault("gpus", {})["enabled"] = False
+                patch_json("/api/v1/namespaces/" + FLUX_NAMESPACE + "/configmaps/magicstick-nvidia-dra-values", {"data": {"values.json": json.dumps(raw, sort_keys=True)}})
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {
+                "nvidia.com/gpu.deploy.device-plugin": "true", "appliance.magicstick.dev/nvidia-dra-config": None}}})
+            state.update(phase="Starting", message="Restoring NVIDIA device-plugin allocation. Clear exact card selection in Edit before restarting card-bound models.")
+            return state
+        if labels.get("nvidia.com/gpu.deploy.device-plugin") != "false":
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {
+                "nvidia.com/gpu.deploy.device-plugin": "false", "appliance.magicstick.dev/nvidia-dra-ready": "false"}}})
+            state.update(phase="Switching", message="Stopping NVIDIA device-plugin allocation before starting DRA.")
+            return state
+        if positive_int(node.get("status", {}).get("allocatable", {}).get("nvidia.com/gpu")) or any(
+                any(o.get("name") == "nvidia-device-plugin-daemonset" for o in p.get("metadata", {}).get("ownerReferences", []))
+                and p.get("spec", {}).get("nodeName") == node_name(node) for p in active):
+            state.update(phase="Switching", message="Waiting for legacy NVIDIA allocations and device-plugin Pods to disappear.")
+            return state
+        root = "/" if labels.get("nvidia.com/gpu.deploy.driver") in ("false", "pre-installed") else "/run/nvidia/driver"
+        values = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-nvidia-dra-values") or {}
+        desired_values = json.dumps({"nvidiaDriverRoot": root, "resources": {"gpus": {"enabled": True}}}, sort_keys=True)
+        if (values.get("data") or {}).get("values.json") != desired_values:
+            patch_json("/api/v1/namespaces/" + FLUX_NAMESPACE + "/configmaps/magicstick-nvidia-dra-values",
+                       {"data": {"values.json": desired_values}})
+            state.update(phase="Starting", message="Waiting for Flux to enable the pinned NVIDIA DRA chart with the current driver path.")
+            return state
+        if labels.get("nvidia.com/dra-kubelet-plugin") != "true":
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {"nvidia.com/dra-kubelet-plugin": "true"}}})
+            state.update(phase="Starting", message="Starting the pinned NVIDIA DRA driver.")
+            return state
+        release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "nvidia-dra-driver") or {}
+        ready = ready_condition(release)
+        driver_ready = ready.get("status") == "True" and release.get("status", {}).get("observedGeneration") == release.get("metadata", {}).get("generation") and any(
+            p.get("metadata", {}).get("namespace") == "nvidia-dra-driver" and p.get("spec", {}).get("nodeName") == node_name(node)
+            and pod_is_ready(p) and not p.get("metadata", {}).get("deletionTimestamp")
+            and any(o.get("kind") == "DaemonSet" and o.get("name") == "dra-driver-nvidia-gpu-kubelet-plugin" for o in p.get("metadata", {}).get("ownerReferences", []))
+            and any(c.get("name") == "gpus" and c.get("image") == "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.5.0"
+                and any(e.get("name") == "NVIDIA_DRIVER_ROOT" and e.get("value") == root for e in c.get("env", []))
+                for c in p.get("spec", {}).get("containers", [])) for p in pods)
+        if not driver_ready:
+            state.update(phase="Starting", message="Waiting for the pinned NVIDIA DRA driver and current Helm configuration.")
+            return state
+        devices = nvidia_dra_inventory(list_items("/apis/resource.k8s.io/v1/resourceslices"), node)
+        if len(devices) != positive_int(labels.get("nvidia.com/gpu.count")):
+            state.update(phase="Starting", message="Waiting for all physical NVIDIA GPU UUIDs in the DRA inventory.")
+            return state
+        for obj in nvidia_dra_policies():
+            apply_resource(obj)
+        for device in devices:
+            desired_claim = nvidia_dra_claim(config, device)
+            existing = get_applied_resource(desired_claim)
+            if existing and (existing.get("spec") != desired_claim["spec"] or existing.get("metadata", {}).get("deletionTimestamp")
+                or existing.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/managed-by") != FIELD_MANAGER
+                or existing.get("metadata", {}).get("annotations", {}) != desired_claim["metadata"]["annotations"]):
+                raise ValueError("The NVIDIA claim differs from its verified GPU selection; it was not overwritten")
+            results = (existing or {}).get("status", {}).get("allocation", {}).get("devices", {}).get("results", [])
+            if results and (len(results) != 1 or any(r.get("driver") != "gpu.nvidia.com" or r.get("pool") != device["pool"] or r.get("device") != device["name"] for r in results)):
+                raise ValueError("NVIDIA DRA claim allocation does not match the selected card")
+            if not existing:
+                apply_resource(desired_claim)
+            device["claimName"] = desired_claim["metadata"]["name"]
+        limit = config["maxModels"] if config["mode"] == "dra-shared" else 1
+        assigned, errors = nvidia_dra_assignments(models, devices, active, limit)
+        for model in models:
+            if errors.get(model["metadata"]["name"], "").startswith("Waiting for the previous NVIDIA"):
+                retire_gpu_sharing_model(model)
+        state.update(phase="Ready", devices=devices, assignments=assigned, assignmentErrors=errors,
+            admittedModels=list(assigned), slotLimit=limit * len(devices), slotsPerDevice=limit,
+            usedByDevice=nvidia_dra_slot_usage(assigned, devices, active),
+            activeModels=len(managed), bootId=node.get("status", {}).get("nodeInfo", {}).get("bootID", ""),
+            message="NVIDIA card selection is ready. Each card has its own slots; shared claims have no memory isolation.",
+            activationGeneration=activation.get("metadata", {}).get("generation"))
+        if labels.get("appliance.magicstick.dev/nvidia-dra-config") != digest or labels.get("appliance.magicstick.dev/nvidia-dra-ready") != "true":
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {
+                "appliance.magicstick.dev/nvidia-dra-config": digest, "appliance.magicstick.dev/nvidia-dra-ready": "true"}}})
+        return state
+
+
+    def apply_nvidia_dra_profile(resource, runtime):
+        state = NVIDIA_SHARING_STATE
+        name = runtime.get("replicaParent") or resource["metadata"]["name"]
+        if state.get("phase") != "Ready" or name not in state.get("assignments", {}):
+            raise ValueError(state.get("assignmentErrors", {}).get(name) or state.get("message") or "Waiting for NVIDIA GPU allocation")
+        device = state["assignments"][name]
+        devices = nvidia_assignment_devices(device)
+        if runtime.get("replicaDevice"):
+            devices = [d for d in devices if d["uuid"] == runtime["replicaDevice"]]
+            if len(devices) != 1:
+                raise ValueError("The model replica has no admitted NVIDIA card")
+            device = devices[0]
+        count = len(devices)
+        if (count > 1 or runtime.get("replicaParent")) and any(not d.get("totalMi") or runtime["vramMi"] > d["totalMi"] for d in devices):
+            raise ValueError("The per-GPU budget exceeds the physical memory of a selected NVIDIA card")
+        release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
+        base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
+        base = release.get("spec", {}).get("values", {}).get("resourceProfiles", {}).get(base_name)
+        if not base or str((base.get("requests") or {}).get("nvidia.com/gpu")) != "1":
+            raise ValueError("Waiting for the NVIDIA KubeAI profile")
+        profile = json.loads(json.dumps(base))
+        for key in ("requests", "limits"):
+            profile.setdefault(key, {}).pop("nvidia.com/gpu", None)
+            profile[key]["appliance.magicstick.dev/nvidia-dra"] = "1"
+        profile.setdefault("nodeSelector", {})["kubernetes.io/hostname"] = device["node"]
+        # DRA injects CDI devices into ordinary containers; the NVIDIA legacy
+        # runtime must not additionally inject an arbitrary device-plugin GPU.
+        profile.pop("runtimeClassName", None)
+        if (runtime.get("offloading") or {}).get("enabled") or count > 1 or runtime.get("replicaParent"):
+            profile["requests"]["memory"] = profile["limits"]["memory"] = str(runtime["memoryMi"]) + "Mi"
+        key = base_name + "-dra-" + hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:16]
+        store = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-offloading-profiles") or {}
+        values = json.loads(store.get("data", {}).get("values.json") or "{}")
+        if values.get("resourceProfiles", {}).get(key) != profile:
+            values.setdefault("resourceProfiles", {})[key] = profile
+            encoded = json.dumps(values, sort_keys=True)
+            if len(encoded) > 750000:
+                raise ValueError("Runtime resource-profile storage is full")
+            patch_json("/api/v1/namespaces/" + FLUX_NAMESPACE + "/configmaps/magicstick-offloading-profiles", {"data": {"values.json": encoded}})
+        resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
+        resource["spec"].setdefault("env", {}).update({"MAGICSTICK_DRA_CLAIM": device["claimName"],
+            "MAGICSTICK_DRA_CLAIMS": ",".join(d["claimName"] for d in devices), "NVIDIA_VISIBLE_DEVICES": "void"})
+        if count > 1 or runtime.get("replicaParent"):
+            resource["spec"]["env"]["MAGICSTICK_GPU_UUIDS"] = ",".join(d["uuid"] for d in devices)
+            resource["spec"]["env"]["MAGICSTICK_GPU_COUNT"] = str(count)
+        runtime["gpuSharing"] = {"mode": state["mode"], "backend": "dra", "claimName": device["claimName"],
+            "node": device["node"], "nodeUid": device["nodeUid"], "device": device["uuid"], "gpuCount": count,
+            "devices": [{"uuid": d["uuid"], "nodeName": d["node"], "nodeUid": d["nodeUid"]} for d in devices],
+            "claimNames": [d["claimName"] for d in devices], "slotCount": count, "memoryIsolation": False}
+        resource["metadata"].setdefault("annotations", {}).update({
+            "appliance.magicstick.dev/gpu-sharing-mode": state["mode"],
+            "appliance.magicstick.dev/gpu-claim": device["claimName"], "appliance.magicstick.dev/gpu-device": device["uuid"]})
 
 
     def amd_dra_devices(slices, node):
@@ -1896,8 +2317,10 @@ data:
         return request if isinstance(request, str) and re.fullmatch(r"dashboard-[A-Za-z0-9._-]{1,70}", request) else ""
 
 
-    def gpu_validation_job(node, profile, engine, request_id, host, activation):
+    def gpu_validation_job(node, profile, engine, request_id, host, activation, device_identity=""):
         key = gpu_validation_key(node, profile, engine, request_id, host)
+        if device_identity:
+            key = hashlib.sha256((key + ":" + device_identity).encode()).hexdigest()[:24]
         definition = profile["engines"][engine]
         provider = profile.get("vendor", "amd")
         resource = "nvidia.com/gpu" if provider == "nvidia" else "amd.com/gpu"
@@ -2069,6 +2492,9 @@ data:
                 registered = extended_resource_capacity([node], [resource]) > 0 if resource else False
                 if vendor == "amd" and GPU_SHARING_STATE.get("nodeUid") == metadata.get("uid") and (GPU_SHARING_STATE.get("device") or {}).get("pciAddress") == pci:
                     registered = GPU_SHARING_STATE.get("phase") == "Ready"
+                if vendor == "nvidia" and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+                    registered = NVIDIA_SHARING_STATE.get("phase") == "Ready" and any(
+                        d.get("pciAddress") == pci and d.get("nodeUid") == metadata.get("uid") for d in NVIDIA_SHARING_STATE.get("devices", []))
                 if vendor == "intel":
                     registered = extended_resource_capacity([node], ["gpu.intel.com/xe", "gpu.intel.com/i915"]) > 0
                 host_ready = gpu.get("driver") in ("i915", "xe") if vendor == "intel" else bool(driver and gpu.get("driver") == driver)
@@ -2081,19 +2507,26 @@ data:
                                "expectedArchitecture": gpu.get("architecture", ""),
                                "engines": (catalog.get("diagnostics", {}).get(vendor) or {}).get("engines", {})}
                 device_id = metadata.get("uid", "") + "/" + pci
-                context = hashlib.sha256(json.dumps({"id": device_id, "boot": info.get("bootID"),
-                    "fingerprint": host.get("fingerprint"), "profile": profile,
-                    "generation": activation.get("metadata", {}).get("generation")}, sort_keys=True).encode()).hexdigest()
-                reason = ("" if eligible else "Fresh host evidence, an enabled operator and a registered GPU are required.")
                 # Legacy device plugins select a GPU themselves. Do not present
                 # a node-level allocation as a test of an arbitrarily chosen GPU.
-                if count != 1:
+                dra_device = next((d for d in NVIDIA_SHARING_STATE.get("devices", []) if vendor == "nvidia"
+                    and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra" and NVIDIA_SHARING_STATE.get("phase") == "Ready"
+                    and d.get("nodeUid") == metadata.get("uid") and d.get("pciAddress") == pci), None)
+                context_data = {"id": device_id, "boot": info.get("bootID"), "fingerprint": host.get("fingerprint"),
+                    "profile": profile, "generation": activation.get("metadata", {}).get("generation")}
+                if dra_device:
+                    context_data["gpuUuid"] = dra_device["uuid"]
+                context = hashlib.sha256(json.dumps(context_data, sort_keys=True).encode()).hexdigest()
+                reason = ("" if eligible else "Fresh host evidence, an enabled operator and a registered GPU are required.")
+                if count != 1 and not dra_device:
                     reason = "Exact-device validation requires one physical GPU per vendor on this node; sharing replicas do not count as GPUs."
                 if vendor == "nvidia" and not nvidia_whole_gpu_available(node):
                     reason = "NVIDIA diagnostics require a whole GPU resource without MIG."
                 if not profile.get("engines"):
                     reason = "No approved engine diagnostic is configured for this GPU."
                 total = gpu.get("memoryTotalMi")
+                if dra_device:
+                    total = dra_device.get("totalMi") or total
                 if vendor == "nvidia" and count == 1:
                     total = positive_int(node_labels(node).get("nvidia.com/gpu.memory")) or total
                 architecture = gpu.get("architecture", "")
@@ -2134,7 +2567,8 @@ data:
                 else:
                     node.setdefault("metadata", {}).setdefault("labels", {}).pop(identity_label, None)
         query = urllib.parse.urlencode({"labelSelector": GPU_VALIDATION_LABEL + "=true"})
-        namespaces = {APPLIANCE_NAMESPACE, GPU_SHARING_STATE.get("namespace") or APPLIANCE_NAMESPACE}
+        namespaces = {APPLIANCE_NAMESPACE, GPU_SHARING_STATE.get("namespace") or APPLIANCE_NAMESPACE,
+                      NVIDIA_SHARING_STATE.get("namespace") or APPLIANCE_NAMESPACE}
         jobs = [j for ns in namespaces for j in list_items(f"/apis/batch/v1/namespaces/{ns}/jobs?{query}")]
         pods = [p for ns in namespaces for p in list_items(f"/api/v1/namespaces/{ns}/pods?{query}")]
         jobs = gpu_validation_history(jobs, pods)
@@ -2164,11 +2598,35 @@ data:
                 if request.get("context") != item["validationContext"] or not item["validationAvailable"]:
                     report.update(state="stale", message="Device, host or configuration changed. Review and request a new test manually.")
                     continue
-                desired = gpu_validation_job(node, profile, engine, request["requestId"], host, activation)
+                device_identity = ""
+                if item["vendor"] == "nvidia" and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+                    device = next((d for d in NVIDIA_SHARING_STATE.get("devices", []) if d.get("nodeUid") == item["nodeUid"] and d.get("pciAddress") == item["pciAddress"]), None)
+                    if NVIDIA_SHARING_STATE.get("phase") != "Ready" or not device:
+                        report.update(state="stale", message="The NVIDIA DRA card identity is not ready; no diagnostic was started.")
+                        continue
+                    device_identity = item["id"] + "/" + device["uuid"]
+                desired = gpu_validation_job(node, profile, engine, request["requestId"], host, activation, device_identity)
+                if device_identity:
+                    limit = NVIDIA_SHARING_STATE.get("slotsPerDevice", 0)
+                    used = NVIDIA_SHARING_STATE.get("usedByDevice", {}).get(device["uuid"], limit)
+                    desired["metadata"]["namespace"] = NVIDIA_SHARING_STATE["namespace"]
+                    desired["metadata"].pop("ownerReferences", None)
+                    pod = desired["spec"]["template"]["spec"]
+                    pod.pop("runtimeClassName", None)
+                    pod["resourceClaims"] = [{"name": "gpu", "resourceClaimName": device["claimName"]}]
+                    engine_resources = pod["initContainers"][0]["resources"]
+                    for key in ("requests", "limits"):
+                        engine_resources[key].pop("nvidia.com/gpu", None)
+                    engine_resources["claims"] = [{"name": "gpu"}]
+                    pod["initContainers"][0].setdefault("env", []).append({"name": "NVIDIA_VISIBLE_DEVICES", "value": "void"})
                 desired["spec"]["template"]["spec"]["nodeSelector"][identity_label] = node_labels(node)[identity_label]
                 annotations = desired["metadata"]["annotations"]
                 annotations["appliance.magicstick.dev/validation-device"] = item["id"]
-                job = next((j for j in jobs if j.get("metadata", {}).get("name") == desired["metadata"]["name"]), None)
+                job = next((j for j in jobs if j.get("metadata", {}).get("name") == desired["metadata"]["name"]
+                    and j.get("metadata", {}).get("namespace") == desired["metadata"]["namespace"]), None)
+                if job and job.get("metadata", {}).get("annotations", {}).get("appliance.magicstick.dev/validation-device") != item["id"]:
+                    report.update(state="stale", message="The diagnostic belongs to another physical GPU; request a new test manually.")
+                    continue
                 report["state"] = gpu_job_state(job)
                 report["jobName"] = desired["metadata"]["name"]
                 if job:
@@ -2179,6 +2637,8 @@ data:
                     report["imageId"] = next((s.get("imageID", "") for p in owned for s in p.get("status", {}).get("initContainerStatuses", []) if s.get("name") == "engine"), job.get("_imageId", ""))
                     if report["state"] == "passed" and not validated_image_digest(report["image"], report["imageId"]):
                         report.update(state="stale", message="The completed diagnostic's runtime image identity is unavailable; no verified result is claimed.")
+                elif device_identity and used >= limit:
+                    report.update(state="queued", message="Waiting for a free diagnostic slot on this NVIDIA card; no model is stopped automatically.")
                 elif running:
                     report.update(state="queued", message="Waiting for the current GPU diagnostic to finish.")
                 else:
@@ -2600,6 +3060,8 @@ data:
             allocatable = extended_resource_capacity(supported if module == "amd-gpu" and compatibility is not None else compatible, resource_names)
             if module == "amd-gpu" and GPU_SHARING_STATE.get("mode") == "dra-shared":
                 allocatable = int(GPU_SHARING_STATE.get("phase") == "Ready")
+            if module == "gpu" and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+                allocatable = nvidia_gpu_capacity()
             activation = activations.get(module)
             activation_spec = (activation or {}).get("spec") or {}
             activation_metadata = (activation or {}).get("metadata") or {}
@@ -2750,8 +3212,7 @@ data:
                     "defaultResourceProfile": (
                         ("magicstick-ollama-cpu-memory:128" if compute_target == "cpu" else "magicstick-ollama-nvidia-gpu:1")
                         if engine == "OLlama"
-                        else ("magicstick-freetoken-nvidia-gpu:1" if engine == "FreeToken"
-                              else ("magicstick-vllm-cpu-memory:256" if compute_target == "cpu" else "magicstick-nvidia-gpu:1"))
+                        else ("magicstick-vllm-cpu-memory:256" if compute_target == "cpu" else "magicstick-nvidia-gpu:1")
                     )
                 }
             },
@@ -2835,6 +3296,7 @@ data:
         local_override_fields = (
             "modelType",
             "features",
+            "capabilities",
             "vram",
             "vramMi",
             "memoryRequiredMi",
@@ -2855,13 +3317,15 @@ data:
             "minReplicas",
             "maxReplicas",
             "env",
-            "freetoken",
             "vllm",
             "realtime",
         )
         if not artifact_controls_url:
             local_override_fields = ("url",) + local_override_fields
         merged.update({key: local[key] for key in local_override_fields if key in local})
+        for key in ("gpuDevice", "gpuDevices", "gpuDeployment"):
+            if key in local:
+                merged[key] = local[key]
         if local.get("preset"):
             merged["preset"] = local.get("preset")
         merged["computeTarget"] = compute_target
@@ -2884,7 +3348,7 @@ data:
         if set(raw) - allowed:
             raise ValueError("Unknown Realtime setting: " + ", ".join(sorted(set(raw) - allowed)))
         if str(local.get("engine") or "VLLM") != "VLLM":
-            raise ValueError("Realtime requires the vLLM-Omni profile, not Ollama or FreeToken")
+            raise ValueError("Realtime requires the vLLM-Omni profile, not Ollama")
         profiles = (((catalog or {}).get("engines") or {}).get("VLLM") or {}).get("realtimeProfiles") or {}
         profile = profiles.get(raw.get("profile")) or {}
         if not profile or local.get("computeTarget") not in profile.get("computeTargets", []):
@@ -2892,8 +3356,8 @@ data:
         if not re.fullmatch(r"hf://[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", str(local.get("url") or "")):
             raise ValueError("Realtime requires a Hugging Face repository: hf://organization/model")
         if any(local.get(key) not in (None, "", {}, [], False) for key in (
-                "vllm", "freetoken", "args", "env", "cpuOffloading", "kvCacheType", "vram", "vramMi", "memoryRequiredMi", "maxOutputTokens")):
-            raise ValueError("Realtime has its own stage memory settings; ordinary vLLM/FreeToken/offloading settings cannot be inherited")
+                "vllm", "args", "env", "cpuOffloading", "kvCacheType", "vram", "vramMi", "memoryRequiredMi", "maxOutputTokens")):
+            raise ValueError("Realtime has its own stage memory settings; ordinary vLLM/offloading settings cannot be inherited")
         if local.get("preset") or local.get("artifact"):
             raise ValueError("Realtime uses a Hugging Face repository directly, not an ordinary engine preset")
         if local.get("modelType", "chat") != "chat":
@@ -2997,11 +3461,19 @@ data:
         if "vllm" not in local:
             return None
         raw = local["vllm"]
-        if not isinstance(raw, dict) or set(raw) - {"visionAttention"}:
-            raise ValueError("local.vllm must contain only visionAttention")
+        if not isinstance(raw, dict) or set(raw) - {"visionAttention", "parallelism"}:
+            raise ValueError("local.vllm must contain only visionAttention and parallelism")
         if engine != "VLLM":
             raise ValueError("local.vllm settings are available only for vLLM")
         engine_catalog = (((catalog or {}).get("engines") or {}).get("VLLM") or {})
+        normalized = {}
+        if "parallelism" in raw:
+            capability = engine_catalog.get("multiGpu") or {}
+            if compute_target not in capability.get("computeTargets", []) or raw["parallelism"] not in capability.get("strategies", []):
+                raise ValueError("Select a multi-GPU strategy offered by the vLLM runtime catalog")
+            normalized["parallelism"] = raw["parallelism"]
+            if "visionAttention" not in raw:
+                return normalized
         deployment_settings = engine_catalog.get("deploymentSettings") or {}
         definition = deployment_settings.get("visionAttention") or {}
         if compute_target not in (definition.get("computeTargets") or []):
@@ -3009,7 +3481,7 @@ data:
         value = raw.get("visionAttention", definition.get("default", "auto"))
         if not isinstance(value, str) or value not in {item.get("value") for item in definition.get("options") or []}:
             raise ValueError("Select a vLLM vision attention backend offered by the runtime catalog")
-        return {"visionAttention": value}
+        return {**normalized, "visionAttention": value}
 
 
     def local_model_vram_mi(local):
@@ -3024,7 +3496,7 @@ data:
         """
         kind = "cpu" if compute_target == "cpu" else "gpu"
         fallback = ({"requestMillicores": 2000, "limitMillicores": 8000} if kind == "cpu"
-                    else {"requestMillicores": 4000, "limitMillicores": 8000} if engine == "FreeToken"
+
                     else {"requestMillicores": 500 if engine == "OLlama" else 1000, "limitMillicores": 0})
         defaults = ((((catalog or {}).get("engines") or {}).get(engine) or {}).get("cpuDefaults") or {}).get(kind) or fallback
         supplied = local.get("cpuResources")
@@ -3122,12 +3594,13 @@ data:
         raw_offload = local.get("cpuOffloadMi", 0)
         if isinstance(raw_offload, bool) or not isinstance(raw_offload, int) or raw_offload < 0:
             raise ValueError("local.cpuOffloadMi must be a non-negative integer")
-        host_base = 6144 if engine == "VLLM" else 4096
+        gpu_count = 1 if local.get("gpuDeployment") == "replicated" else (len(nvidia_model_devices(local)) or 1)
+        host_base = (6144 if engine == "VLLM" else 4096) + (gpu_count - 1) * 2048
         if "allowMemoryRisk" in local and not isinstance(local["allowMemoryRisk"], bool):
             raise ValueError("local.allowMemoryRisk must be a boolean")
         if memory < 16:
             raise ValueError("Host RAM must be an integer of at least 16 MiB")
-        if memory < host_base + raw_offload and local.get("allowMemoryRisk") is not True:
+        if memory < host_base + raw_offload * gpu_count and local.get("allowMemoryRisk") is not True:
             raise ValueError("Host RAM must cover offloaded weights and engine runtime")
         if positive_int(local.get("maxReplicas", 1)) != 1 or positive_int(local.get("minReplicas", 1)) not in (None, 1):
             raise ValueError("CPU offloading currently supports one model replica")
@@ -3263,7 +3736,7 @@ data:
 
 
     def apply_vllm_deployment_settings(args, env, configuration, compute_catalog):
-        if configuration is None:
+        if configuration is None or "visionAttention" not in configuration:
             return args, env
         definition = compute_catalog["engines"]["VLLM"]["deploymentSettings"]["visionAttention"]
         option = next(item for item in definition["options"] if item["value"] == configuration["visionAttention"])
@@ -3335,8 +3808,9 @@ data:
                 continue
             normalized.append(arg)
         normalized.append("--kv-cache-dtype=" + kv_cache_type)
-        if kv_cache_type == "fp8":
-            normalized.append("--calculate-kv-scales")
+        # All ordinary runtime pins use vLLM 0.31.0. That CLI removed the
+        # legacy calibration switch; FP8 still uses checkpoint/upstream scales.
+        # The wrapper only handles legacy saved arguments defensively.
         return normalized
 
 
@@ -3473,7 +3947,7 @@ data:
         return None
 
 
-    def recover_terminal_model_pod(activation, model, namespace, model_name):
+    def recover_terminal_model_pod(activation, model, namespace, model_name, replica_name=None):
         """Replace only terminal Pods owned by this exact KubeAI Model, with backoff.
 
         KubeAI 0.23.2 counts terminal Pods towards minReplicas. Never touch live,
@@ -3521,7 +3995,10 @@ data:
             # Persist before deletion: a controller crash must not reset the retry bound.
             activation_meta = activation.get("metadata") or {}
             path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{activation_meta.get('namespace')}/modelactivations/{activation_meta.get('name')}/status"
-            patch_json(path, {"status": {"podRecovery": tracker}})
+            if replica_name:
+                patch_json(path, {"status": {"replication": {"recovery": {replica_name: tracker}}}})
+            else:
+                patch_json(path, {"status": {"podRecovery": tracker}})
             try:
                 delete_json(f"/api/v1/namespaces/{namespace}/pods/{pod_meta['name']}", {
                     "apiVersion": "v1", "kind": "DeleteOptions",
@@ -3662,265 +4139,7 @@ data:
                 "replicas": len(samples), **{key: max(item[key] for item in samples) for key in ("totalMi", "vramMi", "ramMi")}}
 
 
-    def freetoken_capabilities(compute_catalog):
-        engine = ((compute_catalog or {}).get("engines") or {}).get("FreeToken") or {}
-        capabilities = engine.get("capabilities") or {}
-        return capabilities if isinstance(capabilities, dict) else {}
-
-
-    def freetoken_runtime_descriptor():
-        configmap = get_core_resource(
-            "v1", "configmaps", FREETOKEN_RUNTIME_CONFIG_NAMESPACE, FREETOKEN_RUNTIME_CONFIG_NAME
-        ) or {}
-        data = configmap.get("data") or {}
-        port = positive_int(data.get("port")) or FREETOKEN_PORT
-        image_value = str(data.get("image") or "").strip()
-        source_image = str(data.get("imageSource") or image_value).strip()
-        configured_digest = str(data.get("imageDigest") or "").strip()
-        promotion_state = str(data.get("promotionState") or "pending").strip().lower()
-        image_revision = str(data.get("imageRevision") or "").strip()
-        digest_match = re.fullmatch(r"sha256:[a-f0-9]{64}", configured_digest)
-        embedded_digest = re.search(r"@(?P<digest>sha256:[a-f0-9]{64})$", image_value)
-        image = image_value
-        image_digest = ""
-        if embedded_digest:
-            image_digest = embedded_digest.group("digest")
-        elif digest_match and image_value:
-            # Keep the public descriptor readable (repository/tag plus a
-            # separate promoted digest), but only hand a digest reference to
-            # Kubernetes.  A tag alone is intentionally not deployable.
-            repository = image_value.split("@", 1)[0]
-            tail = repository.rsplit("/", 1)[-1]
-            if ":" in tail:
-                repository = repository.rsplit(":", 1)[0]
-            image = repository + "@" + digest_match.group(0)
-            image_digest = digest_match.group(0)
-        return {
-            "image": image,
-            "sourceImage": source_image,
-            "imageDigest": image_digest,
-            "imageRevision": image_revision,
-            "promotionState": promotion_state,
-            "imagePinned": bool(
-                image_digest and promotion_state == "verified"
-                and re.fullmatch(r"[a-f0-9]{40}", image_revision)
-            ),
-            "version": str(data.get("version") or "").strip(),
-            "port": port if 1 <= port <= 65535 else FREETOKEN_PORT,
-            "healthPath": str(data.get("healthPath") or "/health").strip() or "/health",
-            "upstream": str(data.get("upstream") or "").strip(),
-        }
-
-
-    def freetoken_model_id(model_url):
-        value = str(model_url or "").strip()
-        if not value.startswith("hf://"):
-            raise ValueError("FreeToken local.url must use the hf:// scheme for a supported Hugging Face safetensors or FTW model")
-        model_id = value.removeprefix("hf://").strip().strip("/")
-        if not model_id or len(model_id) > 256 or any(character.isspace() for character in model_id):
-            raise ValueError("FreeToken local.url must contain a valid Hugging Face model ID")
-        return model_id
-
-
-    def freetoken_model_supported(model_id, capabilities):
-        matchers = capabilities.get("modelIdMatchers") or []
-        if not isinstance(matchers, list) or not matchers:
-            raise ValueError("FreeToken capability catalog has no supported model family policy")
-        try:
-            supported = any(re.search(str(pattern), model_id, re.IGNORECASE) for pattern in matchers)
-        except re.error as error:
-            raise ValueError("FreeToken capability catalog has an invalid model matcher: " + str(error))
-        if not supported:
-            families = ", ".join(str(item) for item in capabilities.get("modelFamilies") or [])
-            raise ValueError(
-                "This model is not in the documented FreeToken "
-                + str(capabilities.get("version") or "")
-                + " supported-family policy. Choose one of: " + (families or "the documented FreeToken model families") + "."
-            )
-
-
-    def freetoken_configuration(local, compute_catalog):
-        capabilities = freetoken_capabilities(compute_catalog)
-        raw = local.get("freetoken") or {}
-        if not isinstance(raw, dict):
-            raise ValueError("local.freetoken must be an object")
-        allowed = {"gpuDevice", "gpuCount", "gpuMemoryMi", "systemMemoryMi", "memoryStrategy", "restartNonce", "advanced"}
-        unknown = sorted(set(raw) - allowed)
-        if unknown:
-            raise ValueError("unsupported local.freetoken field(s): " + ", ".join(unknown))
-        gpu_memory_mi = positive_int(raw.get("gpuMemoryMi"))
-        if not gpu_memory_mi or gpu_memory_mi < 256:
-            raise ValueError("FreeToken GPU memory must be an integer of at least 256 MiB")
-        gpu_count_raw = raw.get("gpuCount")
-        gpu_count = 1 if gpu_count_raw is None else positive_int(gpu_count_raw)
-        if not gpu_count:
-            raise ValueError("FreeToken GPU count must be a positive integer")
-        system_memory_mi = positive_int(raw.get("systemMemoryMi"))
-        if not system_memory_mi or system_memory_mi < 256:
-            raise ValueError("FreeToken system RAM reservation must be an integer of at least 256 MiB")
-        strategy = str(raw.get("memoryStrategy") or "auto").strip().lower()
-        strategies = {str(item).lower() for item in capabilities.get("memoryStrategies") or []}
-        if strategy not in strategies:
-            raise ValueError("unsupported FreeToken memory strategy: " + str(raw.get("memoryStrategy")))
-        gpu_device = str(raw.get("gpuDevice") or "").strip()
-        if gpu_device and (len(gpu_device) > 256 or not re.fullmatch(r"[A-Za-z0-9._:/-]+", gpu_device)):
-            raise ValueError("FreeToken GPU selection is invalid")
-        restart_nonce = str(raw.get("restartNonce") or "").strip()
-        if len(restart_nonce) > 128:
-            raise ValueError("FreeToken restart nonce is too long")
-        advanced = raw.get("advanced") or {}
-        if not isinstance(advanced, dict):
-            raise ValueError("local.freetoken.advanced must be an object")
-        advanced_allowed = {
-            "cacheType", "kvReserveTokens", "moeCacheSize", "maxPrefillLength",
-            "cudaGraphMaxBatchSize", "cpuThreads", "expertLoad", "dtype",
-        }
-        unknown = sorted(set(advanced) - advanced_allowed)
-        if unknown:
-            raise ValueError("unsupported FreeToken advanced field(s): " + ", ".join(unknown))
-        normalized_advanced = {}
-        if advanced.get("cacheType") is not None:
-            cache_type = str(advanced.get("cacheType") or "").strip().lower()
-            if cache_type not in ("radix", "naive"):
-                raise ValueError("FreeToken cache type must be radix or naive")
-            normalized_advanced["cacheType"] = cache_type
-        for key in ("kvReserveTokens", "moeCacheSize", "maxPrefillLength", "cudaGraphMaxBatchSize", "cpuThreads"):
-            if advanced.get(key) is None:
-                continue
-            raw_value = advanced.get(key)
-            if key == "moeCacheSize" and isinstance(raw_value, int) and not isinstance(raw_value, bool) and raw_value >= 0:
-                value = raw_value
-            else:
-                value = positive_int(raw_value)
-            if value is None:
-                raise ValueError("FreeToken " + key + " must be a " + ("non-negative" if key == "moeCacheSize" else "positive") + " integer")
-            normalized_advanced[key] = value
-        if advanced.get("expertLoad") is not None:
-            expert_load = str(advanced.get("expertLoad") or "").strip().lower()
-            if expert_load not in ("auto", "serial", "parallel"):
-                raise ValueError("FreeToken expert load must be auto, serial, or parallel")
-            normalized_advanced["expertLoad"] = expert_load
-        if advanced.get("dtype") is not None:
-            dtype = str(advanced.get("dtype") or "").strip().lower()
-            if dtype not in ("auto", "float16", "bfloat16", "float32"):
-                raise ValueError("FreeToken dtype must be auto, float16, bfloat16, or float32")
-            normalized_advanced["dtype"] = dtype
-        return {
-            "gpuDevice": gpu_device,
-            # gpuMemoryMi is the aggregate budget across this runtime's
-            # whole-GPU allocation.  The entrypoint derives a conservative
-            # per-GPU memory ratio immediately before starting FreeToken.
-            "gpuCount": gpu_count,
-            "gpuMemoryMi": gpu_memory_mi,
-            "systemMemoryMi": system_memory_mi,
-            "memoryStrategy": strategy,
-            "restartNonce": restart_nonce,
-            "advanced": normalized_advanced,
-        }
-
-
-    def freetoken_nvidia_gpu_counts(node):
-        """Return physical and currently allocatable whole NVIDIA GPU counts.
-
-        ``nvidia.com/gpu.count`` denotes physical cards while the extended
-        resource denotes Kubernetes allocatable devices.  Keep both values:
-        a multi-GPU FreeToken server may use several whole cards on one node,
-        but it must never turn synthetic time-slice replicas into TP ranks.
-        """
-        labels = node_labels(node)
-        status = node.get("status") or {}
-        capacity = status.get("capacity") or {}
-        allocatable = status.get("allocatable") or {}
-        physical = (positive_int(labels.get("nvidia.com/gpu.count"))
-                    or positive_int(capacity.get("nvidia.com/gpu"))
-                    or positive_int(allocatable.get("nvidia.com/gpu")) or 0)
-        available = positive_int(allocatable.get("nvidia.com/gpu")) or 0
-        return {"physical": physical, "allocatable": available}
-
-
-    def freetoken_nvidia_inventory(node):
-        host = gpu_host_preflight(node)
-        return [item for item in host.get("displayDevices") or []
-                if isinstance(item, dict) and str(item.get("vendorId") or "").lower() == "10de"]
-
-
-    def freetoken_eligible_nodes(definition, capabilities):
-        """Find nodes that can supply one or more whole, homogeneous GPUs.
-
-        Kubernetes allocates the individual device IDs.  Magic Stick pins the
-        Pod to one node and asks for an integer number of ``nvidia.com/gpu``
-        devices; FreeToken then receives only those devices through the
-        container's CUDA visibility and maps its logical TP ranks to 0..N-1.
-        A node with MIG, time-slicing, stale inventory, or mixed GPU models is
-        intentionally excluded instead of guessing a cross-device topology.
-        """
-        reasons = []
-        nodes = compute_target_nodes(definition, "FreeToken")
-        expected_cc = {str(item) for item in capabilities.get("supportedComputeCapabilities") or []}
-        eligible = []
-        for node in nodes:
-            labels = node_labels(node)
-            counts = freetoken_nvidia_gpu_counts(node)
-            physical_count = counts["physical"]
-            allocatable_count = counts["allocatable"]
-            replicas = positive_int(labels.get("nvidia.com/gpu.replicas")) or 1
-            major = str(labels.get("nvidia.com/gpu.compute.major") or "").strip()
-            minor = str(labels.get("nvidia.com/gpu.compute.minor") or "0").strip()
-            compute_capability = major + "." + minor if major else ""
-            if physical_count < 1 or allocatable_count < 1:
-                reasons.append(node_name(node) + " has no allocatable whole NVIDIA GPU")
-                continue
-            if replicas != 1 or allocatable_count > physical_count:
-                reasons.append(node_name(node) + " uses NVIDIA time-slicing or synthetic GPU slots; FreeToken requires whole GPUs")
-                continue
-            if not nvidia_whole_gpu_available(node):
-                reasons.append(node_name(node) + " exposes a MIG or non-whole NVIDIA GPU resource")
-                continue
-            if not compute_capability or (expected_cc and compute_capability not in expected_cc):
-                reasons.append(node_name(node) + " has unsupported or unreported NVIDIA compute capability " + (compute_capability or "unknown"))
-                continue
-            devices = freetoken_nvidia_inventory(node)
-            if len(devices) != physical_count:
-                reasons.append(node_name(node) + " lacks fresh complete NVIDIA GPU inventory required by FreeToken")
-                continue
-            if any(not str(item.get("deviceId") or "").strip()
-                   and not str(item.get("name") or "").strip() for item in devices):
-                # A set of empty tuples would otherwise look homogeneous even
-                # though it carries no topology identity at all.  Refuse
-                # multi-device placement until the host probe can identify
-                # every physical card.
-                reasons.append(node_name(node) + " has incomplete NVIDIA GPU identity inventory required by FreeToken")
-                continue
-            # Node labels expose one compute capability/memory class.  Only
-            # use them for several devices when the fresh PCI inventory says
-            # that every card is the same model.  This prevents an accidental
-            # TP deployment across mixed cards with different limits.
-            identities = {
-                (str(item.get("deviceId") or "").lower(), str(item.get("name") or "").strip().lower())
-                for item in devices
-            }
-            if len(identities) != 1:
-                reasons.append(node_name(node) + " has mixed NVIDIA GPU models; FreeToken tensor parallelism requires homogeneous whole GPUs")
-                continue
-            minimum_driver = positive_int(capabilities.get("minimumNvidiaDriverMajor")) or 0
-            driver_majors = []
-            for item in devices:
-                match = re.match(r"\s*(\d+)", str(item.get("driverVersion") or ""))
-                if not match:
-                    driver_majors = []
-                    break
-                driver_majors.append(int(match.group(1)))
-            if len(driver_majors) != len(devices) or min(driver_majors) < minimum_driver:
-                reasons.append(node_name(node) + " lacks fresh NVIDIA driver r" + str(minimum_driver) + "+ evidence required by FreeToken")
-                continue
-            eligible.append(node)
-        if not eligible:
-            detail = "; ".join(reasons[:3]) or "no ready NVIDIA GPU with the required FreeToken capability was found"
-            raise ValueError("FreeToken is unavailable: " + detail + ".")
-        return eligible
-
-
-    def freetoken_node_memory_mi(value):
+    def node_memory_mi(value):
         """Convert a Kubernetes memory Quantity into a conservative MiB bound.
 
         Node allocatable memory is the scheduler's static upper limit, unlike
@@ -3942,114 +4161,6 @@ data:
         decimal = {"K": 1000, "M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4,
                    "P": 1000 ** 5, "E": 1000 ** 6, "m": 0.001}
         return int(number * (binary.get(suffix) or decimal.get(suffix) or 1) / (1024 ** 2))
-
-
-    def freetoken_static_node_limits(node, gpu_count):
-        """Return evidenced per-device limits for one selected FreeToken node.
-
-        FreeToken's ``--memory-ratio`` is applied to each tensor-parallel
-        rank.  The user-facing ``gpuMemoryMi`` remains the aggregate runtime
-        budget, so admission uses the lowest verified VRAM capacity of the
-        homogeneous assigned cards and the entrypoint divides the aggregate
-        budget conservatively across all requested ranks.
-        """
-        name = node_name(node)
-        labels = node_labels(node)
-        counts = freetoken_nvidia_gpu_counts(node)
-        physical_count = counts["physical"]
-        allocatable_count = counts["allocatable"]
-        if gpu_count > physical_count or gpu_count > allocatable_count:
-            raise ValueError(
-                "FreeToken requested " + str(gpu_count) + " whole NVIDIA GPUs on selected node " + name
-                + ", but only " + str(allocatable_count) + " are currently allocatable."
-            )
-        devices = freetoken_nvidia_inventory(node)
-        if len(devices) != physical_count:
-            raise ValueError(
-                "FreeToken cannot verify complete NVIDIA GPU inventory on selected node " + name
-                + ". Refresh GPU inventory before selecting tensor parallelism."
-            )
-        if any(not str(item.get("deviceId") or "").strip()
-               and not str(item.get("name") or "").strip() for item in devices):
-            raise ValueError(
-                "FreeToken cannot verify NVIDIA GPU identities on selected node " + name
-                + ". Refresh GPU inventory before selecting tensor parallelism."
-            )
-        # Host inventory is per device when the preflight can observe it.  A
-        # node-level GPU memory label is accepted only as an additional
-        # conservative per-device bound on a homogeneous node.
-        host_vram = [
-            positive_int(item.get("memoryTotalMi")) for item in devices
-            if positive_int(item.get("memoryTotalMi"))
-        ]
-        vram_candidates = host_vram if len(host_vram) == len(devices) else []
-        label_reported = positive_int(labels.get("nvidia.com/gpu.memory"))
-        if label_reported:
-            vram_candidates.append(label_reported)
-        if not vram_candidates:
-            raise ValueError(
-                "FreeToken cannot verify total VRAM on selected node " + name
-                + ". Refresh GPU inventory before choosing a FreeToken VRAM budget."
-            )
-        allocatable = ((node.get("status") or {}).get("allocatable") or {}).get("memory")
-        system_memory_mi = freetoken_node_memory_mi(allocatable)
-        if not system_memory_mi:
-            raise ValueError(
-                "FreeToken cannot verify Kubernetes allocatable RAM on selected node " + name
-                + ". Refresh node inventory before choosing a FreeToken system RAM reservation."
-            )
-        per_device_vram_mi = min(vram_candidates)
-        return {
-            "node": name,
-            "gpuCount": gpu_count,
-            "availableGpuCount": allocatable_count,
-            "vramMiPerDevice": per_device_vram_mi,
-            "vramMi": per_device_vram_mi * gpu_count,
-            "systemMemoryMi": system_memory_mi,
-        }
-
-
-    def validate_freetoken_static_limits(config, node):
-        gpu_count = config["gpuCount"]
-        limits = freetoken_static_node_limits(node, gpu_count)
-        # An aggregate budget is deliberately rounded down per rank.  This
-        # never lets a process consume more VRAM than the user requested.
-        per_device_budget_mi = config["gpuMemoryMi"] // gpu_count
-        if per_device_budget_mi < 256:
-            raise ValueError(
-                "FreeToken GPU memory budget must provide at least 256 MiB for each of the "
-                + str(gpu_count) + " requested GPUs."
-            )
-        if per_device_budget_mi > limits["vramMiPerDevice"]:
-            raise ValueError(
-                "FreeToken GPU memory budget requires " + str(per_device_budget_mi) + " MiB per GPU ("
-                + str(config["gpuMemoryMi"]) + " MiB across " + str(gpu_count) + " GPUs), exceeding detected per-GPU VRAM ("
-                + str(limits["vramMiPerDevice"]) + " MiB) on selected node " + limits["node"]
-                + ". Reduce the FreeToken VRAM budget or select another GPU node."
-            )
-        if config["systemMemoryMi"] > limits["systemMemoryMi"]:
-            raise ValueError(
-                "FreeToken system RAM reservation (" + str(config["systemMemoryMi"]) + " MiB) exceeds Kubernetes allocatable RAM ("
-                + str(limits["systemMemoryMi"]) + " MiB) on selected node " + limits["node"]
-                + ". Reduce the FreeToken system RAM reservation or select another GPU node."
-            )
-        return {**limits, "gpuMemoryPerDeviceMi": per_device_budget_mi}
-
-
-    def freetoken_tensor_parallel_model_supported(model_id, gpu_count, capabilities):
-        """Reject only model families upstream explicitly marks TP-incompatible."""
-        if gpu_count <= 1:
-            return
-        matchers = capabilities.get("tensorParallelUnsupportedModelIdMatchers") or []
-        try:
-            incompatible = any(re.search(str(pattern), model_id, re.IGNORECASE) for pattern in matchers)
-        except re.error as error:
-            raise ValueError("FreeToken capability catalog has an invalid tensor-parallel model matcher: " + str(error))
-        if incompatible:
-            raise ValueError(
-                "The selected FreeToken model does not support tensor parallelism in the pinned FreeToken version. "
-                "Choose one GPU or a documented tensor-parallel-compatible model."
-            )
 
 
     def realtime_bootstrap_source():
@@ -4146,7 +4257,7 @@ data:
                 raise ValueError("The saved GPU sharing node identity changed; refresh Hardware")
             require_sharing_slot({"metadata": {"name": metadata["name"], "namespace": spec.get("targetNamespace") or "ai"},
                                   "spec": {"minReplicas": 1, "maxReplicas": 1}}, sharing)
-        ram = freetoken_node_memory_mi(((node.get("status") or {}).get("allocatable") or {}).get("memory"))
+        ram = node_memory_mi(((node.get("status") or {}).get("allocatable") or {}).get("memory"))
         if not ram or config["systemMemoryMi"] > ram:
             raise ValueError("Realtime system RAM exceeds the selected node's allocatable RAM")
         memory = realtime_memory_plan(node, profile, config)
@@ -4348,202 +4459,8 @@ data:
         return deleted
 
 
-    def freetoken_runtime_resources(activation, presets, compute_catalog=None):
-        metadata = activation.get("metadata") or {}
-        spec = activation.get("spec") or {}
-        name = metadata.get("name")
-        namespace = spec.get("targetNamespace") or "ai"
-        local = merged_local_model(activation, presets, compute_catalog)
-        if local.get("engine") != "FreeToken":
-            raise ValueError("FreeToken runtime resource requested for another engine")
-        compute_target = str(local.get("computeTarget") or "").strip().lower()
-        model_vllm_configuration(local, "FreeToken", compute_target, compute_catalog)
-        if compute_target != "nvidia-gpu":
-            raise ValueError("FreeToken " + str(freetoken_capabilities(compute_catalog).get("version") or "") + " supports NVIDIA GPUs only")
-        if local.get("cpuOffloading") is True or local.get("kvCacheType") not in (None, ""):
-            raise ValueError("FreeToken uses local.freetoken settings and cannot inherit CPU offloading or KV-cache settings")
-        if local.get("args") or local.get("env"):
-            raise ValueError("FreeToken accepts only documented local.freetoken settings; arbitrary runtime arguments and environment overrides are not allowed")
-        if non_negative_int(local.get("minReplicas"), 1) != 1 or non_negative_int(local.get("maxReplicas"), 1) != 1:
-            raise ValueError("FreeToken supports exactly one model server replica")
-        target_definition = compute_target_definition(compute_target, compute_catalog, "FreeToken")
-        capabilities = freetoken_capabilities(compute_catalog)
-        supported_vendors = {str(item).lower() for item in capabilities.get("supportedVendors") or []}
-        if "nvidia" not in supported_vendors:
-            raise ValueError("FreeToken capability catalog does not permit NVIDIA")
-        eligible_nodes = freetoken_eligible_nodes(target_definition, capabilities)
-        model_url = str(local.get("url") or "").strip()
-        model_id = freetoken_model_id(model_url)
-        freetoken_model_supported(model_id, capabilities)
-        config = freetoken_configuration(local, compute_catalog)
-        cpu_resources = model_cpu_resources(local, "FreeToken", compute_target, compute_catalog)
-        freetoken_tensor_parallel_model_supported(model_id, config["gpuCount"], capabilities)
-        eligible_by_name = {node_name(node): node for node in eligible_nodes}
-        selected_node = ""
-        if config["gpuDevice"]:
-            if not config["gpuDevice"].startswith("node:"):
-                raise ValueError("FreeToken GPU selection must be an eligible node inventory ID")
-            selected_node = config["gpuDevice"].removeprefix("node:")
-            if selected_node not in eligible_by_name:
-                raise ValueError("The selected FreeToken GPU node is no longer eligible")
-        elif len(eligible_nodes) == 1:
-            selected_node = node_name(eligible_nodes[0])
-        else:
-            raise ValueError("Select one eligible FreeToken GPU node before starting the model")
-        # Validate requested static Pod and GPU ceilings while we still have a
-        # concrete node selection.  The entrypoint re-samples *free* VRAM on
-        # every CUDA-visible TP rank only to catch races between this admission
-        # check and process start.
-        static_limits = validate_freetoken_static_limits(config, eligible_by_name[selected_node])
-        descriptor = freetoken_runtime_descriptor()
-        service_name = managed_resource_name(name, "freetoken")
-        port = descriptor.get("port") or FREETOKEN_PORT
-        labels = {
-            "app": "model",
-            "model": name,
-            "app.kubernetes.io/name": "freetoken",
-            "app.kubernetes.io/managed-by": "magicstick-operator",
-            "appliance.magicstick.dev/modelactivation": name,
-            "appliance.magicstick.dev/compute-target": compute_target,
-            "appliance.magicstick.dev/engine": "freetoken",
-            "appliance.magicstick.dev/runtime-backend": "freetoken",
-        }
-        annotations = {
-            "appliance.magicstick.dev/runtime-endpoint": "http://" + service_name + "." + namespace + ".svc.cluster.local:" + str(port) + "/v1",
-            "appliance.magicstick.dev/freetoken-version": str(capabilities.get("version") or descriptor.get("version") or ""),
-            "appliance.magicstick.dev/freetoken-gpu-count": str(config["gpuCount"]),
-        }
-        if config["restartNonce"]:
-            annotations["appliance.magicstick.dev/restart-nonce"] = config["restartNonce"]
-        profile = compute_target_engine_profile(target_definition, "FreeToken")
-        node_selector = dict(target_definition.get("nodeSelector") or {})
-        node_selector.update(profile.get("nodeSelector") or {})
-        if selected_node:
-            # `node:<name>` is selected after verifying one or more
-            # homogeneous whole NVIDIA GPUs on that node. Kubernetes then owns
-            # the actual CUDA_VISIBLE_DEVICES/CDI device binding.
-            node_selector["kubernetes.io/hostname"] = selected_node
-        env_values = {
-            "MAGICSTICK_FREETOKEN_MODEL": model_id,
-            "MAGICSTICK_FREETOKEN_SERVED_MODEL_NAME": str(name),
-            # The total user budget is split conservatively inside the
-            # entrypoint.  It then maps each TP rank to the same ratio against
-            # the lowest current free VRAM among the Kubernetes-assigned GPUs.
-            "MAGICSTICK_FREETOKEN_VRAM_BUDGET_MI": str(config["gpuMemoryMi"]),
-            "MAGICSTICK_FREETOKEN_GPU_COUNT": str(config["gpuCount"]),
-            "MAGICSTICK_FREETOKEN_MOE_STRATEGY": config["memoryStrategy"],
-            "FREETOKEN_HOME": "/var/lib/freetoken",
-            "HF_HOME": "/var/lib/freetoken/huggingface",
-            "HOME": "/var/lib/freetoken",
-            "XDG_CACHE_HOME": "/var/lib/freetoken/cache",
-        }
-        advanced_env = {
-            "cacheType": "MAGICSTICK_FREETOKEN_CACHE_TYPE",
-            "kvReserveTokens": "MAGICSTICK_FREETOKEN_KV_RESERVE_TOKENS",
-            "moeCacheSize": "MAGICSTICK_FREETOKEN_MOE_CACHE_SIZE",
-            "maxPrefillLength": "MAGICSTICK_FREETOKEN_MAX_PREFILL_LENGTH",
-            "cudaGraphMaxBatchSize": "MAGICSTICK_FREETOKEN_CUDA_GRAPH_MAX_BS",
-            "cpuThreads": "MAGICSTICK_FREETOKEN_MOE_CPU_THREADS",
-            "expertLoad": "MAGICSTICK_FREETOKEN_EXPERT_LOAD",
-            "dtype": "MAGICSTICK_FREETOKEN_DTYPE",
-        }
-        context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
-        max_num_seqs = positive_int(local.get("maxNumSeqs") or local.get("max_num_seqs"))
-        max_output_tokens = positive_int(local.get("maxOutputTokens") or local.get("max_output_tokens"))
-        if context_window:
-            env_values["MAGICSTICK_FREETOKEN_CONTEXT_LENGTH"] = str(context_window)
-        if max_num_seqs:
-            env_values["MAGICSTICK_FREETOKEN_MAX_RUNNING_REQUESTS"] = str(max_num_seqs)
-        if max_output_tokens:
-            env_values["MAGICSTICK_FREETOKEN_MAX_OUTPUT_TOKENS"] = str(max_output_tokens)
-        for key, value in config["advanced"].items():
-            env_name = advanced_env.get(key)
-            if env_name:
-                env_values[env_name] = str(value)
-        container = {
-            "name": "freetoken",
-            "image": descriptor.get("image") or "",
-            "imagePullPolicy": "IfNotPresent",
-            "ports": [{"name": "http", "containerPort": port, "protocol": "TCP"}],
-            "env": [{"name": key, "value": value} for key, value in sorted(env_values.items())],
-            "resources": {
-                "requests": {"cpu": str(cpu_resources["requestMillicores"]) + "m", "memory": str(config["systemMemoryMi"]) + "Mi", "nvidia.com/gpu": str(config["gpuCount"])},
-                "limits": {**({"cpu": str(cpu_resources["limitMillicores"]) + "m"} if cpu_resources["limitMillicores"] else {}), "memory": str(config["systemMemoryMi"]) + "Mi", "nvidia.com/gpu": str(config["gpuCount"])},
-            },
-            # The upstream endpoint can return HTTP 200 together with
-            # {"status":"error"}.  Use the image adapter so Kubernetes does
-            # not advertise a logically failed runtime as Ready merely because
-            # its HTTP listener is still alive.
-            # FreeToken exposes /health while a model is still downloading,
-            # loading, or warming CUDA graphs.  Startup must only establish
-            # that the process is live; using the stricter ready state here
-            # would restart large models after an arbitrary timeout and lose
-            # their emptyDir cache.  Readiness remains strict below, so the
-            # Service does not receive traffic until the model is usable.
-            "startupProbe": {"exec": {"command": ["/usr/local/bin/magicstick-freetoken", "health-live"]}, "periodSeconds": 5, "failureThreshold": 24},
-            "readinessProbe": {"exec": {"command": ["/usr/local/bin/magicstick-freetoken", "health-ready"]}, "periodSeconds": 5, "failureThreshold": 12},
-            "livenessProbe": {"exec": {"command": ["/usr/local/bin/magicstick-freetoken", "health-live"]}, "periodSeconds": 20, "failureThreshold": 6},
-            "volumeMounts": [{"name": "runtime-cache", "mountPath": "/var/lib/freetoken"}],
-        }
-        deployment = {
-            "apiVersion": "apps/v1", "kind": "Deployment",
-            "metadata": {"name": service_name, "namespace": namespace, "labels": labels, "annotations": annotations},
-            "spec": {
-                "replicas": 1,
-                "strategy": {"type": "Recreate"},
-                "selector": {"matchLabels": {"app": "model", "model": name, "appliance.magicstick.dev/runtime-backend": "freetoken"}},
-                "template": {
-                    "metadata": {"labels": labels, "annotations": annotations},
-                    "spec": {
-                        "securityContext": {"fsGroup": 10001, "fsGroupChangePolicy": "OnRootMismatch"},
-                        # The NVIDIA Operator installs the CDI/runtime hook
-                        # through this RuntimeClass.  Without it, a direct
-                        # Deployment can receive a scheduler GPU allocation
-                        # yet fail to expose CUDA devices in the container.
-                        "runtimeClassName": "nvidia",
-                        "nodeSelector": node_selector,
-                        "tolerations": [{"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}],
-                        "containers": [container],
-                        "volumes": [{"name": "runtime-cache", "emptyDir": {}}],
-                    },
-                },
-            },
-        }
-        service = {
-            "apiVersion": "v1", "kind": "Service",
-            "metadata": {"name": service_name, "namespace": namespace, "labels": labels, "annotations": annotations},
-            "spec": {"type": "ClusterIP", "selector": {"app": "model", "model": name, "appliance.magicstick.dev/runtime-backend": "freetoken"},
-                     "ports": [{"name": "http", "port": port, "targetPort": "http", "protocol": "TCP"}]},
-        }
-        return deployment, service, {
-            "backend": "freetoken", "computeTarget": compute_target, "engine": "FreeToken",
-            "cpuResources": cpu_resources,
-            "artifact": str(local.get("artifact") or ""), "precision": str(local.get("precision") or ""),
-            "quantization": str(local.get("quantization") or ""), "kvCacheType": "",
-            "resourceProfile": str(local.get("resourceProfile") or ""),
-            "vramMi": config["gpuMemoryMi"], "memoryMi": config["systemMemoryMi"],
-            "runtimeReady": False, "serviceName": service_name, "servicePort": port,
-            "runtimeEndpoint": annotations["appliance.magicstick.dev/runtime-endpoint"],
-            "runtimeDescriptor": descriptor, "freetoken": config,
-            "staticLimits": static_limits,
-            "gpuCount": config["gpuCount"],
-            "gpuMemoryPerDeviceMi": static_limits["gpuMemoryPerDeviceMi"],
-            # This field describes unified-memory accounting, not GPU
-            # scheduling. Whole-device exclusivity belongs in gpuSharing.
-            "gpuAllocationMode": "",
-            "gpuSharing": {
-                "mode": "exclusive", "node": selected_node,
-                # `vramRequiredMi` remains the aggregate reservation in the
-                # regular status contract.  Keep the corresponding per-device
-                # amount next to the TP allocation so operators can inspect
-                # both without changing vLLM/Ollama memory semantics.
-                "wholeGpuCount": config["gpuCount"], "tensorParallelSize": config["gpuCount"],
-                "vramMiPerDevice": static_limits["gpuMemoryPerDeviceMi"],
-            } if selected_node else None,
-        }
-
-
     def delete_freetoken_runtime(name, namespace):
+        # Cleanup-only compatibility for definitions saved before engine removal.
         service_name = managed_resource_name(name, "freetoken")
         deleted = False
         if get_resource("apps", "v1", "deployments", namespace, service_name):
@@ -4555,182 +4472,39 @@ data:
         return deleted
 
 
-    def delete_local_runtime(name, namespace, engine):
+    def delete_local_runtime(name, namespace, engine, activation_uid=None):
         # The Dashboard keeps an activation's engine immutable.  Only inspect
         # the backend that this activation actually owns: otherwise every
         # vLLM/Ollama reconciliation would make needless API calls for a
         # same-named FreeToken Deployment.
-        normalized = normalize_local_engine(engine)
-        if normalized == "FreeToken":
+        if str(engine).strip().upper() == "FREETOKEN":
             return delete_freetoken_runtime(name, namespace)
-        if get_resource("kubeai.org", "v1", "models", namespace, name):
-            delete_kubeai_model(name, namespace)
+        model = get_resource("kubeai.org", "v1", "models", namespace, name)
+        if model:
+            metadata = model.get("metadata") or {}
+            labels = metadata.get("labels") or {}
+            if (labels.get("app.kubernetes.io/managed-by") != FIELD_MANAGER
+                    or labels.get("appliance.magicstick.dev/modelactivation") != name
+                    or activation_uid and labels.get("appliance.magicstick.dev/activation-uid") not in (None, activation_uid)):
+                raise ValueError("A foreign runtime occupies this model name; its identity was not changed")
+            if not metadata.get("uid") or not metadata.get("resourceVersion"):
+                raise ValueError("Cannot retire a model without its current Kubernetes identity")
+            if not metadata.get("deletionTimestamp"):
+                # Background deletion can remove the Model before its Pods. Keep
+                # its exact identity until garbage collection drains dependents.
+                delete_json(f"/apis/kubeai.org/v1/namespaces/{namespace}/models/{name}", {
+                    "apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Foreground",
+                    "preconditions": {"uid": metadata["uid"], "resourceVersion": metadata["resourceVersion"]}})
             return True
-        return False
-
-
-    def freetoken_health(endpoint):
-        # The public serving endpoint is versioned (/v1), while FreeToken exposes
-        # its process health endpoint at the service root.  Do not probe
-        # /v1/health: that is not a documented FreeToken endpoint.
-        base_endpoint = endpoint.rstrip("/")
-        if base_endpoint.endswith("/v1"):
-            base_endpoint = base_endpoint[:-3]
-        request = urllib.request.Request(base_endpoint + "/health", headers={"Accept": "application/json"}, method="GET")
-        try:
-            with urllib.request.urlopen(request, timeout=FREETOKEN_HEALTH_TIMEOUT_SECONDS) as response:
-                raw = response.read().decode("utf-8", errors="replace")
-                try:
-                    payload = json.loads(raw) if raw else {}
-                except ValueError:
-                    # The documented server uses JSON, but a successful simple
-                    # health response is still evidence that the ready runtime
-                    # is reachable. Keep model errors for logs/status rather
-                    # than permanently blocking on a representation detail.
-                    return "ok", "", {}
-                if not isinstance(payload, dict):
-                    return "ok", "", {}
-                status = str(payload.get("status") or "").strip().lower()
-                message = str(payload.get("message") or payload.get("error") or "").strip()
-                if status in ("ok", "ready", "healthy"):
-                    return "ok", "", payload
-                if status == "error":
-                    return "error", freetoken_user_error(message), payload
-                progress = payload.get("progress") or {}
-                if isinstance(progress, dict) and positive_int(progress.get("done_bytes")) and positive_int(progress.get("total_bytes")):
-                    message = "Loading model: " + str(progress.get("done_bytes")) + "/" + str(progress.get("total_bytes")) + " bytes."
-                return "loading", message or "FreeToken is loading the model.", payload
-        except urllib.error.HTTPError as error:
-            try:
-                raw = error.read().decode("utf-8", errors="replace")
-                payload = json.loads(raw) if raw else {}
-            except (ValueError, TypeError):
-                payload = {}
-            detail = ""
-            if isinstance(payload, dict):
-                detail = str(payload.get("message") or payload.get("error") or "").strip()
-                if str(payload.get("status") or "").strip().lower() == "error":
-                    return "error", freetoken_user_error(detail), payload
-            # A bare 503 is commonly a transient server-start state. Other
-            # terminal HTTP failures with a useful diagnostic are reported as
-            # an actionable model failure rather than an endless spinner.
-            if error.code >= 500 and error.code != 503 and detail:
-                return "error", freetoken_user_error(detail), payload
-            return "loading", "Waiting for FreeToken health endpoint (HTTP " + str(error.code) + ").", payload
-        except (urllib.error.URLError, OSError, ValueError, TimeoutError) as error:
-            return "loading", "Waiting for FreeToken health endpoint: " + str(error)[:240], {}
-
-
-    def freetoken_user_error(message):
-        detail = str(message or "").strip()[:600]
-        lowered = detail.lower()
-        if any(token in lowered for token in ("out of memory", "cuda oom", "memory ratio", "vram", "memory allocation")):
-            return "FreeToken could not reserve the requested GPU memory. Reduce the FreeToken VRAM budget, context, or concurrency, or choose a smaller model. " + detail
-        if any(token in lowered for token in ("driver", "cuda", "compute capability", "nvcc")):
-            return "The selected NVIDIA GPU does not meet the FreeToken runtime requirement (CUDA 13 / NVIDIA driver r580+). " + detail
-        if any(token in lowered for token in ("model", "safetensors", "checkpoint", "architecture")):
-            return "FreeToken could not load this model artifact. Select a documented FreeToken safetensors or FTW model. " + detail
-        return "FreeToken reported a runtime error. " + detail
-
-
-    def freetoken_runtime_stats(endpoint):
-        """Normalize the documented FreeToken v0.1.3 /v1/stats payload.
-
-        Keep this contract flat and engine-specific so callers never need to
-        understand FreeToken's nested throughput/requests/KV wire shape.  It
-        is deliberately separate from memoryUsage, whose existing consumers
-        expect Ollama/KubeAI semantics rather than a process telemetry feed.
-        """
-        base_endpoint = endpoint.rstrip("/")
-        if not base_endpoint.endswith("/v1"):
-            base_endpoint += "/v1"
-        request = urllib.request.Request(base_endpoint + "/stats", headers={"Accept": "application/json"}, method="GET")
-        try:
-            with urllib.request.urlopen(request, timeout=FREETOKEN_HEALTH_TIMEOUT_SECONDS) as response:
-                payload = json.loads(response.read().decode("utf-8", errors="replace") or "{}")
-        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError, TimeoutError):
-            return None
-        if not isinstance(payload, dict):
-            return None
-        def number(value, default=0):
-            return value if isinstance(value, (int, float)) and not isinstance(value, bool) else default
-
-        def nested(name):
-            value = payload.get(name)
-            return value if isinstance(value, dict) else {}
-
-        throughput = nested("throughput")
-        requests = nested("requests")
-        kv = nested("kv")
-        mamba = nested("mamba")
-        swa = nested("swa")
-        gpu_bytes = number(payload.get("vram_bytes"))
-        decode_tps = number(throughput.get("decode_tps"))
-        prefill_tps = number(throughput.get("prefill_tps"))
-        prompt_tokens = number(requests.get("prompt_tokens_total"))
-        completion_tokens = number(requests.get("completion_tokens_total"))
-        return {
-            "source": "freetoken-v1-stats/v0.1.3",
-            "sampledAt": datetime.now(timezone.utc).isoformat(),
-            "vramMi": int((gpu_bytes + (1024 ** 2) - 1) // (1024 ** 2)) if gpu_bytes > 0 else 0,
-            "decodeTokensPerSecond": decode_tps,
-            "prefillTokensPerSecond": prefill_tps,
-            "tokensPerSecond": decode_tps + prefill_tps,
-            "activeRequests": number(requests.get("active")),
-            "completedRequests": number(requests.get("completed")),
-            "p95LatencyMs": number(requests.get("p95_ms")),
-            "ttftMs": number(requests.get("ttft_mean_ms")),
-            "promptTokens": prompt_tokens,
-            "completionTokens": completion_tokens,
-            "lifetimeTokens": prompt_tokens + completion_tokens,
-            "kvUsedPages": number(kv.get("used_pages")),
-            "kvTotalPages": number(kv.get("total_pages")),
-            "kvPageSize": number(kv.get("page_size")),
-            "mambaUsedSlots": number(mamba.get("used_slots")),
-            "mambaTotalSlots": number(mamba.get("total_slots")),
-            "swaUsedPages": number(swa.get("used_pages")),
-            "swaTotalPages": number(swa.get("total_pages")),
-            "swaPageSize": number(swa.get("page_size")),
-        }
-
-
-    def reconcile_freetoken_runtime(activation, deployment, service, runtime):
-        descriptor = runtime.get("runtimeDescriptor") or {}
-        if not descriptor.get("image"):
-            return "WaitingForRuntime", "WaitingForFreeTokenRuntime", "Waiting for the FreeToken runtime module to publish its image descriptor."
-        if descriptor.get("imagePinned") is not True:
-            return "WaitingForRuntime", "FreeTokenRuntimeImageUnverified", "Waiting for a verified, immutable digest-pinned FreeToken runtime image. Build and promote the runtime image before starting a model."
-        apply_resource(service)
-        apply_resource(deployment)
-        namespace = (deployment.get("metadata") or {}).get("namespace") or "ai"
-        name = (deployment.get("metadata") or {}).get("name") or ""
-        current = get_resource("apps", "v1", "deployments", namespace, name) or deployment
-        status = current.get("status") or {}
-        ready = non_negative_int(status.get("readyReplicas"), 0)
-        available = non_negative_int(status.get("availableReplicas"), 0)
-        if ready < 1 or available < 1:
-            # A FreeToken process can bind its HTTP listener before the
-            # Deployment marks a replica Ready.  Inspect an explicit runtime
-            # error now so a bad model/OOM is actionable immediately rather
-            # than remaining a generic Pod-starting status until Kubernetes
-            # reaches its Deployment deadline. Loading and no-endpoint states
-            # deliberately remain Starting below.
-            state, health_message, _payload = freetoken_health(runtime.get("runtimeEndpoint") or "")
-            if state == "error":
-                return "Degraded", "FreeTokenHealthFailed", health_message
-            conditions = status.get("conditions") or []
-            failure = next((item for item in conditions if item.get("type") == "Progressing" and item.get("status") == "False"), None)
-            if failure:
-                return "Degraded", "FreeTokenDeploymentFailed", "FreeToken Deployment failed: " + str(failure.get("message") or failure.get("reason") or "unknown deployment error")[:500]
-            return "Starting", "WaitingForFreeTokenPod", "Waiting for the FreeToken model Pod to become ready."
-        state, message, _payload = freetoken_health(runtime.get("runtimeEndpoint") or "")
-        if state == "error":
-            return "Degraded", "FreeTokenHealthFailed", message
-        if state != "ok":
-            return "Starting", "WaitingForFreeTokenHealth", message
-        runtime["runtimeReady"] = True
-        runtime["freeTokenStats"] = freetoken_runtime_stats(runtime.get("runtimeEndpoint") or "")
-        return "Ready", "FreeTokenRuntimeReady", "FreeToken is healthy and serving the configured model."
+        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + name})
+        # Also fence Pods left by an older background deletion. Even Succeeded
+        # Pods can still hold a container task, volumes or a GPU claim. Waiting
+        # does not adopt or delete a same-named foreign Pod; no claim/cache or
+        # Pod is force-deleted to make Stop appear complete.
+        return any(p.get("metadata", {}).get("namespace") == namespace
+                   and p.get("metadata", {}).get("labels", {}).get("app") == "model"
+                   and p.get("metadata", {}).get("labels", {}).get("model") == name
+                   for p in list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}"))
 
 
     def kubeai_model_resource(activation, presets, compute_catalog=None):
@@ -4741,6 +4515,24 @@ data:
         local = merged_local_model(activation, presets, compute_catalog)
         compute_target = local.get("computeTarget") or "nvidia-gpu"
         engine = local.get("engine") or "VLLM"
+        selections = nvidia_model_devices(local)
+        gpu_count = len(selections) or 1
+        deployment_mode = local.get("gpuDeployment", "split" if gpu_count > 1 else "single")
+        if deployment_mode not in ("single", "split", "replicated"):
+            raise ValueError("Unknown GPU deployment mode")
+        if "gpuDeployment" in local and not selections:
+            raise ValueError("GPU deployment mode requires explicitly selected NVIDIA cards")
+        if deployment_mode == "single" and gpu_count > 1:
+            raise ValueError("Single-GPU deployment requires one selected card")
+        if deployment_mode == "replicated":
+            # Build per-card runtimes, never a split model with N workers.
+            return replica_model_resources(activation, presets, compute_catalog)[0][:2]
+        if selections and (compute_target != "nvidia-gpu" or engine not in ("VLLM", "OLlama") or "realtime" in local):
+            raise ValueError("NVIDIA GPU groups support ordinary vLLM and Ollama only")
+        if gpu_count > 1:
+            capability = (compute_catalog or {}).get("engines", {}).get(engine, {}).get("multiGpu") or {}
+            if compute_target not in capability.get("computeTargets", []) or gpu_count > capability.get("maxDevices", 1):
+                raise ValueError("Multi-GPU allocation is not offered by this engine catalog")
         cpu_resources = model_cpu_resources(local, engine, compute_target, compute_catalog)
         vllm_configuration = model_vllm_configuration(local, engine, compute_target, compute_catalog)
         kv_cache_type = normalize_kv_cache_type(engine, local.get("kvCacheType"))
@@ -4774,7 +4566,12 @@ data:
             )
             resource_profile, memory_mi = cpu_memory_resource_profile(resource_profile, memory_mi)
         annotations = {}
-        if vllm_configuration is not None:
+        if "capabilities" in local:
+            declared = local["capabilities"]
+            if not isinstance(declared, dict) or any(key not in ("tools", "vision", "reasoning") or type(value) is not bool for key, value in declared.items()):
+                raise ValueError("local.capabilities accepts tools, vision and reasoning booleans only")
+            annotations["ai-appliance.io/capabilities"] = json.dumps(declared, sort_keys=True)
+        if vllm_configuration is not None and "visionAttention" in vllm_configuration:
             annotations["appliance.magicstick.dev/vllm-vision-attention"] = vllm_configuration["visionAttention"]
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
         max_output_tokens = positive_int(local.get("maxOutputTokens") or local.get("max_output_tokens"))
@@ -4784,6 +4581,17 @@ data:
         if max_output_tokens:
             annotations["ai-appliance.io/max-output-tokens"] = str(max_output_tokens)
         env = dict(local.get("env") or {})
+        for key in ("MAGICSTICK_GPU_COUNT", "MAGICSTICK_GPU_UUIDS", "MAGICSTICK_VLLM_PARALLELISM", "MAGICSTICK_DRA_CLAIMS", "MAGICSTICK_DRA_CLAIM"):
+            env.pop(key, None)
+        if gpu_count > 1:
+            memory_mi = memory_mi or 16384
+            if not local.get("cpuOffloading") and memory_mi < 1024:
+                raise ValueError("Multi-GPU host RAM must be at least 1024 MiB")
+            # The runtime wrapper checks the actual CUDA-visible group before
+            # loading. Users cannot escape the DRA group with visibility envs.
+            for key in ("CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "MAGICSTICK_GPU_DEVICE"):
+                env.pop(key, None)
+            env["MAGICSTICK_GPU_COUNT"] = str(gpu_count)
         env["MAGICSTICK_COMPUTE_TARGET"] = compute_target
         env["MAGICSTICK_ENGINE"] = engine
         for legacy_key in (
@@ -4808,6 +4616,8 @@ data:
             args = model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs)
             args = model_args_with_kv_cache(args, kv_cache_type)
             args, env = apply_vllm_deployment_settings(args, env, vllm_configuration, compute_catalog)
+            if gpu_count > 1:
+                env["MAGICSTICK_VLLM_PARALLELISM"] = (vllm_configuration or {}).get("parallelism", "auto")
             if compute_target == "cpu":
                 kv_cache_memory_bytes = positive_int(local.get("kvCacheMemoryBytes")) or 536870912
                 args = model_args_with_cpu_cache(args, kv_cache_memory_bytes)
@@ -4823,7 +4633,7 @@ data:
             ):
                 env.pop(key, None)
             env["OLLAMA_MAX_LOADED_MODELS"] = "1"
-            env["OLLAMA_SCHED_SPREAD"] = "false"
+            env["OLLAMA_SCHED_SPREAD"] = "true" if gpu_count > 1 else "false"
             env["OLLAMA_KV_CACHE_TYPE"] = kv_cache_type
             env["OLLAMA_FLASH_ATTENTION"] = "1"
             if context_window:
@@ -4850,6 +4660,7 @@ data:
                 "labels": {
                     "app.kubernetes.io/managed-by": "magicstick-operator",
                     "appliance.magicstick.dev/modelactivation": name,
+                    **({"appliance.magicstick.dev/activation-uid": metadata["uid"]} if metadata.get("uid") else {}),
                     "appliance.magicstick.dev/compute-target": compute_target,
                     "appliance.magicstick.dev/engine": engine.lower(),
                 },
@@ -4892,6 +4703,177 @@ data:
                    and item.get("status", {}).get("phase") not in terminal for item in operations)
 
 
+    def replica_model_name(activation, uuid):
+        identity = str(activation.get("metadata", {}).get("uid") or "")
+        if not identity:
+            raise ValueError("Replication requires the saved ModelActivation identity")
+        return "msr-" + hashlib.sha256((identity + ":" + uuid).encode()).hexdigest()[:32]
+
+
+    def owned_replica_models(activation):
+        meta, spec = activation.get("metadata") or {}, activation.get("spec") or {}
+        namespace = spec.get("targetNamespace") or "ai"
+        selector = urllib.parse.urlencode({"labelSelector": "appliance.magicstick.dev/modelactivation=" + meta["name"] + ",appliance.magicstick.dev/model-replica=true"})
+        models = list_items(f"/apis/kubeai.org/v1/namespaces/{namespace}/models?{selector}")
+        return [m for m in models if m.get("metadata", {}).get("namespace") == namespace
+                and m.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/managed-by") == FIELD_MANAGER
+                and m.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/modelactivation") == meta["name"]
+                and m.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/model-replica") == "true"
+                and meta.get("uid") and m.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/activation-uid") == meta["uid"]]
+
+
+    def replica_runtime_pods(activation):
+        meta, spec = activation.get("metadata") or {}, activation.get("spec") or {}
+        namespace = spec.get("targetNamespace") or "ai"
+        selector = urllib.parse.urlencode({"labelSelector": "appliance.magicstick.dev/modelactivation=" + meta["name"]})
+        return [p for p in list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}")
+                if p.get("metadata", {}).get("namespace") == namespace
+                and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/modelactivation") == meta["name"]
+                and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/activation-uid") == meta.get("uid")
+                and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/model-replica") == "true"]
+
+
+    def retire_model_replicas(activation):
+        models = owned_replica_models(activation)
+        for model in models:
+            meta = model["metadata"]
+            if meta.get("deletionTimestamp"):
+                continue
+            if not meta.get("uid") or not meta.get("resourceVersion"):
+                raise ValueError("Cannot retire a model replica without its current Kubernetes identity")
+            delete_json(f"/apis/kubeai.org/v1/namespaces/{meta['namespace']}/models/{meta['name']}", {
+                "apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Foreground",
+                "preconditions": {"uid": meta["uid"], "resourceVersion": meta["resourceVersion"]}})
+        # Keep the activation finalizer and slot accounting until Pods, including
+        # terminating Pods, are actually gone. Do not delete claims or caches.
+        return bool(models or replica_runtime_pods(activation))
+
+
+    def replica_model_resources(activation, presets, compute_catalog):
+        local = merged_local_model(activation, presets, compute_catalog)
+        selections = nvidia_model_devices(local)
+        engine, target = local.get("engine"), local.get("computeTarget")
+        capability = (compute_catalog or {}).get("engines", {}).get(engine, {}).get("multiGpu") or {}
+        if (local.get("gpuDeployment") != "replicated" or target != "nvidia-gpu" or engine not in ("VLLM", "OLlama")
+                or "replicated" not in capability.get("deploymentModes", []) or not 2 <= len(selections) <= capability.get("maxDevices", 1)
+                or "realtime" in local or (local.get("vllm") or {}).get("parallelism") is not None):
+            raise ValueError("Replication requires ordinary vLLM/Ollama and at least two selected NVIDIA cards, without model splitting")
+        if any(local.get(k, 1) != 1 for k in ("minReplicas", "maxReplicas")):
+            raise ValueError("Replica count is derived from selected cards; minReplicas/maxReplicas must remain 1")
+        ram = local.get("memoryRequiredMi", 16384)
+        if type(ram) is not int or ram < 1024:
+            raise ValueError("Choose at least 1024 MiB system RAM per model replica")
+        result = []
+        meta = activation["metadata"]
+        for selection in selections:
+            child = json.loads(json.dumps(activation))
+            child["metadata"]["name"] = replica_model_name(activation, selection["uuid"])
+            child_local = {**local, "gpuDevice": selection, "memoryRequiredMi": ram}
+            for key in ("gpuDevices", "gpuDeployment"):
+                child_local.pop(key, None)
+            child["spec"]["local"] = child_local
+            resource, runtime = kubeai_model_resource(child, presets, compute_catalog)
+            resource["metadata"]["labels"].update({
+                "appliance.magicstick.dev/modelactivation": meta["name"],
+                "appliance.magicstick.dev/activation-uid": meta["uid"],
+                "appliance.magicstick.dev/model-replica": "true"})
+            resource["metadata"]["annotations"].update({
+                "appliance.magicstick.dev/activation-generation": str(meta.get("generation", 0)),
+                "appliance.magicstick.dev/replica-gpu": selection["uuid"]})
+            resource["spec"].update(minReplicas=1, maxReplicas=1)
+            runtime.update(replicaParent=meta["name"], replicaDevice=selection["uuid"], memoryMi=ram)
+            result.append((resource, runtime, selection))
+        return result
+
+
+    def reconcile_model_replicas(activation, presets, compute_catalog, runtime):
+        resources = replica_model_resources(activation, presets, compute_catalog)
+        namespace = activation.get("spec", {}).get("targetNamespace") or "ai"
+        name = activation["metadata"]["name"]
+        generation = str(activation["metadata"].get("generation", 0))
+        expected = {r["metadata"]["name"] for r, _, _ in resources}
+        old = owned_replica_models(activation)
+        legacy = get_resource("kubeai.org", "v1", "models", namespace, name)
+        if legacy:
+            labels = legacy.get("metadata", {}).get("labels") or {}
+            if labels.get("app.kubernetes.io/managed-by") != FIELD_MANAGER or labels.get("appliance.magicstick.dev/modelactivation") != name:
+                raise ValueError("A foreign model uses this name; it was not replaced")
+            delete_kubeai_model(name, namespace)
+            return "Starting", "RetiringPreviousRuntime", "Stopping the previous single/split runtime before creating model copies."
+        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + name})
+        if list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}"):
+            return "Starting", "RetiringPreviousRuntime", "Waiting for the previous single/split model Pod to terminate."
+        if any(m.get("metadata", {}).get("deletionTimestamp") or m["metadata"]["name"] not in expected
+               or m.get("metadata", {}).get("annotations", {}).get("appliance.magicstick.dev/activation-generation") != generation for m in old):
+            retire_model_replicas(activation)
+            return "Starting", "ReplacingReplicas", "Stopping the previous replicas before applying changed cards or settings."
+        if not old and replica_runtime_pods(activation):
+            return "Starting", "ReplacingReplicas", "Waiting for previous model replica Pods to terminate."
+        assignment = NVIDIA_SHARING_STATE.get("assignments", {}).get(name)
+        if NVIDIA_SHARING_STATE.get("phase") != "Ready" or not assignment:
+            raise ValueError(NVIDIA_SHARING_STATE.get("assignmentErrors", {}).get(name) or "Waiting for all selected NVIDIA cards")
+        observed = {m["metadata"]["name"]: m for m in old}
+        previous = (activation.get("status") or {}).get("replication") or {}
+        replication = {"desired": len(resources), "ready": 0, "instances": [], "recovery": {}}
+        runtime.update(resources[0][1])
+        runtime["replication"] = replication
+        for resource, replica_runtime, selection in resources:
+            child_name = resource["metadata"]["name"]
+            current = get_resource("kubeai.org", "v1", "models", namespace, child_name)
+            if current and child_name not in observed:
+                raise ValueError("A foreign resource occupies a model replica name; it was not changed")
+            apply_nvidia_dra_profile(resource, replica_runtime)
+            apply_cpu_resource_profile(resource, replica_runtime)
+            # Cross-namespace ownerReferences are invalid. Ownership is bound
+            # to the parent UID and deletion is controlled by its finalizer.
+            applied = apply_resource(resource)
+            current = get_resource("kubeai.org", "v1", "models", namespace, child_name) or applied
+            entry = {"name": child_name, **selection, "modelUid": current.get("metadata", {}).get("uid", ""),
+                     "phase": "Starting", "reason": "WaitingForReadyReplica", "message": "Waiting for the model copy to start."}
+            old_entry = next((i for i in previous.get("instances", []) if i.get("name") == child_name), {})
+            tracker_activation = {**activation, "status": {**(activation.get("status") or {}),
+                "podCreation": old_entry.get("podCreation"),
+                "podRecovery": previous.get("recovery", {}).get(child_name)}}
+            ready, _ = kubeai_model_replica_counts(current)
+            # A changed Model can retain stale ready counters. Require a live,
+            # Ready Pod owned by this exact child Model before advertising it.
+            query = urllib.parse.urlencode({"labelSelector": "app=model,model=" + child_name})
+            ready = ready and any(pod_is_ready(p) and not p.get("metadata", {}).get("deletionTimestamp")
+                and any(o.get("uid") == entry["modelUid"] and o.get("name") == child_name
+                        and o.get("kind") == "Model" and o.get("apiVersion") == "kubeai.org/v1" and o.get("controller") is True
+                        for o in p.get("metadata", {}).get("ownerReferences", []))
+                for p in list_items(f"/api/v1/namespaces/{namespace}/pods?{query}"))
+            if ready:
+                alias, message = (ensure_ollama_model_alias(namespace, child_name, resource["spec"]["url"])
+                                  if replica_runtime["engine"] == "OLlama" else (True, "Model copy is ready."))
+                entry.update(phase="Ready" if alias else "Starting", reason="ReplicaReady" if alias else "WaitingForOllamaAlias", message=message)
+                replication["ready"] += int(alias)
+            else:
+                tracker, wait = recover_terminal_model_pod(tracker_activation, current, namespace, child_name, replica_name=child_name)
+                if tracker:
+                    replication["recovery"][child_name] = tracker
+                failure = wait or model_pod_runtime_failure(current, namespace, child_name)
+                if not failure:
+                    entry["podCreation"], failure = model_pod_creation_status(tracker_activation, current, namespace, child_name)
+                if failure:
+                    entry.update(zip(("phase", "reason", "message"), failure))
+            replication["instances"].append(entry)
+        devices = nvidia_assignment_devices(assignment)
+        runtime["gpuSharing"] = {"mode": NVIDIA_SHARING_STATE["mode"], "backend": "dra", "node": devices[0]["node"],
+            "nodeUid": devices[0]["nodeUid"], "devices": [{"uuid": d["uuid"], "nodeName": d["node"], "nodeUid": d["nodeUid"]} for d in devices],
+            "gpuCount": len(devices), "slotCount": len(devices), "claimNames": [d["claimName"] for d in devices], "memoryIsolation": False}
+        runtime["runtimeReady"] = replication["ready"] > 0
+        ready, desired = replication["ready"], replication["desired"]
+        message = f"{ready}/{desired} model copies ready. Requests use the healthy copies through the common API model name."
+        if any(i["phase"] == "Degraded" for i in replication["instances"]):
+            return "Degraded", "ModelReplicaFailed", message + " Inspect the affected instance and its Logs."
+        if ready != desired:
+            return "Starting", "WaitingForModelReplicas", message
+        # Catalog consumes per-instance readiness; do not create a circular
+        # dependency between publishing a route and the parent Ready state.
+        return "Ready", "ModelReplicasReady", message
+
+
     def reconcile_model_activation(activation, catalog, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
@@ -4925,6 +4907,7 @@ data:
             "memoryMi": 0,
             "runtimeEndpoint": "",
             "podRecovery": (activation.get("status") or {}).get("podRecovery"),
+            "replication": (activation.get("status") or {}).get("replication"),
         }
 
         def status_payload(phase, message, catalog_id=""):
@@ -4947,11 +4930,12 @@ data:
                 "sharedPoolId": runtime.get("sharedPoolId", ""),
                 "gpuAllocationMode": runtime.get("gpuAllocationMode", ""),
                 "gpuSharing": runtime.get("gpuSharing"),
+                "replication": runtime.get("replication"),
                 "podCreation": runtime.get("podCreation"),
                 "podRecovery": runtime.get("podRecovery"),
                 "cpuOffloading": bool((runtime.get("offloading") or {}).get("enabled")),
                 "memoryUsage": runtime.get("memoryUsage"),
-                "freeTokenStats": runtime.get("freeTokenStats"),
+
                 "runtimeEndpoint": runtime.get("runtimeEndpoint", ""),
                 "message": message,
             }
@@ -4981,16 +4965,23 @@ data:
                 shared_pool_id=runtime.get("sharedPoolId", ""),
                 gpu_allocation_mode=runtime.get("gpuAllocationMode", ""),
                 gpu_sharing=runtime.get("gpuSharing"),
+                replication=runtime.get("replication"),
                 pod_creation=runtime.get("podCreation"),
                 pod_recovery=runtime.get("podRecovery"),
                 runtime_endpoint=runtime.get("runtimeEndpoint", ""),
-                free_token_stats=runtime.get("freeTokenStats"),
+
             )
 
         def cleanup_runtime():
+            if metadata.get("uid") and crd_exists("models.kubeai.org"):
+                if retire_model_replicas(activation):
+                    return True
+            runtime["replication"] = None
             previous_realtime = str((activation.get("status") or {}).get("modelRef") or "").startswith("vllm-omni/")
             if is_realtime or previous_realtime:
                 return delete_realtime_runtime(name, namespace)
+            if metadata.get("uid"):
+                return delete_local_runtime(name, namespace, requested_engine_name, metadata["uid"])
             return delete_local_runtime(name, namespace, requested_engine_name)
 
         if metadata.get("deletionTimestamp"):
@@ -5012,6 +5003,11 @@ data:
             patch_status("Disabled", "Disabled", message, name)
             return "Disabled", status_payload("Disabled", message, name)
 
+        if model_type == "local" and requested_engine_name.strip().upper() not in ("VLLM", "OLLAMA"):
+            message = "This local engine is no longer supported. Stop or remove this model and create one using vLLM or Ollama."
+            patch_status("Degraded", "UnsupportedEngine", message, name)
+            return "Degraded", status_payload("Degraded", message, name)
+
         if model_type == "local" and model_cache_cleanup_active():
             message = "Waiting for model cache cleanup to finish. No new local runtime is started during cleanup."
             patch_status("Starting", "ModelCacheMaintenance", message, name)
@@ -5028,12 +5024,21 @@ data:
             patch_status(phase, "GpuSharingBlocked" if phase == "Degraded" else "WaitingForGpuSharing", message, name)
             return phase, status_payload(phase, message, name)
 
-        if (model_type == "local" and requested_engine_name.strip().upper() == "FREETOKEN"
-                and runtime["computeTarget"] == "nvidia-gpu" and NVIDIA_SHARING_STATE.get("managed")
-                and NVIDIA_SHARING_STATE.get("mode", "exclusive") != "exclusive"):
-            message = "FreeToken requires one or more whole NVIDIA GPUs. Disable NVIDIA time-slicing before starting this model."
-            patch_status("Degraded", "FreeTokenRequiresWholeGpu", message, name)
+        if model_type == "local" and ((spec.get("local") or {}).get("gpuDevice") or (spec.get("local") or {}).get("gpuDevices")) and (
+                runtime["computeTarget"] != "nvidia-gpu" or NVIDIA_SHARING_STATE.get("allocationBackend") != "dra"):
+            message = "The selected NVIDIA card requires DRA allocation. Refresh Hardware and choose a supported allocation backend; no automatic card substitution is made."
+            cleanup_runtime()
+            patch_status("Degraded", "GpuSelectionRequiresDra", message, name)
             return "Degraded", status_payload("Degraded", message, name)
+
+        if (model_type == "local" and runtime["computeTarget"] == "nvidia-gpu"
+                and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra"
+                and (is_realtime or requested_engine_name.strip().upper() not in ("VLLM", "OLLAMA"))):
+            message = "This runtime requires NVIDIA device-plugin allocation. Stop NVIDIA models and switch the backend in Hardware; the saved configuration is retained."
+            cleanup_runtime()
+            patch_status("Degraded", "RuntimeRequiresDevicePlugin", message, name)
+            return "Degraded", status_payload("Degraded", message, name)
+
 
         if model_type == "local" and runtime["computeTarget"] == "nvidia-gpu" and NVIDIA_SHARING_STATE.get("managed") and NVIDIA_SHARING_STATE.get("phase") != "Ready":
             message = NVIDIA_SHARING_STATE.get("message") or "Waiting for NVIDIA GPU allocation setup."
@@ -5047,13 +5052,12 @@ data:
             try:
                 if is_realtime:
                     resource, service, runtime = realtime_runtime_resources(activation, compute_catalog)
-                elif requested_engine_name.strip().upper() == "FREETOKEN":
-                    resource, service, runtime = freetoken_runtime_resources(activation, presets, compute_catalog)
                 elif compute_catalog is None:
                     resource, runtime = kubeai_model_resource(activation, presets)
                 else:
                     resource, runtime = kubeai_model_resource(activation, presets, compute_catalog)
                 runtime["podRecovery"] = (activation.get("status") or {}).get("podRecovery")
+                runtime["replication"] = (activation.get("status") or {}).get("replication")
             except ValueError as error:
                 message = str(error)
                 patch_status("Degraded", "InvalidModelSpec", message)
@@ -5080,6 +5084,12 @@ data:
             return "WaitingForModules", status_payload("WaitingForModules", message, name)
 
         if model_type == "local":
+            if (spec.get("local") or {}).get("gpuDeployment") != "replicated":
+                if metadata.get("uid") and crd_exists("models.kubeai.org") and retire_model_replicas(activation):
+                    message = "Stopping model copies before starting the changed deployment."
+                    patch_status("Starting", "RetiringReplicas", message, name)
+                    return "Starting", status_payload("Starting", message, name)
+                runtime["replication"] = None
             target_definition = compute_target_definition(
                 runtime["computeTarget"], compute_catalog, runtime["engine"]
             ) if compute_catalog else {
@@ -5111,25 +5121,6 @@ data:
                     message = "Retiring the previous Realtime runtime."
                     patch_status("Starting", "RetiringPreviousRuntime", message, name)
                     return "Starting", status_payload("Starting", message, name)
-            if runtime.get("backend") == "freetoken":
-                # FreeToken is a direct Deployment because KubeAI has no
-                # FreeToken backend. A direct CRD edit can switch a previously
-                # KubeAI-backed activation, so retire that old runtime only
-                # when the persisted status proves this is such a transition.
-                previous_engine = str((activation.get("status") or {}).get("engine") or "").strip()
-                if previous_engine in ("VLLM", "OLlama") and get_resource("kubeai.org", "v1", "models", namespace, name):
-                    delete_kubeai_model(name, namespace)
-                phase, reason, message = reconcile_freetoken_runtime(activation, resource, service, runtime)
-                if phase != "Ready":
-                    patch_status(phase, reason, message, name)
-                    return phase, status_payload(phase, message, name)
-                # The model-catalog intentionally publishes FreeToken only
-                # after this activation is Ready.  Do not wait for the
-                # catalog here: that would form a Ready -> catalog -> Ready
-                # cycle and leave a healthy runtime stuck in Starting.
-                message = "FreeToken runtime is healthy; the model catalog will publish its route shortly."
-                patch_status("Ready", "FreeTokenRuntimeReady", message, name)
-                return "Ready", status_payload("Ready", message, name)
             try:
                 unified_memory_runtime(resource, runtime, target_definition)
                 if runtime.get("memoryArchitecture") == "unified":
@@ -5146,6 +5137,13 @@ data:
                 message = "Waiting for required CRDs: models.kubeai.org"
                 patch_status("WaitingForCRDs", "WaitingForCRDs", message, name)
                 return "WaitingForCRDs", status_payload("WaitingForCRDs", message, name)
+            if (spec.get("local") or {}).get("gpuDeployment") == "replicated":
+                try:
+                    phase, reason, message = reconcile_model_replicas(activation, presets, compute_catalog, runtime)
+                except ValueError as error:
+                    phase, reason, message = "Degraded", "ModelReplicationBlocked", str(error)
+                patch_status(phase, reason, message, name)
+                return phase, status_payload(phase, message, name)
             if (runtime.get("offloading") or {}).get("enabled"):
                 try:
                     ensure_offloading_profile(runtime["baseResourceProfile"], runtime["memoryMi"])
@@ -5593,13 +5591,66 @@ data:
         return access_status
 
 
-    def app_instance_helmrelease(instance, definition, source, suspend=False):
+    def reconcile_service_key(owner, definition, enabled=True, delete=False):
+        configuration = definition.get("litellmKey") or {}
+        if configuration is True:
+            configuration = {}
+        metadata = owner.get("metadata") or {}
+        namespace = configuration.get("namespace") or (owner.get("spec") or {}).get("targetNamespace") or LITELLM_NAMESPACE
+        name = configuration.get("secretName") or metadata["name"] + "-litellm"
+        kind = owner.get("kind") or ("ModuleActivation" if configuration.get("secretName") else "AppInstance")
+        identity = dict(owner, kind=kind)
+        def master_key():
+            secret = get_json(f"/api/v1/namespaces/{LITELLM_NAMESPACE}/secrets/litellm-masterkey-secret")
+            return base64.b64decode(secret["data"]["LITELLM_MASTER_KEY"]).decode()
+        manager = ServiceKeys(request_json, master_key)
+        if delete:
+            manager.delete(identity, namespace, name)
+            return None
+        if enabled:
+            try:
+                get_json("/api/v1/namespaces/" + namespace)
+            except urllib.error.HTTPError as error:
+                if error.code != 404:
+                    raise
+                request_json("POST", "/api/v1/namespaces", {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}})
+        return manager.ensure(identity, namespace, name, enabled=enabled)
+
+
+    class InvalidAppModelContext(ValueError):
+        pass
+
+
+    def app_instance_helmrelease(instance, definition, source, suspend=False, litellm_key=None):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
         values = dict(spec.get("values") or {})
         application = spec.get("application") or ""
         name = metadata.get("name")
         target_namespace = spec.get("targetNamespace") or "ai"
+        context_field = definition.get("modelContextValue")
+        capability_field = definition.get("modelCapabilitiesValue")
+        if capability_field and not suspend:
+            selected_model = str(values.get("model") or "").removeprefix("openai/").removeprefix("litellm/")
+            selected_entry = next((entry for entry in model_catalog_models(target_namespace)
+                                   if entry.get("id") == selected_model), {})
+            declared = selected_entry.get("capabilities") or {}
+            values[capability_field] = {key: value for key, value in declared.items()
+                                       if key in ("tools", "vision", "reasoning") and type(value) is bool}
+        if context_field and not suspend:
+            selected_model = str(values.get("model") or "").removeprefix("openai/").removeprefix("litellm/")
+            configured_context = positive_int(values.get(context_field))
+            if configured_context is None:
+                selected_entry = next((entry for entry in model_catalog_models(target_namespace)
+                                       if entry.get("id") == selected_model), {})
+                configured_context = positive_int(selected_entry.get("contextWindow"))
+            minimum_context = positive_int(definition.get("minimumModelContextTokens")) or 1
+            if configured_context is None or configured_context < minimum_context:
+                actual = str(configured_context) if configured_context is not None else "unknown"
+                raise InvalidAppModelContext(f"{definition.get('displayName') or application} requires a model with at least "
+                                 f"{minimum_context:,} context tokens; selected model context is {actual}. "
+                                 f"Select a suitable model or set values.{context_field} to its actual supported context.")
+            values[context_field] = configured_context
         local_host = app_instance_local_host(instance, application)
         public_host = app_instance_public_host(instance, application)
         ingress = dict(values.get("ingress") or {})
@@ -5657,6 +5708,8 @@ data:
                         "localHost": local_host,
                         "localName": local_mdns_name(local_host),
                         "publicHost": public_host,
+                        **({"litellmKey": litellm_key or {"name": name + "-litellm", "key": "LITELLM_API_KEY", "revision": ""}}
+                           if definition.get("litellmKey") else {}),
                         "values": values,
                     },
                 },
@@ -5687,13 +5740,28 @@ data:
                 delete_applied_resource(reference)
                 patch_instance_status(instance, "Removing", target, "Removing", "Helm release is being removed.", generation=generation)
                 return "Removing", target
+            if definition.get("litellmKey"):
+                reconcile_service_key(instance, definition, delete=True)
             remove_app_instance_finalizer(instance)
             return "Disabled", target
 
-        ensure_app_instance_finalizer(instance)
         enabled = spec.get("enabled", True) is not False
-        access_status = sync_app_instance_access(instance, definition, enabled=enabled)
-        release, url = app_instance_helmrelease(instance, definition, source, suspend=not enabled)
+        # Validate model compatibility before provisioning keys or routes. One
+        # invalid instance must not abort reconciliation of all other objects.
+        release, url = app_instance_helmrelease(instance, definition, source) if enabled else (None, None)
+        ensure_app_instance_finalizer(instance)
+        # Remove external access even if key revocation must retry during a
+        # LiteLLM management outage. Enabling still waits for a registered key.
+        if not enabled:
+            access_status = sync_app_instance_access(instance, definition, enabled=False)
+        litellm_key = reconcile_service_key(instance, definition, enabled=enabled) if definition.get("litellmKey") else None
+        if enabled:
+            access_status = sync_app_instance_access(instance, definition, enabled=True)
+        else:
+            release, url = app_instance_helmrelease(instance, definition, source, suspend=True)
+        if definition.get("litellmKey"):
+            release["spec"]["values"]["instance"]["litellmKey"] = litellm_key or {
+                "name": name + "-litellm", "key": "LITELLM_API_KEY", "revision": ""}
         apply_resource(release)
         if not enabled:
             patch_instance_status(instance, "Suspended", target, "Suspended", "Helm release is suspended and external routes are removed.", url=url, access=access_status, generation=generation)
@@ -5730,6 +5798,8 @@ data:
         if not definition:
             if metadata.get("deletionTimestamp"):
                 sync_app_instance_access(instance, {}, enabled=False)
+                if metadata.get("uid"):
+                    reconcile_service_key(instance, {"litellmKey": True}, delete=True)
                 remove_app_instance_finalizer(instance)
                 return "Disabled", {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
             patch_instance_status(instance, "Degraded", {}, "UnknownApplication", f"Unknown application '{application}'", generation=generation)
@@ -5754,7 +5824,11 @@ data:
             patch_instance_status(instance, "WaitingForCRDs", target, "WaitingForCRDs", message, generation=generation)
             return "WaitingForCRDs", target
 
-        return reconcile_helm_app_instance(instance, definition, source)
+        try:
+            return reconcile_helm_app_instance(instance, definition, source)
+        except InvalidAppModelContext as error:
+            patch_instance_status(instance, "Degraded", target, "InvalidModelContext", str(error), generation=generation)
+            return "Degraded", target
 
 
     def patch_appliance_status(module_statuses, instance_statuses, model_statuses, hardware_statuses=None):
@@ -5763,6 +5837,7 @@ data:
             return
         hardware_statuses = hardware_statuses or {}
         degraded = any(item.get("phase") == "Degraded" for item in module_statuses.values())
+        degraded = degraded or any(item.get("phase") == "Degraded" for group in instance_statuses.values() for item in group.values())
         waiting = any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for item in module_statuses.values())
         waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for group in instance_statuses.values() for item in group.values())
         degraded = degraded or any(item.get("phase") == "Degraded" for item in model_statuses.values())
@@ -5790,6 +5865,7 @@ data:
 
 
     def reconcile_once():
+        RegressionRuns(globals()).reconcile_all()
         catalog = load_catalog()
         app_catalog = load_app_catalog()
         compute_catalog = load_compute_target_catalog()
@@ -5858,14 +5934,22 @@ data:
         cleanup_stale_module_kustomizations(catalog, activations, source)
         module_statuses = {}
         for module, activation in sorted(activations.items()):
-            phase, status = reconcile_module(module, activation, catalog, source)
+            try:
+                phase, status = reconcile_module(module, activation, catalog, source)
+            except ServiceKeyError as error:
+                phase, status = "Degraded", {"phase": "Degraded", "message": str(error)}
+                patch_module_status(activation, phase, "", "WaitingForLiteLLMKey", str(error))
             module_statuses[module] = status
 
         instance_statuses = {}
         for instance in instances:
             instance_type = (instance.get("spec") or {}).get("application") or "unknown"
             name = (instance.get("metadata") or {}).get("name")
-            phase, target = reconcile_instance(instance, catalog, app_catalog, source)
+            try:
+                phase, target = reconcile_instance(instance, catalog, app_catalog, source)
+            except ServiceKeyError as error:
+                phase, target = "Degraded", app_instance_helmrelease_ref(instance)
+                patch_instance_status(instance, phase, target, "WaitingForLiteLLMKey", str(error))
             instance_statuses.setdefault(instance_type, {})[name] = {
                 "phase": phase,
                 "namespace": target.get("namespace", ""),

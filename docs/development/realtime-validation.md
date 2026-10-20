@@ -30,6 +30,12 @@ must be checked with the selected runtime.
 Local tests cover configuration persistence, open experimental selection, scheduling resource bounds,
 stage budgets, readiness, lifecycle, slot accounting, log ownership, catalog
 publication and the dashboard form. They do not download weights or run CUDA/ROCm.
+RT-01 browser fixtures create and edit Omni in the shared form at desktop/mobile
+widths, including CPU resets and saved-source/stage preservation. The installed
+workflow creates through that same form with an exact request fence, records
+UID/generation ownership before runtime assertions, and then checks independent
+Pod/catalog and authenticated Realtime evidence. A passing fixture or accepted
+POST is not live audio acceptance.
 Before declaring the installation accepted:
 
 - Confirm the image pulls and all three stages load on the intended GPU(s).

@@ -55,7 +55,7 @@ data:
       "agents": {
         "defaults": {
           "compaction": {
-            "reserveTokensFloor": 20000
+            "keepRecentTokens": 20000
           },
           "model": {
             "primary": ""
@@ -70,7 +70,7 @@ data:
     {
       "model": {
         "default": "",
-        "provider": "litellm",
+        "provider": "custom:litellm",
         "base_url": "http://litellm.ai.svc.cluster.local:4000/v1",
         "api_mode": "chat_completions"
       },
@@ -79,10 +79,21 @@ data:
           "name": "LiteLLM",
           "base_url": "http://litellm.ai.svc.cluster.local:4000/v1",
           "key_env": "OPENAI_API_KEY",
-          "api_mode": "chat_completions",
+          "transport": "chat_completions",
           "default_model": "",
           "discover_models": false,
           "models": {}
+        }
+      }
+    }
+  pi-models.json: |
+    {
+      "providers": {
+        "litellm": {
+          "baseUrl": "http://litellm.ai.svc.cluster.local:4000/v1",
+          "api": "openai-completions",
+          "apiKey": "$${LITELLM_API_KEY}",
+          "models": []
         }
       }
     }

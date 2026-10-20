@@ -233,8 +233,9 @@ class WebsiteTests(unittest.TestCase):
                 self.assertEqual(len(page.matching('div', **{'class': 'tob-answer'})), 3)
                 text = (docs.DOCS / name).read_text()
                 for component in ('Magic Stick Operator', 'LiteLLM', 'KubeAI', 'Ollama', 'vLLM',
-                                  'FreeToken', 'Flux', 'Keycloak', 'Envoy'):
+                                  'Flux', 'Keycloak', 'Envoy'):
                     self.assertIn(component, text)
+                self.assertNotIn('FreeToken', text)
                 # The only published contact address is the provider address of the imprint.
                 for a in page.matching('a'):
                     if a.get('href', '').startswith('mailto:'):

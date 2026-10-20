@@ -105,6 +105,9 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem; }
 .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.regression-phase-selection { min-width: 0; margin: 0; padding: .8rem; border: 1px solid var(--line); border-radius: 10px; }
+.regression-phase-selection legend { padding: 0 .35rem; }
+.regression-phase-selection input { flex-shrink: 0; }
 .field { display: flex; flex-direction: column; gap: .38rem; color: #bcc9db; font-size: .83rem; }
 .field input, .field select, .field textarea, .search-row input, td select { width: 100%; min-height: 42px; padding: .58rem .72rem; border: 1px solid #314766; border-radius: 10px; outline: none; color: var(--text); background: #0b1527; }
 .field textarea { min-height: 6rem; resize: vertical; overflow-wrap: anywhere; }
@@ -114,6 +117,11 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 
 .compute-memory > .eyebrow { margin-bottom: .4rem; }
 .memory-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 1rem; align-items: start; }
+.gpu-slot-pool { display: flex; align-items: center; gap: 1rem; padding: .75rem; margin-bottom: 1rem; border: 1px solid var(--line); border-radius: 12px; }
+.gpu-slot-pool > svg { width: 140px; flex: 0 0 140px; }
+.gpu-slot-pool > div { min-width: 0; overflow-wrap: anywhere; }
+.gpu-slot-pool p { font-size: .8rem; margin: .4rem 0 0; }
+@media (max-width: 480px) { .gpu-slot-pool { flex-direction: column; align-items: flex-start; } }
 .memory-gauge { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: .5rem .5rem .85rem; text-align: center; }
 .gauge-rings { position: relative; width: min(100%, 256px); aspect-ratio: 256 / 140; }
 .gauge-rings > svg { display: block; width: 100%; height: 100%; }
@@ -169,6 +177,7 @@ select option:disabled { color: var(--muted); }
 .list { display: flex; flex-direction: column; gap: .6rem; }
 .list-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem; border: 1px solid var(--line); border-radius: 12px; background: rgb(6 13 25 / 60%); }
 .list-row p { margin: .25rem 0 0; color: var(--muted); font-size: .82rem; }
+.break-anywhere { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
 .tag-list { margin: .5rem 0 .8rem; }
 .tag { padding: .3rem .6rem; border: 1px solid #304966; border-radius: 999px; color: #c7d5e8; font-size: .75rem; }
 .url-list { display: grid; gap: .45rem; }
@@ -214,6 +223,11 @@ select option:disabled { color: var(--muted); }
 .pagination .field { min-width: 90px; }
 .check-field { display: flex; align-items: center; gap: .55rem; min-height: 42px; color: #c7d4e6; }
 .check-field input { width: 18px; height: 18px; accent-color: var(--cyan); }
+.gpu-card-selection { min-width: 0; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }
+.gpu-card-selection legend { padding: 0 .35rem; font-weight: 600; }
+.gpu-card-selection .check-field input { flex-shrink: 0; }
+.gpu-card-selection .check-field span { min-width: 0; overflow-wrap: anywhere; }
+.gpu-card-selection .check-field:has(input:disabled) { opacity: .6; }
 .runtime-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }
 .runtime-options legend { padding: 0 .4rem; color: var(--text); font-weight: 800; }
 .sharing-fields { min-width: 0; display: grid; gap: 1rem; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }

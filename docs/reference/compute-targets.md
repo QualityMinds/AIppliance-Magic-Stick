@@ -128,13 +128,6 @@ possible. NVIDIA models also expose the opt-in **Use additional system RAM**
 choice and a separate total host-RAM budget. Leaving that budget empty uses the
 server recommendation; inadequate or unverifiable budgets are rejected.
 
-The FreeToken form is intentionally separate: it permits only a live
-capability-approved NVIDIA GPU and a capability-approved `hf://` model, shows
-the engine's own VRAM and Kubernetes system-RAM budgets, defaults its strategy
-to `Auto`, and keeps documented runtime controls under **Advanced Settings**.
-The RAM control requires a fresh capacity reading from that exact GPU node; it
-never substitutes a cluster-wide CPU total when node telemetry is missing.
-It does not display vLLM CPU-offloading controls or Ollama cache-format choices.
 Dynamic catalog search and tested-preset browsing remain richer in
 the browser; the non-interactive CLI continues to accept the complete API
 payload with `model create-local --file`.
@@ -160,7 +153,6 @@ engine catalog publishes these automatic defaults:
 | Ollama on a GPU | 0.5 cores | none |
 | vLLM on a GPU (NVIDIA, AMD or Intel) | 1 core | none |
 | Ollama or vLLM on CPU | 2 cores | 8 cores |
-| FreeToken (including CPU-assisted strategies) | 4 cores | 8 cores |
 
 Requests affect placement and relative CPU time under contention; they do not
 pin dedicated cores. GPU models can burst into spare capacity without a CPU
@@ -175,12 +167,19 @@ quota. Omitted fields inherit the engine/target defaults. A positive limit
 must be at least the resolved request. `status.cpuResources` reports the
 resolved policy. Changing RAM alone does not change either CPU value.
 
+For quota-limited CPU vLLM, the startup wrapper bounds default OpenMP threads to
+the container's actual CFS quota, leaving one core-equivalent for serving when
+possible. It uses `VLLM_CPU_OMP_THREADS_BIND=nobind` with `OMP_NUM_THREADS`, not
+the host-wide automatic binding. Explicit thread/binding settings are preserved;
+unlimited containers retain upstream defaults. This follows the selected
+[vLLM CPU runtime's thread-control contract](https://docs.vllm.ai/en/v0.31.0/getting_started/installation/cpu/#related-runtime-environment-variables).
+It prevents quota oversubscription; actual inference still needs a live check.
+
 For KubeAI the final profile is derived after UMA, offloading and sharing
 placement, preserving all non-CPU resource quantities and DRA references.
 Existing activations without CPU overrides automatically adopt this policy;
 their model Pods may restart during migration. Existing memory budgets and
-limits do not change. FreeToken applies the same policy directly to its
-Deployment, with its more conservative CPU-assisted default unchanged.
+limits do not change.
 
 Host reservations remain separate: the K3s configuration reserves 250m CPU
 for system services and 250m for Kubernetes. Those 500m are excluded from
@@ -219,8 +218,11 @@ architecture-specific. CPU users who need a smaller quantized artifact can
 choose the Ollama engine and its pinned GGUF Q4_K_M or Q8_0 artifact. A future
 vLLM CPU quantized variant must be split and accepted per architecture rather
 than advertised as portable.
-The bundled Ollama runtime is pinned to `0.33.2` (and `0.33.2-rocm`) so it can
-parse the Qwen3.5, Qwen3.6, and Qwen3.8 model formats. The native Qwen context
+The bundled Ollama runtime is pinned by immutable digest to `0.40.3` for CPU
+and NVIDIA, and `0.40.3-rocm` for AMD. Image availability is not model/GPU
+acceptance; qualify the chosen registry tag on its target after an upgrade.
+See [Ollama upgrade checks](../development/model-integration.md#ollama-runtime-upgrades)
+for the retained registry/cache contract and rollback boundaries. The native Qwen context
 windows are larger than the safe defaults above; users can raise context after
 the dashboard recalculates weights, KV cache, runtime reserve, and available
 memory for the selected target.
@@ -237,7 +239,7 @@ and end-to-end acceptance.
 `spec.local.computeTarget` is immutable; recreate the activation to move a
 model between CPU and an accelerator, or between accelerator vendors. Missing
 values on existing resources keep legacy `nvidia-gpu` and `VLLM` behavior. The
-engine enum contains `VLLM`, KubeAI's exact `OLlama` value, and `FreeToken`.
+engine enum contains `VLLM` and KubeAI's exact `OLlama` value.
 The Dashboard **Edit** action follows that boundary: it keeps the activation
 name, namespace, model URL/preset/artifact, engine, and compute target fixed,
 but can update context/output limits, maximum sequences, KV-cache type, memory
@@ -286,7 +288,7 @@ path for vLLM on AMD. The compute-target catalog publishes the default, target
 allowlist, option labels, and runtime mapping under
 `engines.VLLM.deploymentSettings.visionAttention`. Both dashboard API and
 controller validate against it. The CRD restricts the values and engine.
-Ollama, FreeToken, CPU, NVIDIA and Intel do not receive these AMD overrides.
+Ollama, CPU, NVIDIA and Intel do not receive these AMD overrides.
 
 | Stored value | vLLM vision backend | Additional Pod environment |
 |---|---|---|
@@ -302,8 +304,10 @@ in particular the AOTriton switch enables PyTorch ROCm SDPA kernels process-wide
 For text-only models without a vision encoder, the vision backend override has
 no vision workload to affect.
 
-These mappings were checked against the [vLLM 0.26.0 CLI](https://docs.vllm.ai/en/v0.26.0/cli/serve/#--mm-encoder-attn-backend)
-and [ROCm vision backend selector](https://docs.vllm.ai/en/v0.26.0/api/vllm/platforms/rocm/).
+These mappings were checked against the [vLLM 0.31.0 CLI](https://docs.vllm.ai/en/v0.31.0/cli/serve/#--mm-encoder-attn-backend)
+and [ROCm vision backend selector](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/platforms/rocm.py).
+The offline native runtime contract also parses each backend choice; this does
+not certify the ROCm kernels on a physical GPU.
 The AOTriton opt-in is present in [PyTorch's ROCm attention checks](https://github.com/pytorch/pytorch/blob/main/torch/testing/_internal/common_cuda.py).
 The FlashAttention route requires the [AMD Triton implementation and its dependencies](https://github.com/Dao-AILab/flash-attention#amd-rocm-support)
 inside the runtime image. No packages are installed by selecting an option.
@@ -373,6 +377,11 @@ hardware acceptance boundaries.
 [GPU sharing](../administration/gpu-sharing.md) is independent of CPU offloading. Managed NVIDIA
 time-slicing/exclusive profiles keep the selected node, runtime and offloading
 RAM requests/limits while requesting one device-plugin allocation per model.
+Opt-in NVIDIA DRA profiles retain the same CPU/RAM/offloading settings but use
+one explicit claim for the selected physical card. Their Ready ResourceSlice
+inventory and node identity replace the legacy extended-resource readiness
+check. They do not advertise a synthetic `nvidia.com/gpu` resource or extend the
+Realtime adapter. See [exact-card allocation](../administration/gpu-sharing.md#opting-into-exact-card-dra-allocation).
 Sharing slots do not create VRAM partitions or additional physical GPUs.
 
 The browser and TUI offer **Use additional system RAM** for a single NVIDIA

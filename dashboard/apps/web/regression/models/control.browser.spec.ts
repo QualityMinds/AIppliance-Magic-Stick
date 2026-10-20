@@ -1,6 +1,9 @@
 import {test, expect, type Request} from '@playwright/test';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {fixturePage, origin} from '../fixtures/dashboard.ts';
+import {fourNvidiaCards} from '../fixtures/nvidia-cards.ts';
+import {systemMemoryFixture} from '../fixtures/system-memory.ts';
+import {formatMi} from '@magicstick/dashboard-core';
 
 const cpuModels = {
   activations: [], models: [], presets: {},
@@ -12,7 +15,7 @@ const cpuModels = {
   computeMemory: {devices: [{id: 'cpu', kind: 'cpu', computeTarget: 'cpu', totalMi: 65536,
     freeMi: 60000, unreservedMi: 60000, metricsAvailable: true}]},
 };
-const estimate = {minimumMi: 6000, recommendedMi: 7000, maximumMi: 60000, computeTarget: 'cpu',
+const estimate = {detectedModelType: 'chat', minimumMi: 6000, recommendedMi: 7000, maximumMi: 60000, computeTarget: 'cpu',
   weightsMi: 5000, kvCacheMi: 500, reserveMi: 500, headroomMi: 1000, downloadBytes: 4_000_000_000,
   confidence: 'high', calculations: {downloadBytes: {formula: 'repository bytes', substitution: '4,000,000,000 bytes'}}};
 
@@ -21,6 +24,77 @@ const common = (extra: Record<string, unknown> = {}) => ({
   '/api/model-discovery/popular': {provider: 'huggingface', results: [], total: 0},
   '/api/models/estimate-memory': estimate,
   ...extra,
+});
+
+for (const viewport of ['desktop', 'mobile'] as const) for (const engine of ['VLLM', 'OLlama'] as const)
+test(`MEM-01 MEM-06 ${engine} ${viewport} separates startup RAM and preserves manual budgets through recalculation`, evidenceAnnotations(
+  {id: 'MEM-01', variant: 'memory-breakdown-browser', layer: 'B'},
+  {id: 'MEM-06', variant: 'slider-browser', layer: 'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width: 390, height: 844} : {width: 1440, height: 1000});
+  let recommendation = 18000;
+  const writes: Array<{local: Record<string, unknown>}> = [];
+  await fixturePage(page, common({
+    '/api/models': fourNvidiaCards(),
+    '/api/models/estimate-memory': () => ({...estimate, computeTarget: 'nvidia-gpu', maximumMi: 49152,
+      systemMemoryMaximumMi: 32000, confidence: 'estimated',
+      systemMemory: systemMemoryFixture({recommendedMi: recommendation, workerCount: engine === 'VLLM' ? 2 : 1})}),
+    '/api/models/local': (request: Request) => {writes.push(request.postDataJSON()); return {};},
+  }));
+  await page.goto(origin + '/#/models'); await page.getByRole('button', {name: 'Create', exact: true}).click();
+  const dialog = page.getByRole('dialog', {name: 'Create Model'});
+  await dialog.getByLabel('Inference Engine').selectOption(engine);
+  await dialog.getByRole('combobox', {name: 'Hardware', exact: true}).selectOption('nvidia-gpu');
+  await dialog.getByLabel('Model source').selectOption('direct');
+  await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(engine === 'VLLM' ? 'hf://example/fixture' : 'ollama://fixture:small');
+  await dialog.getByLabel('Name', {exact: true}).fill('memory-fixture');
+  await dialog.getByRole('checkbox', {name: /0000:02:00.0/}).check();
+  const ram = dialog.getByLabel('Host RAM budget (MiB)');
+  await expect(ram).toHaveValue('18000');
+  const panel = dialog.getByRole('region', {name: 'System RAM planning'});
+  await expect(panel.getByText(formatMi(5000), {exact: true})).toBeVisible();
+  await expect(panel.getByText(`${formatMi(6000)} – ${formatMi(16000)}`, {exact: true})).toBeVisible();
+  await ram.fill('20000');
+  recommendation = 22000;
+  await dialog.getByLabel('Context Size').fill('8192');
+  await expect(panel.getByText(formatMi(22000), {exact: true})).toBeVisible();
+  await expect(ram).toHaveValue('20000');
+  await panel.getByText('RAM breakdown', {exact: true}).click();
+  await expect(panel).toContainText('Do not sum both startup bounds');
+  await panel.scrollIntoViewIfNeeded();
+  await page.screenshot({path: info.outputPath(`system-ram-${engine}-${viewport}.png`), fullPage: true});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await dialog.getByRole('button', {name: 'Add Local Model'}).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]!.local).toMatchObject({engine, memoryRequiredMi: 20000});
+});
+
+for (const viewport of ['desktop','mobile'] as const) for (const provider of ['local-ollama','local-vllm','external'] as const)
+test(`DISC-01 ${provider} ${viewport} validates model names before any create request`, evidenceAnnotations(
+  {id:'DISC-01',variant:`model-name-${provider}-${viewport}-browser`,layer:'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
+  const writes:Array<Record<string,unknown>>=[];
+  const save=(request:Request)=>{writes.push(request.postDataJSON());return {};};
+  await fixturePage(page,common({'/api/models':{...cpuModels,activations:[{metadata:{name:'existing-model'},spec:{type:'external'}}]},
+    '/api/models/local':save,'/api/models/external':save}));
+  await page.goto(origin+'/#/models');await page.getByRole('button',{name:'Create',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Create Model'});
+  if(provider === 'external')await dialog.getByLabel('Location').selectOption('external');
+  else {
+    const engine=provider === 'local-ollama'?'OLlama':'VLLM';
+    await dialog.getByLabel('Inference Engine').selectOption(engine);await dialog.getByLabel('Model source').selectOption('direct');
+    await dialog.getByLabel(engine==='OLlama'?'Ollama model reference':'Hugging Face URL').fill(engine==='OLlama'?'ollama://fixture:latest':'hf://example/fixture');
+  }
+  const name=dialog.getByLabel('Name',{exact:true}),add=dialog.getByRole('button',{name:provider==='external'?'Add External Model':'Add Local Model'});
+  for(const value of ['Uppercase','two words','under_score','name.','-start','end-','a'.repeat(64),'existing-model']) {
+    await name.fill(value);await expect(name).toHaveAttribute('aria-invalid','true');
+    await expect(dialog.getByRole('alert')).toBeVisible();await expect(add).toBeDisabled();
+    await name.press('Enter');expect(writes).toEqual([]);
+  }
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`model-name-${provider}-${viewport}.png`),fullPage:true});
+  await name.fill(' valid-model ');await expect(dialog.getByRole('alert')).toHaveCount(0);await expect(add).toBeEnabled();
+  await add.click();await expect(dialog).not.toBeVisible();
+  expect(writes).toHaveLength(1);expect(writes[0]!.name).toBe('valid-model');
 });
 
 test('DISC-01 ENG-07 create dialog switches location and engine without leaking incompatible fields', evidenceAnnotations(
@@ -72,9 +146,9 @@ test('DISC-03 DISC-04 browser discovery sends exact policy context and keeps sel
   await expect(dialog.getByLabel('Selected URL')).toHaveValue('hf://Qwen/Qwen3.8-9B-FP8');
   await expect(dialog.getByText('Download: 4.00 GB')).toBeVisible();
   expect(Object.fromEntries(searches[0]!.searchParams)).toMatchObject({provider: 'huggingface', engine: 'VLLM',
-    computeTarget: 'cpu', modelType: 'chat', q: 'Qwen3.8'});
+    computeTarget: 'cpu', modelType: '', q: 'Qwen3.8'});
   expect(Object.fromEntries(artifacts[0]!.searchParams)).toMatchObject({provider: 'huggingface', engine: 'VLLM',
-    computeTarget: 'cpu', modelType: 'chat', repo: 'Qwen/Qwen3.8-9B'});
+    computeTarget: 'cpu', modelType: '', repo: 'Qwen/Qwen3.8-9B'});
 });
 
 for (const selection of [
@@ -152,3 +226,51 @@ test('LIFE-12 failure card shows the reported stage and never presents the fixtu
   await expect(card.locator('p.muted').filter({hasText: 'ImagePullBackOff: controlled fixture'})).toBeVisible();
   await expect(card.getByText('Ready', {exact: true})).toHaveCount(0);
 });
+
+
+for (const viewport of ['desktop', 'mobile'] as const) {
+  for (const task of ['chat', 'embedding'] as const) {
+    test(`DISC-01 ${task} task detection ${viewport} browser keeps service assignment out of model creation`, evidenceAnnotations(
+      {id: 'DISC-01', variant: `task-${task}-${viewport}-browser`, layer: 'B'}), async ({page}, info) => {
+      await page.setViewportSize({width: viewport === 'desktop' ? 1440 : 390, height: 900});
+      const engine = task === 'chat' ? 'VLLM' : 'OLlama';
+      let saved: any;
+      await fixturePage(page, common({'/api/models/estimate-memory': {...estimate, detectedModelType: task},
+        '/api/models/local': (request: Request) => {saved = request.postDataJSON(); return {metadata: {name: 'task-model'}};}}));
+      await page.goto(origin + '/#/models'); await page.getByRole('button', {name: 'Create', exact: true}).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.getByLabel('Inference Engine').selectOption(engine);
+      await dialog.getByLabel('Model source').selectOption('direct');
+      await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(engine === 'VLLM' ? 'hf://example/model' : 'ollama://example:latest');
+      await expect(dialog.getByText(/detected automatically/)).toBeVisible();
+      await expect(dialog.getByRole('combobox', {name: 'Model task'})).toHaveCount(0);
+      await expect(dialog.getByLabel('Type', {exact: true})).toHaveCount(0);
+      await dialog.getByText(/detected automatically/).scrollIntoViewIfNeeded();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({path: info.outputPath(`model-task-${task}-${viewport}.png`)});
+      await dialog.getByRole('button', {name: /Add Local Model/}).click();
+      await expect(dialog).toHaveCount(0);
+      expect(saved.local.modelType).toBe('auto');
+    });
+  }
+  test(`DISC-01 unknown task ${viewport} browser requires a choice for each reference`, evidenceAnnotations(
+    {id: 'DISC-01', variant: `task-unknown-${viewport}-browser`, layer: 'B'}), async ({page}) => {
+    await page.setViewportSize({width: viewport === 'desktop' ? 1440 : 390, height: 900});
+    await fixturePage(page, common({'/api/models/estimate-memory': {...estimate, detectedModelType: null}}));
+    await page.goto(origin + '/#/models'); await page.getByRole('button', {name: 'Create', exact: true}).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Inference Engine').selectOption('VLLM');
+    await dialog.getByLabel('Model source').selectOption('direct');
+    await dialog.getByLabel('Hugging Face URL').fill('hf://example/unknown');
+    const choice = dialog.getByRole('combobox', {name: 'Model task'});
+    await expect(choice).toBeVisible();
+    await expect(dialog.getByRole('button', {name: /Add Local Model/})).toBeDisabled();
+    // Native type-ahead works across headless platforms with different popup navigation.
+    await choice.focus(); await page.keyboard.press('c');
+    await expect(choice).toHaveValue('chat');
+    await expect(dialog.getByRole('button', {name: /Add Local Model/})).toBeEnabled();
+    await dialog.getByLabel('Hugging Face URL').fill('hf://example/another');
+    await expect(choice).toHaveValue('');
+    await expect(dialog.getByRole('button', {name: /Add Local Model/})).toBeDisabled();
+  });
+}

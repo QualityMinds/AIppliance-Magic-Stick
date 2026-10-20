@@ -8,8 +8,132 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
-### Changed
+- Bind regression report reads to canonical run UUIDs, literal allowlisted
+  filenames and open directory descriptors. Reject oversized or special files
+  without blocking, and use exact resource/API-group comparisons in security
+  test adapters. Preserve CodeQL enforcement and the private-report boundary.
 
+- Update PyJWT to 2.15.0 in the Dashboard API and Private Mesh/companion, and
+  audit both Python dependency graphs in scheduled and change-triggered CI.
+  Require TLS 1.2 or newer for the optional macOS keychain CA probe without
+  disabling certificate or hostname verification.
+
+- Retain validated runtime image update patches as CI artifacts. Automatic PR
+  creation is explicitly enabled only where enterprise policy permits it;
+  otherwise the workflow reports the required manual review without bypassing
+  policy or suppressing resolver, test, rendering or upload failures.
+
+- Temporarily exclude experimental Omni/Realtime cases from regular regression
+  selection and automatic fixture preparation. Keep their definitions for later
+  reactivation and preserve historical results. Reports disclose the exclusion;
+  product Omni support and ordinary Ollama/vLLM regression remain unchanged.
+
+- Separate license regression preview, rejection and activation/persistence
+  cases. Remove the competing browser request handler, accept idempotent imports,
+  retain UID/revision-bound restoration receipts before postconditions, and fence
+  unfinished license cleanup. Add focused live-case diagnostics without claiming
+  full-phase acceptance. Commercial test fixtures include both signed edition
+  entitlements and are checked against the real verifier; product license
+  verification is unchanged.
+
+- Isolate Kubernetes regression cases by role and owned test identity. Wait for
+  kubeconfig copy acknowledgement, reject stale same-cluster exports, and verify
+  actual private download contents instead of a success notice. Reauthenticate
+  after access changes, preserve cleanup/deadline causes and fence unfinished
+  UID-bound Kubernetes intent cleanup. Export does not require cluster-admin or
+  the OIDC exec plugin; product permissions and TLS contracts remain unchanged.
+
+- Separate functional regression HTTPS calls from explicit certificate checks.
+  MOD-03 tests service routes in the registered connection scope instead of
+  requiring public example-domain DNS during a local run. Preserve HTTP/network
+  failures, strict HAR-01/bootstrap verification and UID/revision-bound cleanup.
+
+- Keep shared regression-workflow receipts compatible with native Node type
+  stripping. CI loads both real Kubernetes test/cleanup entrypoints without
+  network or private inputs before allowing runner publication.
+
+- Cover local service and application-instance hostnames with the appliance
+  gateway certificate. Report incompatible application model context per
+  instance instead of aborting the controller round. Phase 5 selects a separate
+  native-context-compatible CPU fixture with a verified RAM budget and retains
+  shared setup failure causes across browser-worker restarts.
+
+- Keep ordinary Ollama/vLLM models in Removing until their runtime Pods have
+  disappeared, including terminal or terminating Pods left by older deletion.
+  Delete owned KubeAI Models in the foreground with UID/revision preconditions;
+  never force-delete Pods, claims or caches to report a successful Stop.
+
+- Select one or more regression phases in the Dashboard start dialog, including
+  Phase 3 alone. Keep all phases as the default, automatic previous-run cleanup,
+  and selection-bound progress/reports; reject empty or invalid selections and
+  changes to an existing run's selection.
+
+- Repair ready-service DNS for both browser and API regression probes without
+  changing HTTPS origins. Observe application
+  HelmReleases in their control-plane namespace and detect gateway process
+  restarts during module/application route churn.
+- Use Envoy Gateway 1.8.5 with explicit Envoy 1.38.6 proxy overrides, including
+  setup; a source upgrade is not itself proof of installed gateway stability.
+- Supervise every vLLM collective-probe rank with bounded cleanup, retain fixed
+  startup diagnostics before model removal, and refuse fallback after
+  unconfirmed cleanup. Preserve explicit runtime transport/thread policies.
+- Classify missing GPU providers and unavailable exact-card validation as
+  concrete prerequisites. Prepare NVIDIA DRA before validation, release idle
+  browser pages during native GPU checks, and retain precise cleanup operations.
+  Explicit recovery guards keep their originating failure across phase reports;
+  genuine missing execution evidence still fails HAR-10.
+
+- Group Model cache and Regression tests under System Status, with a second tab
+  bar for Overview, GPU Operators, Flux, Network & routes and maintenance tools.
+  Preserve old bookmarks, administrator restrictions and license-free regression
+  access; opening tabs never starts tests or cleanup.
+
+- Allow **Clean up previous test run** to restore retained setup access even
+  after the test lock was released; explain disabled actions and retain exact
+  journal/Lease ownership checks. Cleanup never starts test phases.
+- Package all catalogued module manifests in the regression runner for SEC-04.
+- Defer host software convergence during regression and reserve the lab through
+  actual Flux readiness, so automatic image rollouts cannot invalidate a run.
+
+- Preserve enabled idle-service baselines and absent optional module parameters
+  during regression cleanup; exclude empty instance-provider modules from the
+  standalone service fixture and retain serial-test failure dependencies.
+- Bound default CPU-vLLM OpenMP workers by the container's real CPU quota,
+  preserving explicit runtime tuning instead of increasing inference timeouts.
+- Follow the pinned Kubernetes-login plugin's actual local callback instruction,
+  validate its IdP/PKCE redirect and final callback state, and isolate mutation
+  receipts when a failed regression case restarts its browser worker.
+- Refuse unqualified vLLM startup after an adapter exception; retain bounded,
+  private startup and NCCL diagnostics instead of hiding the original cause
+  behind a later argument-parser error.
+- Include enabled modules' shipped API grants in SEC-04. PERF-02 distinguishes
+  expected consumer rollouts from leaked replicas and records which resource
+  inventory differs after cleanup.
+- Allocate separate bounded recovery journals for consecutive GPU scenarios,
+  allow bodyless license-status polling through the test write guard, and
+  capture Realtime readiness diagnostics before removing its owned runtime.
+- Restore the original no-license state after a first test activation using
+  document-only UID/revision checks; keep independent unlicensed-UI receipts.
+
+- Start every regression execution from the beginning after automatic,
+  UID/revision-bound cleanup; rename the diagnostic action to **Clean up previous
+  test run**. Preserve cleanup causes across phases and report missing execution
+  evidence as a harness failure. Retain historical failed reports.
+- Correct per-engine GPU fixture sizing, Edit estimate requests, CPU/GPU Realtime
+  selection, optional service preparation, repository-derived security checks
+  and capability-specific form checks. Retain first-inference and repeated-cycle
+  baseline diagnostics, including separate cache accounting.
+- Accept one-card vLLM assignments for independent copies and qualify split-group
+  NCCL transport with bounded native probes; a successful Pod-scoped fallback
+  disables direct P2P/custom all-reduce with a visible diagnostic.
+
+- Explicitly document license-free regression execution and report downloads;
+  cover missing, expired, invalid and unavailable license states at the API and
+  Dashboard, retaining administrator, disposable-lab and individual test gates.
+
+- Disable saving unchanged, reverted or invalid domain settings and retain
+  unsaved edits across refetches; the full browser regression caught the old
+  always-enabled Save action.
 - Initial setup accepts the displayed console code repeatedly, including in
   independent browsers, until successful completion. Expired/lost sessions no
   longer strand the wizard in `Claimed`. Partial retries prefill non-secret
@@ -23,6 +147,52 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Added
 
+- Add **Recover stale lock** to System regression tests. A confirmed,
+  UID/resource-version-bound recovery restores only the old run's recorded
+  resources and unchanged borrowed settings, verifies cleanup, and releases its
+  expired lock without starting test phases. Active owners, missing external
+  journals and changed identities remain protected with an explanation.
+- Distinguish regression checks **Blocked by prerequisite** from **Blocked by
+  failure**, with separate live/result counts and the original blocking check,
+  reason, stage and filtered trace when recorded. Preserve the distinction in
+  HTML, text, JSON and JUnit reports; cancellation and unrecorded causes
+  remain separate, and unexecuted dependent checks retain the Blocked outcome.
+- Add administrator-only **System → System Status → Regression tests**: run the existing
+  Phase 0–8 P0 suite as one Kubernetes Job on a registered disposable test
+  Appliance, show durable progress and outcomes, cancel with bounded cleanup,
+  and download sanitized HTML, JUnit and filtered-trace archives. Generate test
+  credentials automatically. Blocked checks retain reason, next action,
+  phase/variant/layer and trace identity. Host-disconnecting maintenance drills
+  require the external runner and remain explicitly Blocked internally.
+- Show separate GPU-model System RAM estimates for serving, startup transfer
+  buffers and reclaimable file cache. Recommend a conservative host budget for
+  new multi-GPU/offloading models while preserving saved and manually edited budgets.
+- Configure and edit Ollama, vLLM and experimental vLLM-Omni through one local
+  model form with catalog-driven source choices and engine-specific settings.
+  Share CPU controls with Omni and expose optional output limits when creating
+  ordinary models. Preserve saved definitions, revision-safe edits, per-card
+  multi-GPU budgets and Omni stage-memory planning.
+- Detect Chat/Embedding tasks when creating local Ollama/vLLM models from
+  registry metadata or tested presets. Ask for a task only when it cannot be
+  detected; keep model capabilities separate from application preferences.
+- Select separate initial chat and embedding models for AnythingLLM under
+  **Services → Configure**. Each list shows the matching catalog models;
+  saved AnythingLLM preferences and existing document indexes are preserved.
+- Place ordinary vLLM/Ollama models on multiple NVIDIA GPUs on one node
+  through DRA: split one runtime across the selected cards or run a full copy on
+  each card behind one LiteLLM model name. Preserve per-card slots, memory budgets,
+  lifecycle controls and logs. Multi-node/mixed-vendor groups and physical
+  multi-GPU acceptance remain outside this source-validation scope. See
+  [GPU placement](docs/administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
+- Initialize new AnythingLLM installations with catalogued chat/context and
+  embedding defaults, and persist native preferences across Pod restarts.
+  Older installations require the documented
+  [one-time settings migration](docs/administration/updates-rollback.md#anythingllm-persistent-settings-migration).
+- Create Pi Coding Agent 1.0.0 instances from **Services**, with a browser
+  terminal, model selection, SSO, and persistent workspaces and sessions.
+  The service is optional and disabled by default. Pod initialization downloads
+  checksum-verified Pi and ttyd releases and requires GitHub access. See the
+  [Pi Coding Agent guide](docs/user-guide/applications.md#pi-coding-agent).
 - German legal pages: `impressum.html` and `datenschutz.html` are full
   translations of the legal notice and privacy policy with the same section
   anchors. All four legal pages carry canonical and `hreflang` metadata and an
@@ -34,6 +204,71 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   statistics, US transfer safeguards and the providers' privacy policies.
 
 ### Changed
+
+- Add a disabled-by-default, exact-version/source-checksum-bound backport of
+  upstream vLLM #60142 for FP8 PLE pinned-host lookup on pre-SM89 NVIDIA GPUs.
+  Preserve weight storage bytes and fail startup on a foreign runtime/source.
+  The four-A6000 Flash-Next trial required standard KV cache; this repair does
+  not qualify the separate FP8 QSA cache path or every model/hardware combination.
+- Estimate vLLM KV cache per tensor rank or pipeline stage, including replicated
+  GQA/MLA heads, recurrent state and auxiliary QSA caches. Estimate Ollama's
+  layer-distributed cache separately. Size runtime reserve from local shards
+  and itemize uneven placement instead of repeating full-model reserves on every
+  GPU. These are planning envelopes, not measured fit guarantees.
+- Update Ollama CPU/NVIDIA and AMD ROCm runtimes from 0.33.2 to 0.40.3 with
+  verified immutable image digests. Align diagnostic images and AMD runtime
+  adoption checksums; retain saved model settings, registry references and the
+  persistent model-cache mount. GPU inference and cache/rollback acceptance
+  remain separate upgrade checks.
+- Update ordinary vLLM NVIDIA, CPU, AMD ROCm and Intel XPU runtimes to upstream
+  0.31.0 with verified immutable image digests. Keep diagnostic and Mesh CPU
+  fixtures aligned, and add a native offline CLI/model-config contract in CI.
+  Adapt the removed FP8 calibration flag using the actual runtime version,
+  retaining FP8 precision and compatibility with older installed images.
+  Retain the separately pinned experimental vLLM-Omni runtime. Architecture
+  support does not certify every quantized checkpoint or GPU combination.
+- Choose physical NVIDIA GPUs in one checkbox list for Create/Edit, with the
+  selected count derived from checked cards. Remove the primary-card dropdown
+  and automatic-count control; retain unavailable-card reasons and exact identities.
+- Show split-model GPU breakdowns in the same total scope as the VRAM calculator.
+  Keep per-copy estimates, host runtime and download size in their own scopes.
+- Validate local/external model names and duplicates before submission, with
+  inline feedback. Enforce the 63-character label limit in the creation API.
+- Reduce the local Docker regression runner to slim Node, locked Chromium
+  headless shell and a smaller native Go builder. Combine source/runtime
+  installation into one layer while retaining the native AMD recovery tests.
+  See the [runner guide](docs/development/regression-remaining-p0.md#once).
+- Build and exercise the regression-runner image in GitHub CI, including native
+  recovery tests and Chromium fixtures. Use this gate for development Docker
+  build verification instead of repeating builds in the agent workspace.
+- Correct the regression matrix count after FreeToken removal and select the
+  existing domain-settings component contract. Retain sanitized report archives
+  for isolated checks so CI failures include portable diagnostics.
+- Allow different NVIDIA GPU models and memory capacities in same-node DRA
+  groups. Bound the evenly divided split-model budget by the smallest selected
+  card's unreserved and physical capacity; preserve a full budget per copy for
+  replication. vLLM applies the same MiB budget to each differently sized GPU.
+- Replace shared LiteLLM administrator credentials in application instances and
+  AnythingLLM with owner-scoped inference-only virtual keys. Provision keys
+  durably, block suspended instances, roll workloads on rotation with a 15-minute
+  grace period, and revoke keys before lifecycle cleanup completes. Remove old
+  persisted AnythingLLM LiteLLM credentials at startup.
+
+- Update Paperclip to 2026.1001.0, its Kubernetes plugin to the matching release,
+  and its upstream operator to 0.19.1. Pin the application and OpenCode 1.18.21
+  sandbox images by digest and replace the custom operator build with native
+  loopback settings and CRD upgrade handling.
+- Update Hermes operator to 0.2.0 and pin the native NousResearch runtime to
+  `v2026.9.24` (agent 0.21.5) by its multi-platform image digest.
+- Update OpenClaw operator to 0.40.0 and app to 2026.9.8, KubeOpenCode to 0.1.9,
+  and AnythingLLM to 1.17.0. Pin application and KubeOpenCode worker images by
+  digest, and update KubeOpenCode CRDs during Flux upgrades.
+- Use conservative OpenCode fallback budgets of 8,192 context and 2,048 output
+  tokens when model metadata is missing, including the shared Paperclip export.
+- The English legal notice is now `imprint.html` with the heading "Imprint",
+  matching the landing page footer; the former `legal-notice.html` address is gone.
+  The handbook footer links only the English imprint and privacy policy, since
+  the handbook is English only; both pages keep their EN/DE switch.
 
 - The privacy policy, the handbook `site_url` and the landing pages' canonical,
   language-alternate and social-preview addresses name the Azure Static Web
@@ -51,6 +286,150 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 - A daily Container Apps job deletes Umami visitor records after the 25 months
   stated in the privacy policy. The Umami image is pinned to 3.4.0 by digest and
   the tag no longer records URL fragments.
+
+### Removed
+
+- Remove the experimental FreeToken engine from model creation, Services, runtime
+  builds, routing and active regression profiles. Existing definitions remain
+  stoppable/removable; new starts and edits are rejected. See
+  [retired engines](docs/reference/retired-engines.md).
+
+### Fixed
+
+- Keep regression reporting fixtures independent from an inherited failed live
+  preparation. Preserve the actual preparation reason and setup stage in
+  sanitized reports and the Dashboard, with separate fixture/live evidence
+  counts and focused CI coverage of the failed-preparation context. A failed
+  stale-lock recovery now retains and displays its fixed setup failure stage.
+- Wait for polled model lifecycle controls before regression writes and retain
+  validated generation receipts even when the browser action fails. Keep
+  primary failures separate from cleanup fences and completed CPU checks.
+- Derive regression slot expectations from physical GPU inventory, including
+  full-pool and final-slot scenarios on multi-card NVIDIA nodes. Scope Hardware
+  accordions by PCI identity and wait for Edit estimates before checking saved
+  split/per-copy budgets. Include filtered Pod/runtime diagnostics in trace and
+  JUnit reports without exporting logs or credentials.
+- Keep isolated regression suites independent of live Kubernetes execution,
+  credentials and preparation diagnostics. Include Git in the runner runtime
+  and exercise Phase 6 channel contracts before publishing its image.
+- Complete the SSO callback before checking the regression user's session;
+  renew an expired session through normal sign-in before guarded operations,
+  retaining exact user/role and Lease checks without replaying writes. Preserve
+  the original foundation-test failure alongside a separate cleanup fence.
+- Keep **Refresh tests** stable while regression progress updates automatically;
+  disable it only during initial loading or a manually requested refresh.
+- Discard outdated discovery responses after an engine or hardware change and
+  preserve the original edit revision during polling, including Omni. Save only
+  changed fields and retain custom Omni sources, images and restart state.
+- Keep Omni editing and lifecycle controls available by checking the stored vLLM
+  engine identifier instead of its display label.
+- Verify NVIDIA multi-GPU selections using node identity and physical capacity
+  from DRA inventory. Cards remain selectable when live memory totals differ or
+  one card has no DCGM sample; missing capacity and wrong-node selections retain
+  explicit disabled reasons.
+- Show the combined VRAM budget and 100% maximum when splitting one model across
+  multiple NVIDIA GPUs in Create and Edit. Convert total inputs to per-card
+  reservations so models larger than one card can be configured while retaining
+  each GPU's physical capacity checks and saved-model compatibility.
+- Retry transient Rust toolchain download failures in the Linux/macOS Mesh
+  companion builds, retaining the pinned version and failing after three attempts.
+- Preserve explicit tool, vision and reasoning metadata in the canonical model
+  catalog and native OpenClaw, Hermes, OpenCode and Pi configurations. Keep
+  unknown capabilities distinct from false, handle fallback routes conservatively,
+  and disable Pi tools on launch when the selected model explicitly rejects them.
+  Use LiteLLM's current model PATCH API and mask removed declarations so cached
+  metadata cannot restore them.
+
+- Upgrade Paperclip's Kubernetes plugin on existing volumes before readiness,
+  verify its compatibility patches against exact upstream hashes, preserve
+  explicit internal callback URLs through the native API setting, and apply
+  sandbox working directories consistently. Correct documentation that claimed
+  automatic gateway bindings not implemented by the current chart.
+- Configure Hermes' LiteLLM provider and Secret credential reference explicitly,
+  permit its targeted LiteLLM network connection, and retain SSO access to the
+  current loopback dashboard through an HTTP/WebSocket proxy. Remove the obsolete
+  dashboard `INSECURE` setting and correct the documented catalog consumption.
+  Forward the selected model's actual context and report Hermes 0.21.5's
+  64,000-token minimum without increasing the configured model capacity.
+- Apply the selected OpenClaw instance model and its compaction budget through
+  an owned per-instance catalog, with native operator configuration rollouts.
+  Use the new `keepRecentTokens` setting and remove reserve overrides rejected
+  by OpenClaw 2026.9.8.
+- Preserve KubeOpenCode instance model choices during catalog synchronization,
+  remove withdrawn provider routes and roll updated configuration automatically.
+
+## v0.1.3 - 2026-10-20
+
+Magic Stick **v0.1.3 Early Access** adds exact-card NVIDIA model placement and
+installed regression execution, and improves first setup, model shutdown and
+release security checks.
+
+### Added
+
+- Select physical NVIDIA GPUs through DRA. Split an ordinary Ollama/vLLM model
+  across selected cards or run an independent copy on each card behind one
+  LiteLLM model name. Keep per-card slot and memory accounting separate.
+- Run administrator regression tests inside the appliance's Kubernetes cluster
+  without a product license. Select P0 phases, watch progress, clean up retained
+  test state and download sanitized HTML/JUnit/trace reports. Reports distinguish
+  missing prerequisites from checks blocked by an earlier failure.
+- Show GPU-model host-RAM estimates separately from VRAM planning, and provide
+  the optional Pi Coding Agent service with persistent workspaces.
+
+### Changed
+
+- Group Model cache and Regression tests under System Status, retaining old
+  dashboard links. Update ordinary Ollama/vLLM runtime integration, memory
+  planning and service configuration.
+- Every regression execution starts from the beginning after ownership- and
+  revision-bound cleanup; historical results are never reused or rewritten.
+- Retain validated runtime-image update proposals as CI patch artifacts when
+  enterprise policy disallows automatic PR creation. Automatic PRs remain an
+  explicit option where permitted; tests, rendering and registry checks remain
+  mandatory.
+
+### Fixed
+
+- Keep the displayed initial-setup code reusable until successful completion,
+  including independent browsers, expired sessions, interrupted responses and
+  retries with partially saved non-secret fields. Completed setup stays closed.
+- Wait for owned runtime Pods to disappear before reporting ordinary model
+  removal and freeing allocations. Preserve UID/revision checks and cleanup
+  failure causes instead of force-deleting resources to report success.
+- Improve regression credential cleanup, service-route discovery, Kubernetes
+  access/export checks, license fixtures and causal diagnostics.
+- Preserve the current main landing-page and setup changes while integrating
+  develop; do not restore retired engine claims during merge resolution.
+
+### Security
+
+- Update PyJWT to **2.15.0** for the Dashboard API and Private Mesh/companion.
+  Audit both Python requirement graphs in recurring and change-triggered CI,
+  alongside the existing npm advisory checks.
+- Require TLS 1.2 or newer in the optional macOS keychain CA probe, retaining
+  certificate verification and hostname binding.
+
+### Removed
+
+- Retire the experimental FreeToken engine from creation, services, runtime
+  builds and active regression profiles. Existing definitions remain stoppable
+  and removable; new starts and edits are rejected.
+
+### Installation and limits
+
+Use the checksum-verified reduced USB installer linked from the
+[installation guide](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/installation/bare-metal/).
+An unchanged installer recipe can be reused across product releases. A USB
+installer following `main` fetches that branch's current source at first boot;
+the source tag alone does not pin a branch-following installation.
+
+Omni/Realtime remains experimental and its cases are temporarily excluded from
+ordinary regression. Intel hardware validation and unavailable external test
+prerequisites remain explicit gaps. Source, browser-fixture and CI results do
+not certify the complete physical GPU matrix, fresh installation, upgrade or
+full installed Phase 0–8 acceptance. Final image promotion and hardware evidence
+are separate. Existing legal and artifact review findings remain advisory and
+are not automatically approved by this release record.
 
 ## v0.1.2 - 2026-09-25
 

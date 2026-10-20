@@ -24,6 +24,9 @@ import {
   type MeshStatus,
   type ModulesPayload,
   type Session,
+  type RegressionStatus,
+  type RegressionRun,
+  type RegressionStartRequest,
   type LicenseStatus,
   type LicensePreview,
   type LicenseRequestInput,
@@ -101,6 +104,29 @@ export class MagicStickApi {
     return this.request<{items: Array<{name: string; application: string; phase: string; urls: string[]}>}>('/api/my-instances');
   }
 
+  regression() { return this.request<RegressionStatus>('/api/regression'); }
+  registerRegression() { return this.request<RegressionStatus>('/api/regression/register', {method: 'POST',
+    body: JSON.stringify({confirmation: 'DISPOSABLE TEST SERVER', acknowledgeDisruption: true})}); }
+  startRegression(requestId: string, phases?: RegressionStartRequest['phases']) {
+    const body: RegressionStartRequest = {
+      requestId, acknowledgeDisruption: true, ...(phases === undefined ? {} : {phases})};
+    return this.request<RegressionRun>('/api/regression/runs', {method: 'POST', body: JSON.stringify(body)});
+  }
+  recoverRegressionLock(requestId: string, expectedLockRevision: string) {
+    return this.request<RegressionRun>('/api/regression/recover-lock', {method: 'POST',
+      body: JSON.stringify({requestId, expectedLockRevision, acknowledgeCleanup: true})});
+  }
+  cancelRegression(id: string) { return this.request<RegressionRun>(`/api/regression/runs/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST', body: JSON.stringify({acknowledgeDisruption: true})}); }
+  async downloadRegression(id: string, kind: 'archive' | 'html' | 'junit' = 'archive') {
+    const headers = new Headers({Accept: 'application/octet-stream'}), token = await this.getAccessToken?.();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await (this.fetchImpl ?? globalThis.fetch.bind(globalThis))(
+      `${this.baseUrl}/api/regression/runs/${encodeURIComponent(id)}/${kind}`, {headers, credentials: token ? 'omit' : 'same-origin', cache: 'no-store'});
+    if (!response.ok) throw new ApiError('Regression report is unavailable.', response.status);
+    return response.blob();
+  }
+
   licenseStatus() { return this.request<LicenseStatus>('/api/license'); }
   inspectLicense(document: string) {
     return this.request<LicensePreview>('/api/license/validate', {method: 'POST', body: JSON.stringify({document})});
@@ -163,8 +189,9 @@ export class MagicStickApi {
     );
   }
   models() { return this.request<ModelsPayload>('/api/models'); }
-  modelLogs(name: string, tailLines = 300) {
+  modelLogs(name: string, tailLines = 300, replica = '') {
     const query = new URLSearchParams({tailLines: String(tailLines)});
+    if (replica) query.set('replica', replica);
     return this.request<ModelLogsPayload>(`/api/models/${encodeURIComponent(name)}/logs?${query}`);
   }
   status() { return this.request<SystemStatusPayload>('/api/status'); }

@@ -7,3 +7,8 @@ resources:
   - gateway.yaml
   - service.yaml
   - pvc.yaml
+configMapGenerator:
+  - name: anything-llm-model-bootstrap
+    namespace: ai
+    files:
+      - model-bootstrap.cjs

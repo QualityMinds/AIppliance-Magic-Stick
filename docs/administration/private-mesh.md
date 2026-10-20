@@ -8,9 +8,9 @@ from its owner. This action remains visible after setup. The dialog guides modul
 activation when needed and requires an explicit leave before switching meshes;
 canceling before confirmation preserves membership. Leaving an owner disconnects its members once
 their authorization leases expire. Local models keep running.
-Ready local chat models from vLLM, Ollama and FreeToken can all be shared. Models
+Ready local chat models from vLLM and Ollama can all be shared. Models
 must first be running under **Models**; external providers and imported Mesh
-routes are not eligible. Ollama and FreeToken use the same remote request limits
+routes are not eligible. Ollama uses the same remote request limits
 without vLLM-specific scheduling parameters. Deploy the updated Mesh image,
 discovery RBAC and dashboard together when upgrading this capability.
 No license file is needed for Private Mesh. Membership, expiring signed rosters

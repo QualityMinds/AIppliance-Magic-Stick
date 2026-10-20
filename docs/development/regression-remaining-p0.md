@@ -1,10 +1,90 @@
 # Run regression tests
 
-Use a **dedicated, disposable test Magic Stick**. Full runs may stop models,
-change settings, replace test licenses, clear model caches and reboot the server.
-Run Docker on your Mac or a separate runner, not on the appliance it reboots.
+Use a **dedicated, disposable test Magic Stick**. Tests may stop models, change
+settings, deploy services, replace test licenses and clear model caches.
 
-## Once
+## In the Dashboard
+
+**No license is required.** Test-server registration is separate from licensing.
+
+1. Open **System → System Status → Regression tests** as an administrator.
+2. Once: **Enable regression runner**, wait for readiness, then **Register test
+   Appliance** and confirm `DISPOSABLE TEST SERVER`.
+3. Choose **Start regression tests**. Keep all phases selected for a complete run,
+   or use **Clear selection** and select, for example, **Phase 3**. Confirm with
+   **Start tests**. Credentials, scoped Kubernetes access and small model fixtures
+   are prepared automatically.
+4. Watch progress, then download **Download report**, **HTML summary** or **JUnit XML**.
+
+Every start cleans up the previous run, checks the baseline, creates a **new test
+ID**, and runs the selected P0 phases from the beginning. All Phase 0–8 tests are
+selected by default. Progress and reports identify the saved selection; other
+phases are not run or counted as passed. Earlier results are never reused.
+Reloading the page does not stop the Kubernetes Job.
+**Refresh tests** remains available during automatic updates. **Cancel tests**
+requests bounded cleanup.
+
+Experimental **Omni/Realtime tests are temporarily excluded** (`RT-01`–`RT-08`).
+Phase 7 still runs Mesh/companion checks. Setup does not prepare Omni models or
+GPU transitions for these excluded tests; reports list `VLLM-Omni` as excluded,
+not passed or blocked. Ordinary Ollama/vLLM tests and product Omni support stay
+unchanged. Re-enable the retained cases after Realtime is ready for acceptance.
+
+<a id="if-cleanup-is-blocked"></a>
+
+### Clean up without starting tests
+
+Choose **Clean up previous test run** to prepare a clean baseline in advance.
+It runs only the old-run cleanup, not any test phases. Normal Start still cleans
+up automatically when needed. If cleanup is blocked, inspect its reason and
+stage: `recovery-journal`, `recovery-resource`, `recovery-module`,
+`recovery-sharing`, or `gpu-validation` identifies the failed operation.
+Retained setup access can need cleanup even when the test lock is already free.
+The button handles that state too. Its adjacent explanation distinguishes
+already clean, active work and missing ownership evidence; disabled never
+means an unverified clean baseline.
+The cleanup button stays visible and is disabled with a ready-state explanation
+when no previous run needs cleanup.
+
+Keep the retained journal and correct that specific cause, then retry. A repeated
+cleanup recognizes completed steps. An active owner, missing journal, changed UID
+or intervening revision requires inspection; the lock cannot be force-released.
+External-run journals must be cleaned up on their original runner. Historical
+failed reports remain unchanged.
+
+Service checks borrow an idle standalone service, test enable/disable and restore
+its original state. An empty instance-provider module is not a service fixture.
+Missing optional parameter maps are preserved, not treated as invalid setup.
+Mutation receipts are isolated per worker, including after a failed case restarts
+its browser worker. Each GPU scenario also reserves its own recovery journal,
+even when consecutive successful cases share a worker. Kubernetes-access tests
+use the pinned plugin's actual local
+OAuth callback flow with verified IdP, client, PKCE and callback state.
+K8S-02–06 run independently: an export failure does not stand in for failed
+Viewer/Operator/admin permissions. Export waits for the actual copy and download,
+checks complete current-user contents privately, then clears/deletes them.
+Access-switch/revocation checks sign in afresh after the old session is ended.
+Only the administrator case requires the cluster-admin grant; export needs no
+exec plugin. `kubeconfig-copy`/`kubeconfig-download` identify export failures;
+`kubernetes-access`/`kubernetes-revoke` identify permission/revocation failures.
+License checks restore the original document or no-document baseline; a first
+test activation must not leave a test entitlement installed. LIC-02 only previews
+the automatically generated Free Registered and Commercial fixtures; LIC-03
+rejects invalid documents independently; only LIC-04 activates and restarts the
+API Pod. An identical-document import need not change its revision. Confirmed
+revisions and private restoration receipts are saved before UI postconditions.
+An unfinished receipt fails cleanup and retains the safety lock. License stages
+are `license-review`, `license-reject`, `license-activate`, `license-restart` and
+`license-restore`; historical reports are not rewritten after repair.
+
+The in-Appliance runner cannot independently verify its own reboot, power loss,
+network disconnection or software replacement. Those checks report
+**Blocked / EXTERNAL_RUNNER**; use the external runner below. Missing GPUs, Mesh
+peers, test identity providers or current CI evidence block only dependent cases.
+
+<a id="once"></a>
+
+## External runner: once
 
 From the repository root, with Docker running:
 
@@ -13,78 +93,107 @@ bash tools/regression.sh build
 bash tools/regression.sh setup
 ```
 
-Enter the dashboard URL and test administrator credentials. Supply the trusted
-Appliance CA PEM only if needed. Setup discovers endpoints and creates scoped
-Kubernetes access. Registration binds tests to this Appliance and its Node IDs;
-`all` never adopts a replacement installation.
+Enter the Dashboard URL and test administrator credentials. Supply the trusted
+Appliance CA PEM if required. Setup discovers endpoints, creates scoped access
+and registers this installation. It never adopts a replacement Appliance.
 
-Interrupted setup resumes for that same registered server; no new questionnaire
-or manual kubeconfig is needed.
+<a id="every-run"></a>
 
-## Every run
+## External runner: every run
 
 ```bash
 bash tools/regression.sh all
 ```
 
-Every implemented Phase 0–8 P0 test runs or reports its missing prerequisite.
-Experimental **FreeToken tests are currently disabled**, including FreeToken
-cache and Mesh subtests. FreeToken itself remains available in the product.
-Credentials, current boot/revision pins, small models and fixtures are prepared
-automatically. **No repeated setup, approval forms or manual JSON.** Existing
-models are stopped, not deleted. Independent tests continue after failures;
-unproved cleanup blocks later live writes. Ctrl+C stops further tests.
+No repeated setup, approvals or manual JSON files. Current boot/source/image pins
+and fixtures are prepared automatically. Rebuild after changing runner code.
+Optional subset: `all --phases 2-4`. Keep the private directory so automatic
+cleanup can verify old resources and restore recorded settings. Ctrl+C stops
+further tests and requests cleanup.
 
-Rebuild after changing runner code. Optional subset: `all --phases 2-4`.
+For an individual diagnosis after preparation, use, for example,
+`bash tools/regression.sh phase5-live LIC-04`. Phases 5–8 accept one of their own
+live case IDs this way. The same registered-lab, identity, lock and cleanup rules
+apply. This creates a fresh **scoped** report, not a full-phase acceptance result.
+Rebuild the runner after source changes; do not run another test while the lab
+lock is owned by an active run.
 
-The lock is renewed independently of browser/model waits. Browser actions have
-short deadlines; cleanup has its own bounded window. After an interruption,
-the campaign attempts one exact finished-child recovery before later live tests;
-the next `all` also inspects and restores provably owned resources and
-recorded module/sharing settings, then releases the expired lock. Keep the same
-private directory. A running owner, missing journal or foreign revision remains
-Blocked; the report gives the reason. Original failed results are never changed.
+The lab lock renews independently of browser/model waits. Independent checks
+continue after failures; unproved cleanup blocks later live writes. A campaign
+may clean up an exact finished child before continuing, retaining its original
+failure. The next invocation still starts tests from the beginning.
 
 ## Results
 
-- **Passed:** the selected scenario was executed and verified.
+- **Passed:** the selected scenario ran and its assertions passed.
 - **Failed:** a product assertion, API, timeout or harness error failed.
-- **Blocked:** a real prerequisite is absent, or execution cannot safely proceed.
+- **Blocked by prerequisite:** required hardware, capability or external fixture
+  is missing. The report gives the concrete prerequisite and next action.
+- **Blocked by failure:** an earlier step or cleanup failed. The report links
+  its original test ID, stage, reason and available filtered trace.
 
-Missing GPUs/runtimes, a real Mesh peer, test IdP, power controller or current CI
-evidence blocks dependent cases only. The report states the reason and next action.
-Current prerequisites and actions: `.regression/inputs/automatic-preparation.txt`.
+Scenario counts and case/variant/layer evidence counts are separate. Passed
+fixture checks do not prove live acceptance. New reports flag missing required
+execution evidence as `HAR-10 / MISSING_EVIDENCE`, rather than guessing a missing
+prerequisite. Older reports keep unknown causes and their original outcomes.
 
-If automatic preparation fails, reports show the reason and setup stage from
-that attempt. Dependent live checks are Blocked; independent tests still run.
+The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
+scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
+cause properties. The archive retains every row, even when the Dashboard limits
+its expanded list. Raw credentials, journals and runtime logs stay private.
+Tests skipped after a failed serial sibling link to that sibling's failure;
+they are not reported as newly missing prerequisites.
+Phase 5 shared application/service setup failures also retain their original
+case and trace after browser-worker replacement, instead of repeating the same
+failed setup. Application tests automatically choose and size a small model with
+verified native context for all selected applications and their context edits;
+the ordinary CPU smoke model remains separate. `APPLICATION_MODEL` means no
+compatible catalog candidate fits the currently available RAM. API/estimator
+errors remain failures, not missing prerequisites.
+Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
+exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
+Functional browser, API, inference and Realtime probes use HTTPS but do not
+validate its certificate. Certificate acceptance belongs to HAR-01 and trusted
+credential setup; Kubernetes access still checks the downloaded CA contract.
+MOD-03 probes the registered connection's local/public/direct scope, not every
+advertised URL: a local run does not require public example-domain DNS. Missing
+local routes, DNS/connection failures and unexpected HTTP responses still fail.
+Service probes share prepared DNS mappings; new exact local service names remain
+only in the current private run directory, without capturing another appliance.
+Module/application route changes also check gateway process stability. GPU
+verification closes the request page during the native Job and uses a fresh
+page for the terminal result, without retries or weaker GPU checks.
+GPU startup and first CPU inference retain structured Pod/routing/response
+diagnostics; Realtime readiness also retains bounded private runtime logs before
+cleanup. vLLM collective preflight exports only fixed reason/transport/cleanup
+fields; raw startup output stays private. A failed cleanup journal retains its
+operation and fixed reason/stage for exact-resource diagnosis and safe retry.
+Repeated-cycle checks separate model-cache growth from other disk
+growth and verify model, Pod, claim, route and key cleanup. Expected service
+rollouts compare stable workload UIDs and replica counts, not replaceable Pod
+UIDs; extra replicas, replaced workloads and leftover test Pods still fail.
 
-Open `summary.html` under `.regression/private/runs/reg-…/`; the console prints
-the path. `all-summary.txt` gives the overview. `junit.xml` includes separate
-case/layer, scenario and step suites with outcomes, durations and filtered trace
-attachments. `report-artifacts.tar.gz` bundles the summaries, JUnit and those
-attachments for each full phase/campaign. Extract it before importing JUnit;
-trace links are relative. These are safe call traces, **not** native Playwright
-trace-viewer files. Exit codes:
-**0** passed, **1** failures, **2** blocked without failures. Never publish inputs
-or raw private journals.
+External reports are under `.regression/private/runs/reg-…/`; the console prints
+`all-summary.txt`. Open `summary.html` or extract `report-artifacts.tar.gz` before
+importing `junit.xml` so relative filtered-trace links resolve. Exit codes:
+**0** passed, **1** failures, **2** blocked without failures.
 
-Reports distinguish executable scenarios from their case/variant/layer evidence
-rows. A late Stop failure does not invalidate earlier successful inference or
-logs; unreached Start checks are Blocked because of that failed prerequisite.
-GPU Stop timeouts save a private `stop-<model>.json` showing whether the saved
-intent, remaining Pods or generated route prevented completion.
-Owning UI-suite failures retain bounded `component-failure.json` diagnostics
-without raw assertion values, logs or secrets. Failed module/user postconditions
-still run UID- and revision-bound cleanup; ambiguous ownership remains Blocked.
-Share only the generated archive after review, never the whole private folder.
+## CI and details
 
-## CI
+Use the same commands on a trusted runner with persistent private lab inputs.
+For first registration, `setup --url … --username … --password-file … --ca-file …`
+is available; `all` is noninteractive. Never expose lab access to untrusted forks.
 
-Use the same commands on a trusted runner with protected, persistent lab inputs;
-never expose it to untrusted forks. First registration can use `setup --url …
---username … --password-file … --ca-file …`. No prompts occur during `all`.
-The ordinary browser CI also runs the isolated module/user failure-cleanup
-contracts without test-server access.
+The `regression-image` CI job builds the pinned Linux runner and runs isolated
+checks before promoting its immutable digest on `main` or `develop`. A source
+push alone does not verify installation. Check both runner and Dashboard image
+revisions before live acceptance. Physical multi-GPU inference still needs real
+hardware; synthetic card fixtures only prove their recorded UI/contracts.
 
-See the [catalog](regression-test-catalog.md) and [technical reference](regression-runner-reference.md)
-for details. Installation tests and P1 are separate; implementation is not live acceptance.
+On registered test Appliances, host software convergence defers while a test or
+cleanup run is active. Updates reserve the same lab Lease through Flux rollout;
+start tests only after both the Runner and Dashboard revisions have converged.
+
+See the [test catalog](regression-test-catalog.md),
+[technical reference](regression-runner-reference.md) and
+[image promotion](image-promotion.md). Installation tests and P1 are separate.

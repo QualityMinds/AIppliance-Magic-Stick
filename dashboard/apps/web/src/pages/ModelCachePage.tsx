@@ -29,8 +29,7 @@ const CachePanel = ({host, stale}: {host: ManagedHost; stale: boolean}) => {
       <div><dt>Clearable model cache</dt><dd>{size(cache.reclaimableBytes)}</dd></div>
     </dl>
     <div className="table-wrap"><table><thead><tr><th>Engine cache</th><th>Size</th></tr></thead>
-      <tbody>{cache.caches.map((entry) => <tr key={entry.id}><td><span className="inline-info">{entry.name}{!entry.clearable &&
-        <InfoPopover label="FreeToken cache"><p className="memory-info-note">FreeToken uses a temporary Pod cache. Stop the model in Models to release it. It is never deleted while its Pod exists.</p></InfoPopover>}</span></td><td>{size(entry.usedBytes)}</td></tr>)}</tbody>
+      <tbody>{cache.caches.map((entry) => <tr key={entry.id}><td><span className="inline-info">{entry.name}</span></td><td>{size(entry.usedBytes)}</td></tr>)}</tbody>
     </table></div>
     <div className="form-actions"><Button variant="danger" disabled={disabled} title={reason || undefined} onClick={() => {
       mutation.reset();
