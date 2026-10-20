@@ -111,6 +111,13 @@ Enabling, registering, starting, cancelling and downloading reports are core
 functions with no license prerequisite. Test registration binds a disposable
 installation, not a licensing edition; keep license queries out of that control
 path. License/SSO scenarios retain their own signed-fixture/entitlement checks.
+Full GPU scenarios support both saved sharing settings and a fresh exclusive
+installation with no sharing intent. The shared
+[`restoreDefaults` contract](../reference/dashboard-api.md#module-parameters-and-local-identities)
+can remove only previously unset sharing/validation fields after the controller
+has restored exclusive Device-plugin readiness. UID/generation-bound journals
+retain the exact absent/empty representation and unrelated module parameters;
+an unacknowledged write is not adopted. Safe-mode runs never use this mutation.
 Provider Secrets created from user-entered model credentials must stay scoped to
 that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.

@@ -75,7 +75,14 @@ its original state. An empty instance-provider module is not a service fixture.
 Missing optional parameter maps are preserved, not treated as invalid setup.
 Mutation receipts are isolated per worker, including after a failed case restarts
 its browser worker. Each GPU scenario also reserves its own recovery journal,
-even when consecutive successful cases share a worker. Kubernetes-access tests
+even when consecutive successful cases share a worker. Fresh exclusive GPU
+defaults need no manual sharing setup. Full GPU scenarios borrow that baseline,
+configure the required allocator and restore exclusive device-plugin readiness
+before removing only the settings they introduced. Missing maps, missing fields
+and empty strings are restored distinctly; existing saved sharing settings and
+unrelated parameters are preserved. Custom/inherited sharing is not silently
+adopted. An ambiguous write or foreign revision still blocks cleanup.
+Kubernetes-access tests
 use the pinned plugin's actual local
 OAuth callback flow with verified IdP, client, PKCE and callback state.
 K8S-02–06 run independently: an export failure does not stand in for failed
@@ -207,6 +214,14 @@ checks before promoting its immutable digest on `main` or `develop`. A source
 push alone does not verify installation. Check both runner and Dashboard image
 revisions before live acceptance. Physical multi-GPU inference still needs real
 hardware; synthetic card fixtures only prove their recorded UI/contracts.
+
+For an explicitly approved feature-branch rollout, manually dispatch **Regression
+runner** on that branch with `publish_candidate: true`. All build and isolated
+checks still run. Only the tested exact-source image is published and verified
+by anonymous pull; the summary records its immutable digest. Manual dispatch
+never promotes `main` or `develop`. Adopt that digest and `sourceRevision` in
+`magic-cluster/apps/regression/runtime.yaml` on the feature branch, refresh
+the generated deployment references and verify the installed revision separately.
 
 On registered test Appliances, host software convergence defers while a test or
 cleanup run is active. Updates reserve the same lab Lease through Flux rollout;

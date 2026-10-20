@@ -26,6 +26,12 @@ on:
   pull_request:
     paths: *runner-inputs
   workflow_dispatch:
+    inputs:
+      publish_candidate:
+        description: "Publish the tested exact-source runner for an explicit feature-branch rollout; never promote a channel"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -105,12 +111,12 @@ jobs:
       - name: Exercise administration and regression-dashboard Chromium fixtures
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: bash tools/regression.sh phase8-fixtures
-      - name: Publish tested Linux AMD64 runner and promote only its original channel
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+      - name: Publish tested Linux AMD64 runner
+        id: publish
+        if: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) || (github.event_name == 'workflow_dispatch' && inputs.publish_candidate && startsWith(github.ref, 'refs/heads/')) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_REVISION: ${{ github.sha }}
-          CHANNEL: ${{ github.ref_name }}
         run: |
           image="ghcr.io/qualityminds/magicstick-regression:sha-$SOURCE_REVISION"
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
@@ -124,10 +130,20 @@ jobs:
           docker pull "ghcr.io/qualityminds/magicstick-regression@$digest"
           test "$(docker image inspect "ghcr.io/qualityminds/magicstick-regression@$digest" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_REVISION"
           test "$(docker image inspect "ghcr.io/qualityminds/magicstick-regression@$digest" --format '{{.Os}}/{{.Architecture}}')" = 'linux/amd64'
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'Tested runner candidate: source `%s`, image `%s@%s`. Publication is not promotion or installed acceptance.\n' "$SOURCE_REVISION" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Promote tested runner only to its original push channel
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REVISION: ${{ github.sha }}
+          CHANNEL: ${{ github.ref_name }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          python3 tools/promote_regression_image.py --source "$SOURCE_REVISION" --digest "$digest" --branch "$CHANNEL" >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/promote_regression_image.py --source "$SOURCE_REVISION" --digest "$DIGEST" --branch "$CHANNEL" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

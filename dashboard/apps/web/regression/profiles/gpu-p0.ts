@@ -44,7 +44,7 @@ export const phase3Variants = {
   'p3-route':row('ROUTE-01',['A']),
   'p3-runtime-stop':row('LIFE-03',['A','E']),
   'p3-runtime-start':row('LIFE-04',['A','E']),
-  'p3-restoration':row('HAR-08',['U','A']),
+  'p3-restoration':row('HAR-08',['U','C','A']),
 } as const;
 
 export const phase4Variants = {

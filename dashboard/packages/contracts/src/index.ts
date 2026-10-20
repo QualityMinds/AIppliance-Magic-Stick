@@ -856,6 +856,15 @@ export interface GpuSharingState {
   memoryIsolation: false;
 }
 
+/** Restore only the representation of previously unset sharing fields. No
+ * arbitrary module parameters are accepted. Requires converged exclusive
+ * device-plugin allocation before the saved sharing intent can be removed. */
+export interface GpuSharingDefaults {
+  parameters: 'absent' | 'present';
+  gpuSharing: 'absent' | 'empty';
+  validationRequest?: 'absent' | 'empty'; // AMD only; never a validation request.
+}
+
 export interface GpuSharingRequest {
   provider: 'amd' | 'nvidia';
   mode: 'exclusive' | 'shared';
@@ -866,6 +875,7 @@ export interface GpuSharingRequest {
   acknowledgeSharing: boolean;
   acknowledgeRestart: boolean;
   allocationBackend?: 'device-plugin' | 'dra';
+  restoreDefaults?: GpuSharingDefaults;
 }
 
 export interface HardwareOperator {

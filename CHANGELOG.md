@@ -8,6 +8,16 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Synchronize System Status browser-history checks on the URL, selected tab and
+  visible panel. Keep Back/Forward in dedicated NAV-02 scenarios for desktop and
+  mobile, including slowed Chromium, so one history failure does not mark the
+  unrelated navigation/form assertions as failed.
+
+- Run GPU regression scenarios from fresh exclusive installation defaults without
+  requiring manually saved sharing settings. Journal missing/empty parameters,
+  restore the exclusive backend before removing borrowed intent, and retain
+  UID/revision and ambiguous-write cleanup fences.
+
 - Choose non-destructive checks (the Dashboard default) or full regression with
   destructive scenarios. Persist the immutable choice through the API, Job and
   reports. Non-destructive runs use a temporary viewer, isolated inputs and

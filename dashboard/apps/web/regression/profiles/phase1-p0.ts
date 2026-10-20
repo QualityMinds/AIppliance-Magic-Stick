@@ -19,6 +19,8 @@ export const phase1FixtureVariants = {
   'failed-status': 'NAV-06', 'unknown-memory': 'NAV-06', 'inert-log-output': 'LOG-06',
   'navigation-browser': 'NAV-03', 'logout-browser': 'AUTH-06',
   'keys-browser-create': 'KEY-01', 'keys-browser-revoke': 'KEY-03', 'forms-browser': 'UX-02',
+  'status-history-desktop':'NAV-02','status-history-mobile':'NAV-02',
+  'status-history-desktop-slow':'NAV-02','status-history-mobile-slow':'NAV-02',
 } as const;
 export const phase1FastVariants = {
   'anonymous-contract': 'AUTH-02', 'navigation-component': 'NAV-03',

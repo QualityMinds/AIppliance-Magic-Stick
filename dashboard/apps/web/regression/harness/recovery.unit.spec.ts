@@ -9,6 +9,7 @@ import {runnerSession,recordedLeaseSession} from '../core/runner-session.ts';
 import {ResourceJournal,newRunId,type CleanupAdapter,type ResourceKind} from '../core/journal.ts';
 import {readPrivate,writePrivate} from '../core/private-files.ts';
 import {BorrowedModule} from '../core/borrowed-module.ts';
+import {BorrowedSharing,sharingSpec,type SharingAdapter,type SharingSnapshot} from '../core/borrowed-sharing.ts';
 import {MutationNotSubmitted} from '../core/browser-action.ts';
 import type {LabRegistration} from '../core/lab-policy.ts';
 import type {KubeObject} from '../core/observer.ts';
@@ -65,6 +66,40 @@ async function isolated(action:(directory:string)=>Promise<void>) {
   const directory=await mkdtemp(join(tmpdir(),'runner-recovery-'));
   try {await action(directory);}finally {await rm(directory,{recursive:true,force:true});}
 }
+
+test('HAR-08 automatic cleanup restores a fresh GPU baseline and never adopts an ambiguous reset',async()=>{
+  for(const interrupted of ['untouched','shared','reset-response-lost'] as const)await isolated(async directory=>{
+    const f=await fixture(directory),identity={runId:f.runId,targetUid:registration.applianceUid,nodeName:'fixture-node-name',nodeUid:'fixture-node'};
+    let writes=0;
+    const original={module:'gpu',enabled:true};
+    let snapshot:SharingSnapshot={object:{metadata:{uid:'fixture-gpu-module',generation:1,resourceVersion:'7'},spec:original},
+      state:{provider:'nvidia',backend:'time-slicing',mode:'exclusive',managed:false,experimental:false,maxModels:2,
+        nodeName:identity.nodeName,nodeUid:identity.nodeUid,namespace:'ai',expectedRevision:'7',available:true,reason:'',phase:'Ready',
+        message:'',claimName:'',activeModels:0,admittedModels:[],memoryIsolation:false}};
+    const adapter:SharingAdapter={read:async()=>structuredClone(snapshot),apply:async request=>{
+      expect(request.expectedRevision).toBe(snapshot.object.metadata.resourceVersion);writes++;
+      snapshot={object:{metadata:{...snapshot.object.metadata,generation:snapshot.object.metadata.generation!+1,resourceVersion:String(7+writes)},
+        spec:sharingSpec(snapshot.object.spec!,request)},state:{...snapshot.state,mode:request.mode,maxModels:request.maxModels,
+        managed:!request.restoreDefaults,backend:request.allocationBackend==='dra'?'dra':'time-slicing',expectedRevision:String(7+writes)}};
+      if(interrupted === 'reset-response-lost' && request.restoreDefaults)throw new Error('Synthetic lost reset response');
+    }};
+    f.adapters.sharing=(_identity,guard)=>({read:adapter.read,apply:async request=>{await guard();await adapter.apply(request);}});
+    const journal=await BorrowedSharing.create(join(f.path,'gpu-sharing.json'),identity,adapter,async()=>{});
+    await journal.borrow('nvidia');
+    if(interrupted !== 'untouched')await journal.change('nvidia','shared',3,'dra');
+    if(interrupted === 'reset-response-lost')await expect(journal.restore()).rejects.toThrow('Synthetic lost reset response');
+    const plan=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);expect(plan.sharing).toHaveLength(1);
+    if(interrupted === 'reset-response-lost') {
+      await expect(plan.execute(f.adapters)).rejects.toMatchObject({code:'CONFLICT',stage:'recovery-sharing'});
+      expect(f.store.replacements).toBe(0);expect(f.store.value.spec.holderIdentity).toBe(f.runId);expect(writes).toBe(3);
+    } else {
+      await plan.execute(f.adapters);expect(snapshot.object.spec).toEqual(original);expect(snapshot.state.managed).toBe(false);
+      expect(f.store.value.spec.holderIdentity).toBe('');expect(writes).toBe(interrupted === 'untouched'?0:3);
+      await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+      expect(writes).toBe(interrupted === 'untouched'?0:3);
+    }
+  });
+});
 
 test('HAR-04 background heartbeat renews during idle browser waits and sticky loss fences later writes',async()=>{
   let count=0,fail=false;

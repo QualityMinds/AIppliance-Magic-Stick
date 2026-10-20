@@ -321,6 +321,22 @@ unknown fields. Omitting the map preserves saved parameters. Updates carry the
 current Kubernetes resource version so concurrent edits fail rather than being
 overwritten. Independently configured GPU sharing is retained by profile edits.
 
+The existing administrator-only, CSRF-protected
+`POST /api/hardware/gpu-sharing` additionally accepts optional `restoreDefaults`
+for exact restoration of an unset regression baseline. It contains
+`parameters: absent|present`, `gpuSharing: absent|empty`, and, for AMD only,
+`validationRequest: absent|empty`. An absent map cannot contain empty fields.
+The ordinary provider/node/revision/restart fields still apply. This operation
+requires `mode: exclusive`, `acknowledgeSharing: false`, and converged exclusive
+Device-plugin allocation (not NVIDIA DRA). The API independently checks the
+current module revision, node UID and physical extended resources; NVIDIA must
+have the exclusive plugin profile and no active DRA handoff. It removes only
+the named fields; an absent-map request is refused if unrelated parameters
+remain. Active validation, custom settings and incomplete backend transitions
+are not reset. Response acceptance remains HTTP 202, not runtime completion.
+The runner journals the original representation and confirms the resulting
+UID/generation/spec; a lost acknowledgement remains fenced.
+
 The user API identifies locally managed accounts with `source: "local"`. Clients
 must not require a separate `local: true` property. Regression-created accounts
 record the acknowledged exact user ID before checking enabled state and roles;
