@@ -8,9 +8,6 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
-Planned next release: **v0.1.3 Early Access**. Its actual first-public-distribution
-date and immutable license record are finalized separately before tagging.
-
 - Update PyJWT to 2.15.0 in the Dashboard API and Private Mesh/companion, and
   audit both Python dependency graphs in scheduled and change-triggered CI.
   Require TLS 1.2 or newer for the optional macOS keychain CA probe without
@@ -355,6 +352,79 @@ date and immutable license record are finalized separately before tagging.
   by OpenClaw 2026.9.8.
 - Preserve KubeOpenCode instance model choices during catalog synchronization,
   remove withdrawn provider routes and roll updated configuration automatically.
+
+## v0.1.3 - 2026-10-20
+
+Magic Stick **v0.1.3 Early Access** adds exact-card NVIDIA model placement and
+installed regression execution, and improves first setup, model shutdown and
+release security checks.
+
+### Added
+
+- Select physical NVIDIA GPUs through DRA. Split an ordinary Ollama/vLLM model
+  across selected cards or run an independent copy on each card behind one
+  LiteLLM model name. Keep per-card slot and memory accounting separate.
+- Run administrator regression tests inside the appliance's Kubernetes cluster
+  without a product license. Select P0 phases, watch progress, clean up retained
+  test state and download sanitized HTML/JUnit/trace reports. Reports distinguish
+  missing prerequisites from checks blocked by an earlier failure.
+- Show GPU-model host-RAM estimates separately from VRAM planning, and provide
+  the optional Pi Coding Agent service with persistent workspaces.
+
+### Changed
+
+- Group Model cache and Regression tests under System Status, retaining old
+  dashboard links. Update ordinary Ollama/vLLM runtime integration, memory
+  planning and service configuration.
+- Every regression execution starts from the beginning after ownership- and
+  revision-bound cleanup; historical results are never reused or rewritten.
+- Retain validated runtime-image update proposals as CI patch artifacts when
+  enterprise policy disallows automatic PR creation. Automatic PRs remain an
+  explicit option where permitted; tests, rendering and registry checks remain
+  mandatory.
+
+### Fixed
+
+- Keep the displayed initial-setup code reusable until successful completion,
+  including independent browsers, expired sessions, interrupted responses and
+  retries with partially saved non-secret fields. Completed setup stays closed.
+- Wait for owned runtime Pods to disappear before reporting ordinary model
+  removal and freeing allocations. Preserve UID/revision checks and cleanup
+  failure causes instead of force-deleting resources to report success.
+- Improve regression credential cleanup, service-route discovery, Kubernetes
+  access/export checks, license fixtures and causal diagnostics.
+- Preserve the current main landing-page and setup changes while integrating
+  develop; do not restore retired engine claims during merge resolution.
+
+### Security
+
+- Update PyJWT to **2.15.0** for the Dashboard API and Private Mesh/companion.
+  Audit both Python requirement graphs in recurring and change-triggered CI,
+  alongside the existing npm advisory checks.
+- Require TLS 1.2 or newer in the optional macOS keychain CA probe, retaining
+  certificate verification and hostname binding.
+
+### Removed
+
+- Retire the experimental FreeToken engine from creation, services, runtime
+  builds and active regression profiles. Existing definitions remain stoppable
+  and removable; new starts and edits are rejected.
+
+### Installation and limits
+
+Use the checksum-verified reduced USB installer linked from the
+[installation guide](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/installation/bare-metal/).
+An unchanged installer recipe can be reused across product releases. A USB
+installer following `main` fetches that branch's current source at first boot;
+the source tag alone does not pin a branch-following installation.
+
+Omni/Realtime remains experimental and its cases are temporarily excluded from
+ordinary regression. Intel hardware validation and unavailable external test
+prerequisites remain explicit gaps. Source, browser-fixture and CI results do
+not certify the complete physical GPU matrix, fresh installation, upgrade or
+full installed Phase 0–8 acceptance. Final image promotion and hardware evidence
+are separate. Existing legal and artifact review findings remain advisory and
+are not automatically approved by this release record.
 
 ## v0.1.2 - 2026-09-25
 
