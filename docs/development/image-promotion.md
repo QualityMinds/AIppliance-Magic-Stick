@@ -38,7 +38,9 @@ The helper recognizes this by content, not by an author name or commit message:
 only the runner pin and generated deployment-reference inventory may differ;
 the two pin fields must be exactly the standard replacement for the **same
 tested source**, and all package, legal and unrelated reference metadata must
-be unchanged. Its exact-source **Regression runner** workflow must have passed,
+be unchanged. Refreshed navigation line numbers are accepted only when the
+unchanged reference is proved at that exact line in the committed source;
+they are not dependency identity. Its exact-source **Regression runner** workflow must have passed,
 as must the prior source revision's required checks. A real failed, cancelled,
 skipped or pending check for the generated head is never hidden by this rule.
 Other edits, merge commits and unproved metadata still require their own CI.

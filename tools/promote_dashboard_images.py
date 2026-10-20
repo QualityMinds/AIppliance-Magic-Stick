@@ -266,6 +266,20 @@ def candidate_head(root, branch, source):
     return head
 
 
+def reference_line_matches(root, head, entry):
+    if type(entry.get("line")) is not int or entry["line"] < 1:
+        return False
+    try:
+        matches = git(root, "grep", "-n", "-F", "-e", entry["reference"], head, "--", entry["file"])
+    except GitError as error:
+        if error.returncode == 1:
+            return False
+        raise
+    prefix = head + ":" + entry["file"] + ":" + str(entry["line"]) + ":"
+    return any(line.startswith(prefix) and line[len(prefix):].strip() == entry["reference"]
+               for line in matches.splitlines())
+
+
 def runner_pin_only(root, parent, head, source):
     """Prove a generated pin delta by content, never by its author or message."""
     pin, inventory = regression_promotion.PIN, INVENTORY
@@ -285,6 +299,19 @@ def runner_pin_only(root, parent, head, source):
         if len(entries) != 1 or entries[0]["reference"] != old_line:
             return False
         entries[0]["reference"] = match[0].strip()
+        observed = actual["deploymentReferences"]
+        if not isinstance(observed, list) or len(observed) != len(references):
+            return False
+        for expected_entry, observed_entry in zip(references, observed):
+            if expected_entry == observed_entry:
+                continue
+            if not isinstance(observed_entry, dict) or \
+                    {**expected_entry, "line": observed_entry.get("line")} != observed_entry or \
+                    not reference_line_matches(root, head, observed_entry):
+                return False
+            # Navigation is not dependency identity; prove any refreshed line
+            # against the exact public source instead of trusting its number.
+            expected_entry["line"] = observed_entry["line"]
         expected["deploymentReferencesSha256"] = license_audit.references_checksum(references)
         # Package metadata, legal reviews and all unrelated references must stay
         # byte-for-value unchanged. Source checks run again before publication.

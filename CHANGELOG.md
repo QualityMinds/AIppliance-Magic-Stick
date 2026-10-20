@@ -12,7 +12,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   confirmed concurrent push, regenerating only its pins and reference inventory.
   Content-verified runner-pin updates reuse their checked source rather than
   waiting for a nonexistent bot-push CI run. Retain exact-source image/CI checks,
-  reject failed checks and unexpected metadata changes, and report pending CI.
+  prove refreshed inventory navigation against committed source, reject failed
+  checks and unexpected metadata changes, and report pending CI.
 
 - Bind regression report reads to canonical run UUIDs, literal allowlisted
   filenames and open directory descriptors. Reject oversized or special files

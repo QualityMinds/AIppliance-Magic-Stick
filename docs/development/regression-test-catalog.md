@@ -568,6 +568,8 @@ local bare-Git counterexamples cover concurrent runner and human commits,
 exact-source runner/public CI inheritance only for content-proven generated
 pin/inventory deltas, failed/pending-check rejection, preserved foreign metadata,
 newer-runtime supersession, lost push acknowledgements and three-attempt limits.
+Navigation-only inventory refreshes are checked against exact committed source
+lines; a fabricated line number cannot inherit a parent check.
 These are isolated U/C checks; no live appliance campaign or successful remote
 promotion is inferred from them. Existing HAR-02/10 runner-promotion checks remain
 selected by the Kubernetes harness selftest.

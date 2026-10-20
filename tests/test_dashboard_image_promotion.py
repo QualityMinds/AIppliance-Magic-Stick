@@ -528,6 +528,34 @@ class LocalGitPromotionTests(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain"), before)
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
 
+    def test_generated_navigation_refresh_does_not_require_absent_bot_ci(self):
+        path = ".github/workflows/source.yml"
+        self.write(path, "steps:\n  image: fixture:tested\n")
+        promotion.license_audit.refresh_references(self.root)
+        self.commit("Source with current reference navigation")
+        self.write(path, "# Source-only navigation advance\nsteps:\n  image: fixture:tested\n")
+        self.commit("Move a checked reference without changing its identity")
+        self.source = self.git("rev-parse", "HEAD")
+        self.git("push", "origin", "develop")
+        head = self.runner_advance()
+        with patch.object(promotion, "github", return_value={"workflow_runs": []}), \
+                patch.object(promotion, "wait_for_checks") as checks, \
+                contextlib.redirect_stderr(io.StringIO()):
+            promotion.verify_channel_checks(self.root, "develop", self.source, head)
+        checks.assert_called_once_with("develop", self.source, checks=("regression-runner.yml",))
+
+    def test_unverified_inventory_navigation_cannot_borrow_parent_checks(self):
+        def wrong_line():
+            path = self.root / promotion.INVENTORY
+            inventory = json.loads(path.read_text())
+            inventory["deploymentReferences"][0]["line"] = 90000
+            path.write_text(json.dumps(inventory))
+
+        head = self.runner_advance(wrong_line)
+        with patch.object(promotion, "wait_for_checks") as checks:
+            promotion.verify_channel_checks(self.root, "develop", self.source, head)
+        checks.assert_called_once_with("develop", head, checks=(promotion.CHECKS[0],))
+
     def test_pin_metadata_or_other_content_cannot_borrow_a_parent_check(self):
         def package_change():
             path = self.root / promotion.INVENTORY
