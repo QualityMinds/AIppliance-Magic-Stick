@@ -562,6 +562,18 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+20 October 2026 release-CI follow-up: HAR-02/10 and SEC-02/03 report-server
+counterexamples reject noncanonical identities, private/traversal filenames,
+symlinks, oversized files and blocking special files. A directory-swap test
+retains the opened run's identity, and HTTP tests exercise all four allowed
+products. These owning tests remain selected by `harness/kubernetes.unit.spec.ts`
+in `selftest`. CHANNEL-02's selected `RegressionGuardTests` reject resource
+prefix/suffix/URL confusion; SEC-04's existing Phase 5–8 fast permission test uses
+exact API-group matching and still rejects unexpected Secret permissions.
+This is isolated regression coverage, not new appliance acceptance. Successful
+CodeQL and runner-image CI for the exact published commit remain separate gates;
+no alert, required case or TLS check is suppressed.
+
 v0.1.3 preparation: existing SEC-02/03 owning security checks now reject old or
 divergent PyJWT pins and missing Python advisory coverage for the API and Mesh
 graphs. The runtime-update workflow contract requires a retained, validated patch

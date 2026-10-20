@@ -28,15 +28,25 @@ class RegressionGuardTests(unittest.TestCase):
             self.lease["metadata"]["resourceVersion"] = str(int(self.lease["metadata"]["resourceVersion"]) + 1)
             self.writes.append(copy.deepcopy(value))
             return copy.deepcopy(self.lease)
-        if "regressionruns.appliance.magicstick.dev" in args:
+        if args[:2] == ["get", "regressionruns.appliance.magicstick.dev"]:
             return {"items": copy.deepcopy(self.runs)}
-        if "gitrepository" in args:
+        if args[:2] == ["get", "gitrepository"]:
             return {"spec": {"ref": {"commit": "current"}}, "status": {"artifact": {"revision": "sha1:current"}}}
-        if "kustomizations.kustomize.toolkit.fluxcd.io" in args:
+        if args[:2] == ["get", "kustomizations.kustomize.toolkit.fluxcd.io"]:
             return {"items": [{"metadata": {"generation": 2}, "spec": {"sourceRef": {"name": "flux-system"}},
                                "status": {"lastAppliedRevision": "sha1:current", "conditions": [
                                    {"type": "Ready", "status": "True", "observedGeneration": self.generation}]}}]}
         raise AssertionError(args)
+
+    def test_test_adapter_requires_exact_kubernetes_resource_arguments_not_url_substrings(self):
+        self.generation = 2
+        expected = "kustomizations.kustomize.toolkit.fluxcd.io"
+        self.assertEqual(len(self.kube(["get", expected])["items"]), 1)
+        for resource in ["https://example.com/" + expected, "prefix-" + expected, expected + ".example.com"]:
+            with self.subTest(resource=resource), self.assertRaises(AssertionError):
+                self.kube(["get", resource])
+        with self.assertRaises(AssertionError):
+            self.kube(["delete", expected])
 
     def test_active_intent_and_even_expired_test_holders_defer_without_writes(self):
         for phase in ("Queued", "Preparing", "Running", "Recovering", "Cancelling"):

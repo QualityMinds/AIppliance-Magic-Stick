@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Bind regression report reads to canonical run UUIDs, literal allowlisted
+  filenames and open directory descriptors. Reject oversized or special files
+  without blocking, and use exact resource/API-group comparisons in security
+  test adapters. Preserve CodeQL enforcement and the private-report boundary.
+
 - Update PyJWT to 2.15.0 in the Dashboard API and Private Mesh/companion, and
   audit both Python dependency graphs in scheduled and change-triggered CI.
   Require TLS 1.2 or newer for the optional macOS keychain CA probe without

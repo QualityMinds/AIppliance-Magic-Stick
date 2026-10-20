@@ -166,7 +166,7 @@ test('SEC-04 shipped permissions include recursively referenced regression and l
   expect(roles.some(item=>item.metadata.name==='dashboard-regression-intent' && item.metadata.namespace==='ai-system' &&
     item.rules?.some(r=>r.resources?.includes('regressionruns')))).toBe(true);
   expect(roles.some(item=>item.metadata.name==='dashboard-model-log-ownership'&&item.metadata.namespace==='ai'&&
-    item.rules?.some(r=>r.apiGroups?.includes('kubeai.org')&&r.resources?.includes('models')))).toBe(true);
+    item.rules?.some(r=>r.apiGroups?.some(group=>group==='kubeai.org')&&r.resources?.includes('models')))).toBe(true);
   const expected=normalizeRules(roles[0]!.rules!);
   expect(normalizeRules([...roles[0]!.rules!,{apiGroups:[''],resources:['secrets'],verbs:['get']}])).not.toEqual(expected);
   const enabled=await shippedDashboardRbac(undefined,{modules:{regression:{enabled:true}},catalogJson:{modules:{
