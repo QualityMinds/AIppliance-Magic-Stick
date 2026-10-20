@@ -28,18 +28,42 @@ class RegressionImagePromotionTests(unittest.TestCase):
     def test_publication_requires_trusted_push_and_anonymous_pull_before_promotion(self):
         root = Path(__file__).resolve().parents[1]
         job = yaml.safe_load((root / '.github/workflows/regression-runner.yml').read_text())["jobs"]["regression-image"]
-        publish = next(step for step in job["steps"] if "promote_regression_image.py" in step.get("run", ""))
-        self.assertIn("github.event_name == 'push'", publish["if"])
-        self.assertIn("refs/heads/main", publish["if"])
-        self.assertIn("refs/heads/develop", publish["if"])
-        self.assertNotIn("workflow_dispatch", publish["if"])
+        publish = next(step for step in job["steps"] if step.get("id") == "publish")
+        promote = next(step for step in job["steps"] if "promote_regression_image.py" in step.get("run", ""))
+        self.assertIn("github.event_name == 'push'", promote["if"])
+        self.assertIn("refs/heads/main", promote["if"])
+        self.assertIn("refs/heads/develop", promote["if"])
+        self.assertNotIn("workflow_dispatch", promote["if"])
         self.assertEqual(publish["env"]["GH_TOKEN"], "${{ secrets.GITHUB_TOKEN }}")
         command = publish["run"]
         self.assertLess(command.index("docker logout ghcr.io"), command.index('docker pull "ghcr.io/qualityminds/magicstick-regression@$digest"'))
-        self.assertLess(command.index("org.opencontainers.image.revision"), command.index("python3 tools/promote_regression_image.py"))
+        self.assertLess(command.index("org.opencontainers.image.revision"), command.index('>> "$GITHUB_OUTPUT"'))
+        self.assertLess(job["steps"].index(publish), job["steps"].index(promote))
+        self.assertEqual(promote["env"]["DIGEST"], "${{ steps.publish.outputs.digest }}")
         self.assertIn("linux/amd64", command)
-        self.assertNotIn("--force", command)
+        self.assertNotIn("--force", command + promote["run"])
         self.assertFalse(job["steps"][0]["with"]["persist-credentials"])
+
+    def test_manual_candidate_is_explicit_branch_only_and_cannot_promote_a_channel(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = yaml.safe_load((root / '.github/workflows/regression-runner.yml').read_text())
+        # PyYAML's YAML 1.1 parser interprets the Actions key "on" as True.
+        triggers = workflow.get("on", workflow.get(True))
+        candidate = triggers["workflow_dispatch"]["inputs"]["publish_candidate"]
+        self.assertEqual(candidate["type"], "boolean")
+        self.assertIs(candidate["default"], False)
+        steps = workflow["jobs"]["regression-image"]["steps"]
+        publish = next(step for step in steps if step.get("id") == "publish")
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.publish_candidate && startsWith(github.ref, 'refs/heads/')", publish["if"])
+        self.assertNotIn("pull_request", publish["if"])
+        self.assertNotIn("always()", publish["if"])
+        self.assertNotIn("promote_regression_image.py", publish["run"])
+        self.assertIn("SOURCE_REVISION", publish["env"])
+        self.assertEqual(publish["env"]["SOURCE_REVISION"], "${{ github.sha }}")
+        self.assertNotIn("git push", publish["run"])
+        promote = next(step for step in steps if "promote_regression_image.py" in step.get("run", ""))
+        self.assertNotIn("always()", promote["if"])
+        self.assertNotIn("workflow_dispatch", promote["if"])
 
     def test_ci_uploads_only_sanitized_archives_and_selects_regression_browser_fixtures(self):
         root = Path(__file__).resolve().parents[1]

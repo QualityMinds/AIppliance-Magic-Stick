@@ -7,7 +7,7 @@ import {ResourceJournal,newRunId,recoveryJournalPath} from '../core/journal.ts';
 import {saveReport,type CaseResult} from '../core/report.ts';
 import {phase3Requirements,phase4Requirements,gpuCoverage,requireGpuProfile,gpuIds,gpuModeIds,phase3RuntimeCases,phase4SharingCases} from '../profiles/gpu-p0.ts';
 import {BorrowedSharing,SharingWriteRejected,sharingSpec,type SharingSnapshot,type SharingAdapter} from '../core/borrowed-sharing.ts';
-import {GpuScenario,gpuWorkerJournal,unfinishedJob,runtimePodConverged,type GpuCreated} from '../core/gpu-scenario.ts';
+import {GpuScenario,gpuWorkerJournal,unfinishedJob,runtimePodConverged,requireDefaultGpuBackend,type GpuCreated} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
 import type {ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
 import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts';
@@ -22,6 +22,24 @@ import type {GpuModelFixture} from '../core/config.ts';
 import type {MemoryEstimate} from '@magicstick/dashboard-contracts';
 
 let directory:string;
+test('HAR-08 fresh GPU defaults require physical exclusive resources, not inherited sharing or stale DRA',()=>{
+  for(const provider of ['nvidia','amd'] as const) {
+    const state={provider,mode:'exclusive',backend:provider === 'nvidia' ? 'time-slicing' : 'dra',managed:false,available:true} as GpuSharingState;
+    const node:KubeObject={metadata:{uid:'fixture-uid',labels:provider === 'nvidia' ? {'nvidia.com/gpu.count':'4'} : {}},
+      status:{nodeInfo:{bootID:'fixture-boot'},allocatable:{[provider+'.com/gpu']:provider === 'nvidia' ? '4' : '1'}}};
+    expect(()=>requireDefaultGpuBackend(state,node,'fixture-uid','fixture-boot')).not.toThrow();
+    expect(()=>requireDefaultGpuBackend(state,node,'replacement','fixture-boot')).toThrow('[IDENTITY]');
+    expect(()=>requireDefaultGpuBackend(state,node,'fixture-uid','new-boot')).toThrow('[IDENTITY]');
+    expect(()=>requireDefaultGpuBackend({...state,mode:'shared'},node,'fixture-uid','fixture-boot')).toThrow('[CAPABILITY]');
+    const busy=structuredClone(node);busy.status!.allocatable={[provider+'.com/gpu']:'8'};
+    expect(()=>requireDefaultGpuBackend(state,busy,'fixture-uid','fixture-boot')).toThrow('[CAPABILITY]');
+    if(provider === 'nvidia')for(const labels of [{'nvidia.com/device-plugin.config':'custom'},{'nvidia.com/device-plugin.config':'any'},
+      {'nvidia.com/gpu.replicas':'2'},{'appliance.magicstick.dev/nvidia-dra-config':'owned'}, {'nvidia.com/dra-kubelet-plugin':'true'}]) {
+      const foreign=structuredClone(node);Object.assign(foreign.metadata.labels!,labels);
+      expect(()=>requireDefaultGpuBackend(state,foreign,'fixture-uid','fixture-boot')).toThrow('[CAPABILITY]');
+    }
+  }
+});
 test('MGPU-01 MGPU-02 GPU estimates replace CPU budgets and preserve per-card and per-copy scope',()=>{
   for(const count of [2,4])for(const gpuDeployment of ['split','replicated'] as const)for(const engine of ['OLlama','VLLM'] as const) {
     const fixture:GpuModelFixture={engine,computeTarget:'nvidia-gpu',gpuDeployment,automaticSizing:true,

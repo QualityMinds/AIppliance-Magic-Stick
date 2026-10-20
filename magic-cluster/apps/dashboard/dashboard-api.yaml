@@ -3282,8 +3282,67 @@ data:
                    if provider == "nvidia" else {})}
 
 
+    def restore_gpu_sharing_defaults(payload, state):
+        """Remove bounded test-borrowed fields, never arbitrary module settings.
+
+        Unsetting NVIDIA intent does not reconcile an old DRA/shared backend.
+        Callers must first complete the normal exclusive device-plugin switch.
+        """
+        provider = payload["provider"]
+        defaults = payload["restoreDefaults"]
+        fields = {"parameters", "gpuSharing"} | ({"validationRequest"} if provider == "amd" else set())
+        if (not isinstance(defaults, dict) or set(defaults) != fields
+                or defaults.get("parameters") not in ("absent", "present")
+                or any(defaults.get(key) not in ("absent", "empty") for key in fields - {"parameters"})
+                or defaults["parameters"] == "absent" and any(defaults[key] != "absent" for key in fields - {"parameters"})
+                or payload["mode"] != "exclusive" or payload.get("acknowledgeSharing") is not False
+                or payload.get("allocationBackend", "device-plugin") != "device-plugin"):
+            raise ValueError("Restore only previously unset GPU defaults after exclusive device-plugin allocation")
+        if (not state.get("managed") or not state.get("available") or state.get("phase") != "Ready"
+                or state.get("mode") != "exclusive" or state.get("maxModels") != payload.get("maxModels", 2)
+                or provider == "nvidia" and state.get("backend") != "time-slicing"
+                or payload.get("nodeName") != state.get("nodeName") or payload.get("nodeUid") != state.get("nodeUid")):
+            raise RequestError(409, "Wait for exclusive device-plugin allocation before restoring GPU defaults")
+        module = "amd-gpu" if provider == "amd" else "gpu"
+        activation = module_activation(module) or {}
+        if (activation.get("metadata", {}).get("resourceVersion") != state["expectedRevision"]
+                or activation.get("metadata", {}).get("deletionTimestamp")
+                or activation.get("spec", {}).get("enabled", True) is False):
+            raise RequestError(409, "GPU settings changed; refresh Hardware and retry")
+        parameters = activation.get("spec", {}).get("parameters")
+        if not isinstance(parameters, dict) or not parameters.get("gpuSharing") or parameters.get("validationRequest"):
+            raise RequestError(409, "GPU defaults cannot replace custom settings or an active validation request")
+        try:
+            current_config = json.loads(parameters["gpuSharing"])
+        except (ValueError, TypeError):
+            current_config = None
+        if current_config != {"mode": "exclusive", "maxModels": payload.get("maxModels", 2), "nodeName": state["nodeName"],
+                              "nodeUid": state["nodeUid"], "namespace": MODEL_TARGET_NAMESPACE, "allowExperimental": False}:
+            raise RequestError(409, "Restore exclusive device-plugin intent through the normal GPU API before removing it")
+        node = get_resource("/api/v1/nodes/" + urllib.parse.quote(state["nodeName"], safe="")) or {}
+        labels = node.get("metadata", {}).get("labels") or {}
+        allocatable = node.get("status", {}).get("allocatable") or {}
+        capacity = positive_int(labels.get("nvidia.com/gpu.count")) if provider == "nvidia" else 1
+        if (not capacity or node.get("metadata", {}).get("uid") != state["nodeUid"]
+                or positive_int(allocatable.get(provider + ".com/gpu")) != capacity
+                or provider == "nvidia" and (labels.get("nvidia.com/device-plugin.config") != "magicstick-exclusive"
+                    or (positive_int(labels.get("nvidia.com/gpu.replicas")) or 1) != 1
+                    or labels.get("appliance.magicstick.dev/nvidia-dra-config")
+                    or labels.get("nvidia.com/dra-kubelet-plugin") == "true")):
+            raise RequestError(409, "Exclusive GPU resources have not converged; saved sharing settings were retained")
+        patch = {key: "" if defaults[key] == "empty" else None for key in fields - {"parameters"}}
+        remaining = {key: value for key, value in parameters.items() if key not in patch}
+        remaining.update({key: value for key, value in patch.items() if value is not None})
+        if defaults["parameters"] == "absent" and remaining:
+            raise RequestError(409, "Unrelated GPU parameters must not be removed when restoring defaults")
+        request_json("PATCH", f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations/{module}",
+                     {"metadata": {"resourceVersion": state["expectedRevision"]},
+                      "spec": {"parameters": None if defaults["parameters"] == "absent" else patch}}, "application/merge-patch+json")
+        return {"accepted": True, "provider": provider, "mode": "exclusive"}
+
+
     def configure_gpu_sharing(payload):
-        _reject_unknown_fields(payload, {"provider", "mode", "maxModels", "nodeName", "nodeUid", "expectedRevision", "acknowledgeSharing", "acknowledgeRestart", "allocationBackend"})
+        _reject_unknown_fields(payload, {"provider", "mode", "maxModels", "nodeName", "nodeUid", "expectedRevision", "acknowledgeSharing", "acknowledgeRestart", "allocationBackend", "restoreDefaults"})
         provider = payload.get("provider")
         if provider not in ("amd", "nvidia"):
             raise ValueError("Choose AMD or NVIDIA GPU sharing")
@@ -3311,6 +3370,8 @@ data:
         # Exclusive recovery is still identity-bound for NVIDIA's node-local label.
         if provider == "nvidia" and (payload.get("nodeUid") != state["nodeUid"] or payload.get("nodeName") != state["nodeName"]):
             raise RequestError(409, "GPU identity changed; refresh Hardware and retry")
+        if "restoreDefaults" in payload:
+            return restore_gpu_sharing_defaults(payload, state)
         backend_mode = "exclusive" if mode == "exclusive" else "dra-shared" if provider == "amd" or backend == "dra" else "time-slicing"
         config = {"mode": backend_mode, "maxModels": count, "nodeName": state["nodeName"], "nodeUid": state["nodeUid"],
                   "namespace": MODEL_TARGET_NAMESPACE, "allowExperimental": provider == "amd" and mode == "shared"}

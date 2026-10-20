@@ -27,6 +27,7 @@ import {LiveFoundation} from '../core/live-foundation.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {phase0Ids, phase0Variants, phase0Coverage, requirePhase0Profile, type Phase0Variant} from '../profiles/phase0-p0.ts';
 import {phase1Ids, phase1Variants, phase1Requirements, phase1Coverage} from '../profiles/phase1-p0.ts';
+import {selections} from '../profiles/selections.ts';
 import {phase2Coverage, phase2Ids, phase2ModelCases, phase2ModelIds, phase2Requirements, phase2Variants, requirePhase2Profile} from '../profiles/phase2-p0.ts';
 import {fileLayer} from '../core/evidence.ts';
 import {typeScriptWorkerArgs} from '../core/node-worker.ts';
@@ -248,6 +249,11 @@ test('KEY-01 browser key adoption requires the exact requested name and immutabl
 });
 
 test('HAR-10 Phase 1 requires every Test-ID variant and canonical layer and fails incomplete JUnit', async () => {
+  expect(selections['smoke-fixtures']).toContain('navigation/history.browser.spec.ts');
+  const historyVariants=['status-history-desktop','status-history-mobile','status-history-desktop-slow','status-history-mobile-slow'];
+  expect(phase1Requirements.filter(item=>historyVariants.includes(item.variant)).map(item=>
+    ({id:item.id,variant:item.variant,layer:item.layer,environment:item.environment})))
+    .toEqual(historyVariants.map(variant=>({id:'NAV-02',variant,layer:'B',environment:'fixture'})));
   for (const [suffix, layer] of [['unit', 'U'], ['contract', 'C'], ['browser', 'B'], ['api', 'A'], ['e2e', 'E']]) {
     expect(fileLayer(`domain/behavior.${suffix}.spec.ts`)).toBe(layer);
   }

@@ -10,7 +10,7 @@ export const selections: Record<string, string[]> = {
   'smoke-fast': ['auth/session.contract.spec.ts', 'api-access/keys.contract.spec.ts',
     'models/lifecycle.contract.spec.ts', 'navigation/status.unit.spec.ts', 'navigation/status.contract.spec.ts',
     'observability/logs.contract.spec.ts', 'components/installed.unit.spec.ts'],
-  'smoke-fixtures': ['navigation/status.browser.spec.ts', 'navigation/navigation.browser.spec.ts',
+  'smoke-fixtures': ['navigation/status.browser.spec.ts', 'navigation/navigation.browser.spec.ts','navigation/history.browser.spec.ts',
     'auth/session.browser.spec.ts', 'api-access/keys.browser.spec.ts', 'models/forms.browser.spec.ts',
     'observability/logs.browser.spec.ts'],
   'phase2-fast': ['components/phase2.unit.spec.ts', 'models/control.contract.spec.ts'],
