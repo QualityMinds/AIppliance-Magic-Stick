@@ -5,6 +5,10 @@ It reads Kubernetes status and writes runtime intent resources. It does not
 directly install workloads, create Flux Kustomizations, or manage app resources
 itself.
 
+Browser login lifetime is configured in Keycloak, not through this API. Its
+optional [Remember me policy](../concepts/identity.md#browser-session-lifetime)
+does not change access-token validation, API keys or service-account rights.
+
 Model create/update payloads accept optional `local.capabilities` or
 `external.capabilities` objects containing `tools`, `vision` and `reasoning`
 booleans. Omitted fields remain unknown; string/numeric booleans and unsupported

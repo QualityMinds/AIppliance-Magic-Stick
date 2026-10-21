@@ -463,7 +463,7 @@ The exact layer expansion is reviewable independently of the workflow order:
 
 | ID | Selected variant group | Required layers |
 |---|---|---|
-| AUTH-01 | `login-session` | A+E |
+| AUTH-01 | `remember-me-policy-contract`, `login-session` | C; A+E respectively |
 | AUTH-02 | `anonymous-contract`, `anonymous-api`, `anonymous-browser` | C; A; E respectively |
 | AUTH-06 | `logout-browser`, `logout-session` | B; A+E respectively |
 | NAV-03 | `navigation-component`, `navigation-browser`, `read-only-navigation` | U; B; A+E respectively |

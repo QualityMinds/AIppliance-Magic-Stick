@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "79bf59eef0ed61803f91fd837be7cc7ca12eed121c4aea30fb62af29fe58cdd0",
+  "deploymentReferencesSha256": "d64e820fcab2603c13d6069f1bf42fb4e4bbf1c310e9ee30d81960851d4fa999",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2103,7 +2103,22 @@
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 67,
+      "line": 70,
+      "reference": "node-version: '24'"
+    },
+    {
+      "file": ".github/workflows/dashboard-browser-smoke.yml",
+      "line": 73,
+      "reference": "python-version: '3.13'"
+    },
+    {
+      "file": ".github/workflows/dashboard-browser-smoke.yml",
+      "line": 79,
+      "reference": "python -m pip install PyYAML==6.0.3"
+    },
+    {
+      "file": ".github/workflows/dashboard-browser-smoke.yml",
+      "line": 92,
       "reference": "node-version: '24'"
     },
     {

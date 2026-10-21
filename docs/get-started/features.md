@@ -68,6 +68,9 @@
   verifies the retained resource identities and revisions.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
+- Optionally select **Remember me** on the local login page to stay signed in
+  across browser restarts: seven days idle, thirty days maximum. Unchecked
+  sessions keep the thirty-minute idle limit. [Signing in](../user-guide/dashboard.md#signing-in).
 
 ## What is not automatic
 

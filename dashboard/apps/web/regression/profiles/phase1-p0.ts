@@ -23,7 +23,7 @@ export const phase1FixtureVariants = {
   'status-history-desktop-slow':'NAV-02','status-history-mobile-slow':'NAV-02',
 } as const;
 export const phase1FastVariants = {
-  'anonymous-contract': 'AUTH-02', 'navigation-component': 'NAV-03',
+  'anonymous-contract': 'AUTH-02', 'remember-me-policy-contract':'AUTH-01', 'navigation-component': 'NAV-03',
   'failed-status-unit': 'NAV-06', 'unknown-memory-unit': 'NAV-06', 'status-contract': 'NAV-06',
   'lifecycle-stop-component': 'LIFE-03', 'lifecycle-start-component': 'LIFE-04',
   'create-contract': 'LIFE-01', 'stop-contract': 'LIFE-03', 'start-contract': 'LIFE-04',

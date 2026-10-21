@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Offer Keycloak **Remember me** for seven days idle and at most thirty days.
+  Unchecked sessions retain thirty minutes idle and ten hours maximum, with
+  five-minute access tokens. A versioned startup migration updates untouched
+  defaults through the existing bootstrap administrator and preserves custom
+  policies without granting Dashboard service accounts realm-management rights.
+
 - Keep completed regression outcomes when a report download cannot be exported.
   Report `HAR-10 / REPORT_EXPORT` separately, preserve verified cleanup, and avoid
   duplicating every step as JSON in JUnit. Step outcomes and filtered attachments

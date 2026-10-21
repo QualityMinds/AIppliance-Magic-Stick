@@ -45,3 +45,53 @@ routes automatically. Rancher Desktop keeps multicast inside its Linux VM; use
 `magic-cluster/platform/basis/kdns/publish-rancher-desktop-mdns.sh` on macOS
 while testing so the same accepted routes are published through the host mDNS
 responder.
+
+## Session policy and Remember me
+
+Run the owning import/migration counterexamples first:
+
+```sh
+python3 -m unittest discover -s magic-cluster/platform/identity/tests -p test_remember_me.py
+```
+
+Phase 1 `smoke-fast` also selects that suite under AUTH-01's
+`remember-me-policy-contract`. It rejects the old defaults, checks idempotency,
+preserves custom policies, and covers missing bootstrap authority, read/write
+failure, lost write acknowledgements and verified readback. It does not extend
+the setup or Dashboard service accounts' realm permissions.
+
+On a developer/CI host with Docker, Python with PyYAML, the locked Dashboard
+workspace and Playwright Chromium installed, run the explicit protocol profile:
+
+```sh
+cd dashboard
+REGRESSION_MODE=auth-sessions pnpm --filter @magicstick/dashboard-web exec playwright test \
+  --config regression/playwright.config.ts --reporter=line
+```
+
+This starts isolated Keycloak 26.6.3 and Envoy Proxy 1.38.6 containers, matching
+the appliance versions. It imports the real policy with synthetic credentials,
+runs the real migration/CLI, and shortens session limits only inside that
+disposable realm. Chromium checks normal idle expiry, remembered access after a
+real browser restart and inactivity, refresh without another login, both absolute
+maximum lifetimes despite activity, and logout followed by rejected old session data.
+An idle probe accounts for Keycloak's possible two-minute grace window; normal
+maximum remains later, so maximum expiry cannot masquerade as idle expiry.
+
+The stack binds only to loopback and uses HTTP with synthetic identities; it is
+not TLS/certificate acceptance and does not alter appliance TLS policy. No lab
+profile, Docker socket mount, host network or privileged container is used.
+Only the randomly named owned containers/network and private temporary files
+are removed. Raw cookies, tokens and credentials are not reported. The
+`identity-sessions` browser CI job runs this separate gate. Installed Kubernetes
+phases do not launch Docker or claim this local B/protocol evidence as installed
+A/E acceptance.
+
+For installed acceptance, wait for any regression run/maintenance to finish,
+verify the migration result and unchanged normal limits, then **sign out and
+sign in again with Remember me**. Confirm a later return and browser restart do
+not prompt prematurely; explicit logout must return to login. Do not use an older
+login as acceptance evidence: its cookies may retain the former expiry.
+Preserve custom settings; investigate a migration
+error in Keycloak's startup logs rather than granting `manage-realm` to a
+Dashboard service account or bypassing authentication.
