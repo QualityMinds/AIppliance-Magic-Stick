@@ -372,7 +372,20 @@ data:
             threads = max(1, quota - 1)  # Leave bounded capacity for the frontend.
             os.environ["VLLM_CPU_OMP_THREADS_BIND"] = "nobind"
             os.environ["OMP_NUM_THREADS"] = str(threads)
-            log(f"CPU quota={quota} cores; inference_threads={threads}; binding=nobind")
+            # This is an automatic startup budget, not an explicit operator
+            # override. vLLM 0.31 reduces Torch intra-op threads to one after
+            # loading; without its provenance marker our generated OMP value
+            # disables that transition in both the worker and EngineCore.
+            # Their spin-waiting pools then burn the Pod's CFS quota while a
+            # Ready server fails to answer its first request.
+            try:
+                version = runtime_version("vllm")
+                match = re.match(r"^(\d+)\.(\d+)(?:[.+-]|$)", version)
+                if match and tuple(map(int, match.groups())) >= (0, 31):
+                    os.environ["VLLM_OMP_NUM_THREADS_SET_BY_VLLM"] = "1"
+            except PackageNotFoundError:
+                pass
+            log(f"CPU quota={quota} cores; startup_threads={threads}; serving_threads=native; binding=nobind")
 
 
     def configure_argv():
@@ -556,17 +569,36 @@ data:
         return filtered, min(capacities)
 
 
+    def collective_progress(output):
+        """Last fixed milestone per rank; never retain native text or UUIDs."""
+        stages = {"import", "assignment", "init", "all-reduce", "point-to-point", "cleanup", "complete"}
+        ranks = {}
+        for line in str(output)[-65536:].splitlines():
+            if not line.startswith("MAGICSTICK_COLLECTIVE_PROGRESS=") or len(line) > 256:
+                continue
+            try:
+                value = json.loads(line.split("=", 1)[1])
+                rank, stage = value.get("rank"), value.get("stage")
+                if type(rank) is int and 0 <= rank < 16 and stage in stages:
+                    ranks[rank] = stage
+            except (ValueError, TypeError, AttributeError):
+                pass
+        return [{"rank": rank, "stage": ranks[rank]} for rank in sorted(ranks)]
+
+
     def collective_diagnostic(output, returncode, environment, directory="/tmp", *,
                               reason="COLLECTIVE_PROBE_FAILED", cleanup_confirmed=True):
         """Keep native transport detail private and bounded, never in reports."""
         import tempfile
         policy = "host-mediated" if environment.get("NCCL_P2P_DISABLE") == "1" else "configured"
+        progress = collective_progress(output)
         # These fixed, non-secret fields survive container restarts through the
         # ordinary current/previous Pod log API. Native output stays private.
         log("MAGICSTICK_STARTUP_DIAGNOSTIC=" + json.dumps({
             "version": 1, "stage": "collective-preflight", "reason": reason,
             "transport": policy, "exitCode": returncode if isinstance(returncode, int) else None,
             "cleanupConfirmed": cleanup_confirmed,
+            **({"progress": progress} if progress else {}),
         }, sort_keys=True))
         try:
             private = Path(tempfile.mkdtemp(prefix="magicstick-nccl-", dir=directory))
@@ -709,12 +741,22 @@ data:
     """Bounded small native NCCL check, not an inference acceptance result."""
     import os
     import sys
+    import json
     from datetime import timedelta
-    import torch
-    import torch.distributed as dist
+
+
+    def progress(stage):
+        print("MAGICSTICK_COLLECTIVE_PROGRESS=" + json.dumps({
+            "rank": int(os.environ["LOCAL_RANK"]), "stage": stage,
+        }), flush=True)
 
 
     def main():
+        progress("import")
+        import torch
+        import torch.distributed as dist
+
+        progress("assignment")
         expected = [value.lower().removeprefix("gpu-") for value in sys.argv[1].split(",")]
         visible = [str(torch.cuda.get_device_properties(i).uuid).lower().removeprefix("gpu-")
                    for i in range(torch.cuda.device_count())]
@@ -722,17 +764,20 @@ data:
             raise RuntimeError("Collective probe GPU assignment changed")
         rank = int(os.environ["LOCAL_RANK"])
         torch.cuda.set_device(rank)
+        progress("init")
         dist.init_process_group("nccl", timeout=timedelta(seconds=30))
         size = dist.get_world_size()
         if size != len(expected):
             raise RuntimeError("Collective probe world size changed")
         value = torch.full((1024,), float(rank + 1), device="cuda")
+        progress("all-reduce")
         dist.all_reduce(value)
         torch.cuda.synchronize()
         if not torch.all(value == size * (size + 1) / 2).item():
             raise RuntimeError("Collective probe all-reduce mismatch")
         # Pipeline parallelism uses send/recv as well as collectives. Probe
         # both directions for every pair after communicator initialization.
+        progress("point-to-point")
         for source in range(size):
             for target in range(size):
                 if source == target:
@@ -746,7 +791,9 @@ data:
                         raise RuntimeError("Collective probe point-to-point mismatch")
                 dist.barrier()
         torch.cuda.synchronize()
+        progress("cleanup")
         dist.destroy_process_group()
+        progress("complete")
         if rank == 0:
             print("MAGICSTICK_COLLECTIVE_OK", flush=True)
 

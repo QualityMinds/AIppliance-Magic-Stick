@@ -14,6 +14,7 @@ import {parseExecutionTrace,saveExecutionTrace,type ExecutionTrace} from '../cor
 import {privateDirectory,writePrivate} from '../core/private-files.ts';
 import {saveReport,type CaseResult} from '../core/report.ts';
 import {staticDiagnosticTitles} from '../core/case-descriptions.ts';
+import {junitReport} from '../core/junit.ts';
 
 const source={file:'regression/harness/artifacts.unit.spec.ts',line:1};
 const secret='synthetic-credential-never-archive';
@@ -29,6 +30,27 @@ function trace(runId=newRunId()):ExecutionTrace {
         outcome:'Failed',reason:'DEADLINE',stage:'model-estimate',source},
       {index:3,category:'hook',title:secret,durationMs:0,outcome:'Blocked',source}]};
 }
+
+test('HAR-10 full-size JUnit keeps every step once without duplicating its JSON payload',()=>{
+  // A complete campaign records thousands of scenarios. Repeating every step
+  // as both XML properties and escaped JSON exceeded the 64 MiB download bound.
+  const artifacts=Array.from({length:3500},(_,index)=>{
+    const executionId=index.toString(16).padStart(24,'0'),runId='reg-11111111-2222-3333-4444-555555555555';
+    const recorded:ExecutionTrace={version:1,runId,executionId,outcome:'Passed',durationMs:1000,source,
+      steps:Array.from({length:25},(_,step)=>({index:step+1,category:'pw:api',title:'Browser/API operation',
+        durationMs:10,outcome:'Passed',source,...(step?{parentIndex:1}:{})}))};
+    return {trace:recorded,path:`report-artifacts/${runId}/traces/${executionId}.json`};
+  });
+  const cases:CaseResult[]=Array.from({length:5000},(_,index)=>({id:'LIFE-02',variant:'local-create-vllm',layer:'A',
+    environment:'live',outcome:'Passed',durationMs:1000,executionId:(index%3500).toString(16).padStart(24,'0'),executionOutcome:'Passed'}));
+  const xml=junitReport(cases,artifacts);
+  expect(xml).toContain('name="magicstick-executable-scenarios" tests="3500"');
+  expect(xml).toContain('name="magicstick-test-steps" tests="87500"');
+  expect(Buffer.byteLength(xml)).toBeLessThan(64*1024*1024);
+  expect(xml).toContain('name="parentStep" value="1"');expect(xml).toContain('line="1"');
+  expect(xml).not.toContain('&quot;category&quot;');
+  expect(xml).toContain('[[ATTACHMENT|'+artifacts[3499]!.path+']]');
+});
 
 test('HAR-11 traces retain reviewed step labels and safe outcomes but never dynamic values or raw error bodies',()=>{
   const value=trace();

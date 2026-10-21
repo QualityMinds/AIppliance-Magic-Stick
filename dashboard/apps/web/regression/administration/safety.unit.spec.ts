@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import type {ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
-import {validCompanionReport} from './companion-live.ts';
+import {validCompanionReport,publicCompanionProof,companionAcceptanceCheck,companionWorkflow} from './companion-live.ts';
 import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
 import {AdministrationApi,allowedAdministrationRead} from '../core/administration-api.ts';
 import type {APIRequestContext} from '@playwright/test';
@@ -25,6 +25,10 @@ import type {MemoryEstimate,ModelsPayload,ModulesPayload} from '@magicstick/dash
 import {applicationModel,applicationContexts,applicationEditContext} from '../core/application-model.ts';
 import {catalogFixture} from '../core/input-preparation.ts';
 import {HarnessError} from '../core/errors.ts';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.ts';
 import {OwnedModelClient} from '../core/owned-model.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
@@ -229,6 +233,59 @@ test('HAR-10 native companion proof is commit/platform/format bound and is not m
   for(const patch of [{archiveSha256:'short'},{launchCheck:{...proof.launchCheck,loopbackAuthVerified:false}},
     {launchCheck:{...proof.launchCheck,meshInferenceVerified:true}},{launchCheck:{...proof.launchCheck,platform:'win32'}}])
     expect(validCompanionReport({...proof,...patch},'linux-x64',revision)).toBe(false);
+});
+
+function publicCompanionFixture() {
+  const revision='a'.repeat(40),run={id:123,run_attempt:2,head_sha:revision,
+    path:'.github/workflows/build-mesh-companion.yml',status:'completed',conclusion:'success',updated_at:new Date().toISOString(),
+    repository:{full_name:'QualityMinds/AIppliance-Magic-Stick'}};
+  const reports=Object.entries({'macos-arm64':'darwin','macos-x64':'darwin','linux-x64':'linux','windows-x64':'win32'})
+    .map(([platform,native])=>({version:1,platform,sourceRevision:revision,archiveSha256:'b'.repeat(64),
+      launchCheck:{version:1,platform:native,launcherVerified:true,transportVerified:true,loopbackAuthVerified:true,
+        inferenceAuthorityVerified:true,originHostVerified:true,isolatedStateVerified:true,meshInferenceVerified:false}}));
+  const check={name:companionAcceptanceCheck,head_sha:revision,external_id:'123:2',app:{slug:'github-actions'},
+    details_url:'https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/123',status:'completed',conclusion:'success',
+    output:{text:JSON.stringify({version:1,runId:123,runAttempt:2,sourceRevision:revision,reports})}};
+  return {revision,run,reports,check};
+}
+test('MESH-09 public native proof requires the exact GitHub workflow attempt and every verified platform',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  expect(publicCompanionProof({check_runs:[check]},run,revision)).toHaveLength(4);
+  expect(publicCompanionProof({check_runs:[]},run,revision)).toBeUndefined();
+  for(const patch of [{head_sha:'c'.repeat(40)},{app:{slug:'foreign'}},{status:'in_progress'},{conclusion:'failure'},
+    {details_url:'https://example.invalid/run/123'}])
+    expect(()=>publicCompanionProof({check_runs:[{...check,...patch}]},run,revision)).toThrow('[REVISION]');
+  for(const altered of [reports.slice(0,3),[...reports.slice(0,3),reports[0]],
+    reports.map((r,i)=>i? r:{...r,launchCheck:{...r.launchCheck,originHostVerified:false}})])
+    expect(()=>publicCompanionProof({check_runs:[{...check,output:{text:JSON.stringify({version:1,runId:123,runAttempt:2,sourceRevision:revision,reports:altered})}}]},run,revision)).toThrow();
+  expect(()=>publicCompanionProof({check_runs:[{...check,output:{text:'private-invalid-json'}}]},run,revision)).toThrow('[API]');
+});
+
+test('MESH-09 anonymous workflow proof needs no artifact token; legacy access blocks without a doomed ZIP request',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-companion-proof-'));
+  const oldProfile=process.env.REGRESSION_REMAINING_PROFILE,oldRun=process.env.REGRESSION_RUN_DIR;
+  try {
+    const {revision,run,check}=publicCompanionFixture();await privateDirectory(directory);
+    const file=join(directory,'profile.json');await writePrivate(file,{companion:{runId:123,sourceRevision:revision}});
+    process.env.REGRESSION_REMAINING_PROFILE=file;process.env.REGRESSION_RUN_DIR=directory;
+    const requests:string[]=[];let publicProof=true;
+    const live={config:{requestTimeoutMs:1000,expected:{flux:{revision:'branch@sha1:'+revision}}},context:{request:{get:async(url:string,options:any)=>{
+      requests.push(url);expect(options.headers).not.toHaveProperty('Authorization');
+      const data=url.includes('/check-runs?')?{check_runs:publicProof?[check]:[]}:run;
+      return {status:()=>200,body:async()=>Buffer.from(JSON.stringify(data)),json:async()=>data};
+    }}}} as unknown as LiveFoundation;
+    await companionWorkflow(live);
+    expect(JSON.parse(await readPrivate(join(directory,'companion-acceptance.json')))).toMatchObject({proofSource:'github-check',meshInferenceVerified:false});
+    publicProof=false;
+    await expect(companionWorkflow(live)).rejects.toMatchObject({code:'CI_ACCESS',outcome:'Blocked',stage:'companion-evidence'});
+    expect(requests.some(url=>url.includes('/zip')||url.includes('/artifacts'))).toBe(false);
+  }finally {
+    if(oldProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=oldProfile;
+    if(oldRun===undefined)delete process.env.REGRESSION_RUN_DIR;else process.env.REGRESSION_RUN_DIR=oldRun;
+    await rm(directory,{recursive:true,force:true});
+  }
 });
 
 test('HAR-10 online security evidence cannot use stale, pending, wrong-repo or wrong-commit CI',annotation,()=>{

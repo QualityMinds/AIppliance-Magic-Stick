@@ -341,6 +341,24 @@ describe('In-Appliance regression tests', () => {
     expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeDisabled();
     expect(screen.getByText(/Removing the completed run/)).toBeVisible();
   });
+  it('retains completed test totals and an actionable export failure without suggesting recovery',async()=>{
+    data.lock={state:'free',canRecover:false,message:'Lab lock is free.'};
+    data.runs=[{...run(),phase:'Failed',credentialsCleaned:true,reportAvailable:false,
+      message:'Execution finished, but report export failed. Recorded test results were retained; inspect HAR-10 at report-export.',
+      progress:{percent:100,completedPhases:9,totalPhases:9},result:{
+        counts:{Passed:4532,Failed:17,Blocked:145},executionCounts:{Passed:3402,Failed:6,Blocked:56},
+        recoveryRequired:false,omittedCases:0,phases:[],cases:[{id:'HAR-10',layer:'A',variant:'',outcome:'Failed',reason:'REPORT_EXPORT',
+          stage:'report-export',message:'Sanitized report export failed; recorded test results were retained.',
+          action:'Inspect report size and storage; do not force recovery.',durationMs:0}]}}];
+    mount();expect(await screen.findByText(/Execution finished, but report export failed/)).toBeVisible();
+    expect(screen.getByLabelText('Executable scenario results')).toHaveTextContent('3402');
+    expect(screen.getByRole('button',{name:'Download report'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Start regression tests'})).toBeEnabled();
+    await userEvent.click(screen.getByText('Failures and blocked checks (1)'));
+    expect(screen.getByText('REPORT_EXPORT')).toBeVisible();
+    expect(screen.getByText(/Stage: report-export/)).toBeVisible();
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();expect(api.startRegression).not.toHaveBeenCalled();
+  });
   it('shows the failed preparation stage and zero passed live evidence despite successful isolated scenarios',async()=>{
     data.runs=[{...run(),phase:'Failed',reportAvailable:true,credentialsCleaned:true,progress:{percent:100,completedPhases:9,totalPhases:9},
       result:{counts:{Passed:100,Failed:1,Blocked:30},executionCounts:{Passed:80,Failed:0,Blocked:0},recoveryRequired:false,omittedCases:0,

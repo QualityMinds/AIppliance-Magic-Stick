@@ -81,6 +81,14 @@ has no universal attachment format, so unsupported CI viewers can use the
 property/path or open `summary.html`. Step counts are diagnostics, not additional
 catalogue acceptance or a replacement for the scenario/evidence counts.
 
+Each step is represented once as XML fields/properties, not repeated as a second
+escaped JSON payload. Its complete filtered trace remains an archive attachment.
+The generated download bound stays 64 MiB. An export/storage failure adds
+`HAR-10 / REPORT_EXPORT` at `report-export`, retains completed campaign counts,
+phase results and original private artifacts, and sets `reportAvailable: false`.
+It never substitutes a one-row HAR-02 setup report or invents a cleanup failure.
+Actual unproved cleanup still retains its original credential/recovery fence.
+
 Each canonical phase, `all`, `selftest` and `phaseN-fast` / `phaseN-fixtures`
 produces `report-artifacts.tar.gz`, including after a failed isolated check. It includes
 only summaries, JUnit, its manifest and re-validated trace/component attachments.
@@ -719,8 +727,14 @@ and clean only owned membership and models.
 
 `companion` consumes fresh native four-platform matrix evidence from the fixed
 repository's `build-mesh-companion.yml`. Pin the current installed commit and run
-ID; optional read-only API credentials stay in a token file. Archive acceptance
-JSON binds source/hash/platform and is retained 30 days. A Linux container does
+ID. Successful trusted builds publish the bounded public
+`magicstick-companion-acceptance` check using the workflow's own token; no GitHub
+credential is installed on the Appliance. Regression verifies the GitHub Actions
+issuer, exact commit, run/attempt and every native platform's source/hash and
+launch boundaries. The fixed workflow itself must also have finished successfully.
+Older artifact-only builds may use an existing scoped Actions-read token file;
+otherwise `CI_ACCESS` names the missing prerequisite, not a product API failure.
+The exact build proof must be no older than 30 days. A Linux container does
 not execute Windows/macOS binaries. Launcher/loopback/authority proof expressly
 reports `meshInferenceVerified: false`; inference is the separate Mesh workflow.
 

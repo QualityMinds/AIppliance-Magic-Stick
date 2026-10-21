@@ -8,6 +8,21 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep completed regression outcomes when a report download cannot be exported.
+  Report `HAR-10 / REPORT_EXPORT` separately, preserve verified cleanup, and avoid
+  duplicating every step as JSON in JUnit. Step outcomes and filtered attachments
+  remain available without exceeding the full campaign's download bound.
+
+- Preserve vLLM 0.31's native transition from automatic CPU startup threads to
+  single-threaded serving under a container quota. Explicit operator thread
+  policies remain unchanged. Retain fixed per-rank GPU collective milestones
+  in sanitized failure traces without publishing native output or GPU identities.
+
+- Publish native companion acceptance in a bounded public GitHub check after
+  all four platform builds pass. Installed regression verifies the exact commit,
+  workflow attempt and platform proofs without an Appliance GitHub token;
+  older artifact-only builds report missing access as a prerequisite.
+
 - Synchronize System Status browser-history checks on the URL, selected tab and
   visible panel. Keep Back/Forward in dedicated NAV-02 scenarios for desktop and
   mobile, including slowed Chromium, so one history failure does not mark the

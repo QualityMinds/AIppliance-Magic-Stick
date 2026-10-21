@@ -60,6 +60,8 @@
   with the original blocking check and trace when recorded.
   Automatic preparation failures show their setup stage and next action; fixture
   and live evidence counts are displayed separately.
+  A report-download export failure retains completed results and does not by
+  itself require cleanup or repeating the tests.
   Each full start cleans up the previous run and begins again with a fresh test ID.
   Non-destructive starts require any previous-run cleanup to be completed separately.
   **Clean up previous test run** is also available for diagnosis; cleanup

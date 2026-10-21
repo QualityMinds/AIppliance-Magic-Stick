@@ -56,7 +56,7 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
     detail:step.reason?reasons[step.reason]:step.outcome,source:step.source,
     properties:{executionId:trace.executionId,stepIndex:String(step.index),category:step.category,outcome:step.outcome,trace:path,
       ...(step.parentIndex?{parentStep:String(step.parentIndex)}:{}),...(step.reason?{reason:step.reason}:{}),...(step.stage?{stage:step.stage}:{}),
-      ...(step.handledError?{handledError:'true'}:{} )},output:JSON.stringify(step)})));
+      ...(step.handledError?{handledError:'true'}:{} )}})));
   if(selection)for(const item of evidence)item.properties.testMode=selection.testMode;
   const excluded:Entry[]=(selection?.excludedSteps??[]).map(step=>({name:step,classname:'selection',outcome:'Skipped',durationMs:0,
     detail:'Not selected: non-destructive mode. No destructive or preparation-dependent live step was executed.',properties:{testMode:selection!.testMode,outcome:'Not selected',reason:'TEST_MODE'}}));

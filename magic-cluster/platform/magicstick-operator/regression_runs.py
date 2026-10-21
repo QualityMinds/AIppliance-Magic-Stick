@@ -190,7 +190,12 @@ class RegressionRuns:
             job_failed = any(c.get("status") == "True" and c.get("type") == "Failed" for c in job.get("status", {}).get("conditions", []))
             if job_failed or outcome not in {"Passed", "Failed", "Blocked"}:
                 outcome = "Failed"
-            self.status(run, phase=outcome, message="Regression execution finished." if progress else "Runner failed before publishing its report. Check scheduling, storage and image availability.",
+            export_failed = any(case.get("reason") == "REPORT_EXPORT" and case.get("stage") == "report-export"
+                                for case in ((progress or {}).get("result") or {}).get("cases", []))
+            message = ("Execution finished, but report export failed. Recorded test results were retained; inspect HAR-10 at report-export."
+                       if export_failed else "Regression execution finished." if progress else
+                       "Runner failed before publishing its report. Check scheduling, storage and image availability.")
+            self.status(run, phase=outcome, message=message,
                 progress=(progress or {}).get("progress", {}), result=(progress or {}).get("result"),
                 credentialRecoveryRequired=False if non_destructive else True if job_failed else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
                 reportAvailable=bool((progress or {}).get("reportAvailable")), finishedAt=self.f["now"]())

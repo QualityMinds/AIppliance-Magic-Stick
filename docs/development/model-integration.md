@@ -141,6 +141,12 @@ for this Pod; it also disables vLLM's custom all-reduce, which bypasses NCCL.
 An explicit operator transport setting is preserved. Both probes have deadlines;
 failure stops startup with a communication diagnosis. This qualification checks
 communication, and still requires model readiness and real inference acceptance.
+Failures also retain the last fixed probe milestone for each rank: Python/Torch
+import, assignment, NCCL initialization, all-reduce, point-to-point or cleanup.
+The existing authenticated log capture copies only these bounded fields into
+filtered traces/JUnit before removing the test model. Native output, UUIDs and
+paths remain private. These diagnostics do not skip qualification or extend
+the probe deadline, and missing detail in an older run is not guessed later.
 See [NVIDIA transport troubleshooting](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting/gpu_troubleshooting.html).
 
 ### Ordinary vLLM runtime upgrades

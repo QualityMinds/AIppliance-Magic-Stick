@@ -282,6 +282,8 @@ read-only container root, no GPU/host/Docker mounts, and affinity to the retaine
 report store's node. Status records progress, real test outcomes, report
 availability and generated-account cleanup. Reports and private journals are
 separate PVC directories; the report server mounts only the sanitized directory.
+Report-export failures retain completed outcomes with a separate HAR-10 reason.
+They do not turn verified cleanup into credential recovery or change old reports.
 See [the API](dashboard-api.md#regression-runs) and [runner guide](../development/regression-remaining-p0.md#in-the-dashboard).
 
 An interrupted run may reference its original generated account through the
