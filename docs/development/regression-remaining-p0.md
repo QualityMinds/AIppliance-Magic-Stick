@@ -199,6 +199,11 @@ initialization or data exchange) when available. Raw startup output stays
 private; historical traces without milestones stay unchanged. A failed cleanup
 journal retains its operation and fixed reason/stage for exact-resource diagnosis
 and safe retry.
+The native collective probe explicitly uses matching Float32 send/receive
+buffers. Its owning-layer counterexample exercises every directed peer pair
+for two- and four-GPU groups; live MGPU-01 still requires successful native
+qualification and routed inference rather than treating that fixture as hardware
+acceptance.
 Repeated-cycle checks separate model-cache growth from other disk
 growth and verify model, Pod, claim, route and key cleanup. Expected service
 rollouts compare stable workload UIDs and replica counts, not replaceable Pod

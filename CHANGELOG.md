@@ -18,10 +18,17 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   policies remain unchanged. Retain fixed per-rank GPU collective milestones
   in sanitized failure traces without publishing native output or GPU identities.
 
+- Use the same explicit Float32 payload for sender and receiver in the NVIDIA
+  collective preflight. Integer-filled receive buffers must not infer Int64 and
+  stall an otherwise functioning host-mediated multi-GPU transport.
+
 - Publish native companion acceptance in a bounded public GitHub check after
   all four platform builds pass. Installed regression verifies the exact commit,
   workflow attempt and platform proofs without an Appliance GitHub token;
   automatic preparation prefers that readable build over newer PR artifacts.
+  Accept GitHub Actions' canonical check-ID link only when it matches that
+  exact check and repository; commit, workflow-attempt and platform proofs remain
+  mandatory.
   Older artifact-only builds report missing access as a prerequisite.
 
 - Synchronize System Status browser-history checks on the URL, selected tab and

@@ -22,8 +22,14 @@ export function publicCompanionProof(checks:any,run:any,revision:string) {
   const matches=checks.check_runs.filter((check:any)=>check.name===companionAcceptanceCheck && check.external_id===identity);
   if(!matches.length)return;
   requireSafe(matches.length===1,'REVISION');const check=matches[0];
+  // GitHub Actions replaces submitted details_url with its canonical check URL.
+  // Bind that form to this exact check ID and repository, never an arbitrary link.
+  const checkUrl=Number.isSafeInteger(check.id)&&check.id>0?
+    `https://github.com/QualityMinds/AIppliance-Magic-Stick/runs/${check.id}`:undefined;
+  const detailsMatch=check.details_url===`https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/${run.id}` ||
+    (checkUrl!==undefined && check.details_url===checkUrl && check.html_url===checkUrl);
   requireSafe(check.app?.slug==='github-actions' && check.head_sha===revision && check.status==='completed' &&
-    check.conclusion==='success' && check.details_url===`https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/${run.id}`,'REVISION');
+    check.conclusion==='success' && detailsMatch,'REVISION');
   requireSafe(typeof check.output?.text==='string' && Buffer.byteLength(check.output.text)<=48*1024,'API');
   let proof;try{proof=JSON.parse(check.output.text);}catch{throw new HarnessError('API','Failed','companion-evidence');}
   requireSafe(proof?.version===1 && proof.runId===run.id && proof.runAttempt===run.run_attempt && proof.sourceRevision===revision &&

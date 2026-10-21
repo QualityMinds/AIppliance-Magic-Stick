@@ -286,6 +286,21 @@ test('MESH-09 public native proof requires the exact GitHub workflow attempt and
   expect(()=>publicCompanionProof({check_runs:[{...check,output:{text:'private-invalid-json'}}]},run,revision)).toThrow('[API]');
 });
 
+test('MESH-09 accepts the canonical check-ID URL returned by GitHub Actions but not foreign or mismatched links',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const url='https://github.com/QualityMinds/AIppliance-Magic-Stick/runs/456';
+  const actual={...check,id:456,details_url:url,html_url:url};
+  expect(publicCompanionProof({check_runs:[actual]},run,revision)).toHaveLength(4);
+  expect(await discoverCompanionRun([run],{check_runs:[actual]},revision,async()=>({artifacts:reports.map(report=>({
+    name:'companion-acceptance-'+report.platform,expired:false}))}))).toEqual(run);
+  for(const patch of [{id:457},{id:0},{id:'456'},{id:456.5},{html_url:url+'?untrusted'},
+    {details_url:url+'/extra'}, {details_url:'https://example.invalid/runs/456'},
+    {details_url:url.replace('QualityMinds','Other')},{app:{slug:'foreign'}}])
+    expect(()=>publicCompanionProof({check_runs:[{...actual,...patch}]},run,revision)).toThrow('[REVISION]');
+  expect(publicCompanionProof({check_runs:[{...actual,external_id:'123:1'}]},run,revision)).toBeUndefined();
+});
+
 test('MESH-09 anonymous workflow proof needs no artifact token; legacy access blocks without a doomed ZIP request',
   evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
   const directory=await mkdtemp(join(tmpdir(),'magicstick-companion-proof-'));
