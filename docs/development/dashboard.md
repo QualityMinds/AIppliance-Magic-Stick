@@ -34,6 +34,13 @@ publishes the primary hostname when the route is accepted and the Gateway has
 an address. First-run setup and the physical CLI/TUI console keep their existing
 handoff URLs and do not require another dashboard address.
 
+Long-lived browser login is Keycloak/Envoy policy, not a second Dashboard
+authentication mechanism. The native **Remember me** checkbox selects the
+[session lifetime](../concepts/identity.md#browser-session-lifetime); no new UI
+page, public API, local-storage token or service-account realm permission is
+needed. [Identity validation](identity-validation.md#session-policy-and-remember-me)
+covers migration and accelerated protocol checks.
+
 The former ConfigMap frontend and separate preview Deployment, Service, route,
 OIDC policy and mDNS hostname are removed. There is no old-UI fallback link.
 See [operations](../administration/troubleshooting/dashboard-upgrades.md#dashboard-upgrade-cleanup) for upgrade cleanup,

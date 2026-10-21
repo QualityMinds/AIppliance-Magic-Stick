@@ -99,6 +99,32 @@ client ID. Unattended machine integrations still need their own policy and
 credential lifecycle; a renewable human device session is not a service
 account.
 
+## Browser session lifetime
+
+Local Keycloak login offers its native **Remember me** checkbox. Normal SSO
+sessions retain a 1,800-second idle timeout and a 36,000-second maximum.
+Opted-in sessions use 604,800 seconds idle and 2,592,000 seconds maximum.
+Access tokens remain 300 seconds; Envoy renews them using the existing refresh
+flow. Browser restart and standby do not revoke the remembered session, but
+explicit logout and the absolute maximum still end it. Use a fresh login to
+opt in after an upgrade. See [Keycloak session timeouts](https://www.keycloak.org/docs/latest/server_admin/#_timeouts).
+
+The realm import contains these defaults. Existing realms are reconciled once
+by `keycloak-session-policy.sh` in both Keycloak startup paths. Migration version
+`magicstickRememberMePolicyVersion=1` is stored in the realm attributes. Only
+the unchanged original policy (`rememberMe=true`, 300/1,800/36,000-second token
+and normal limits, both remember-me limits zero) is upgraded. Custom/disabled
+policies are retained and marked as reviewed, with a sanitized message. A repeat
+does not reapply defaults or overwrite later administrator changes.
+
+Reads use the existing scoped setup client; writes authenticate separately with
+the already provisioned bootstrap administrator. No Dashboard service account
+receives `manage-realm`. Authentication, read, version, concurrent-change, write
+and verification failures stop this migration with a fixed diagnostic code; they
+never enable an unauthenticated fallback. Other realm attributes, ordinary
+session policy, API keys and API token validation are unchanged. See the
+[isolated session checks](../development/identity-validation.md#session-policy-and-remember-me).
+
 ## Implemented Scope
 
 The current implementation provides:

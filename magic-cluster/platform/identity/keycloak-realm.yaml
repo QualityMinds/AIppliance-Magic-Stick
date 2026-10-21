@@ -12,6 +12,12 @@ data:
       "registrationAllowed": false,
       "resetPasswordAllowed": true,
       "rememberMe": true,
+      "accessTokenLifespan": 300,
+      "ssoSessionIdleTimeout": 1800,
+      "ssoSessionMaxLifespan": 36000,
+      "ssoSessionIdleTimeoutRememberMe": 604800,
+      "ssoSessionMaxLifespanRememberMe": 2592000,
+      "attributes": {"magicstickRememberMePolicyVersion": "1"},
       "loginWithEmailAllowed": true,
       "roles": {
         "realm": [

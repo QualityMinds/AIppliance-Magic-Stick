@@ -5,6 +5,19 @@
 *Overview on the test appliance, captured 24 September 2026. The URL list below
 the cards is outside this crop. Select any screenshot to open it at full size.*
 
+## Signing in
+
+On the local Keycloak login page, select **Remember me** only on a trusted,
+personal browser. Without it, the session ends after **30 minutes without use**
+or **10 hours overall**. With it, the limits are **7 days without use** and
+**30 days overall**, including a closed browser or standby. Active use renews
+the idle limit, not the overall maximum. Sign out explicitly to end the session.
+
+Access tokens still last five minutes and renew automatically. After this
+feature is installed, sign out and sign in once with the checkbox; an existing
+browser may still carry the earlier, shorter cookie expiry. Administrator-customized policies and
+an external identity provider can impose different limits.
+
 ## UI Areas
 
 | Area | Purpose |

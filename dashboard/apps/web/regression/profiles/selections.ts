@@ -13,6 +13,9 @@ export const selections: Record<string, string[]> = {
   'smoke-fixtures': ['navigation/status.browser.spec.ts', 'navigation/navigation.browser.spec.ts','navigation/history.browser.spec.ts',
     'auth/session.browser.spec.ts', 'api-access/keys.browser.spec.ts', 'models/forms.browser.spec.ts',
     'observability/logs.browser.spec.ts'],
+  // Explicit Docker-host CI/developer gate, not an appliance phase. Native
+  // Kubernetes runners neither need nor receive a Docker socket.
+  'auth-sessions': ['auth/remember-me.browser.spec.ts'],
   'phase2-fast': ['components/phase2.unit.spec.ts', 'models/control.contract.spec.ts'],
   'phase2-fixtures': ['models/control.browser.spec.ts'],
   'phase2-readonly': ['models/discovery.e2e.spec.ts'],

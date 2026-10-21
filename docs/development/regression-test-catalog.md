@@ -71,12 +71,12 @@ without dashboard-management grants. Follow the current shared role contract.
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
-| AUTH-01 | Complete a real local OIDC login and reach the dashboard at the intended route. `/api/session` identifies the correct actor and effective roles. | A+E | P0 · smoke |
+| AUTH-01 | Complete a real local OIDC login and reach the dashboard at the intended route. `/api/session` identifies the correct actor and effective roles. Check opt-in Remember me defaults/migration and browser-restart persistence without changing ordinary limits. | C+B+A+E | P0 · smoke |
 | AUTH-02 | Open a protected dashboard/API route without login. Browser enters the expected login flow; direct unauthenticated API access reveals no inventory or mutating capability. | C+A+E | P0 · smoke |
-| AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. | U+C+A | P0 · identity |
+| AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. Verify automatic short-token refresh, normal idle expiry and the absolute Remember me maximum despite activity. | U+C+B+A | P0 · identity |
 | AUTH-04 | Test every mutation family with viewer/ordinary-user sessions and direct API requests, not only hidden controls. Model/module/app operations follow role policy; all administrator-only operations are denied. | C+A+E | P0 · identity |
 | AUTH-05 | Omit or forge browser CSRF/origin headers on cookie-authenticated mutations. Reject without saved intent; valid same-origin and supported terminal Bearer requests still work. | U+C+A | P0 · identity |
-| AUTH-06 | Log out and revisit/reload a protected page with old session state. No stale privileged content/action is treated as authenticated. | B+A+E | P0 · smoke |
+| AUTH-06 | Log out and revisit/reload a protected page with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
 | AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
@@ -576,6 +576,30 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+21 October 2026 Remember-me follow-up: AUTH-01's
+`remember-me-policy-contract` is selected by Phase 1 `smoke-fast` and runs the
+owning [realm/migration counterexamples](../../magic-cluster/platform/identity/tests/test_remember_me.py).
+The separate, explicitly selected `auth-sessions` profile runs
+[real Keycloak/Envoy Chromium checks](../../dashboard/apps/web/regression/auth/remember-me.browser.spec.ts)
+for AUTH-01/03/06: idle versus maximum expiry, automatic refresh, persistent
+browser restart and logged-out state rejection. The browser CI `identity-sessions`
+job owns this Docker-host gate; native Kubernetes campaigns never require Docker
+or mark these isolated protocol results as installed A/E proof. New installation,
+unchanged-default migration, repeat start, custom preservation and failed/ambiguous
+write behaviour remain owning U/C evidence. Existing installed login/logout and
+API token-denial scenarios retain their scope; new installed Remember-me
+acceptance requires a fresh opt-in login after idle deployment. Historical
+reports and earlier finite-profile acceptance are not changed.
+
+Local verification on 21 October: all 86 identity owning tests (including ten
+Remember-me policy/migration cases), 19 Phase 1 fast scenarios, 19 Phase 1 browser
+fixtures, 307 harness selftests and four real Keycloak/Envoy protocol scenarios
+passed. The original import and Jackson empty-marker formatting were rejected by
+focused counterexamples before correction. Regression typecheck, identity/Flux
+renders, source-license and documentation checks passed. CI/publication is not
+implied. Monster still had an active campaign during this implementation; its
+policy was left unchanged pending an idle, guarded migration and a fresh login.
 
 20 October 2026 first-run follow-up: HAR-10 status checks cover an absent,
 disabled or still-installing optional runner with no runtime metadata,
