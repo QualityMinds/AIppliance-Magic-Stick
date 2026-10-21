@@ -58,6 +58,19 @@ test('MGPU-01 HAR-11 startup evidence rejects unknown schema values rather than 
   expect(()=>parseRuntimeDiagnostic({...diagnostic,engine:'OLlama',startup:[record()]})).toThrow('[CONFIG]');
 });
 
+test('MGPU-01 HAR-11 stalled rank milestones survive reports without native names or error output',()=>{
+  const progress=[{rank:0,stage:'all-reduce'},{rank:1,stage:'init'}];
+  const parsed=collectiveStartupDiagnostics(logs(marker({...record(),progress:progress.map(value=>({...value,uuid:'synthetic-private',error:'synthetic-private'}))})));
+  expect(parsed).toEqual([{...record(),progress}]);expect(JSON.stringify(parsed)).not.toContain('synthetic-private');
+  const diagnostic=runtimeDiagnostic(item(),[],'owned-uid',2,logs(marker({...record(),progress})));
+  const trace=parseExecutionTrace({version:1,runId:'reg-11111111-1111-1111-1111-111111111111',executionId:'a'.repeat(24),
+    outcome:'Failed',durationMs:1,steps:[],runtimeDiagnostics:[diagnostic]});
+  expect(junitReport([],[{trace,path:'report-artifacts/fixture/traces/filtered.json'}])).toContain('all-reduce');
+  for(const invalid of [[],[{rank:16,stage:'init'}],[{rank:0,stage:'synthetic-private'}],
+    [{rank:0,stage:'init'},{rank:0,stage:'complete'}],[{rank:'1',stage:'init'}]])
+    expect(()=>parseCollectiveStartupDiagnostic({...record(),progress:invalid})).toThrow('[CONFIG]');
+});
+
 test('HAR-11 wrapper extraction bounds records and input and does not accept success from raw native text',()=>{
   const many=Array.from({length:20},(_,exitCode)=>marker({...record(),exitCode})).join('');
   expect(collectiveStartupDiagnostics(logs(many))).toHaveLength(8);

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "2ba253558f4cfbcb962f7fbbf358e184653a057969aa678559db14e113bf383c",
+  "deploymentReferencesSha256": "c2d64e836bbf803e3cc4a1e9ce988fb7c9a32c98d239308f6923549d0dfd2321",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2053,7 +2053,12 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 264,
+      "line": 261,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 292,
       "reference": "with: {python-version: '3.13'}"
     },
     {
@@ -2447,6 +2452,11 @@
       "reference": "image: ghcr.io/berriai/litellm:v1.84.0"
     },
     {
+      "file": "magic-cluster/apps/ai/private-mesh/publish_acceptance.py",
+      "line": 59,
+      "reference": "'details_url': f\"https://github.com/{REPO}/actions/runs/{run['id']}\","
+    },
+    {
       "file": "magic-cluster/apps/ai/private-mesh/publish_companion.py",
       "line": 169,
       "reference": "f'Permanent client downloads from [{revision[:12]}](https://github.com/{repo}/commit/{revision}) '"
@@ -2753,7 +2763,7 @@
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
-      "line": 628,
+      "line": 689,
       "reference": "self.wrapper[\"runtime_version\"] = lambda package, version=version: version"
     },
     {

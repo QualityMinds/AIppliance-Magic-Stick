@@ -179,6 +179,12 @@ New reports mark a missing required execution/layer record with
 `MISSING_EVIDENCE` at `report-evidence` as a harness failure. A recorded cleanup
 failure retains its original case, step and trace across child and phase
 boundaries. Historical reports are read without synthesizing new outcomes.
+An export-only failure retains the completed `result` and phase/scenario counts,
+adds a failed `HAR-10` evidence row with `reason: REPORT_EXPORT` and
+`stage: report-export`, and leaves `reportAvailable: false`. It does not set
+`credentialRecoveryRequired` when setup and workload cleanup were verified clean;
+an existing real recovery requirement remains set. Download failure is not a
+new failed scenario or a replacement HAR-02 preparation result.
 
 `result.preparation` is optional. When present, it exposes the sanitized
 automatic preparation outcome, fixed reason/stage/detail, a public explanation

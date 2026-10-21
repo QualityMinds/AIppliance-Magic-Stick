@@ -166,6 +166,9 @@ The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
 scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
 cause properties. The archive retains every row, even when the Dashboard limits
 its expanded list. Raw credentials, journals and runtime logs stay private.
+`HAR-10 / REPORT_EXPORT` means downloads could not be published: completed counts
+remain visible, and it does not imply a cleanup failure. Inspect report size or
+storage; do not repeat a multi-hour run or force recovery to recreate a download.
 Tests skipped after a failed serial sibling link to that sibling's failure;
 they are not reported as newly missing prerequisites.
 Phase 5 shared application/service setup failures also retain their original
@@ -191,8 +194,11 @@ page for the terminal result, without retries or weaker GPU checks.
 GPU startup and first CPU inference retain structured Pod/routing/response
 diagnostics; Realtime readiness also retains bounded private runtime logs before
 cleanup. vLLM collective preflight exports only fixed reason/transport/cleanup
-fields; raw startup output stays private. A failed cleanup journal retains its
-operation and fixed reason/stage for exact-resource diagnosis and safe retry.
+fields and the last fixed milestone per rank (import, assignment, NCCL
+initialization or data exchange) when available. Raw startup output stays
+private; historical traces without milestones stay unchanged. A failed cleanup
+journal retains its operation and fixed reason/stage for exact-resource diagnosis
+and safe retry.
 Repeated-cycle checks separate model-cache growth from other disk
 growth and verify model, Pod, claim, route and key cleanup. Expected service
 rollouts compare stable workload UIDs and replica counts, not replaceable Pod

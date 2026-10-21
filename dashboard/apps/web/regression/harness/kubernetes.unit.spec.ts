@@ -1,11 +1,12 @@
 import {test,expect} from '@playwright/test';
 import {KubernetesProgress,publicResult} from '../core/kubernetes-progress.ts';
+import {completeReportPublication,maximumReportBytes,publishReportArtifacts} from '../core/kubernetes-report.ts';
 import {setupWorkerMarker} from '../core/preparation-diagnostic.ts';
 import {runHostDrill} from '../core/host-drill.ts';
 import {blockedAction} from '../core/report.ts';
 import {blockerDescription} from '../core/blocker-description.ts';
 import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.ts';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,lstat,readFile,symlink,truncate} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -129,5 +130,47 @@ test('HAR-10 full campaign reports have an explicit bound without weakening priv
     await expect(readPrivate(file)).rejects.toThrow('[PRIVATE_FILE]');
     expect((await readPrivate(file,8*1024*1024)).length).toBe(2*1024*1024);
     await expect(readPrivate(file,64*1024*1024)).rejects.toThrow('[PRIVATE_FILE]');
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-07 HAR-10 export failure retains completed campaign results without inventing recovery',async()=>{
+  const result=publicResult({counts:{Passed:4532,Failed:16,Blocked:145},executionCounts:{Passed:3402,Failed:6,Blocked:56},
+    recoveryFenceActive:false,cases:[{id:'LIFE-02',layer:'A',environment:'live',outcome:'Failed',reason:'API',stage:'model-inference',durationMs:90_000}]},
+    {phases:[{phase:2,state:'Failed',counts:{Passed:479,Failed:3,Blocked:14},executionCounts:{Passed:358,Failed:1,Blocked:3}}]});
+  for(const recoveryRequired of [false,true]) {
+    const snapshot={result,credentialRecoveryRequired:recoveryRequired,reportAvailable:false,outcome:'Failed' as const,message:'Execution finished.'};
+    expect(await completeReportPublication(snapshot,async()=>{throw new Error('synthetic-private-path-and-credential');})).toBe(false);
+    expect(snapshot.credentialRecoveryRequired).toBe(recoveryRequired);expect(snapshot.reportAvailable).toBe(false);
+    expect(snapshot.result.executionCounts).toEqual(result.executionCounts);expect(snapshot.result.phases).toEqual(result.phases);
+    expect(snapshot.result.counts).toEqual({...result.counts,Failed:17});
+    expect(snapshot.result.cases).toEqual([expect.objectContaining({id:'HAR-10',reason:'REPORT_EXPORT',stage:'report-export'}),...result.cases]);
+    expect(JSON.stringify(snapshot)).not.toContain('synthetic-private');expect(snapshot.message).not.toContain('Setup recovery is required');
+  }
+  const clean={result,credentialRecoveryRequired:false,reportAvailable:false,outcome:'Failed' as const,message:'Execution finished.'};
+  expect(await completeReportPublication(clean,async()=>{})).toBe(true);expect(clean.result).toBe(result);expect(clean.reportAvailable).toBe(true);
+});
+
+test('HAR-10 HAR-11 report publication validates every product before exposing downloads',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-report-export-'));
+  try {
+    const source=join(directory,'source'),published=join(directory,'published');
+    await privateDirectory(source);await privateDirectory(published);
+    const products=['summary.html','junit.xml','report-artifacts.tar.gz'];
+    for(const name of products)await writePrivate(join(source,name),'sanitized '+name);
+    await truncate(join(source,'junit.xml'),maximumReportBytes+1);
+    await expect(publishReportArtifacts(source,published)).rejects.toMatchObject({code:'REPORT_EXPORT',stage:'report-export'});
+    await expect(lstat(join(published,'summary.html'))).rejects.toMatchObject({code:'ENOENT'});
+    await writePrivate(join(source,'junit.xml'),'sanitized junit.xml');
+    await rm(join(source,'report-artifacts.tar.gz'));await symlink(join(source,'summary.html'),join(source,'report-artifacts.tar.gz'));
+    await expect(publishReportArtifacts(source,published)).rejects.toMatchObject({code:'REPORT_EXPORT'});
+    await rm(join(source,'report-artifacts.tar.gz'));await writePrivate(join(source,'report-artifacts.tar.gz'),'sanitized report-artifacts.tar.gz');
+    await publishReportArtifacts(source,published);
+    for(const name of products) {
+      expect(await readFile(join(published,name),'utf8')).toBe('sanitized '+name);
+      expect((await lstat(join(published,name))).mode&0o077).toBe(0);
+    }
+    const chunks='sanitized report chunk '.repeat(10_000);
+    await writePrivate(join(source,'junit.xml'),chunks);await publishReportArtifacts(source,published);
+    expect(await readFile(join(published,'junit.xml'),'utf8')).toBe(chunks);
   }finally{await rm(directory,{recursive:true,force:true});}
 });

@@ -277,6 +277,24 @@ class RegressionRunsTests(unittest.TestCase):
         self.controller.reconcile(self.run)
         self.assertFalse(self.run["status"]["credentialRecoveryRequired"])
 
+    def test_export_failure_keeps_campaign_counts_and_verified_cleanup_state(self):
+        self.controller.reconcile(self.run)
+        job = self.objects[JOBS + "/" + self.run["metadata"]["name"]]
+        job["status"] = {"conditions": [{"type": "Complete", "status": "True"}]}
+        result = {"counts": {"Passed": 4532, "Failed": 17, "Blocked": 145},
+                  "executionCounts": {"Passed": 3402, "Failed": 6, "Blocked": 56},
+                  "cases": [{"id": "HAR-10", "reason": "REPORT_EXPORT", "stage": "report-export"}]}
+        for recovery in (False, True):
+            self.run["status"] = {"phase": "Running"}
+            self.controller.report = lambda _: {"runUid": UID, "outcome": "Failed", "result": result,
+                                                "reportAvailable": False, "credentialRecoveryRequired": recovery}
+            self.controller.reconcile(self.run)
+            self.assertEqual(self.run["status"]["phase"], "Failed")
+            self.assertEqual(self.run["status"]["result"], result)
+            self.assertEqual(self.run["status"]["credentialRecoveryRequired"], recovery)
+            self.assertFalse(self.run["status"]["reportAvailable"])
+            self.assertIn("report export failed", self.run["status"]["message"])
+
     def test_separately_accepted_intent_waits_for_previous_account_cleanup(self):
         predecessor = copy.deepcopy(self.run)
         predecessor["status"] = {"phase": "Passed", "credentialsCleaned": False}

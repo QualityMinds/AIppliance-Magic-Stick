@@ -12,6 +12,7 @@ import {parseRecoveryLock} from './core/lock-recovery.ts';
 import {HarnessError} from './core/errors.ts';
 import {harnessFailure} from './reporter.ts';
 import {setupWorkerMarker} from './core/preparation-diagnostic.ts';
+import {completeReportPublication,publishReportArtifacts} from './core/kubernetes-report.ts';
 
 process.umask(0o077);
 const uid=process.env.REGRESSION_RUN_UID;
@@ -55,12 +56,7 @@ async function execute(command,args,env=environment,onFailure,onSetupMarker) {
   return await new Promise(resolve=>{current.once('error',()=>resolve(1));current.once('close',(code,signal)=>resolve(signal?2:code??1));});
 }
 async function publish(directory) {
-  for(const filename of ['summary.html','junit.xml','report-artifacts.tar.gz']) {
-    const source=join(directory,filename),stat=await lstat(source);
-    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>64*1024*1024)throw new Error('Invalid report artifact.');
-    await copyFile(source,join(published,'.'+filename));await rename(join(published,'.'+filename),join(published,filename));
-  }
-  snapshot.reportAvailable=true;
+  return completeReportPublication(snapshot,()=>publishReportArtifacts(directory,published));
 }
 async function recoverOnly() {
   const expected=parseRecoveryLock(JSON.parse(process.env.REGRESSION_RECOVERY_LOCK??'null'));
@@ -87,8 +83,8 @@ async function recoverOnly() {
     executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:'Passed'}],
     ['HAR-07'],process.env.REGRESSION_SOURCE_REVISION,'recover');
   snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});
-  snapshot.outcome='Passed';await publish(directory);
-  snapshot.message='Previous-run resources and retained setup access were verified clean. No regression tests were started; original results were retained.';
+  snapshot.outcome='Passed';
+  if(await publish(directory))snapshot.message='Previous-run resources and retained setup access were verified clean. No regression tests were started; original results were retained.';
 }
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{
   interrupted=true;if(current)current.kill(signal);
@@ -145,7 +141,7 @@ try {
   if(nonDestructive&&(summary.testMode!==testMode||campaign.testMode!==testMode))throw new Error('Campaign test mode changed.');
   snapshot.result=publicResult(summary,campaign);snapshot.outcome=interrupted?'Blocked':exit===0?'Passed':exit===1?'Failed':'Blocked';
   if(snapshot.result.recoveryRequired&&!nonDestructive)snapshot.credentialRecoveryRequired=true;
-  await publish(directory);snapshot.message=interrupted?'Cancelled; unexecuted tests remain Blocked.':'Execution finished. Missing external prerequisites are not successful tests.';
+  if(await publish(directory))snapshot.message=interrupted?'Cancelled; unexecuted tests remain Blocked.':'Execution finished. Missing external prerequisites are not successful tests.';
   }
 } catch(error) {
   snapshot.credentialRecoveryRequired=!nonDestructive;
