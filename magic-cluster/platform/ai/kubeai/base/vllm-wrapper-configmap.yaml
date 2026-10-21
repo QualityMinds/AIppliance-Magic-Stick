@@ -769,7 +769,7 @@ data:
         size = dist.get_world_size()
         if size != len(expected):
             raise RuntimeError("Collective probe world size changed")
-        value = torch.full((1024,), float(rank + 1), device="cuda")
+        value = torch.full((1024,), float(rank + 1), device="cuda", dtype=torch.float32)
         progress("all-reduce")
         dist.all_reduce(value)
         torch.cuda.synchronize()
@@ -782,7 +782,10 @@ data:
             for target in range(size):
                 if source == target:
                     continue
-                tensor = torch.full((1024,), float(source + 1) if rank == source else 0, device="cuda")
+                # Integer zero otherwise infers int64 on receivers while the
+                # source sends float32: NCCL then waits for a different payload.
+                tensor = torch.full((1024,), float(source + 1) if rank == source else 0,
+                                    device="cuda", dtype=torch.float32)
                 if rank == source:
                     dist.send(tensor, target)
                 elif rank == target:

@@ -681,6 +681,60 @@ class Qwen4ExpPLEPinnedHostEmbedding:
         self.assertEqual([json.loads(line.split("=", 1)[1])["stage"] for line in logged.getvalue().splitlines()],
                          ["import", "assignment", "init"])
 
+    def test_native_probe_uses_matching_float32_payloads_for_every_peer(self):
+        manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text())
+        namespace = {"__name__": "collective_probe_fixture"}
+        exec(compile(manifest["data"]["collective_probe.py"], "collective_probe.py", "exec"), namespace)
+        for count in (2, 4):
+            sent, received = [], []
+            for rank in range(count):
+                torch, dist = types.ModuleType("torch"), types.ModuleType("torch.distributed")
+                torch.distributed = dist
+                torch.float32, torch.int64 = "float32", "int64"
+
+                class Tensor:
+                    def __init__(self, shape, value, *, device, dtype=None):
+                        self.shape, self.value, self.device = shape, value, device
+                        # torch.full infers integer versus floating dtype from
+                        # its fill value unless the caller explicitly owns it.
+                        self.dtype = dtype or ("float32" if isinstance(value, float) else "int64")
+
+                    def __eq__(self, expected):
+                        return self.value == expected
+
+                torch.full = Tensor
+                torch.all = lambda result: types.SimpleNamespace(item=lambda: result)
+                torch.cuda = types.SimpleNamespace(device_count=lambda: count,
+                    get_device_properties=lambda i: types.SimpleNamespace(uuid=f"GPU-fixture-{i}"),
+                    set_device=lambda _: None, synchronize=lambda: None)
+                dist.init_process_group = lambda *_, **__: None
+                dist.get_world_size = lambda: count
+                dist.all_reduce = lambda value: setattr(value, "value", count * (count + 1) / 2)
+                dist.barrier = dist.destroy_process_group = lambda: None
+
+                def wire(value):
+                    self.assertEqual((value.shape, value.device, value.dtype), ((1024,), "cuda", "float32"))
+
+                def send(value, peer):
+                    wire(value); sent.append((rank, peer))
+
+                def recv(value, peer):
+                    wire(value); received.append((peer, rank)); value.value = peer + 1
+
+                dist.send, dist.recv = send, recv
+                with self.subTest(count=count, rank=rank), \
+                        patch.dict(sys.modules, {"torch": torch, "torch.distributed": dist}), \
+                        patch.dict(os.environ, {"LOCAL_RANK": str(rank)}), \
+                        patch.object(sys, "argv", ["probe", ",".join(f"GPU-fixture-{i}" for i in range(count))]), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    namespace["main"]()
+                    self.assertIn('"stage": "complete"', output.getvalue())
+            expected = {(source, target) for source in range(count) for target in range(count) if source != target}
+            self.assertEqual(set(sent), expected)
+            self.assertEqual(set(received), expected)
+            self.assertEqual(len(sent), count * (count - 1))
+            self.assertEqual(len(received), len(sent))
+
     def test_fp8_calibration_flags_follow_the_actual_runtime_without_changing_precision(self):
         self.wrapper["os"].environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"
         for version in ("0.23.0", "0.26.0", "0.28.0", "0.31.0", "0.31.0+cpu"):
