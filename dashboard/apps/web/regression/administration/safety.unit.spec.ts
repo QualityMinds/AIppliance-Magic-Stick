@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import type {ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
-import {validCompanionReport,publicCompanionProof,companionAcceptanceCheck,companionWorkflow} from './companion-live.ts';
+import {validCompanionReport,publicCompanionProof,discoverCompanionRun,companionAcceptanceCheck,companionWorkflow} from './companion-live.ts';
 import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
 import {AdministrationApi,allowedAdministrationRead} from '../core/administration-api.ts';
 import type {APIRequestContext} from '@playwright/test';
@@ -236,7 +236,7 @@ test('HAR-10 native companion proof is commit/platform/format bound and is not m
 });
 
 function publicCompanionFixture() {
-  const revision='a'.repeat(40),run={id:123,run_attempt:2,head_sha:revision,
+  const revision='a'.repeat(40),run={id:123,run_attempt:2,head_sha:revision,event:'workflow_dispatch',
     path:'.github/workflows/build-mesh-companion.yml',status:'completed',conclusion:'success',updated_at:new Date().toISOString(),
     repository:{full_name:'QualityMinds/AIppliance-Magic-Stick'}};
   const reports=Object.entries({'macos-arm64':'darwin','macos-x64':'darwin','linux-x64':'linux','windows-x64':'win32'})
@@ -248,6 +248,30 @@ function publicCompanionFixture() {
     output:{text:JSON.stringify({version:1,runId:123,runAttempt:2,sourceRevision:revision,reports})}};
   return {revision,run,reports,check};
 }
+test('MESH-09 automatic discovery prefers the readable trusted proof over a newer PR artifact build',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const newer={...run,id:999,event:'pull_request'},requests:number[]=[];
+  const artifacts=async(id:number)=>{requests.push(id);return {artifacts:reports.map(report=>({
+    name:'companion-acceptance-'+report.platform,expired:false}))};};
+  expect(await discoverCompanionRun([newer,run],{check_runs:[check]},revision,artifacts)).toEqual(run);
+  expect(requests).toEqual([run.id]);
+  expect(await discoverCompanionRun([newer],{check_runs:[check]},revision,artifacts)).toBeUndefined();
+  expect(await discoverCompanionRun([newer],{check_runs:[]},revision,artifacts,true)).toEqual(newer);
+  requests.length=0;
+  expect(await discoverCompanionRun([newer,run],{check_runs:[check]},revision,artifacts,true)).toEqual(run);
+  expect(requests).toEqual([run.id]);
+});
+test('MESH-09 automatic discovery rejects missing attempt proof and expired or ambiguous platform artifacts',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const complete=reports.map(report=>({name:'companion-acceptance-'+report.platform,expired:false}));
+  expect(await discoverCompanionRun([run],{check_runs:[]},revision,async()=>({artifacts:complete}))).toBeUndefined();
+  for(const artifacts of [complete.slice(0,3),[...complete,complete[0]],complete.map((v,i)=>i?v:{...v,expired:true})])
+    expect(await discoverCompanionRun([run],{check_runs:[check]},revision,async()=>({artifacts}))).toBeUndefined();
+  await expect(discoverCompanionRun([run],{check_runs:[{...check,head_sha:'c'.repeat(40)}]},revision,
+    async()=>({artifacts:complete}))).rejects.toThrow('[REVISION]');
+});
 test('MESH-09 public native proof requires the exact GitHub workflow attempt and every verified platform',
   evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),()=>{
   const {revision,run,reports,check}=publicCompanionFixture();

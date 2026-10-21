@@ -32,6 +32,20 @@ export function publicCompanionProof(checks:any,run:any,revision:string) {
     validCompanionReport(report,platform,revision)).length===1),'API');
   return proof.reports.map((report:any)=>({platform:report.platform,archiveSha256:report.archiveSha256}));
 }
+/** Preparation must select the workflow attempt whose proof the live adapter
+ * can actually read. A newer PR build has artifacts but no public proof. */
+export async function discoverCompanionRun(runs:any[],checks:any,revision:string,
+  artifacts:(runId:number)=>Promise<any>,legacyToken=false) {
+  requireSafe(Array.isArray(runs),'API');
+  const publicRuns=runs.filter(run=>['push','workflow_dispatch'].includes(run.event) &&
+    publicCompanionProof(checks,run,revision));
+  const publicIds=new Set(publicRuns.map(run=>run.id));
+  for(const run of [...publicRuns,...(legacyToken?runs.filter(run=>!publicIds.has(run.id)):[])]) {
+    const listing=await artifacts(run.id);
+    if(Object.keys(platforms).every(platform=>listing.artifacts?.filter((item:any)=>
+      item.name==='companion-acceptance-'+platform&&!item.expired).length===1))return run;
+  }
+}
 /** Native binaries cannot be executed on four OSes inside one Linux container.
  * Consume freshly verified, commit-bound native build-matrix evidence from the
  * fixed repository/workflow. Never accept arbitrary uploaded local pass files. */
