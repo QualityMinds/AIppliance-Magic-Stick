@@ -21,7 +21,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 - Publish native companion acceptance in a bounded public GitHub check after
   all four platform builds pass. Installed regression verifies the exact commit,
   workflow attempt and platform proofs without an Appliance GitHub token;
-  older artifact-only builds report missing access as a prerequisite.
+  automatic preparation prefers that readable build over newer PR artifacts.
+  Older artifact-only builds report missing access as a prerequisite.
 
 - Synchronize System Status browser-history checks on the URL, selected tab and
   visible panel. Keep Back/Forward in dedicated NAV-02 scenarios for desktop and

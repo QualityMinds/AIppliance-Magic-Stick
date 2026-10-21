@@ -395,6 +395,8 @@ commit**, with the required jobs/artifact names. A private `tokenFile` in an
 existing profile may supply read-only GitHub access. API/network failures remain
 missing prerequisites; old or other-commit CI success is not substituted.
 Actual artifact/protocol verification still belongs to the tests.
+For anonymous companion checks, the selected run must have the matching public
+native proof; a newer PR artifact build cannot displace a readable trusted build.
 
 No model, key, module, user, license, sharing setting or host operation is changed.
 The separate preparation service can write **only private input files**. Normal
@@ -732,6 +734,10 @@ ID. Successful trusted builds publish the bounded public
 credential is installed on the Appliance. Regression verifies the GitHub Actions
 issuer, exact commit, run/attempt and every native platform's source/hash and
 launch boundaries. The fixed workflow itself must also have finished successfully.
+Automatic preparation selects the matching readable trusted build, not a newer
+PR run that merely has acceptance artifacts. It retains the unexpired
+four-platform artifact check; legacy artifact-only selection needs the companion
+profile's own read-only token.
 Older artifact-only builds may use an existing scoped Actions-read token file;
 otherwise `CI_ACCESS` names the missing prerequisite, not a product API failure.
 The exact build proof must be no older than 30 days. A Linux container does
