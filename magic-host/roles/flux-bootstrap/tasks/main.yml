@@ -59,6 +59,20 @@
   delay: "{{ flux_k8s_ready_delay_seconds | int }}"
   until: k8s_apiserver_apis.rc == 0
 
+- name: Migrate legacy setup rollout strategy before Flux server-side apply
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ role_path }}/files/setup_strategy.py"
+      - --kubectl
+      - "{{ flux_kubectl_binary }}"
+      - --subcommand
+      - "{{ flux_kubectl_subcommand }}"
+      - --kubeconfig
+      - "{{ flux_kubeconfig_path }}"
+  register: flux_setup_strategy_migration
+  changed_when: "'setup-strategy: changed' in flux_setup_strategy_migration.stdout"
+
 - name: Normalize Flux bootstrap mode
   ansible.builtin.set_fact:
     flux_bootstrap_mode: "{{ flux_bootstrap_mode | default('readonly-public', true) }}"

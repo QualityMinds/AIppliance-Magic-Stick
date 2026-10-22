@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "e01406ded69e4b904700da079b550df23240b50024613030c9952201faffffb5",
+  "deploymentReferencesSha256": "0e29a3503d9579fe93a2b5040a6065490ca160a6d1e5cc8312305acbd89819ca",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2223,32 +2223,47 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 28,
-      "reference": "node-version: \"24\""
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
-      "line": 33,
+      "line": 24,
       "reference": "version: v1.36.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 38,
+      "line": 27,
+      "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 31,
+      "reference": "python3 -m pip install pyyaml"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 53,
+      "reference": "node-version: \"24\""
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 58,
+      "reference": "version: v1.36.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 63,
       "reference": "version: v2.9.2"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 42,
+      "line": 67,
       "reference": "python3 -m pip install --user ansible-core"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 46,
+      "line": 71,
       "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 101,
+      "line": 127,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -3113,7 +3128,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/setup-app.yaml",
-      "line": 42,
+      "line": 44,
       "reference": "image: python:3.13-alpine"
     },
     {

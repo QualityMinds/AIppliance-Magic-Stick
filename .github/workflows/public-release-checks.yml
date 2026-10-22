@@ -12,6 +12,31 @@ permissions:
   contents: read
 
 jobs:
+  setup-upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.0
+      - name: Install checksum-verified Kind for the isolated API contract
+        run: |
+          curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo 'aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind-linux-amd64' | sha256sum --check
+          sudo install -m 0755 kind-linux-amd64 /usr/local/bin/kind
+          rm kind-linux-amd64
+          python3 -m pip install pyyaml
+      - name: Create disposable Kubernetes API
+        run: kind create cluster --name magicstick-identity-upgrade --wait 120s --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+      - name: Verify legacy setup strategy upgrade with the real API
+        run: python3 magic-host/roles/flux-bootstrap/tests/setup_strategy_contract.py --context kind-magicstick-identity-upgrade
+      - name: Remove disposable API
+        if: always()
+        run: kind delete cluster --name magicstick-identity-upgrade
+
   release-checks:
     runs-on: ubuntu-24.04
 
@@ -76,6 +101,7 @@ jobs:
       - name: Check appliance consoles and host management
         run: |
           python3 -m unittest discover -s magic-host/roles/first-run-setup/tests -p 'test_*.py'
+          python3 -m unittest discover -s magic-host/roles/flux-bootstrap/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/dashboard-console/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/gpu-compatibility/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/nvidia-display/tests -p 'test_*.py'
