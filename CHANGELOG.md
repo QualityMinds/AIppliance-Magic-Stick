@@ -13,6 +13,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   Reuse existing serial scenarios and UID-bound cleanup. Persist selection and
   report scope; reject unsupported images/schemas instead of running a whole
   phase. Diagnostic evidence never certifies complete Phase 4 acceptance.
+  Native runs refresh renamed installation-owned login URLs only when the exact
+  persisted lab registration and Appliance/Node identities remain unchanged;
+  previous journals and cleanup evidence are never rewritten or discarded.
 
 - Migrate legacy setup Deployments from `RollingUpdate` to `Recreate` before
   Flux applies identity updates. Clear retained rollout fields with UID/version

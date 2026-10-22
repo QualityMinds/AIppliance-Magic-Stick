@@ -9,7 +9,7 @@ import {saveReport} from './core/report.ts';
 import {KubernetesProgress,publicResult} from './core/kubernetes-progress.ts';
 import {recoverLockWithSetup} from './core/lock-recovery-workflow.ts';
 import {parseRecoveryLock} from './core/lock-recovery.ts';
-import {HarnessError} from './core/errors.ts';
+import {HarnessError,atStage} from './core/errors.ts';
 import {harnessFailure} from './reporter.ts';
 import {setupWorkerMarker} from './core/preparation-diagnostic.ts';
 import {completeReportPublication,publishReportArtifacts} from './core/kubernetes-report.ts';
@@ -17,6 +17,7 @@ import {executionBudget} from './core/execution-budget.ts';
 import {assessCleanup,assessRunCleanup,cleanupStatus} from './core/cleanup-state.ts';
 import {diagnosticSelection} from './core/diagnostic-selection.ts';
 import {runDiagnosticSelection} from './core/kubernetes-diagnostic.ts';
+import {saveKubernetesRegistration} from './core/kubernetes-registration.ts';
 
 process.umask(0o077);
 const uid=process.env.REGRESSION_RUN_UID;
@@ -118,11 +119,7 @@ try {
   const account=JSON.parse(await readFile('/account/account.json','utf8'));
   if(account.runUid!==(process.env.REGRESSION_ACCOUNT_RUN_UID??uid)||!account.registration||!account.caPem||!account.password||!account.username)throw new Error('Account ownership mismatch.');
   if((account.testMode??'full')!==testMode)throw new Error('Account test mode mismatch.');
-  const saved=await lstat(join(input,'lab-registration.json')).catch(()=>undefined);
-  if(saved) {
-    const previous=JSON.parse(await readPrivate(join(input,'lab-registration.json')));
-    if(JSON.stringify(previous)!==JSON.stringify(account.registration))throw new Error('The persistent lab registration changed.');
-  } else await writePrivate(join(input,'lab-registration.json'),account.registration);
+  await atStage('preflight',()=>saveKubernetesRegistration(join(input,'lab-registration.json'),account.registration));
   await writePrivate(join(input,'username.txt'),account.username+'\n');
   await writePrivate(join(input,'password.txt'),account.password+'\n');
   await writePrivate(join(input,'appliance-ca.pem'),account.caPem);
