@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Show all regression check evidence first, including runner and cleanup errors.
+  Keep executable-scenario totals in a closed detail view and live evidence
+  separately labelled. Missing final totals remain unavailable, not zero failures;
+  100% progress means execution finished, not passed. New HTML/text exports use
+  the same order without rewriting stored results or changing JSON/JUnit counts.
+
 - Recover interrupted NVIDIA DRA-to-device-plugin transitions even when their
   completion marker was never written. Verify the managed chart, claims and
   consumers, wait for complete DRA Pod removal, then confirm real device-plugin

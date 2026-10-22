@@ -167,6 +167,17 @@ resource cleanup and setup-access restoration are verified. Missing legacy field
 are not proof of a clean baseline; historical reports and test outcomes stay
 unchanged. A report-only export failure does not revoke a verified cleanup receipt.
 
+The existing `result.counts` totals count all case/variant/layer evidence,
+including isolated/live checks and runner/cleanup errors without a scenario ID.
+`result.blockedCounts` partitions only that evidence. `executionCounts` and
+`executionBlockedCounts` count recorded executable scenarios separately;
+`evidenceCounts.fixture/live` retain the environment split. These units are not
+interchangeable: neither overlapping phase totals nor the bounded public case
+list reconstructs the global counts. Dashboard **All checks** and new HTML/text
+reports present evidence first, then scenarios; JSON/JUnit keep their meanings.
+Missing legacy/final totals mean unavailable, not zero. Progress-only scenario
+counts are preliminary; 100% progress is not a pass or a cleanup receipt.
+
 `lock` contains `state: free|active|stale|blocked`, `canRecover`, a fixed public
 `message`, and an optional opaque `revision`. Only a terminated, installation-
 bound Kubernetes run with a known journal owner can offer recovery; external

@@ -189,8 +189,16 @@ not verified. Successful cleanup never turns an old failed test into a pass.
 - **Blocked by failure:** an earlier step or cleanup failed. The report links
   its original test ID, stage, reason and available filtered trace.
 
-Scenario counts and case/variant/layer evidence counts are separate. Passed
-fixture checks do not prove live acceptance. New reports flag missing required
+**All checks** is the main Dashboard/HTML/text total: case/variant/layer evidence,
+isolated and live together, including runner/cleanup errors without a scenario ID.
+**Executable scenarios** follows separately (closed by default in the Dashboard
+and HTML). Its blocked-cause counts describe scenarios, not all evidence.
+Live evidence and phase results remain separately labelled. Use the report's
+global totals directly; phases can overlap and the displayed failure list can be
+limited. Missing final totals are unavailable, not zero; recorded progress can
+show only explicitly preliminary scenario counts. **100% means execution
+finished, not passed.** JSON and JUnit keep their separate counting units.
+Passed fixture checks do not prove live acceptance. New reports flag missing required
 execution evidence as `HAR-10 / MISSING_EVIDENCE`, rather than guessing a missing
 prerequisite. Older reports keep unknown causes and their original outcomes.
 

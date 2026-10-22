@@ -22,6 +22,7 @@ import {blockedCounts,checkedBlocker,withBlockedCauses,inheritRecoveryCause,reco
 import {regressionBlockedKind} from '../../../../packages/core/src/regression-blocking.ts';
 import {saveExecutionTrace} from '../core/execution-trace.ts';
 import type {ExecutionTrace} from '../core/execution-trace.ts';
+import {publicResult} from '../core/kubernetes-progress.ts';
 
 function capture(action: () => void): string {
   const chunks: string[] = [], original = process.stdout.write;
@@ -561,6 +562,52 @@ test('HAR-10 Omni exclusions are report metadata, never synthetic passed or bloc
     const junit=await readFile(join(directory,'junit.xml'),'utf8');
     expect(junit).toContain('<property name="excludedExperimentalEngines" value="VLLM-Omni"/>');
     expect(junit).not.toMatch(/<testcase[^>]*name="RT-/);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-10 all-check exports retain unassigned runner and cleanup errors without inventing scenarios',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-all-checks-'));
+  try {
+    const execution=(index:number)=>index.toString(16).padStart(24,'0');
+    const cases:CaseResult[]=[
+      ...Array.from({length:433},(_,index)=>({id:'HAR-10',layer:'U' as const,environment:'fixture' as const,
+        outcome:'Passed' as const,durationMs:1,executionId:execution(1+index%338)})),
+      ...Array.from({length:8},(_,index)=>({id:'HAR-01',layer:'A' as const,environment:'live' as const,
+        outcome:'Passed' as const,durationMs:1,executionId:execution(339+index%7)})),
+      {id:'HAR-10',layer:'A',environment:'live',outcome:'Failed',durationMs:0,reason:'UNEXPECTED',stage:'runner-execution'},
+      ...Array.from({length:2},()=>({id:'HAR-07',layer:'A' as const,environment:'live' as const,
+        outcome:'Failed' as const,durationMs:0,reason:'CLEANUP' as const,stage:'recovery-barrier' as const})),
+      {id:'HAR-07',layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason:'LOCK_BUSY',executionId:execution(346)},
+      ...Array.from({length:17},()=>({id:'HAR-02',layer:'A' as const,environment:'live' as const,
+        outcome:'Blocked' as const,durationMs:0,reason:'RECOVERY' as const,stage:'recovery-barrier' as const,
+        blockedBy:{kind:'failure' as const,caseId:'HAR-07',reason:'CLEANUP',stage:'recovery-barrier'}})),
+    ];
+    await saveReport(directory,newRunId(),cases,['HAR-01','HAR-02','HAR-07','HAR-10'],'unknown','all');
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.counts).toMatchObject({Passed:441,Failed:3,Blocked:18});
+    expect(json.executionCounts).toEqual({Passed:345,Failed:0,Blocked:1});
+    expect(json.cases.filter((row:CaseResult)=>row.outcome==='Failed').every((row:CaseResult)=>!row.executionId)).toBe(true);
+    const result=publicResult(json,{phases:[0,4].map(phase=>({phase,state:'Failed',counts:json.counts,executionCounts:json.executionCounts}))});
+    expect(result.counts).toEqual({Passed:441,Failed:3,Blocked:18});
+    expect(result.executionCounts).toEqual({Passed:345,Failed:0,Blocked:1});
+    expect(result.evidenceCounts?.live).toEqual({Passed:8,Failed:3,Blocked:18});
+    expect(result.blockedCounts).toEqual({prerequisite:1,failure:17,cancelled:0,unknown:0});
+    expect(result.executionBlockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:0});
+    for(const file of ['summary.html','summary.txt']) {
+      const value=await readFile(join(directory,file),'utf8');
+      expect(value.indexOf('All checks')).toBeGreaterThan(-1);
+      expect(value.indexOf('All checks')).toBeLessThan(value.indexOf('Recorded executable scenarios'));
+      expect(value).toContain('Case / variant / layer evidence · isolated + live');
+      expect(value).toContain('CLEANUP');expect(value).toContain('UNEXPECTED');
+      if(file.endsWith('.html')) {
+        expect(value).toContain('Evidence rows (case × variant × layer): 441 passed · 3 failed · 18 blocked');
+        expect(value).toContain('<details><summary>Executable scenarios</summary>');
+        expect(value).not.toContain('<details open');
+      } else expect(value).toContain('Passed: 441; Failed: 3; Blocked: 18');
+    }
+    const junit=await readFile(join(directory,'junit.xml'),'utf8');
+    expect(junit).toContain('name="magicstick-selected-regression" tests="462" failures="3" skipped="18"');
+    expect(json.acceptable).toBe(false);
   }finally{await rm(directory,{recursive:true,force:true});}
 });
 

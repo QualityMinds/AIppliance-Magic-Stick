@@ -64,6 +64,14 @@ coverage.
 | HAR-10 | Generate a report with failed, blocked, skipped, unimplemented and retry-passed cases. Required gaps cannot yield a green profile or a successful empty run. In System regression execution, select all phases by default or a nonempty subset of phases 0–8; persist the immutable selection and selection-bound progress/results across reloads without running or crediting other phases. Empty/invalid selections and changed idempotency selections are rejected before new writes. Distinguish blocks caused by prerequisites from blocks caused by failures, retaining the original blocking check and trace when recorded; cancellation and unrecorded causes remain separate. Show reason, phase/variant/layer, stage and next action; allow only sanitized archive/HTML/JUnit downloads. Administrators can enable/register/start/cancel/download without a product license or license-status dependency; test registration is not license activation. Show pending runner activation separately from the readiness wait, without duplicate enables, fabricated percentage progress or automatic test starts. Offer immutable non-destructive/full selection; list deliberately excluded steps separately, never as passed tests or full-phase acceptance. | U+C+B | P0 · fast |
 | HAR-11 | Seed synthetic credentials into fixture headers, dialogs, logs and auth state. Public/sanitized artifacts omit them; raw live state is restricted and deleted by policy. | U+C+B | P0 · fast |
 
+HAR-10 and UX-02 also verify report presentation: **All checks** uses complete
+case/variant/layer totals, including runner and cleanup errors; **Executable
+scenarios** is a separate, initially closed detail view. Each uses its own blocked
+causes. Live evidence remains separate, overlapping phases and a limited failure
+list do not redefine totals, and missing final data never means zero failures.
+100% progress means execution finished, not passed. HTML/text use evidence-first
+ordering; JSON/JUnit retain their original units and historical results stay intact.
+
 ## 2. Authentication, sessions and role boundaries
 
 Repeat role checks for administrator, operator, viewer and an ordinary identity
@@ -575,7 +583,7 @@ as unmeasured product performance. Existing security/release CI remains required
 | SEC-03 | Test pinned dependency vulnerabilities, secret scan, unsafe product/global TLS disablement and unbounded parsing/input fixtures. The scoped functional regression certificate policy is not a product TLS exception; HAR-01 and credential bootstrap remain strict. Existing security checks fail actionable regressions without silently dismissing alerts. Full acceptance also requires fresh successful fixed-workflow advisory and redacted secret-scan CI runs for the exact installed commit; offline checks alone cannot certify current advisories. | U+C+A | P0 · fast + fresh CI |
 | SEC-04 | Inspect generated routes/policies/RBAC and credential references. No broader Secret read, public exposure or namespace ownership appears from an ordinary feature change. | C+A | P0 · identity |
 | UX-01 | Walk pages, dialogs, help and actions by keyboard/touch at desktop and narrow mobile widths. Labels, focus/return, Escape, error announcements, contrast and table/log overflow remain usable; status is not conveyed by color alone. | B+E+N | P1 · functional |
-| UX-02 | Verify accordions/defaults, loading/empty/error states and unchanged/changed/reverted fields across every settings form. Polling cannot erase drafts or trigger actions. | U+B+E | P0 · functional |
+| UX-02 | Verify accordions/defaults, loading/empty/error states and unchanged/changed/reverted fields across every settings form. Regression All checks totals and closed scenario details retain their separate evidence units across reloads, including missing final data. Polling cannot erase drafts or trigger actions. | U+B+E | P0 · functional |
 | UX-03 | Smoke real auth/navigation/create/edit/lifecycle in secondary supported browsers after Chromium baseline. Report WebKit/Firefox emulation limits rather than claiming physical iOS/Safari certification. | B+E+N | P2 · functional |
 | UX-04 | Exercise shared CLI/TUI read/form/confirmation contracts with the same API data. Role, units, memory/slots and errors agree; no client-specific authorization or workload path. | U+C | P1 · fast |
 | PERF-01 | Measure dashboard/API/inference response and model stage timings under reviewed small-fixture workloads. Record cold/warm/engine/hardware separately and regressions against an approved baseline. | A+N | P1 · soak |
@@ -584,6 +592,20 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+22 October 2026, HAR-10 and UX-02 report-count follow-up: the Dashboard and new
+HTML/text exports show all check evidence before executable scenarios. The shared
+public-safe report fixture retains 441/3/18 total, 345/0/1 scenarios and 8/3/18
+live evidence, including unassigned runner/cleanup failures. Existing owning
+component/API and reporting suites cover failed preparation, cleanup/export
+failures, multiple evidence rows per scenario, overlapping phases, truncated
+case lists and missing/legacy totals. Desktop/mobile Chromium fixtures in
+[`regression.browser.spec.ts`](../../dashboard/apps/web/regression/harness/regression.browser.spec.ts)
+check closed details, keyboard use, reload, no overflow and unchanged read-only
+refresh; existing start/cleanup scenarios remain in the same Phase 4/8 fixture
+selections. This is isolated source/fixture coverage, not installed acceptance.
+No historical report or test-server state was changed; the actual runner/cleanup
+failures in the original report remain failures.
 
 22 October 2026 CI follow-up: the exact-layer catalogue check also discovers the
 separate `auth-sessions` browser selection without running it or crediting its

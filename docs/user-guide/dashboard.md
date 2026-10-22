@@ -99,8 +99,17 @@ Non-destructive runs never perform that cleanup automatically: clean up a
 previous interrupted run separately first. A successful limited report does not
 certify complete phases or real model inference. The saved mode survives reload.
 
-The page shows current phase/check, progress and separate executable-scenario
-and case/layer counts. It also separates **Tests**, **Resource cleanup**, and
+The page shows current phase/check and progress. **100% means execution finished,
+not passed.** The main **All checks** tiles count case/variant/layer evidence
+from isolated and live checks together, including runner and cleanup errors.
+Expand **Executable scenarios** for the separate scenario counts; one scenario
+can produce several check results, and an error without a scenario ID still
+counts in All checks. Live evidence and the phase table retain their own labels.
+Totals come from the saved report, not from adding phases or the visible failure
+list. Without final totals, the page says they are unavailable and labels any
+recorded scenario progress as preliminary; missing results never mean zero failures.
+HTML and text reports also show All checks before executable scenarios.
+The page also separates **Tests**, **Resource cleanup**, and
 **Test account**: a finished Job or removed account does not prove resources were
 cleaned. Cleanup is `unknown`, `required`, `running`, `verified`, or `blocked`, with
 its recorded reason/stage. Missing fields in old reports mean not verified, not
