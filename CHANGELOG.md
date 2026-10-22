@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Recover interrupted NVIDIA DRA-to-device-plugin transitions even when their
+  completion marker was never written. Verify the managed chart, claims and
+  consumers, wait for complete DRA Pod removal, then confirm real device-plugin
+  capacity before restoring borrowed defaults. Cleanup deadlines retain the
+  actual stalled recovery/backend stage without releasing the safety lock.
+
 - Select fixed Phase 4 diagnostics in the Kubernetes runner: last-slot races,
   sharing reload, exact restoration or their combined remaining-case profile.
   Reuse existing serial scenarios and UID-bound cleanup. Persist selection and

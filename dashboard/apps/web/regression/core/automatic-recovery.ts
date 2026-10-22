@@ -4,7 +4,7 @@ import {newRunId,ResourceJournal,type CleanupAdapter,type ResourceKind} from './
 import {LabLease,leaseHolderReason,type Lease,type LeaseStore} from './lease.ts';
 import {HeartbeatLoop,bounded} from './run-lifecycle.ts';
 import {readPrivate,writePrivate} from './private-files.ts';
-import {HarnessError,requireSafe,atStage} from './errors.ts';
+import {HarnessError,requireSafe,atStage,type Stage} from './errors.ts';
 import type {LabRegistration} from './lab-policy.ts';
 import {BorrowedModule} from './borrowed-module.ts';
 import {BorrowedSharing,canonical,type SharingAdapter} from './borrowed-sharing.ts';
@@ -150,6 +150,7 @@ export class AutomaticRecovery {
     await lease.acquireRecovery(this.expected,this.runId);
     const heartbeat=new HeartbeatLoop(()=>lease.heartbeat()).start();
     let retired=false;
+    let recoveryStage:Stage='recovery-journal';
     const guard=async()=>{requireSafe(!retired,'LOCK_LOST');heartbeat.check();await lease.assertHeld();};
     try {
       // Only the CAS winner may replace the active recovery receipt. Lease
@@ -159,6 +160,7 @@ export class AutomaticRecovery {
       await writePrivate(filename,receipt);
       await bounded(async()=>{
         for(const journal of [...this.journals].reverse()) {
+          recoveryStage='recovery-resource';
           const cleanup=adapters.cleanup(journal,guard);
           for(const entry of journal.recoveryPlan())if(entry.uid===null) {
             await guard();requireSafe(!await cleanup[entry.kind].lookup(entry),'OWNERSHIP');
@@ -167,17 +169,22 @@ export class AutomaticRecovery {
           await atStage('recovery-resource',()=>journal.cleanup(cleanup,guard));
         }
         for(const item of this.modules) {
+          recoveryStage='recovery-module';
           const borrowed=await BorrowedModule.resume(item.filename,adapters.module(item.original,guard),guard);
           await atStage('recovery-module',async()=>{await borrowed.reconcileUnchanged();await borrowed.restore();});
         }
         // Models/apps are gone before changing GPU backends.
         for(const item of this.sharing) {
+          recoveryStage='recovery-sharing';
           const adapter=adapters.sharing(item.identity,guard),borrowed=await BorrowedSharing.resume(item.filename,item.identity,adapter,guard);
-          await atStage('recovery-sharing',async()=>{await borrowed.reconcileUnchanged();await borrowed.restore();});
+          await atStage('recovery-sharing',async()=>{await borrowed.reconcileUnchanged();
+            await borrowed.restore(stage=>{recoveryStage=stage;});});
+          recoveryStage='gpu-backend';
           for(const entry of borrowed.entries)await poll(()=>adapter.read(entry.provider),value=>value.object.metadata.uid===entry.uid&&
             value.state.phase==='Ready'&&value.state.mode===entry.originalMode&&value.state.maxModels===entry.originalCount,
           {timeoutMs:180_000,intervalMs:1000,stage:'gpu-backend'});
         }
+        recoveryStage='cleanup';
         await adapters.verifyTarget();await guard();
         requireSafe(this.journals.every(journal=>journal.recoveryPlan().length===0),'CLEANUP');
         await verifyRecoveryClosed(this.directory,this.registration,adapters,guard);
@@ -186,7 +193,7 @@ export class AutomaticRecovery {
         await writePrivate(filename,{...receipt,state:'released',updatedAt:new Date().toISOString()});
         await verifyReservationReleased(this.directory,this.registration,()=>adapters.store.read());
         await attestCleanup(this.directory,this.registration,true);
-      },600_000,'cleanup',async()=>{retired=true;await adapters.cancel();});
+      },600_000,()=>recoveryStage,async()=>{retired=true;await adapters.cancel();});
       return this.runId;
     } catch(error) {
       await writePrivate(filename,{...receipt,state:'blocked',reason:error instanceof HarnessError?error.code:'RECOVERY',

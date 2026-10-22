@@ -3133,17 +3133,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3357,
+      "line": 3397,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3394,
+      "line": 3434,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4265,
+      "line": 4305,
       "reference": "if not image:"
     },
     {

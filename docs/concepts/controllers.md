@@ -276,7 +276,14 @@ driver, one UUID-selected claim per card and a separate native admission adapter
 for ordinary vLLM/Ollama models. The controller disables the old allocator
 before enabling the new one, verifies the actual driver root and complete
 ResourceSlices, and waits for claim cleanup before a reverse handoff. Unmanaged
-consumers block that transition. Hardware inventory counts physical GPUs, not
+consumers block that transition. The DRA configuration digest marks completed
+readiness, not exclusive ownership of a transition. Reconciliation also detects
+an interrupted handoff from the selected node's allocator labels, runtime values
+or remaining DRA Pods. Reverse recovery requires the pinned managed chart/source
+and node selector, rechecks external claims and consumers even without that
+digest, and waits for complete DRA Pod removal before enabling the device plugin.
+Only Ready plugin Pods and matching advertised capacity prove completion;
+removing borrowed configuration alone does not. Hardware inventory counts physical GPUs, not
 synthetic sharing slots; legacy NVIDIA pools are displayed once, while DRA
 counts slots on each physical card.
 

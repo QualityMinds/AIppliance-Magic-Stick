@@ -1,7 +1,7 @@
 import type {GpuSharingDefaults, GpuSharingRequest, GpuSharingState} from '@magicstick/dashboard-contracts';
 import type {KubeObject} from './observer.ts';
 import {readPrivate, writePrivate} from './private-files.ts';
-import {HarnessError,requireSafe} from './errors.ts';
+import {HarnessError,requireSafe,type Stage} from './errors.ts';
 import {poll} from './poll.ts';
 
 export type Provider = 'amd' | 'nvidia';
@@ -187,10 +187,11 @@ export class BorrowedSharing {
     entry.generation = after.object.metadata.generation!; entry.lastSpec = expectedSpec; entry.state = 'borrowed';
     await this.persist();
   }
-  async restore() {
+  async restore(onStage?:(stage:Stage)=>void) {
     for (const entry of [...this.data.entries].reverse()) {
       if (entry.state === 'restored') continue;
       requireSafe(entry.state === 'borrowed', 'CONFLICT');
+      onStage?.('recovery-sharing');
       // No changes were made, or an acknowledged default reset was already
       // journaled before interruption. Do not create a managed setting to undo it.
       if (canonical(entry.lastSpec) === canonical(entry.originalSpec)) {
@@ -208,11 +209,13 @@ export class BorrowedSharing {
         // Removing intent does not itself switch NVIDIA backends. First let the
         // existing controller finish the exclusive device-plugin transition.
         for (let attempt=0;attempt<3;attempt++) {
+          onStage?.('gpu-backend');
           const ready=await poll(()=>this.current(entry),value=>value.state.phase === 'Ready' && value.state.mode === 'exclusive' &&
             (entry.provider !== 'nvidia' || value.state.backend === 'time-slicing'),
-          {timeoutMs:600_000,intervalMs:1000,stage:'recovery-sharing'});
+          {timeoutMs:600_000,intervalMs:1000,stage:'gpu-backend'});
           const request={...this.request(ready.state,'exclusive',entry.originalCount),
             ...(entry.provider === 'nvidia' ? {allocationBackend:'device-plugin' as const} : {}),restoreDefaults:entry.originalDefaults};
+          onStage?.('recovery-sharing');
           try {await this.write(entry,request);break;}
           catch(error) {if (!(error instanceof SharingWriteRejected) || error.httpStatus !== 409 || attempt === 2) throw error;}
         }

@@ -261,6 +261,14 @@ HAR-08 records absent/empty fields separately, restores exclusive backend
 readiness before unsetting borrowed intent, and fences ambiguous writes or
 foreign revisions rather than adopting custom/inherited sharing.
 
+The owning NVIDIA DRA controller checks also cover missing completion markers,
+restart at each reverse-handoff step, foreign/reserved claims, terminating and
+terminal-but-still-present driver Pods, external chart/selector/configuration,
+and actual plugin capacity before Ready. HAR-07/08 deadline counterexamples
+keep the current `gpu-backend` stage, retained borrowed intent and exact Lease.
+Existing `phase4-fast` owning selection and `selftest` discover these checks;
+installed recovery and sharing remain separate acceptance evidence.
+
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
 | SHR-01 | Inspect an isolated fresh/default configuration. AMD and NVIDIA start exclusive with one slot; simply reading Hardware/Models cannot opt into sharing. | U+C+B | P0 · fast |

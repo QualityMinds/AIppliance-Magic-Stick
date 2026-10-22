@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 import {mkdtemp,rm,lstat,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {mock} from 'node:test';
 import {AutomaticRecovery,campaignRecoveryLease,type RecoveryAdapters} from '../core/automatic-recovery.ts';
 import {LabLease,type Lease,type LeaseStore} from '../core/lease.ts';
 import {HeartbeatLoop,bounded,withCleanup} from '../core/run-lifecycle.ts';
@@ -137,6 +138,52 @@ test('HAR-09 missing response has a bounded deadline, cancellation and exact sta
   await expect(bounded(()=>new Promise(()=>{}),10,'model-update',async()=>{cancelled++;})).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-update'});
   expect(cancelled).toBe(1);
 });
+test('HAR-07 HAR-09 an outer recovery deadline retains the current bounded operation',async()=>{
+  let stage:'recovery-resource'|'gpu-backend'='recovery-resource',cancelled=0;
+  await expect(bounded(async()=>{stage='gpu-backend';await new Promise(()=>{});},10,()=>stage,async()=>{cancelled++;}))
+    .rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'gpu-backend'});
+  expect(cancelled).toBe(1);
+});
+
+test('HAR-07 HAR-08 stalled GPU restoration retains its backend stage, journal and exact Lease',async()=>isolated(async directory=>{
+  const f=await fixture(directory),identity={runId:f.runId,targetUid:registration.applianceUid,nodeName:'fixture-node-name',nodeUid:'fixture-node'};
+  let writes=0,backendReads=0,cancelled=0,rejectRead:(error:Error)=>void=()=>{};
+  let snapshot:SharingSnapshot={object:{metadata:{uid:'fixture-gpu-module',generation:1,resourceVersion:'7'},spec:{module:'gpu',enabled:true}},
+    state:{provider:'nvidia',backend:'time-slicing',mode:'exclusive',managed:false,experimental:false,maxModels:2,
+      nodeName:identity.nodeName,nodeUid:identity.nodeUid,namespace:'ai',expectedRevision:'7',available:true,reason:'',phase:'Ready',
+      message:'',claimName:'',activeModels:0,admittedModels:[],memoryIsolation:false}};
+  const adapter:SharingAdapter={read:async()=>{
+    if(writes===2&&++backendReads>1)return new Promise<SharingSnapshot>((_resolve,reject)=>{rejectRead=reject;});
+    return structuredClone(snapshot);
+  },apply:async request=>{
+    writes++;snapshot={object:{metadata:{...snapshot.object.metadata,generation:snapshot.object.metadata.generation!+1,resourceVersion:String(7+writes)},
+      spec:sharingSpec(snapshot.object.spec!,request)},state:{...snapshot.state,mode:request.mode,maxModels:request.maxModels,
+      backend:request.allocationBackend==='dra'?'dra':'time-slicing',managed:!request.restoreDefaults,
+      expectedRevision:String(7+writes),phase:writes===2?'Switching':'Ready'}};
+  }};
+  const filename=join(f.path,'gpu-sharing.json');
+  const borrowed=await BorrowedSharing.create(filename,identity,adapter,async()=>{});
+  await borrowed.borrow('nvidia');await borrowed.change('nvidia','shared',3,'dra');
+  f.adapters.sharing=(_identity,guard)=>({read:adapter.read,apply:async request=>{await guard();await adapter.apply(request);}});
+  f.adapters.cancel=async()=>{cancelled++;rejectRead(new Error('Synthetic cancelled GPU read'));};
+  const plan=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);
+  const realTimeout=globalThis.setTimeout;
+  // Accelerate only the first, outer ten-minute recovery deadline. The nested
+  // backend wait is deliberately still pending when cancellation fires.
+  let accelerated=false;
+  const timer=mock.method(globalThis,'setTimeout',(callback:()=>void,ms?:number)=>{
+    const outer=ms===600_000&&!accelerated;if(outer)accelerated=true;
+    return realTimeout(callback,outer?1000:ms);
+  });
+  try {
+    await expect(plan.execute(f.adapters)).rejects.toMatchObject({code:'DEADLINE',stage:'gpu-backend'});
+  }finally {timer.mock.restore();}
+  expect(accelerated).toBe(true);expect(cancelled).toBe(1);expect(backendReads).toBeGreaterThan(1);
+  expect(writes).toBe(2);expect(snapshot.object.spec).toHaveProperty('parameters.gpuSharing');
+  expect(JSON.parse(await readPrivate(filename)).entries[0].state).toBe('borrowed');
+  expect(JSON.parse(await readPrivate(join(f.path,'automatic-recovery.json')))).toMatchObject({state:'blocked',reason:'DEADLINE',stage:'gpu-backend'});
+  expect(f.store.value.metadata.uid).toBe('fixture-lease');expect(f.store.value.spec.holderIdentity).not.toBe('');
+}));
 test('HAR-09 a cancellation-triggered page rejection cannot replace the known deadline',async()=>{
   let rejectAction:(error:Error)=>void=()=>{};
   await expect(bounded(()=>new Promise<void>((_resolve,reject)=>{rejectAction=reject;}),10,'kubeconfig-copy',async()=>{
