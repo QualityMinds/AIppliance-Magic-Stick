@@ -103,6 +103,10 @@ test identity, exposes sanitized artifacts and reclaims the identity after exact
 Pod termination and verified setup recovery. Interrupted runs retain their exact
 generated identity and private restoration receipt for the next run. It never
 receives a user-supplied test script or image.
+Optional `cleanup` status is independent of test outcome and `credentialsCleaned`.
+The runner verifies exact root/worker journals and borrowed settings before
+reporting `verified`; missing legacy evidence stays unknown. The API preserves
+the run-owned account for unverified mutating cleanup, even after Job termination.
 The start dialog selects one or more P0 phases (0–8, all by default) through the
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic

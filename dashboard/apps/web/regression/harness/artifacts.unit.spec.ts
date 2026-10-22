@@ -162,7 +162,8 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     const reporter=new SafeReporter(),selected={title:'HAR-10 reporter records handled negative steps truncation and secondary cleanup failures separately',
       annotations:[],location:{file:fileURLToPath(import.meta.url),line:1,column:1}} as unknown as TestCase;
     const passed={status:'passed',retry:0,duration:4321,errors:[]} as unknown as TestResult;
-    reporter.onBegin({} as FullConfig,{allTests:()=>[selected]} as Suite);reporter.onTestBegin(selected);
+    const failedSelected={...selected,id:'fixture-failed'},blockedSelected={...selected,id:'fixture-blocked'};
+    reporter.onBegin({} as FullConfig,{allTests:()=>[selected,failedSelected,blockedSelected]} as Suite);reporter.onTestBegin(selected);
     for(let index=0;index<2003;index++) {
       const step={category:'expect',title:secret,duration:1,error:index===0?{message:secret}:undefined} as TestStep;
       reporter.onStepBegin(selected,passed,step);reporter.onStepEnd(selected,passed,step);
@@ -172,14 +173,15 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     expect(recorded.steps).toHaveLength(2000);expect(recorded.omittedSteps).toBe(3);expect(recorded.durationMs).toBe(4321);
     expect(recorded.steps[0]).toMatchObject({outcome:'Passed',handledError:true});expect(JSON.stringify(recorded)).not.toContain(secret);
     const failed={...passed,status:'failed',errors:[{message:'Raw timeout '+secret},{message:new HarnessError('CLEANUP','Failed','cleanup').message}]} as TestResult;
-    reporter.onTestEnd(selected,failed);
+    reporter.onTestBegin(failedSelected);reporter.onTestEnd(failedSelected,failed);
     const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
     expect(rows.at(-1)).toMatchObject({outcome:'Failed',reason:'UNEXPECTED',recoveryRequired:true,executionOutcome:'Failed'});
     expect(JSON.stringify(rows)).not.toContain(secret);
     const blocked={...passed,status:'failed',errors:[{message:new HarnessError('PREREQUISITE').message}]} as TestResult,
       prerequisite={category:'test.step',title:secret,duration:1,error:blocked.errors[0]} as TestStep;
-    reporter.onStepBegin(selected,blocked,prerequisite);reporter.onStepEnd(selected,blocked,prerequisite);
-    reporter.onTestEnd(selected,blocked);
+    reporter.onTestBegin(blockedSelected);
+    reporter.onStepBegin(blockedSelected,blocked,prerequisite);reporter.onStepEnd(blockedSelected,blocked,prerequisite);
+    reporter.onTestEnd(blockedSelected,blocked);
     expect((reporter as unknown as {traces:ExecutionTrace[]}).traces.at(-1)?.steps[0])
       .toMatchObject({outcome:'Blocked',reason:'PREREQUISITE'});
   }finally{if(previous===undefined)delete process.env.REGRESSION_RUN_ID;else process.env.REGRESSION_RUN_ID=previous;}

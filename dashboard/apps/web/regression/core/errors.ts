@@ -46,7 +46,7 @@ export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form',
   'cleanup', 'license-review', 'license-activate', 'license-reject', 'license-restart', 'license-restore',
   'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence', 'report-export',
   'baseline-models', 'baseline-pods', 'baseline-intents', 'baseline-claims', 'baseline-routes', 'baseline-host', 'baseline-keys',
-  'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-route', 'model-inference', 'model-update', 'companion-evidence'] as const;
+  'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-route', 'model-inference', 'model-update', 'companion-evidence','runner-execution'] as const;
 
 /** Fixed stage names expose which bounded operation failed, never its raw body. */
 export async function atStage<T>(stage:Stage,action:()=>Promise<T>):Promise<T> {

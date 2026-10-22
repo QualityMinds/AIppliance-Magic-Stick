@@ -341,6 +341,27 @@ describe('In-Appliance regression tests', () => {
     expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeDisabled();
     expect(screen.getByText(/Removing the completed run/)).toBeVisible();
   });
+  it('distinguishes finished tests, open resource cleanup and a removed account',async()=>{
+    data.runs=[{...run(),phase:'Failed',credentialsCleaned:true,cleanup:{state:'required',reason:'CLEANUP',stage:'recovery-journal'}}];
+    mount();const lifecycle=await screen.findByLabelText('Run lifecycle');
+    expect(lifecycle).toHaveTextContent('Tests: finished');expect(lifecycle).toHaveTextContent('Resource cleanup: required');
+    expect(lifecycle).toHaveTextContent('Test account: removed');
+    expect(screen.getByText(/Previous-run resource cleanup is not verified/)).toBeVisible();
+    expect(screen.getByText(/Cleanup reason: CLEANUP/)).toHaveTextContent('recovery-journal');
+    expect(screen.getByRole('button',{name:'Start regression tests'})).toBeDisabled();
+    expect(screen.queryByText(/Removing the completed run/)).toBeNull();
+  });
+  it('labels missing legacy cleanup evidence as unknown without changing old outcomes',async()=>{
+    data.runs=[{...run(),phase:'Failed',credentialsCleaned:true}];mount();
+    expect(await screen.findByLabelText('Run lifecycle')).toHaveTextContent('Resource cleanup: unknown (legacy or not verified)');
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  it('shows verified cleanup independently of a historical failure and pending account removal',async()=>{
+    data.runs=[{...run(),phase:'Failed',credentialsCleaned:false,cleanup:{state:'verified',checkedAt:'2026-10-22T12:00:00Z'}}];mount();
+    expect(await screen.findByLabelText('Run lifecycle')).toHaveTextContent('Resource cleanup: verified');
+    expect(screen.getByLabelText('Run lifecycle')).toHaveTextContent('Test account: not yet removed');
+    expect(screen.queryByText(/Resource cleanup could not be verified/)).toBeNull();
+  });
   it('retains completed test totals and an actionable export failure without suggesting recovery',async()=>{
     data.lock={state:'free',canRecover:false,message:'Lab lock is free.'};
     data.runs=[{...run(),phase:'Failed',credentialsCleaned:true,reportAvailable:false,

@@ -14,7 +14,8 @@ import {preparationDiagnostic, preparationDescription, parsePreparationDiagnosti
 import {collectReportArtifacts,archiveReport} from './report-artifacts.ts';
 import {junitReport} from './junit.ts';
 import {blockerDescription} from './blocker-description.ts';
-import type {RegressionBlocker, RegressionBlockedKind} from '@magicstick/dashboard-contracts';
+import type {RegressionBlocker, RegressionBlockedKind,RegressionCleanup} from '@magicstick/dashboard-contracts';
+import {cleanupStatus} from './cleanup-state.ts';
 import {regressionBlockedKind,regressionBlockedLabel, regressionBlockedSummary} from '../../../../packages/core/src/regression-blocking.ts';
 import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses,recoveryCause} from './blocking.ts';
 import {testMode,excludedSteps,isolatedStep} from './test-mode.ts';
@@ -58,12 +59,14 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
   const result=cases.map(item=>({...item,outcome:terminalOutcome(item.outcome)}));
   const missingCause=(id:string,variant?:string):RegressionBlocker=>{
     const peers=cases.filter(item=>variant?item.variant===variant:item.id===id);
-    const root=peers.find(item=>['Failed','Flaky'].includes(item.outcome)) ?? peers.find(item=>item.outcome==='Blocked');
+    const root=peers.find(item=>['Failed','Flaky'].includes(item.outcome)) ?? peers.find(item=>item.outcome==='Blocked') ??
+      cases.find(item=>item.id==='HAR-10'&&item.stage==='runner-execution'&&item.outcome!=='Passed');
     return reason==='PREREQUISITE' ? root ? checkedBlocker(root.blockedBy) ?? blockerFrom(root) : {kind:'unknown'} : {kind:regressionBlockedKind(reason),reason};
   };
   const missingEnvironments=new Set<TestEnvironment>();
   const absent=(id:string,variant:string|undefined,environment:TestEnvironment)=>{
     const cause=missingCause(id,variant);
+    if(reason==='PREREQUISITE'&&cause.caseId==='HAR-10'&&cause.stage==='runner-execution')return {reason:'DEPENDENCY' as const,blockedBy:cause};
     // This phase entered with a recorded recovery fence, so its live steps
     // were refused before mutation. Do not infer this from a fence introduced
     // later in the phase, or attribute absent fixture layers to that fence.
@@ -207,7 +210,7 @@ export function liveReportScope(mode?: string) {
 
 /** Allowlisted output only. Never serialize a Playwright response, error or attachment. */
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
-  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean}) {
+  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),limited=runTestMode==='non-destructive';
   const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='all'?
@@ -243,7 +246,8 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       ...(item.recoveryRequired===true?{recoveryRequired:true as const}:{})};
   }));
   const artifacts=await collectReportArtifacts(directory,runId,safe);
-  const recoveryFenceActive=lifecycle?.recoveryFenceActive??needsRecovery(safe);
+  const cleanup=cleanupStatus(lifecycle?.cleanup);
+  const recoveryFenceActive=limited?false:cleanup?cleanup.state!=='verified':lifecycle?.recoveryFenceActive??needsRecovery(safe);
   const recoveryAttempts=(lifecycle?.recoveryAttempts??[]).map(item=>{
     requireSafe(/^reg-[0-9a-f-]{36}$/.test(item.runId)&&['restored','blocked'].includes(item.state),'CONFIG');
     return {runId:item.runId,state:item.state,...(item.reason&&Object.hasOwn(reasons,item.reason)?{reason:item.reason}:{})};
@@ -287,8 +291,9 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     ...(mode === 'phase1' ? {phase1Coverage: smokeCoverage} : {}),
     ...(mode === 'phase2' ? {phase2Coverage: controlCoverage} : {}),
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
-    ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
-  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps}));
+    ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,
+    ...(cleanup?{cleanup}:{}),excludedEngineTests:disabledExperimentalEngines, cases: safe});
+  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps,cleanup}));
   await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
@@ -301,6 +306,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+
     `<p>Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}.</p>`+
     `<p>Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.</p>`+
+    (cleanup?`<p>Resource cleanup: ${xml(cleanup.state)}${cleanup.reason?' ('+xml(cleanup.reason)+')':''}${cleanup.stage?' ['+xml(cleanup.stage)+']':''}. Test-account removal is separate and follows runner termination.</p>`:'')+
     recoveryAttempts.map(item=>`<p>Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.</p>`).join('')+
     '<table><tr><th>Case / variant</th><th>Layer</th><th>Result</th><th>Goal / reason</th></tr>'+
     safe.map(item=>`<tr><td>${xml(item.id+(item.variant ? '/'+item.variant : ''))}</td><td>${item.layer} / ${item.environment}</td>`+
@@ -335,13 +341,14 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
     `Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}\n`+
     `Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.\n`+
+    (cleanup?`Resource cleanup: ${cleanup.state}${cleanup.reason?' ('+cleanup.reason+')':''}${cleanup.stage?' ['+cleanup.stage+']':''}. Test-account removal is separate and follows runner termination.\n`:'')+
     recoveryAttempts.map(item=>`Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.\n`).join('')+
     safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.blockedBy ? regressionBlockedLabel(item.blockedBy.kind) : item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
       `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${blockerDescription(item.reason,item.id,item.variant,item.layer)}` : ''}`+
       (item.blockedBy?.caseId ? `\n  Blocking check: ${item.blockedBy.caseId}${item.blockedBy.reason ? ` (${item.blockedBy.reason})` : ''}${item.blockedBy.stage ? ` [${item.blockedBy.stage}]` : ''}` : '')+
       (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n');
   await archiveReport(directory,runId,artifacts,portableArchive);
-  return {...summary, executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
+  return {...summary, executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,...(cleanup?{cleanup}:{}), fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
     ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};
 }
 

@@ -20,6 +20,9 @@ CORE = "/api/v1/namespaces/" + NAMESPACE
 OWNER = "regression.magicstick.dev/run-uid"
 TERMINAL = {"Passed", "Failed", "Blocked", "Cancelled"}
 MUTATION_LOCK = threading.RLock()
+CLEANUP_STATES = {"unknown", "required", "running", "verified", "blocked"}
+CLEANUP_REASONS = {"CLEANUP", "RECOVERY", "OWNERSHIP", "CONFLICT", "DEADLINE", "UNEXPECTED", "PRIVATE_FILE", "LOCK_LOST", "LOCK_BUSY", "LOCK_STALE", "LAB", "API", "AUTH", "IDENTITY", "CAPABILITY", "HOST", "REVISION", "TLS"}
+CLEANUP_STAGES = {"cleanup", "recovery-barrier", "recovery-journal", "recovery-resource", "recovery-module", "recovery-sharing", "runner-execution", "gpu-backend", "gpu-validation", "license-restore"}
 ARTIFACTS = {"archive": ("report-artifacts.tar.gz", "application/gzip"),
              "html": ("summary.html", "text/html; charset=utf-8"),
              "junit": ("junit.xml", "application/xml")}
@@ -29,6 +32,22 @@ LEASE = "/apis/coordination.k8s.io/v1/namespaces/" + NAMESPACE + "/leases/lab-lo
 def credential_owner(run):
     spec, meta = run.get("spec", {}), run["metadata"]
     return spec.get("accountRunName", meta["name"]), spec.get("accountRunUid", meta["uid"])
+
+
+def cleanup_view(value):
+    if not isinstance(value, dict) or not isinstance(value.get("state"), str) or value["state"] not in CLEANUP_STATES:
+        return None
+    result = {"state": value["state"]}
+    if isinstance(value.get("checkedAt"), str) and len(value["checkedAt"]) <= 40:
+        try:
+            if datetime.fromisoformat(value["checkedAt"].replace("Z", "+00:00")).tzinfo:
+                result["checkedAt"] = value["checkedAt"]
+        except ValueError:
+            pass
+    for key, allowed in (("reason", CLEANUP_REASONS), ("stage", CLEANUP_STAGES)):
+        if isinstance(value.get(key), str) and value[key] in allowed:
+            result[key] = value[key]
+    return result
 
 
 class RegressionApi:
@@ -106,6 +125,9 @@ class RegressionApi:
                   "result": status.get("result"), "reportAvailable": status.get("reportAvailable", False),
                   "startedAt": status.get("startedAt"), "finishedAt": status.get("finishedAt"),
                   "credentialsCleaned": status.get("credentialsCleaned", False)}
+        cleanup = cleanup_view(status.get("cleanup"))
+        if cleanup:
+            result["cleanup"] = cleanup
         return result
 
     def recovery_candidate(self, runs):
@@ -157,6 +179,10 @@ class RegressionApi:
         if lock["state"] != "free":
             return {**lock, "available": lock["canRecover"]}
         candidate = self.recovery_candidate(runs)
+        resources_pending = [r for r in runs if isinstance(r.get("status", {}).get("cleanup"), dict)
+                             and r["status"]["cleanup"].get("state") != "verified"]
+        if not candidate and resources_pending:
+            candidate = self.latest_family(resources_pending)
         if not candidate:
             pending = any(not r.get("status", {}).get("credentialsCleaned", False) for r in runs)
             return {"available": False, "message": "The previous account cleanup or its ownership verification is still pending." if pending
@@ -302,7 +328,9 @@ class RegressionApi:
             runs = self.f["list_resource"](RUNS)
             recovery = self.recovery_candidate(runs)
             non_destructive = operation == "tests" and payload["testMode"] == "non-destructive"
-            if non_destructive and any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs):
+            resources_pending = any(isinstance(r.get("status", {}).get("cleanup"), dict)
+                                    and r["status"]["cleanup"].get("state") != "verified" for r in runs)
+            if non_destructive and (resources_pending or any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs)):
                 self.error(409, "Clean up the previous run separately before non-destructive tests. This mode never restores or changes previous test resources.")
             if any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs) and not recovery:
                 self.error(409, "Another regression run is still queued, running or cleaning up.")
@@ -349,6 +377,8 @@ class RegressionApi:
                     "phases": [] if operation == "recover-lock" else payload["phases"], "requestedBy": principal["subject"], "image": image,
                     **({"testMode": payload["testMode"]} if operation == "tests" else {}),
                     "sourceRevision": revision, "cancelRequested": False, **recovery_spec}})
+            self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {
+                "cleanup": {"state": "verified" if non_destructive else "unknown"}}})
             if non_destructive and run.get("spec", {}).get("testMode") != "non-destructive":
                 message = "The installed regression schema does not support non-destructive tests yet. Update the operator/schema before retrying; no test account or Job was created."
                 self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "credentialRecoveryRequired": False, "message": message}})
@@ -503,6 +533,13 @@ class RegressionApi:
             if member["metadata"]["uid"] != run["metadata"]["uid"] and member.get("status", {}).get("phase") not in TERMINAL:
                 self.error(409, "A recovery run still uses the retained setup account.")
         used = any(r.get("metadata", {}).get("annotations", {}).get("regression.magicstick.dev/credentials-used") == r["metadata"]["uid"] for r in family)
+        resource_cleanup = run.get("status", {}).get("cleanup")
+        unused_cleanup = {"cleanup": {"state": "verified", "checkedAt": datetime.now(timezone.utc).isoformat()}} if not used else {}
+        verified_cleanup = {"cleanup": cleanup_view(resource_cleanup)} if used and cleanup_view(resource_cleanup) else unused_cleanup
+        if used and run.get("spec", {}).get("testMode", "full") != "non-destructive" and (cleanup_view(resource_cleanup) or {}).get("state") != "verified":
+            self.f["patch_json"](RUNS + "/" + run["metadata"]["name"] + "/status", {"status": {
+                "credentialRecoveryRequired": True, "message": "Resource cleanup is not verified. The generated test account is retained for exact journal recovery."}})
+            self.error(409, "Resource cleanup is not verified; test credentials were retained.")
         if used and run.get("status", {}).get("credentialRecoveryRequired") is not False:
             self.f["patch_json"](RUNS + "/" + run["metadata"]["name"] + "/status", {"status": {
                 "credentialRecoveryRequired": True, "message": "Setup recovery is required. Start the next run to restore the retained access receipt with the same generated test identity."}})
@@ -513,7 +550,7 @@ class RegressionApi:
             if users:
                 self.error(409, "Test account credentials are missing; automatic cleanup cannot prove ownership.")
             for member in family:
-                self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True}})
+                self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True, **verified_cleanup}})
             return
         user = self.owned_user(account, uid)
         if user:
@@ -521,7 +558,7 @@ class RegressionApi:
         self.write("DELETE", CORE + "/secrets/" + name, {"apiVersion": "v1", "kind": "DeleteOptions",
             "preconditions": {"uid": secret["metadata"]["uid"], "resourceVersion": secret["metadata"]["resourceVersion"]}})
         for member in family:
-            self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True, "credentialRecoveryRequired": False}})
+            self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True, "credentialRecoveryRequired": False, **verified_cleanup}})
 
     def cleanup_finished(self):
         with MUTATION_LOCK:

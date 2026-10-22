@@ -13,6 +13,8 @@ import {HarnessError} from './core/errors.ts';
 import {harnessFailure} from './reporter.ts';
 import {setupWorkerMarker} from './core/preparation-diagnostic.ts';
 import {completeReportPublication,publishReportArtifacts} from './core/kubernetes-report.ts';
+import {executionBudget} from './core/execution-budget.ts';
+import {assessCleanup,assessRunCleanup,cleanupStatus} from './core/cleanup-state.ts';
 
 process.umask(0o077);
 const uid=process.env.REGRESSION_RUN_UID;
@@ -31,17 +33,25 @@ const environment={...process.env,REGRESSION_EXECUTION:'kubernetes',REGRESSION_I
   REGRESSION_REMAINING_PROFILE:input+'/remaining-p0.json',REGRESSION_OUTPUT_DIR:output,REGRESSION_PRIVATE_DIR:privateRoot,
   REGRESSION_HOST_DRILLS_FILE:input+'/host-drills.json',REGRESSION_HOST_DRILLS:'disabled',REGRESSION_PROGRESS_EVENTS:'1',
   PYTHONDONTWRITEBYTECODE:'1',NODE_EXTRA_CA_CERTS:input+'/appliance-ca.pem'};
-let current,interrupted=false,force,saveChain=Promise.resolve();
+environment.REGRESSION_CAMPAIGN_DEADLINE=String(Date.now()+executionBudget.campaignMs-executionBudget.finalReserveMs);
+let current,interrupted=false,deadlineReached=false,force,saveChain=Promise.resolve();
 let recoveryDiagnostic;
-const snapshot={version:1,runUid:uid,testMode,message:nonDestructive?'Preparing an isolated read-only connection.':'Preparing automatic test credentials and fixtures.',reportAvailable:false,credentialRecoveryRequired:!nonDestructive};
+const snapshot={version:1,runUid:uid,testMode,message:nonDestructive?'Preparing an isolated read-only connection.':'Preparing automatic test credentials and fixtures.',reportAvailable:false,credentialRecoveryRequired:!nonDestructive,
+  cleanup:{state:nonDestructive?'verified':'unknown',checkedAt:new Date().toISOString()}};
 const save=()=>{saveChain=saveChain.then(async()=>{await writePrivate(join(published,'.status.json'),{...snapshot,progress:progress.snapshot(Boolean(snapshot.outcome))});
   await rename(join(published,'.status.json'),join(published,'status.json'));});return saveChain;};
-async function execute(command,args,env=environment,onFailure,onSetupMarker) {
+async function execute(command,args,env=environment,onFailure,onSetupMarker,preparing=false) {
   current=spawn(command,args,{env,stdio:['ignore','pipe','pipe']});let buffer='',diagnostic='';
   current.stdout.on('data',chunk=>{
     buffer+=chunk.toString();if(buffer.length>256*1024)buffer='';
     let at;while((at=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);
-      if(line.startsWith('REGRESSION_EVENT '))try{progress.consume(JSON.parse(line.slice(17)));snapshot.message='Running the existing regression suite.';void save();}catch{/* Not a structured event. */}}
+      if(line.startsWith('REGRESSION_EVENT '))try{
+        const event=JSON.parse(line.slice(17));progress.consume(event);
+        const cleanup=event.event==='cleanup-state'?cleanupStatus(event.cleanup):undefined;
+        if(cleanup&&cleanup.state!=='verified')snapshot.cleanup=cleanup;
+        else if(event.event==='test-start'&&!nonDestructive)snapshot.cleanup={state:'unknown',checkedAt:new Date().toISOString()};
+        snapshot.message=cleanup?.state==='running'?'Verifying resource cleanup; test account retained.':'Running the existing regression suite.';void save();
+      }catch{/* Not a structured event. */}}
   });
   // Only exact repository-owned error messages can become diagnostic metadata.
   // Discard upstream text; never publish raw logs, credentials or error bodies.
@@ -53,7 +63,11 @@ async function execute(command,args,env=environment,onFailure,onSetupMarker) {
       const marker=setupWorkerMarker(line);if(marker)onSetupMarker?.(marker);
       if(/^Error \[ERR_MODULE_NOT_FOUND\]:/.test(line))onSetupMarker?.({setupStage:'request',detail:'ERR_MODULE_NOT_FOUND'});}
   });
-  return await new Promise(resolve=>{current.once('error',()=>resolve(1));current.once('close',(code,signal)=>resolve(signal?2:code??1));});
+  const deadline=preparing?setTimeout(()=>{deadlineReached=true;current?.kill('SIGINT');
+    force=setTimeout(()=>current?.kill('SIGKILL'),executionBudget.outerTerminationMs);
+  },Math.max(0,Number(environment.REGRESSION_CAMPAIGN_DEADLINE)-Date.now())):undefined;
+  try{return await new Promise(resolve=>{current.once('error',()=>resolve(1));current.once('close',(code,signal)=>resolve(signal?2:code??1));});}
+  finally{clearTimeout(deadline);}
 }
 async function publish(directory) {
   return completeReportPublication(snapshot,()=>publishReportArtifacts(directory,published));
@@ -77,18 +91,21 @@ async function recoverOnly() {
     snapshot.message=step==='recovery-access'?'Verifying the retained recovery identity.':step==='recovery-journal'?
       'Restoring the exact old journal; no tests will start.':'The old journal and released lock were verified.';await save();
   });
+  snapshot.cleanup=await assessCleanup(join(output,expected.runId),true);
+  if(snapshot.cleanup.state!=='verified')throw new HarnessError('CLEANUP','Failed','recovery-journal');
   snapshot.credentialRecoveryRequired=false;
   const runId=newRunId(),directory=join(output,runId);await privateDirectory(directory);
   await saveReport(directory,runId,[{id:'HAR-07',outcome:'Passed',layer:'A',environment:'live',durationMs:Date.now()-started,
     executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:'Passed'}],
-    ['HAR-07'],process.env.REGRESSION_SOURCE_REVISION,'recover');
+    ['HAR-07'],process.env.REGRESSION_SOURCE_REVISION,'recover',undefined,{recoveryFenceActive:false,recoveryAttempts:[],cleanup:snapshot.cleanup});
   snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});
   snapshot.outcome='Passed';
   if(await publish(directory))snapshot.message='Previous-run resources and retained setup access were verified clean. No regression tests were started; original results were retained.';
 }
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{
+  if(interrupted)return;
   interrupted=true;if(current)current.kill(signal);
-  if(force&&current)current.kill('SIGKILL');else force=setTimeout(()=>current?.kill('SIGKILL'),150_000);
+  if(!force)force=setTimeout(()=>current?.kill('SIGKILL'),executionBudget.outerTerminationMs);
 });
 try {
   for(const dir of [privateRoot,input,output,published])await privateDirectory(dir);
@@ -117,12 +134,13 @@ try {
   environment.REGRESSION_PREPARATION_STATUS_FILE=diagnostic;environment.REGRESSION_PREPARATION_DIAGNOSTIC=diagnostic;
   const args=[fileURLToPath(new URL('../../../../tools/regression_inputs.py',import.meta.url)),
     '--url',account.registration.dashboardUrl,'--username',account.username,'--password-file',input+'/password.txt','--ca-file',input+'/appliance-ca.pem','--no-host-mapping'];
-  const prepared=await execute('python3',args);
+  const prepared=await execute('python3',args,environment,undefined,undefined,true);
+  if(deadlineReached)throw new HarnessError('DEADLINE','Failed','runner-execution');
   if(prepared)environment.REGRESSION_PREPARATION_FAILED=prepared===1?'Failed':'Blocked';
   if(interrupted)throw new Error('Cancelled during preparation.');
   // Mirror the external launcher's fence: retained transient admin inputs must
   // never be passed to ordinary tests after an interrupted setup.
-  snapshot.credentialRecoveryRequired=false;
+  snapshot.credentialRecoveryRequired=true;
   for(const name of ['.setup-bootstrap.kubeconfig','.setup-access-restore.json'])if(await lstat(join(input,name)).catch(()=>undefined)) {
     snapshot.credentialRecoveryRequired=true;
     const blocked='/private/blocked-inputs';await privateDirectory(blocked);
@@ -140,20 +158,26 @@ try {
     campaign=JSON.parse(await readPrivate(join(directory,'all-summary.json'),8*1024*1024));
   if(nonDestructive&&(summary.testMode!==testMode||campaign.testMode!==testMode))throw new Error('Campaign test mode changed.');
   snapshot.result=publicResult(summary,campaign);snapshot.outcome=interrupted?'Blocked':exit===0?'Passed':exit===1?'Failed':'Blocked';
-  if(snapshot.result.recoveryRequired&&!nonDestructive)snapshot.credentialRecoveryRequired=true;
+  snapshot.cleanup=snapshot.result.cleanup??{state:nonDestructive?'verified':'unknown',checkedAt:new Date().toISOString()};
+  snapshot.credentialRecoveryRequired=!nonDestructive&&snapshot.cleanup.state!=='verified';
   if(await publish(directory))snapshot.message=interrupted?'Cancelled; unexecuted tests remain Blocked.':'Execution finished. Missing external prerequisites are not successful tests.';
   }
 } catch(error) {
-  snapshot.credentialRecoveryRequired=!nonDestructive;
+  snapshot.cleanup=nonDestructive?{state:'verified',checkedAt:new Date().toISOString()}:progress.campaignRunId?
+    await assessRunCleanup(output,join(output,progress.campaignRunId),true):
+    {state:'blocked',checkedAt:new Date().toISOString(),reason:error instanceof HarnessError?error.code:'UNEXPECTED',
+      stage:error instanceof HarnessError?error.stage??'cleanup':'cleanup'};
+  snapshot.credentialRecoveryRequired=!nonDestructive&&snapshot.cleanup.state!=='verified';
   snapshot.outcome=interrupted?'Blocked':recovery&&error instanceof HarnessError?error.outcome:'Failed';snapshot.message=interrupted?'Cancelled during preparation or execution. Recovery journals were retained.':recovery?'Previous-run cleanup was not verified. The private restoration receipts were retained; inspect its cleanup report.':'The Kubernetes runner could not complete its setup or report export.';
   if(recoveryDiagnostic&&!interrupted)snapshot.message=`Previous-run cleanup failed at ${recoveryDiagnostic.setupStage} (${recoveryDiagnostic.reason}${recoveryDiagnostic.detail?`; ${recoveryDiagnostic.detail}`:''}). The exact restoration receipts are retained.`;
   try {
     const runId=newRunId(),directory=join(output,runId);await privateDirectory(directory);
-    const id=recovery?'HAR-07':'HAR-02';
+    const id=recovery?'HAR-07':deadlineReached||error instanceof HarnessError&&error.code==='DEADLINE'?'HAR-10':'HAR-02';
     await saveReport(directory,runId,[{id,outcome:snapshot.outcome,layer:'A',environment:'live',durationMs:0,
-      reason:interrupted?'CANCELLED':recovery&&error instanceof HarnessError?error.code:'UNEXPECTED',
+      reason:interrupted?'CANCELLED':error instanceof HarnessError?error.code:'UNEXPECTED',
+      ...(error instanceof HarnessError&&error.stage?{stage:error.stage}:{}),
       ...(recovery?{executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:snapshot.outcome}:{})}],[id],process.env.REGRESSION_SOURCE_REVISION,recovery?'recover':'all',
-      recovery?recoveryDiagnostic:undefined,recovery?{recoveryFenceActive:true,recoveryAttempts:[]}:undefined);
+      recovery?recoveryDiagnostic:undefined,{cleanup:snapshot.cleanup,recoveryFenceActive:snapshot.cleanup.state!=='verified',recoveryAttempts:[]});
     // The displayed result must match the exported infrastructure/cancellation
     // report, not retain an earlier green campaign after export failed.
     snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});

@@ -23,7 +23,7 @@ export const selections: Record<string, string[]> = {
   'phase2-models': ['models/cpu-model-control.e2e.spec.ts'],
   'phase2-faults': ['models/failure.e2e.spec.ts'],
   'phase3-fast': ['hardware/owning.unit.spec.ts','hardware/borrowed-settings.unit.spec.ts','hardware/safety.unit.spec.ts','hardware/validation-session.unit.spec.ts'],
-  'phase4-fast': ['hardware/owning.unit.spec.ts','hardware/borrowed-settings.unit.spec.ts','hardware/safety.unit.spec.ts','hardware/validation-session.unit.spec.ts'],
+  'phase4-fast': ['harness/execution-lifecycle.unit.spec.ts','hardware/owning.unit.spec.ts','hardware/borrowed-settings.unit.spec.ts','hardware/safety.unit.spec.ts','hardware/validation-session.unit.spec.ts'],
   'phase3-fixtures': ['hardware/configuration.browser.spec.ts'],
   'phase4-fixtures': ['hardware/configuration.browser.spec.ts'],
   'phase3-gpu': ['hardware/runtime.e2e.spec.ts','hardware/multi-gpu.e2e.spec.ts'],
@@ -37,6 +37,8 @@ export const selections: Record<string, string[]> = {
   preflight: ['harness/preflight.e2e.spec.ts'], smoke: ['models/cpu-ollama.e2e.spec.ts'],
   'model-edit': ['models/cpu-ollama.e2e.spec.ts'], 'core-smoke': ['models/cpu-ollama.e2e.spec.ts'],
 };
+
+selections.selftest!.unshift('harness/execution-lifecycle.unit.spec.ts');
 
 export const phaseSteps = {
   phase0: ['selftest', 'preflight', 'locktest', 'foundations', 'preflight'],

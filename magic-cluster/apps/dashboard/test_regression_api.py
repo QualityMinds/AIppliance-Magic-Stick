@@ -600,11 +600,45 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(self.objects[CORE + "/secrets/" + original["id"]], secret)
         self.service.cleanup_finished()
         self.assertEqual(len(self.users), 1, "A queued recovery job still owns the original identity")
-        successor["status"] = {"phase": "Passed", "credentialRecoveryRequired": False}
+        successor["status"] = {"phase": "Passed", "credentialRecoveryRequired": False, "cleanup": {"state": "verified"}}
         self.service.cleanup_finished()
         self.assertEqual(self.users, {})
         self.assertTrue(obj["status"]["credentialsCleaned"])
         self.assertTrue(successor["status"]["credentialsCleaned"])
+        self.assertEqual(obj["status"]["cleanup"]["state"], "verified")
+
+    def test_finished_job_or_removed_account_never_replaces_resource_cleanup_evidence(self):
+        run = self.start()
+        obj = self.objects[RUNS + "/" + run["id"]]
+        obj["metadata"]["annotations"]["regression.magicstick.dev/credentials-used"] = obj["metadata"]["uid"]
+        for cleanup in (None, {"state": "unknown"}, {"state": "required"}, {"state": "blocked"}, {"state": "running"}):
+            obj["status"] = {"phase": "Failed", "credentialsCleaned": True, "credentialRecoveryRequired": False}
+            if cleanup:
+                obj["status"]["cleanup"] = cleanup
+            with self.assertRaisesRegex(RequestError, "Resource cleanup is not verified"):
+                self.service.cleanup(obj)
+            self.assertEqual(len(self.users), 1)
+            self.assertIn(CORE + "/secrets/" + run["id"], self.objects)
+        obj["status"].update(cleanup={"state": "verified", "checkedAt": "2026-10-22T12:00:00Z"}, credentialRecoveryRequired=False)
+        self.service.cleanup(obj)
+        self.assertEqual(self.users, {})
+
+    def test_unused_provisioning_failure_proves_no_test_resources_were_created(self):
+        run = self.start()
+        obj = self.objects[RUNS + "/" + run["id"]]
+        obj["status"] = {"phase": "Failed", "cleanup": {"state": "unknown"}}
+        self.service.cleanup(obj)
+        self.assertEqual(obj["status"]["cleanup"]["state"], "verified")
+        self.assertTrue(obj["status"]["credentialsCleaned"])
+
+    def test_removed_account_with_open_resources_still_blocks_non_destructive_start(self):
+        run = self.start()
+        obj = self.objects[RUNS + "/" + run["id"]]
+        obj["status"] = {"phase": "Failed", "credentialsCleaned": True, "cleanup": {"state": "required"}}
+        before = len(self.writes)
+        with self.assertRaisesRegex(RequestError, "Clean up the previous run separately"):
+            self.service.start(ACTOR, {"requestId": "2"*32, "testMode": "non-destructive", "phases": [4], "acknowledgeDisruption": True})
+        self.assertEqual(len(self.writes), before)
 
     def test_recovery_never_adopts_a_replaced_identity_or_running_predecessor(self):
         original = self.start()

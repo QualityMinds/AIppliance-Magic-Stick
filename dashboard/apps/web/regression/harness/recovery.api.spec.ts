@@ -10,6 +10,8 @@ import {OwnedKeyClient} from '../core/owned-key.ts';
 import {OwnedModelClient, remainingModelResources} from '../core/owned-model.ts';
 import {verifyCapabilities, verifyIdentity} from '../core/preflight.ts';
 import {requireSafe} from '../core/errors.ts';
+import {dirname} from 'node:path';
+import {attestCleanup} from '../core/cleanup-state.ts';
 
 test('HAR-07 explicit recovery resumes one journal and removes only unchanged UID-owned resources', async ({browser}) => {
   requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RECOVERY_JOURNAL, 'CONFIG');
@@ -47,7 +49,7 @@ test('HAR-07 explicit recovery resumes one journal and removes only unchanged UI
       modelEntry.name, config.smokeModel, journal.prefix, guard) : undefined;
     if (modelEntry?.uid) model?.adopt(modelEntry.uid);
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
-      journal.runId, config.expected.applianceUid, Date.now, 120);
+      journal.runId, config.expected.applianceUid, Date.now, 120,{journal});
     await lock.acquire(); acquired = true;
     let beatAt = Date.now();
     const heartbeat = async () => {
@@ -60,7 +62,10 @@ test('HAR-07 explicit recovery resumes one journal and removes only unchanged UI
     const modelAdapter = model ? cleaner.adapter(journal.prefix, name => remainingModelResources(observer, model, name), heartbeat) : keyAdapter;
     await journal.cleanup({key: keyAdapter, model: modelAdapter, app: keyAdapter, identity: keyAdapter}, heartbeat);
     expect(journal.recoveryPlan()).toEqual([]);
-    await lock.release(); cleaned = true;
+    await journal.verifyCleanup({key:keyAdapter,model:modelAdapter,app:keyAdapter,identity:keyAdapter},heartbeat);
+    await lock.release();
+    await attestCleanup(dirname(journal.filename),{applianceUid:config.expected.applianceUid,nodeUids:config.expected.nodes.map(n=>n.uid)});
+    cleaned = true;
   } finally {
     await context?.close();
     if (acquired) requireSafe(cleaned, 'CLEANUP');

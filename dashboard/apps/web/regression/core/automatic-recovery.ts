@@ -1,4 +1,4 @@
-import {lstat,readdir} from 'node:fs/promises';
+import {lstat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {newRunId,ResourceJournal,type CleanupAdapter,type ResourceKind} from './journal.ts';
 import {LabLease,leaseHolderReason,type Lease,type LeaseStore} from './lease.ts';
@@ -11,6 +11,9 @@ import {BorrowedSharing,canonical,type SharingAdapter} from './borrowed-sharing.
 import type {KubeObject} from './observer.ts';
 import type {RunnerSession} from './runner-session.ts';
 import {poll} from './poll.ts';
+import {recoveryInventory,type ModuleReceipt,type SharingReceipt} from './recovery-inventory.ts';
+import {attestCleanup,verifyReservationReleased} from './cleanup-state.ts';
+import {progressEvent} from './progress.ts';
 
 const runPattern=/^reg-[0-9a-f-]{36}$/;
 const drainMs=60_000;
@@ -34,8 +37,6 @@ export async function campaignRecoveryLease(root:string,runId:string,targetUid:s
     throw error;
   }
 }
-interface ModuleReceipt {filename:string;original:KubeObject;applied?:KubeObject}
-interface SharingReceipt {filename:string;identity:{runId:string;targetUid:string;nodeName:string;nodeUid:string}}
 export interface RecoveryAdapters {
   store:LeaseStore;
   verifyTarget():Promise<void>;
@@ -84,44 +85,10 @@ export class AutomaticRecovery {
       const reportStat=await lstat(join(directory,'summary.json'));
       requireSafe(summary.version===2&&summary.runId===runId&&now-reportStat.mtimeMs>=drainMs,'RECOVERY');
     }
-    const paths=[directory],journals:ResourceJournal[]=[],modules:ModuleReceipt[]=[],sharing:SharingReceipt[]=[];
-    for(const entry of await readdir(directory,{withFileTypes:true}))if(/^worker-(?:[1-9]|[1-5][0-9]|6[0-4])$/.test(entry.name)) {
-      const child=join(directory,entry.name),s=await lstat(child);
-      requireSafe(s.isDirectory()&&!s.isSymbolicLink()&&(s.mode&0o077)===0,'RECOVERY');paths.push(child);
-    }
-    for(const path of paths) {
-      const journal=await ResourceJournal.resume(join(path,'journal.json'),registration.applianceUid);journals.push(journal);
-      for(const name of await readdir(path)) {
-        const filename=join(path,name);
-        if(name.endsWith('.journal.json')) {
-          // Phase-2 CPU workflows keep one ownership journal per model. Read
-          // only files inside this exact lease-referenced private run; the
-          // filename owner, document owner, target, prefix and live UID must
-          // all agree. Unknown/malformed journals are a gate, never ignored.
-          const match=/^(?:ollama|vllm|unsupported|sanitized|risk-reject|risk-accept|external|provider)-(reg-[0-9a-f-]{36})\.journal\.json$/.exec(name);
-          requireSafe(match&&journals.length<128,'RECOVERY');
-          const auxiliary=await ResourceJournal.resume(filename,registration.applianceUid);
-          requireSafe(auxiliary.runId===match[1]&&!journals.some(item=>item.runId===auxiliary.runId),'RECOVERY');
-          journals.push(auxiliary);
-        } else if(/^borrowed-module(?:-[a-z0-9-]{1,63})?\.json$/.test(name)) {
-          const value=JSON.parse(await readPrivate(filename));
-          requireSafe(value.version===1&&value.original?.metadata?.namespace==='ai-system'&&
-            typeof value.original.spec?.enabled==='boolean'&&typeof value.original.spec?.module==='string'&&
-            !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(value.original.spec.module),'RECOVERY');
-          // Fully restored receipts are historical evidence, not borrowed state.
-          if(value.state!=='restored')modules.push({filename,original:value.original,applied:value.applied});
-        } else if(/^(?:gpu|mesh|cache|realtime)-sharing\.json$/.test(name)) {
-          const value=JSON.parse(await readPrivate(filename));
-          requireSafe(value.version===1&&runPattern.test(value.runId)&&value.targetUid===registration.applianceUid&&
-            registration.nodeUids.includes(value.nodeUid)&&typeof value.nodeName==='string'&&Array.isArray(value.entries),'RECOVERY');
-          if(value.entries.some((entry:{state:string})=>entry.state!=='restored'))sharing.push({filename,
-            identity:{runId:value.runId,targetUid:value.targetUid,nodeName:value.nodeName,nodeUid:value.nodeUid}});
-        } else if(/^(?:borrowed-amd-profile|license-transaction(?:-lic-0[234])?|license-baseline(?:-(?:lic-01|sso-01))?|federation|mesh-membership|unmanaged-key-fixture|network-baseline-restore|host-drill-[a-z0-9-]+|kube-(?:configmaps|secrets|moduleactivations|appinstances|modelactivations))\.json$/.test(name)) {
-          const value=JSON.parse(await readPrivate(filename));
-          requireSafe(value.version===1&&['restored','removed','verified'].includes(value.state),'RECOVERY');
-        }
-      }
-    }
+    const inventory=await recoveryInventory(directory,registration),{journals}=inventory;
+    requireSafe(journals[0]?.runId===runId,'RECOVERY');
+    requireSafe(inventory.unfinished===0,'RECOVERY');
+    const modules=inventory.modules.filter(item=>item.state!=='restored'),sharing=inventory.sharing.filter(item=>item.pending);
     const previous=join(directory,'automatic-recovery.json');
     let recoveryOwner:string|undefined;
     if(await lstat(previous).catch(()=>undefined)) {
@@ -138,6 +105,7 @@ export class AutomaticRecovery {
     return new AutomaticRecovery(runId,directory,lease,registration,journals,modules,sharing);
   }
   async execute(adapters:RecoveryAdapters) {
+    progressEvent({event:'cleanup-state',cleanup:{state:'running',checkedAt:new Date().toISOString(),stage:'recovery-journal'}});
     await adapters.verifyTarget();
     if(!this.expected.spec.holderIdentity) {
       // Teardown may have failed once, then succeeded in afterAll. A free Lease
@@ -149,11 +117,11 @@ export class AutomaticRecovery {
       };
       await bounded(async()=>{
         await free();
-        for(const journal of this.journals)for(const entry of journal.entries)if(entry.uid!==null) {
-          await free();requireSafe(await adapters.cleanup(journal,free)[entry.kind].verifyRemoved(entry),'CLEANUP');
-        }
+        await verifyRecoveryClosed(this.directory,this.registration,adapters,free);
         await adapters.verifyTarget();await free();
       },600_000,'cleanup',()=>adapters.cancel());
+      await verifyReservationReleased(this.directory,this.registration,()=>adapters.store.read());
+      await attestCleanup(this.directory,this.registration,true);
       return this.runId;
     }
     const owner=newRunId(),lease=new LabLease(adapters.store,owner,this.registration.applianceUid,Date.now,120);
@@ -212,9 +180,12 @@ export class AutomaticRecovery {
         }
         await adapters.verifyTarget();await guard();
         requireSafe(this.journals.every(journal=>journal.recoveryPlan().length===0),'CLEANUP');
+        await verifyRecoveryClosed(this.directory,this.registration,adapters,guard);
         await writePrivate(filename,{...receipt,state:'restored',updatedAt:new Date().toISOString()});
         await lease.release();
         await writePrivate(filename,{...receipt,state:'released',updatedAt:new Date().toISOString()});
+        await verifyReservationReleased(this.directory,this.registration,()=>adapters.store.read());
+        await attestCleanup(this.directory,this.registration,true);
       },600_000,'cleanup',async()=>{retired=true;await adapters.cancel();});
       return this.runId;
     } catch(error) {
@@ -223,4 +194,35 @@ export class AutomaticRecovery {
       if(error instanceof HarnessError)throw error;throw new HarnessError('RECOVERY');
     } finally {retired=true;await heartbeat.stop();}
   }
+}
+
+/** Reuse the recovery adapters for positive, read-only closure evidence. Older
+ * restored receipts can precede later legitimate scenarios; verify only the
+ * newest confirmed revision of each borrowed object, never adopt a new one. */
+export async function verifyRecoveryClosed(directory:string,identity:{applianceUid:string;nodeUids:string[]},adapters:RecoveryAdapters,
+  guard:()=>Promise<void>) {
+  const inventory=await recoveryInventory(directory,identity);requireSafe(inventory.open===0,'CLEANUP');
+  for(const journal of inventory.journals)for(const entry of journal.entries) {
+    await guard();requireSafe(await adapters.cleanup(journal,guard)[entry.kind].verifyRemoved(entry),'CLEANUP');
+  }
+  const modules=new Map<string,ModuleReceipt>();
+  for(const item of inventory.modules) {
+    const uid=item.original.metadata.uid!,previous=modules.get(uid);
+    if(!previous||Number((item.restored??item.original).metadata.generation)>Number((previous.restored??previous.original).metadata.generation))modules.set(uid,item);
+  }
+  for(const item of modules.values()) {
+    await guard();const current=await adapters.module(item.original,guard).read(),expected=item.restored??item.original;
+    requireSafe(current.metadata.uid===expected.metadata.uid&&current.metadata.generation===expected.metadata.generation&&
+      canonical(current.spec)===canonical(item.original.spec),'CONFLICT');
+  }
+  const latest=new Map<string,{receipt:SharingReceipt;provider:'amd'|'nvidia';generation:number}>();
+  for(const receipt of inventory.sharing) {
+    const sharing=await BorrowedSharing.resume(receipt.filename,receipt.identity,adapters.sharing(receipt.identity,guard),guard);
+    for(const entry of sharing.entries) {
+      const key=entry.provider+':'+entry.uid;
+      if(!latest.has(key)||entry.generation>latest.get(key)!.generation)latest.set(key,{receipt,provider:entry.provider,generation:entry.generation});
+    }
+  }
+  for(const {receipt,provider}of latest.values())await (await BorrowedSharing.resume(receipt.filename,receipt.identity,
+    adapters.sharing(receipt.identity,guard),guard)).verifyRestored([provider]);
 }

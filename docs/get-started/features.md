@@ -66,6 +66,8 @@
   Non-destructive starts require any previous-run cleanup to be completed separately.
   **Clean up previous test run** is also available for diagnosis; cleanup
   verifies the retained resource identities and revisions.
+  Test completion, verified resource cleanup and test-account removal are shown
+  separately; an old report without cleanup evidence is not labelled clean.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
 - Optionally select **Remember me** on the local login page to stay signed in

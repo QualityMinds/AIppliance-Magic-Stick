@@ -1,5 +1,6 @@
 import {test, expect, type BrowserContext} from '@playwright/test';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
+import {attestCleanup} from '../core/cleanup-state.ts';
 import type {LabConfig} from '../core/config.ts';
 import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {loadLabConfig} from '../core/config.ts';
@@ -170,7 +171,7 @@ test.describe.serial('installed CPU model smoke', () => {
     model = new OwnedModelClient(context.request, config.dashboardUrl, config.requestTimeoutMs, name, config.smokeModel, journal.prefix, heartbeat);
     requireSafe(!(await cleaner.find(name)), 'OWNERSHIP');
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
-      process.env.REGRESSION_RUN_ID, config.expected.applianceUid, Date.now, 120);
+      process.env.REGRESSION_RUN_ID, config.expected.applianceUid, Date.now, 120,{journal});
     await lock.acquire(process.env.REGRESSION_RUN_ID); lockAcquired = true; beatAt = Date.now();
     heartbeatTimer = setInterval(() => { void leaseHeartbeat().catch(() => { leaseFailed = true; }); }, 10_000);
   });
@@ -187,7 +188,10 @@ test.describe.serial('installed CPU model smoke', () => {
         requireSafe([...baselineKeyIds].every(id => currentIds.has(id)) &&
           journal.entries.every(entry => entry.state === 'removed') &&
           journal.entries.filter(entry => entry.kind === 'key').every(entry => entry.uid && !currentIds.has(entry.uid)), 'CLEANUP');
-        await lock.release(); cleaned = true;
+        await journal.verifyCleanup({key:keyAdapter,model:modelAdapter,app:keyAdapter,identity:keyAdapter},heartbeat);
+        await lock.release();
+        await attestCleanup(dirname(journal.filename),{applianceUid:config.expected.applianceUid,nodeUids:config.expected.nodes.map(n=>n.uid)});
+        cleaned = true;
       }
     } finally { keySecret = undefined; await context?.close(); }
     if (lockAcquired) requireSafe(cleaned, 'CLEANUP');

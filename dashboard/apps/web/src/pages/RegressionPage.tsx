@@ -67,7 +67,9 @@ const Result = ({run}: {run: RegressionRun}) => {
       {(['Passed', 'Failed', 'Blocked'] as const).map(outcome => <article className="metric" key={outcome}><span>{outcome}</span><strong>{counts[outcome]}</strong><small>{run.operation === 'recover-lock' ? 'cleanup checks' : 'executable scenarios'}</small>
         {outcome==='Blocked'&&<BlockedBreakdown counts={executionBlockedCounts} total={counts.Blocked}/>}</article>)}
     </div>}
-    {run.result?.recoveryRequired && <div role="alert" className="notice notice-error">Cleanup could not be verified. Starting a new run first cleans up the previous run using its retained journal. It never resumes tests or reuses old results.</div>}
+    <p aria-label="Run lifecycle">Tests: {terminal.has(run.phase)?'finished':'in progress'} · Resource cleanup: {run.cleanup?.state??run.result?.cleanup?.state??'unknown (legacy or not verified)'} · Test account: {run.credentialsCleaned?'removed':'not yet removed'}</p>
+    {(run.cleanup?.reason||run.cleanup?.stage)&&<p className="muted">Cleanup reason: {run.cleanup.reason??'not recorded'}{run.cleanup.stage?` · ${run.cleanup.stage}`:''}</p>}
+    {(run.result?.recoveryRequired||run.cleanup&&run.cleanup.state!=='verified'&&terminal.has(run.phase)) && <div role="alert" className="notice notice-error">Resource cleanup could not be verified. Removing the test account or finishing the tests does not prove a clean baseline. Use Clean up previous test run or start a full run for exact journal recovery; old test results are never reused.</div>}
     {run.result?.evidenceCounts&&<p className="muted" aria-label="Live evidence results">Live evidence: {run.result.evidenceCounts.live.Passed} passed · {run.result.evidenceCounts.live.Failed} failed · {run.result.evidenceCounts.live.Blocked} blocked. Case / variant / layer evidence, separate from isolated checks and scenario counts.</p>}
     {!!run.result?.phases.length && <div className="table-wrap"><table><caption>Phase results · case / variant / layer evidence</caption><thead><tr><th>Phase</th><th>Outcome</th><th>Passed</th><th>Failed</th><th>Blocked</th></tr></thead><tbody>
       {run.result.phases.map(row => <tr key={row.phase}><td>{row.phase}</td><td><StatusBadge phase={row.outcome} /></td><td>{row.counts.Passed}</td><td>{row.counts.Failed}</td><td>{row.counts.Blocked}<div><BlockedBreakdown counts={row.blockedCounts} total={row.counts.Blocked}/></div></td></tr>)}
@@ -107,7 +109,8 @@ export const RegressionPage = () => {
     try {await query.refetch({cancelRefetch: false});} finally {setRefreshing(false);}
   };
   const data = query.data, active = data?.runs.find(run => !terminal.has(run.phase));
-  const cleanupPending = data?.runs.some(run => terminal.has(run.phase) && !run.credentialsCleaned);
+  const cleanupPending = data?.runs.some(run => terminal.has(run.phase) && (!run.credentialsCleaned||run.cleanup&&run.cleanup.state!=='verified'));
+  const resourcesPending=data?.runs.some(run=>terminal.has(run.phase)&&run.cleanup&&run.cleanup.state!=='verified');
   const cleanup = data?.cleanup ?? {available: Boolean(data?.lock?.canRecover), revision: data?.lock?.revision,
     message: data?.lock && data.lock.state !== 'free' ? data.lock.message : cleanupPending ?
       'Previous run cleanup is pending; refresh to check its recovery status.' : 'No previous test run needs cleanup. New tests will verify the starting state.'};
@@ -164,7 +167,7 @@ export const RegressionPage = () => {
       <p id="regression-cleanup-status" role="status">{!data.registered ? 'Register this disposable test Appliance before cleanup.' : !data.runtimeAvailable ?
         'Enable the regression runner and wait for readiness before cleanup.' : active ? 'A test or cleanup run is active. Wait for it to finish.' : cleanup.message}</p>
       {data.lock && data.lock.state !== 'free' && data.lock.message !== cleanup.message && <p role="status">{data.lock.message}</p>}
-      {cleanupPending && <p role="status">{data.recoveryAvailable ? 'Full tests can automatically clean up the previous run first. For non-destructive tests, clean up separately before starting. Cleanup must succeed before a fresh test ID and new tests are started.' : "Removing the completed run's generated test account before another run can start."}</p>}
+      {cleanupPending && <p role="status">{data.recoveryAvailable ? 'Full tests can automatically clean up the previous run first. For non-destructive tests, clean up separately before starting. Cleanup must succeed before a fresh test ID and new tests are started.' : resourcesPending ? 'Previous-run resource cleanup is not verified. The exact recovery journal must be checked before new live tests can start.' : "Removing the completed run's generated test account before another run can start."}</p>}
       <p className="muted">No recurring setup or manually prepared test files. Reloading or leaving this page does not stop the job.</p>
     </Panel>}
     {data?.runs.map(run => <Result key={run.uid} run={run} />)}
