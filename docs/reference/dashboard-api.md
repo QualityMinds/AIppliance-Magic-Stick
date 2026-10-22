@@ -145,6 +145,15 @@ Normal start performs the same old-run cleanup before a fresh test execution;
 no successful rows or test progress are resumed. The separate cleanup action
 keeps its existing `/recover-lock` route and `operation: recover-lock` contract.
 
+New run/status/result objects optionally include resource `cleanup` with
+`state: unknown|required|running|verified|blocked`, `checkedAt` (UTC timestamp),
+and allowlisted `reason`/`stage`. This is separate from the top-level cleanup
+action's `available`/`revision` fields and from `credentialsCleaned`, which only
+describes the generated test account. New mutating runs retain that account until
+resource cleanup and setup-access restoration are verified. Missing legacy fields
+are not proof of a clean baseline; historical reports and test outcomes stay
+unchanged. A report-only export failure does not revoke a verified cleanup receipt.
+
 `lock` contains `state: free|active|stale|blocked`, `canRecover`, a fixed public
 `message`, and an optional opaque `revision`. Only a terminated, installation-
 bound Kubernetes run with a known journal owner can offer recovery; external

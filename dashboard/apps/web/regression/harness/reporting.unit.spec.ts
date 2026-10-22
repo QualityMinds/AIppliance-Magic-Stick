@@ -13,7 +13,8 @@ import {phase3Requirements,gpuModeIds} from '../profiles/gpu-p0.ts';
 import {remainingRequirements,remainingIds,remainingVariants,remainingVariantEnabled} from '../profiles/remaining-p0.ts';
 import {disabledExperimentalEngines,engineRegressionEnabled} from '../core/engine-policy.ts';
 import {completeCases,guardedLiveCases,blockedAction,reportExitCode,reportVariants, saveReport, type CaseResult} from '../core/report.ts';
-import {newRunId} from '../core/journal.ts';
+import {newRunId,ResourceJournal} from '../core/journal.ts';
+import {attestCleanup} from '../core/cleanup-state.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {writePrivate} from '../core/private-files.ts';
 import {parsePreparationDiagnostic, preparationDescription,requirePreparation} from '../core/preparation-diagnostic.ts';
@@ -688,6 +689,9 @@ test('HAR-07 HAR-10 proven campaign restoration clears only the live fence while
   try {
     const runId=newRunId(),previous=newRunId(),directory=join(output,runId),receipt=join(output,'phase-result.json');
     const rows:CaseResult[]=[{id:'HAR-07',layer:'A',environment:'live',durationMs:1,outcome:'Failed',reason:'CLEANUP',recoveryRequired:true}];
+    const identity={applianceUid:'fixture-appliance',nodeUids:['fixture-node']};
+    await ResourceJournal.create(join(directory,'journal.json'),runId,identity.applianceUid);
+    await attestCleanup(directory,identity,true);
     await saveReport(directory,runId,rows,['HAR-07'],'unknown','all',undefined,
       {recoveryFenceActive:false,recoveryAttempts:[{runId:previous,state:'restored'}]});
     await writePrivate(receipt,{version:1,mode:'all',runId,directory,exitCode:1});

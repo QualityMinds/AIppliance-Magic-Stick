@@ -407,6 +407,7 @@ export class GpuScenario {
     await atStage('recovery-sharing',()=>this.sharing.restore());
     for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount,
       entry.originalBackend ?? 'device-plugin',Boolean(entry.originalDefaults));
+    await this.sharing.verifyRestored();
     const current = await this.live.api.models();
     for (const original of this.originalModels) {
       const item = activation(current,original.name);

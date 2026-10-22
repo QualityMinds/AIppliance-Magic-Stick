@@ -19,6 +19,10 @@ export interface RegressionStartRequest {
   requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[]; testMode?: RegressionTestMode;
 }
 export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
+export interface RegressionCleanup {
+  state: 'unknown' | 'required' | 'running' | 'verified' | 'blocked';
+  checkedAt?: string; reason?: string; stage?: string;
+}
 export type RegressionBlockedKind = 'prerequisite' | 'failure' | 'cancelled' | 'unknown';
 export interface RegressionBlockedCounts {prerequisite: number; failure: number; cancelled: number; unknown: number}
 export interface RegressionBlocker {
@@ -30,6 +34,7 @@ export interface RegressionProgress {
   executionBlockedCounts?: RegressionBlockedCounts;
 }
 export interface RegressionResult {
+  cleanup?: RegressionCleanup;
   testMode?: RegressionTestMode; excludedSteps?: string[];
   counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
   blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts;
@@ -42,6 +47,7 @@ export interface RegressionResult {
     phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker}>;
 }
 export interface RegressionRun {
+  cleanup?: RegressionCleanup;
   testMode?: RegressionTestMode;
   id: string; uid: string; createdAt: string; phases: number[]; sourceRevision: string;
   phase: RegressionOutcome | 'Queued' | 'Preparing' | 'Starting' | 'Running' | 'Recovering' | 'Cancelling' | 'Cancelled';

@@ -15,6 +15,8 @@ import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type Ex
 import {checkedBlocker} from './core/blocking.ts';
 import {regressionBlockedKind} from '../../../packages/core/src/regression-blocking.ts';
 import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './core/runtime-diagnostic.ts';
+import {writePrivate} from './core/private-files.ts';
+import {isolatedStep} from './core/test-mode.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
  * fixed allowlisted marker can carry an explicit failure into safe reports. */
@@ -46,6 +48,24 @@ export default class SafeReporter implements Reporter {
   private omittedSteps=new Map<TestCase,number>();
   private traces:ExecutionTrace[]=[];
   private suiteFailures=new Map<Suite,NonNullable<ReturnType<typeof checkedBlocker>>>();
+  private selected:TestCase[]=[];
+  private finished=new Set<TestCase>();
+  private finishedIds=new Set<string>();
+  private isFinished(test:TestCase) {return this.finished.has(test)||Boolean(test.id&&this.finishedIds.has(test.id));}
+  private statuses=new Map<TestCase,TestResult['status']>();
+  private infrastructureFailure:ReasonCode|undefined;
+  private durable=false;
+  private writes:Promise<void>=Promise.resolve();
+  private persistEvidence() {
+    if(!this.durable)return;
+    const runId=process.env.REGRESSION_RUN_ID!,directory=process.env.REGRESSION_RUN_DIR!;
+    const snapshot=JSON.stringify({version:1,runId,scenarios:this.selected.map(test=>({
+      executionId:executionIdentity(runId,String(test.id??test.title)),
+      state:this.isFinished(test)?'completed':this.positions.has(test)?'running':'selected',
+      evidence:this.mapping(test).evidence})),cases:this.cases,traces:this.traces});
+    this.writes=this.writes.then(()=>writePrivate(join(directory,'runner-evidence.json'),snapshot))
+      .catch(()=>{this.unexpected=true;this.infrastructureFailure??='PRIVATE_FILE';});
+  }
   onStepBegin(test:TestCase,_result:TestResult,step:TestStep) {
     let items=this.steps.get(test);if(!items){items=new Map();this.steps.set(test,items);}
     if(items.size<2000)items.set(step,{index:items.size+1,finished:false});
@@ -54,13 +74,19 @@ export default class SafeReporter implements Reporter {
   onStepEnd(test:TestCase,_result:TestResult,step:TestStep) {
     const item=this.steps.get(test)?.get(step);if(item)item.finished=true;
   }
-  onBegin(_config: FullConfig, suite: Suite) {
+  onBegin(config: FullConfig, suite: Suite) {
+    this.selected=suite.allTests();
+    if(process.env.REGRESSION_SCENARIO_ID && (this.selected.length!==1||this.selected[0]?.id!==process.env.REGRESSION_SCENARIO_ID))
+      throw new HarnessError('CONFIG','Failed','runner-execution');
     this.total = suite.allTests().length;
+    this.durable=Boolean(config.configFile?.replaceAll('\\','/').endsWith('/regression/playwright.config.ts')&&
+      process.env.REGRESSION_RUN_DIR&&/^reg-[0-9a-f-]{36}$/.test(process.env.REGRESSION_RUN_ID??''));
+    this.persistEvidence();
     process.stdout.write(`Selected ${this.total} executable tests. Catalogue goals describe case families, not full acceptance.\n`);
     if(disabledExperimentalEngines.length)process.stdout.write(
       `Excluded experimental engine tests: ${disabledExperimentalEngines.join(', ')}. Product engines remain enabled.\n`);
   }
-  onError() { this.unexpected = true; process.stderr.write('Harness infrastructure error; no raw live details were printed.\n'); }
+  onError() { this.unexpected = true;this.infrastructureFailure??='UNEXPECTED';this.persistEvidence();process.stderr.write('Harness infrastructure error; no raw live details were printed.\n'); }
   private mapping(test: TestCase) {
     const ids = [...new Set(test.title.match(/\b[A-Z][A-Z0-9]+-\d{2}\b/g) ?? [])];
     const variant = test.title.match(/\[p[0-8]:([a-z0-9-]+)\]/)?.[1] as CaseResult['variant'];
@@ -83,6 +109,7 @@ export default class SafeReporter implements Reporter {
   onTestBegin(test: TestCase) {
     const position = ++this.started;
     this.positions.set(test, position);
+    this.persistEvidence();
     const {ids, evidence} = this.mapping(test);
     process.stdout.write(`[${position}/${this.total}] START ${ids.join(', ') || 'Unmapped test'}\n`);
     const scenario = publicScenarioTitle(test.title, test.location.file);
@@ -97,6 +124,12 @@ export default class SafeReporter implements Reporter {
     }
   }
   onTestEnd(test: TestCase, result: TestResult) {
+    // Global timeout can synthesize this end before a late worker reports it.
+    // End each selected scenario once; late events cannot rewrite its evidence.
+    if(this.isFinished(test))return;
+    this.finished.add(test);
+    if(test.id)this.finishedIds.add(test.id);
+    this.statuses.set(test,result.status);
     const {ids, evidence} = this.mapping(test);
     const failures=result.errors.map(error=>harnessFailure(error.message));
     const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>();
@@ -114,7 +147,7 @@ export default class SafeReporter implements Reporter {
       const cause=checkedBlocker(JSON.parse(annotation.description ?? ''));
       if(cause && cause.traceRunId===process.env.REGRESSION_RUN_ID && cause.caseId && cause.executionId)predecessor=cause;
     }catch{this.unexpected=true;}
-    if(result.status==='skipped' && !test.annotations.some(item=>['skip','fixme'].includes(item.type)))
+    if(!predecessor&&result.status==='skipped' && !test.annotations.some(item=>['skip','fixme'].includes(item.type)))
       for(let suite:Suite|undefined=test.parent;suite;suite=suite.parent) {
         predecessor=this.suiteFailures.get(suite);if(predecessor)break;
       }
@@ -199,14 +232,54 @@ export default class SafeReporter implements Reporter {
     process.stdout.write(`${position ? `[${position}/${this.total}] ` : ''}${ids.join(', ') || 'Unmapped test'}: ${outcome} — ${durationDescription(result.duration)}\n`);
     if (reason) process.stdout.write(`  Reason (${reason}): ${reasons[reason]}${stage ? ` Stage: ${stage}.` : ''}\n`);
     if (!ids.length || !evidence.length) this.unexpected = true;
+    this.persistEvidence();
   }
   async onEnd(result: FullResult) {
+    await this.writes;
     const directory = process.env.REGRESSION_RUN_DIR, runId = process.env.REGRESSION_RUN_ID;
     if (!directory || !runId) throw new HarnessError('CONFIG');
+    if(process.env.REGRESSION_DISCOVER_ONLY==='1') {
+      await writePrivate(join(directory,'scenario-selection.json'),{version:1,scenarios:this.selected.map(test=>({
+        id:test.id,title:test.title,source:safeTraceSource(test.location),evidence:this.mapping(test).evidence}))});
+      return {status:this.unexpected?'failed' as const:'passed' as const};
+    }
+    if(result.status==='timedout'||result.status!=='passed'&&Date.now()>=Number(process.env.REGRESSION_CAMPAIGN_DEADLINE))this.infrastructureFailure='DEADLINE';
+    if(result.status==='interrupted')this.infrastructureFailure??='CANCELLED';
+    if(result.status!=='passed'&&this.selected.some(test=>this.positions.has(test)&&!this.isFinished(test)))
+      this.infrastructureFailure??=result.status==='interrupted'?'CANCELLED':'UNEXPECTED';
+    if(this.infrastructureFailure) {
+      const reason=this.infrastructureFailure,executionId=executionIdentity(runId,'runner-execution'),cancelled=reason==='CANCELLED';
+      const cause={kind:cancelled?'cancelled' as const:'failure' as const,caseId:'HAR-10',reason,stage:'runner-execution',executionId,traceRunId:runId};
+      // Playwright may already have ended interrupted/skipped tests before
+      // reporting its global error. Preserve real earlier failures/passes,
+      // but do not leave those aborts as an invented prerequisite.
+      for(const test of this.selected)if(this.statuses.get(test)==='interrupted'||this.statuses.get(test)==='skipped'&&
+        !test.annotations.some(a=>['skip','fixme'].includes(a.type))) {
+        const id=executionIdentity(runId,String(test.id??test.title));
+        this.cases=this.cases.map(row=>row.executionId!==id||row.outcome==='Passed'||
+          row.reason&&!['PREREQUISITE','DEPENDENCY','CANCELLED','UNEXPECTED'].includes(row.reason)||
+          row.blockedBy?.kind==='failure'&&row.blockedBy.executionId&&row.blockedBy.executionId!==id?row:
+          row.outcome==='Blocked'?{...row,reason:'DEPENDENCY',stage:'runner-execution',blockedBy:cause}:
+            {...row,reason,stage:'runner-execution'});
+      }
+      for(const test of this.selected.filter(test=>!this.isFinished(test))) {
+        const running=this.positions.has(test),outcome=running&&!cancelled?'Failed':'Blocked';
+        const failure=new HarnessError(running?reason:'DEPENDENCY',outcome,'runner-execution');
+        if(!running)test.annotations.push({type:'regression-dependency',description:JSON.stringify(cause)});
+        this.onTestEnd(test,{status:running?'failed':'skipped',retry:0,duration:0,errors:[{message:failure.message}],attachments:[]} as unknown as TestResult);
+      }
+      const fixture=isolatedStep(process.env.REGRESSION_MODE??'');
+      this.cases.push({id:'HAR-10',layer:fixture?'U':'A',environment:fixture?'fixture':'live',durationMs:0,
+        outcome:cancelled?'Blocked':'Failed',reason,stage:'runner-execution',executionId,
+        executionOutcome:cancelled?'Blocked':'Failed',traceRunId:runId,...(cancelled?{blockedBy:cause}:{})});
+      this.traces.push({version:1,runId,executionId,outcome:cancelled?'Blocked':'Failed',durationMs:0,
+        steps:[{index:1,category:'hook',title:'Setup/teardown hook',outcome:cancelled?'Blocked':'Failed',durationMs:0,reason,stage:'runner-execution'}]});
+    }
+    this.persistEvidence();await this.writes;
     for(const trace of this.traces)await saveExecutionTrace(directory,trace);
     const modelCase = process.env.REGRESSION_MODEL_CASE as keyof typeof phase2ModelCases | undefined;
     if (modelCase && !Object.hasOwn(phase2ModelCases, modelCase)) throw new HarnessError('CONFIG');
-    const required = process.env.REGRESSION_MODE==='non-destructive-live'?['HAR-01','HAR-02']:remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? (process.env.REGRESSION_MODE==='campaign-recover'?['HAR-07']:process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
+    const required = process.env.REGRESSION_SCENARIO_ID?[...new Set(this.selected.flatMap(test=>this.mapping(test).evidence.map(e=>e.id)))]:process.env.REGRESSION_MODE==='non-destructive-live'?['HAR-01','HAR-02']:remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? (process.env.REGRESSION_MODE==='campaign-recover'?['HAR-07']:process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
       process.env.REGRESSION_MODE === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-readonly' ? ['DISC-03'] :

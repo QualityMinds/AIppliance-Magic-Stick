@@ -17,6 +17,9 @@ import {writePrivate} from './private-files.ts';
 import {registeredLab} from './lab-policy.ts';
 import {HeartbeatLoop,bounded} from './run-lifecycle.ts';
 import {assertLicenseReceiptsRestored} from './license-transaction.ts';
+import {attestCleanup,verifyReservationReleased} from './cleanup-state.ts';
+import {recoveryInventory} from './recovery-inventory.ts';
+import {progressEvent} from './progress.ts';
 
 /** Shared foundation adapter: no GPU, host-maintenance or product-setting writes. */
 export class LiveFoundation {
@@ -55,7 +58,7 @@ export class LiveFoundation {
     this.observer = snapshot.observer;
     this.cleaner = new KubernetesModelCleaner(config.modelCleanupKubeconfig!, config.expected.applianceNamespace, config.requestTimeoutMs);
     this.store = new KubernetesLeaseStore(config.lock!.kubeconfig, config.lock!.namespace, config.lock!.name);
-    this.lease = new LabLease(this.store, journal.runId, config.expected.applianceUid, Date.now, 120);
+    this.lease = new LabLease(this.store, journal.runId, config.expected.applianceUid, Date.now, 120,{journal});
     this.api = snapshot.api;
     this.journals = [journal];
     this.keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries, this.guard);
@@ -210,12 +213,15 @@ export class LiveFoundation {
     requireSafe(this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');
     const current = await this.store.read();
     requireSafe(!current.spec.holderIdentity && current.metadata.labels['regression.magicstick.dev/appliance-uid'] === this.config.expected.applianceUid, 'CONFLICT');
+    await verifyReservationReleased(dirname(this.journal.filename),{applianceUid:this.config.expected.applianceUid,
+      nodeUids:this.config.expected.nodes.map(n=>n.uid)},()=>this.store.read());
     this.acquired = false;
   }
 
   async close() {
     try {
       if (this.acquired) {
+        progressEvent({event:'cleanup-state',cleanup:{state:'running',checkedAt:new Date().toISOString(),stage:'cleanup'}});
         await bounded(async()=>{
           const failures:Array<{reason:string;stage:string}>=[];
           const record=(error:unknown)=>failures.push({reason:error instanceof HarnessError?error.code:'UNEXPECTED',
@@ -236,7 +242,18 @@ export class LiveFoundation {
           await this.guard();
           const currentIds = new Set((await this.keys.list()).items.map(item => item.id));
           requireSafe([...this.baselineKeyIds].every(id => currentIds.has(id)) && this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');
+          for(const journal of this.journals) {
+            const adapters={model:this.cleaner.adapter(journal.prefix,name=>remainingModelResources(this.observer,this.api,name),this.guard),
+              key:this.keys.adapter(),...this.domainCleanup};
+            for(const entry of journal.entries) {
+              const adapter=adapters[entry.kind];requireSafe(adapter&&await adapter.verifyRemoved(entry),'CLEANUP');
+            }
+          }
+          const identity={applianceUid:this.config.expected.applianceUid,nodeUids:this.config.expected.nodes.map(node=>node.uid)};
+          requireSafe((await recoveryInventory(dirname(this.journal.filename),identity)).open===0,'CLEANUP');
           await this.lease.release(); this.acquired = false;
+          this.retired=true;
+          await attestCleanup(dirname(this.journal.filename),identity);
         },600_000,'cleanup',async()=>{this.retired=true;await this.context.close();});
       }
     } finally {this.retired=true;await this.heartbeat?.stop();await this.context.close();}

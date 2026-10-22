@@ -8,6 +8,16 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep identity changes in both Dashboard build and browser CI selection. Include
+  the separately selected Remember-me browser coverage in catalogue validation
+  without treating it as installed Phase 5 evidence.
+
+- Run Phase 4 sharing and multi-GPU scenarios sequentially with independent
+  execution and cleanup budgets. Preserve global timeouts and interrupted
+  selections as trace-linked harness failures. Verify exact root/worker journals,
+  borrowed settings and Lease release before clearing a cleanup fence or removing
+  test credentials; show tests, resource cleanup and account removal separately.
+
 - Offer Keycloak **Remember me** for seven days idle and at most thirty days.
   Unchecked sessions retain thirty minutes idle and ten hours maximum, with
   five-minute access tokens. A versioned startup migration updates untouched

@@ -119,6 +119,14 @@ export class BorrowedSharing {
   async verifyRecoverable() {
     for(const entry of this.data.entries)if(entry.state!=='restored')await this.current(entry);
   }
+  async verifyRestored(providers:Provider[]=this.data.entries.map(entry=>entry.provider)) {
+    for(const entry of this.data.entries.filter(entry=>providers.includes(entry.provider))) {
+      requireSafe(entry.state==='restored'&&canonical(entry.lastSpec)===canonical(entry.originalSpec),'CLEANUP');
+      const value=await this.current(entry);
+      requireSafe(value.state.phase==='Ready'&&value.state.mode===entry.originalMode&&value.state.maxModels===entry.originalCount&&
+        (entry.provider!=='nvidia'||value.state.backend===(entry.originalBackend==='dra'?'dra':'time-slicing')),'CLEANUP');
+    }
+  }
   private async current(entry: BorrowedEntry) {
     await this.assertHeld();
     const value = await this.adapter.read(entry.provider);

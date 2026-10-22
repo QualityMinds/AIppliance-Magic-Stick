@@ -24,8 +24,20 @@ UI mutation waits use the configured request timeout (normally 15 seconds),
 not the enclosing hour-long test timeout. A cancelled page proves a write was
 not submitted only when its guarded route never forwarded it. Lost responses
 after submission remain ambiguous. Normal interruption forwards the signal and
-allows two minutes for teardown; cleanup itself has a ten-minute ceiling and
+allows twelve minutes for leaf teardown before forced process-group termination;
+outer coordinators allow fourteen minutes and Kubernetes grants fifteen minutes.
+Cleanup itself has a ten-minute ceiling and
 attempts independently owned resources even if a borrowed-setting restore fails.
+
+`phase4` keeps its public invocation. Its sharing step discovers and validates
+the existing scenario/variant/layer matrix, then executes each scenario exactly
+once in its own sequential process (no parallel GPU work). Preparation, test and
+teardown have separate 10/60/10-minute budgets, with a hard 90-minute scenario
+process limit including shutdown/reporting. The 24-hour Kubernetes campaign
+deadline reserves its last thirty minutes for cancellation, cleanup and export.
+The private coordinator ledger records selected, started and completed scenarios;
+`HAR-10 / DEADLINE` at `runner-execution` identifies a global deadline even after
+an earlier prerequisite block. Unreached checks retain that failure cause.
 
 Guarded foundation and recovery operations verify the bound Dashboard user.
 Only an unauthenticated `/api/session` GET triggers one serialized renewal
@@ -65,6 +77,16 @@ If teardown already released the Lease, every durable journal must be restored
 and independent resource absence must still be proved. Ambiguous ownership or
 unfinished unsupported transactions keep subsequent live writes Blocked;
 independent isolated tests continue. The report records the recovery attempt.
+
+Cleanup clearance is derived from the exact root and all worker/model journals,
+borrowed settings, backend readiness and confirmed Lease release, not a report
+boolean or process exit. An independent absence/restoration check writes a private
+fingerprinted verification receipt; later journal writes invalidate it. Parent
+sessions finish only after their writer process group stops. Open/unreadable
+evidence retains the fence. The optional public `cleanup` state is separate from
+test outcome and account removal; old reports remain unchanged and missing fields
+are not a positive proof. Runner ledgers, journals and verification receipts stay
+private and are not added to downloadable archives.
 
 ## JUnit steps and portable report archives
 

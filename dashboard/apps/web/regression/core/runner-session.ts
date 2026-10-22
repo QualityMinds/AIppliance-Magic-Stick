@@ -6,7 +6,7 @@ import {ResourceJournal,newRunId} from './journal.ts';
 import {LabLease,type LeaseStore} from './lease.ts';
 import {progressEvent} from './progress.ts';
 
-export interface RunnerSession {version:1;runId:string;targetUid:string;state:'running'|'finished';updatedAt:string;interrupted:boolean}
+export interface RunnerSession {version:1;runId:string;targetUid:string;state:'running'|'finished';updatedAt:string;interrupted:boolean;processesStopped?:boolean}
 /** Parent-owned liveness receipt survives a killed Docker container. It is
  * separate from test evidence; completed never means the tests passed. */
 export async function runnerSession(directory:string,runId:string,targetUid:string) {
@@ -18,7 +18,7 @@ export async function runnerSession(directory:string,runId:string,targetUid:stri
   const heartbeat=new HeartbeatLoop(async()=>{
     value.updatedAt=new Date().toISOString();await writePrivate(filename,value);
   },10_000).start();
-  return {finish:async(interrupted=false)=>{await heartbeat.stop();value.state='finished';value.interrupted||=interrupted;
+  return {finish:async(interrupted=false,processesStopped=true)=>{await heartbeat.stop();value.state=processesStopped?'finished':'running';value.processesStopped=processesStopped;value.interrupted||=interrupted;
     value.updatedAt=new Date().toISOString();await writePrivate(filename,value);}};
 }
 
@@ -29,7 +29,7 @@ export async function recordedLeaseSession(store:LeaseStore,root:string,targetUi
   const runId=newRunId(),directory=join(root,runId);
   const journal=await ResourceJournal.create(join(directory,'journal.json'),runId,targetUid);
   const session=await runnerSession(directory,runId,targetUid);
-  const lease=new LabLease(store,runId,targetUid,Date.now,durationSeconds);
+  const lease=new LabLease(store,runId,targetUid,Date.now,durationSeconds,{journal});
   try {await lease.acquire(runId);}catch(error){await session.finish(true);throw error;}
   const heartbeat=new HeartbeatLoop(()=>lease.backgroundHeartbeat()).start();
   let closing:Promise<void>|undefined;

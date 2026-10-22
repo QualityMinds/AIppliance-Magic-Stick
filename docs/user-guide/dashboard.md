@@ -93,7 +93,11 @@ previous interrupted run separately first. A successful limited report does not
 certify complete phases or real model inference. The saved mode survives reload.
 
 The page shows current phase/check, progress and separate executable-scenario
-and case/layer counts. Expand **Failures and blocked checks** for the reason,
+and case/layer counts. It also separates **Tests**, **Resource cleanup**, and
+**Test account**: a finished Job or removed account does not prove resources were
+cleaned. Cleanup is `unknown`, `required`, `running`, `verified`, or `blocked`, with
+its recorded reason/stage. Missing fields in old reports mean not verified, not
+clean; retain the exact private journal for recovery. Expand **Failures and blocked checks** for the reason,
 phase, variant, check layer, stage, next action and available filtered trace
 location. **Blocked by prerequisite** means required hardware, access or fixtures
 are unavailable. **Blocked by failure** means an earlier test, preparation or

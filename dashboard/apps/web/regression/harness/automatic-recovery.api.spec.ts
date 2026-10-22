@@ -10,6 +10,7 @@ import {AutomaticRecovery} from '../core/automatic-recovery.ts';
 import {recoveryAdapters} from '../core/recovery-adapters.ts';
 import {readPrivate,writePrivate} from '../core/private-files.ts';
 import {requireSafe} from '../core/errors.ts';
+import {verifyReservationReleased} from '../core/cleanup-state.ts';
 
 /** Controlled no-resource crash drill. Only the registered lab Lease changes;
  * no model, module, key, account or sharing intent is created or borrowed. */
@@ -20,7 +21,9 @@ test('HAR-04 HAR-07 registered automatic recovery fences an expired exact owner 
   await observer.verifyConfiguration();const registration=await registeredLab(config,observer);
   const context=await realLogin(browser,config),runId=newRunId(),root=process.env.REGRESSION_OUTPUT_DIR,path=join(root,runId);
   const store=new KubernetesLeaseStore(config.lock.kubeconfig,config.lock.namespace,config.lock.name,config.requestTimeoutMs);
-  const owner=new LabLease(store,runId,registration.applianceUid,Date.now,120);let acquired=false,expired=false;
+  requireSafe(process.env.REGRESSION_RUN_DIR,'CONFIG');
+  const rootJournal=await ResourceJournal.resume(join(process.env.REGRESSION_RUN_DIR,'journal.json'),registration.applianceUid);
+  const owner=new LabLease(store,runId,registration.applianceUid,Date.now,120,{journal:rootJournal});let acquired=false,expired=false;
   try {
     await ResourceJournal.create(join(path,'journal.json'),runId,registration.applianceUid);
     // Explicit fixture lifecycle proof precedes the crash injection; a killed
@@ -34,6 +37,7 @@ test('HAR-04 HAR-07 registered automatic recovery fences an expired exact owner 
     expired=true;await expect(owner.assertHeld()).rejects.toMatchObject({code:'LOCK_LOST'});
     const plan=await AutomaticRecovery.prepare(root,await store.read(),registration);
     expect(await plan.execute(adapters)).toBe(runId);acquired=false;
+    await verifyReservationReleased(process.env.REGRESSION_RUN_DIR,registration,()=>store.read());
     expect(JSON.parse(await readPrivate(join(path,'automatic-recovery.json'))).state).toBe('released');
     requireSafe(!(await store.read()).spec.holderIdentity,'CLEANUP');
   } finally {

@@ -1,6 +1,30 @@
 import {test,expect,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 
+for(const viewport of ['desktop','mobile'] as const)for(const state of ['required','verified','legacy'] as const)
+test(`HAR-07 HAR-10 UX-02 ${viewport} separates ${state} resource cleanup from finished tests and account removal`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let writes=0;
+  const payload={registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:[{
+      id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),
+      phase:'Failed',phases:[4],message:'Historical test failure retained.',credentialsCleaned:true,reportAvailable:true,
+      ...(state!=='legacy'?{cleanup:{state,checkedAt:'2026-10-22T12:00:00Z',...(state==='required'?{reason:'CLEANUP',stage:'recovery-journal'}:{})}}:{}),
+      progress:{percent:100,completedPhases:1,totalPhases:1}}]};
+  await fixturePage(page,{'/api/regression':(request:Request)=>{if(request.method()!=='GET')writes++;return payload;}});
+  await page.goto(origin+'/#/system/status/regression');
+  const lifecycle=page.getByLabel('Run lifecycle');
+  await expect(lifecycle).toContainText('Tests: finished');await expect(lifecycle).toContainText('Test account: removed');
+  await expect(lifecycle).toContainText(`Resource cleanup: ${state==='legacy'?'unknown (legacy or not verified)':state}`);
+  if(state==='required') {
+    await expect(page.getByText(/Cleanup reason: CLEANUP/)).toContainText('recovery-journal');
+    await expect(page.getByRole('button',{name:'Start regression tests',exact:true})).toBeDisabled();
+  }
+  await page.reload();await expect(lifecycle).toBeVisible();expect(writes).toBe(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`cleanup-${viewport}-${state}.png`),fullPage:true});
+});
+
 for(const viewport of ['desktop','mobile'] as const)for(const selection of [[3],[3,5]])for(const testMode of ['non-destructive','full'] as const)
 test(`HAR-10 UX-02 ${viewport} ${testMode} starts only selected phases ${selection.join(',')} and retains their progress after reload`,async({page},info)=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});

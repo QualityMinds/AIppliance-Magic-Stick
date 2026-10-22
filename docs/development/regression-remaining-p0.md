@@ -148,6 +148,15 @@ continue after failures; unproved cleanup blocks later live writes. A campaign
 may clean up an exact finished child before continuing, retaining its original
 failure. The next invocation still starts tests from the beginning.
 
+Phase 4 runs sharing and multi-GPU scenarios one at a time. Each has its own
+60-minute test budget and ten-minute cleanup budget; earlier scenarios cannot
+use up a later one's test time. No extra configuration is needed.
+The page separates test completion, resource cleanup and account removal.
+Only `verified` resource cleanup proves a clean baseline. For `required` or
+`blocked`, keep the private journal and inspect its reason/stage; use **Clean up
+previous test run**, not a forced unlock. Old missing cleanup fields mean
+not verified. Successful cleanup never turns an old failed test into a pass.
+
 ## Results
 
 - **Passed:** the selected scenario ran and its assertions passed.

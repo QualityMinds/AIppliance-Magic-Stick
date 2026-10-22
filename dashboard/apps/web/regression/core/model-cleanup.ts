@@ -65,7 +65,10 @@ export class KubernetesModelCleaner extends KubectlObserver {
         await this.remove(entry.name, uid, entry.generation!);
       },
       verifyRemoved: async entry => {
-        validateEntry(entry, prefix);
+        // A conclusively rejected create owns no UID. It is still checked for
+        // independent absence, but can never pass the deletion preconditions.
+        if(entry.uid===null)requireSafe(entry.kind==='model'&&entry.name.startsWith(prefix)&&entry.state==='removed','OWNERSHIP');
+        else validateEntry(entry, prefix);
         await poll(async () => {
           await heartbeat();
           const [item, remaining] = await Promise.all([this.find(entry.name), readRemaining(entry.name)]);

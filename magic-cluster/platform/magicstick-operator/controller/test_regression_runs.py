@@ -275,6 +275,12 @@ class RegressionRunsTests(unittest.TestCase):
         job["status"] = {"conditions": [{"type": "Complete", "status": "True"}]}
         self.controller.report = lambda _: {"runUid": UID, "outcome": "Passed", "credentialRecoveryRequired": False}
         self.controller.reconcile(self.run)
+        self.assertTrue(self.run["status"]["credentialRecoveryRequired"], "A legacy flag does not prove resource cleanup")
+        self.assertEqual(self.run["status"]["cleanup"]["state"], "unknown")
+        self.run["status"] = {"phase": "Running"}
+        self.controller.report = lambda _: {"runUid": UID, "outcome": "Passed", "credentialRecoveryRequired": False,
+                                            "cleanup": {"state": "verified", "checkedAt": "2026-10-22T12:00:00Z"}}
+        self.controller.reconcile(self.run)
         self.assertFalse(self.run["status"]["credentialRecoveryRequired"])
 
     def test_export_failure_keeps_campaign_counts_and_verified_cleanup_state(self):
@@ -287,6 +293,7 @@ class RegressionRunsTests(unittest.TestCase):
         for recovery in (False, True):
             self.run["status"] = {"phase": "Running"}
             self.controller.report = lambda _: {"runUid": UID, "outcome": "Failed", "result": result,
+                                                "cleanup": {"state": "required" if recovery else "verified"},
                                                 "reportAvailable": False, "credentialRecoveryRequired": recovery}
             self.controller.reconcile(self.run)
             self.assertEqual(self.run["status"]["phase"], "Failed")
@@ -294,6 +301,12 @@ class RegressionRunsTests(unittest.TestCase):
             self.assertEqual(self.run["status"]["credentialRecoveryRequired"], recovery)
             self.assertFalse(self.run["status"]["reportAvailable"])
             self.assertIn("report export failed", self.run["status"]["message"])
+
+    def test_run_retains_twenty_four_hour_limit_and_fifteen_minute_teardown_grace(self):
+        self.controller.reconcile(self.run)
+        job = self.objects[JOBS + "/" + self.run["metadata"]["name"]]
+        self.assertEqual(job["spec"]["activeDeadlineSeconds"], 86400)
+        self.assertEqual(job["spec"]["template"]["spec"]["terminationGracePeriodSeconds"], 900)
 
     def test_separately_accepted_intent_waits_for_previous_account_cleanup(self):
         predecessor = copy.deepcopy(self.run)

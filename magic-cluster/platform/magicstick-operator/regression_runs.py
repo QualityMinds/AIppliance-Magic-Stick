@@ -45,7 +45,7 @@ class RegressionRuns:
             "backoffLimit": 0, "activeDeadlineSeconds": 86400, "ttlSecondsAfterFinished": 604800,
             "template": {"metadata": {"labels": {OWNER: uid, "app.kubernetes.io/name": "magicstick-regression"}},
                 "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False,
-                    "terminationGracePeriodSeconds": 180,
+                    "terminationGracePeriodSeconds": 900,
                     "nodeSelector": {"kubernetes.io/os": "linux", "kubernetes.io/arch": "amd64"},
                     "affinity": {"podAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": [{
                         "labelSelector": {"matchLabels": {"app": "magicstick-regression-reports"}},
@@ -197,10 +197,14 @@ class RegressionRuns:
                        "Runner failed before publishing its report. Check scheduling, storage and image availability.")
             self.status(run, phase=outcome, message=message,
                 progress=(progress or {}).get("progress", {}), result=(progress or {}).get("result"),
-                credentialRecoveryRequired=False if non_destructive else True if job_failed else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
+                cleanup=(progress or {}).get("cleanup", {"state": "unknown"}),
+                credentialRecoveryRequired=False if non_destructive else True if job_failed else
+                    (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)) or
+                    (progress or {}).get("cleanup", {}).get("state") != "verified",
                 reportAvailable=bool((progress or {}).get("reportAvailable")), finishedAt=self.f["now"]())
             return False
         self.status(run, phase="Running" if progress else "Starting", message=(progress or {}).get("message", "Waiting for the runner Pod to start."),
+            cleanup=(progress or {}).get("cleanup", {"state": "unknown"}),
             credentialRecoveryRequired=False if non_destructive else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
             progress=(progress or {}).get("progress", {}), result=(progress or {}).get("result"), reportAvailable=bool((progress or {}).get("reportAvailable")))
         return True

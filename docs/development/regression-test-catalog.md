@@ -577,6 +577,27 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+22 October 2026 CI follow-up: the exact-layer catalogue check also discovers the
+separate `auth-sessions` browser selection without running it or crediting its
+results to Phase 5. Dashboard build and browser workflows use the same source
+paths, including identity changes. The existing promotion contract rejects drift.
+
+22 October 2026, HAR-07/08/10, SLOT-09 and SHR-12 follow-up: Phase 4 now uses
+the existing discovered selection in separate sequential scenario processes,
+with independent execution/teardown budgets. The selected/started/completed
+ledger preserves interrupted evidence. Open root/worker/model journals override
+report flags; exact recovery and independent absence/backend/Lease checks produce
+fingerprinted cleanup receipts. Tests, resource cleanup and credential removal
+have separate status. Focused counterexamples live in
+[`execution-lifecycle.unit.spec.ts`](../../dashboard/apps/web/regression/harness/execution-lifecycle.unit.spec.ts),
+selected by `selftest` and `phase4-fast`; existing recovery/reporting, API/operator
+and regression-page fixtures cover the shared contract. Real short-lived child
+processes verify signals, timeout, delayed writers and teardown after a test
+timeout without GPUs. SHR-12 changes state before reload; HAR-08 changes borrowed
+state before restoration, so empty cleanup cannot certify either. This is source
+coverage, not a new installed acceptance: exact old-journal recovery, slot race,
+reload/restoration and then full Phase 4 still require an authorized rollout.
+
 21 October 2026 Remember-me follow-up: AUTH-01's
 `remember-me-policy-contract` is selected by Phase 1 `smoke-fast` and runs the
 owning [realm/migration counterexamples](../../magic-cluster/platform/identity/tests/test_remember_me.py).
