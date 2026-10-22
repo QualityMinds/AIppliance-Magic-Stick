@@ -686,6 +686,18 @@ Both files are selected by existing identity-unit and dashboard-browser CI.
 First-run setup remains outside the installed Phase 0–8 P0 campaign; this does
 not claim full AUTH-09 live handoff or physical installer acceptance.
 
+22 October 2026 AUTH-09 upgrade follow-up: the host's Flux bootstrap migrates
+only the owned single-replica setup Deployment before server-side apply. Owning
+[counterexamples](../../magic-host/roles/flux-bootstrap/tests/test_setup_strategy.py)
+cover absent/current/legacy state, foreign identity, stale or lost writes and
+unchanged Pod configuration. Public release checks select these tests plus the
+`setup-upgrade` job's [real API contract](../../magic-host/roles/flux-bootstrap/tests/setup_strategy_contract.py)
+on disposable Kind. It reproduces the retained `rollingUpdate` rejection
+(including explicit null), checks actual Kubernetes revision preconditions,
+migrates without replacing the UID, then repeats migration and Flux-like apply.
+It runs with zero replicas and is not installed Phase 0–8 or physical setup
+acceptance. External GitOps upgrades use the documented identity recovery path.
+
 18 October 2026 license follow-up: LIC-02 previews both supported editions without
 activation; LIC-03 independently verifies invalid-document rejection and unchanged
 active state; LIC-04 alone tests activation, stale CAS and API-restart persistence.

@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Migrate legacy setup Deployments from `RollingUpdate` to `Recreate` before
+  Flux applies identity updates. Clear retained rollout fields with UID/version
+  preconditions, preserving the Deployment, Pod template and setup state.
+  Repeat convergence is a no-op; foreign ownership and stale writes are refused.
+
 - Preserve the mounted Remember-me migration script during Flux post-build
   substitution, so shell variables cannot block identity and dependent Dashboard
   or regression rollouts. Add actual strict Flux build counterexamples while

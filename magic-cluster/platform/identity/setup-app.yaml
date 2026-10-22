@@ -22,6 +22,8 @@ spec:
   replicas: 1
   # Completion is serialized by the single setup server. Do not overlap old
   # and new servers during a ConfigMap reload; all browser sessions are durable.
+  # flux-bootstrap migrates legacy RollingUpdate fields before Flux SSA; an
+  # explicit rollingUpdate: null alone does not remove them with that API.
   strategy:
     type: Recreate
   selector:
