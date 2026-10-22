@@ -71,6 +71,10 @@ It runs only the old-run cleanup, not any test phases. Normal Start still cleans
 up automatically when needed. If cleanup is blocked, inspect its reason and
 stage: `recovery-journal`, `recovery-resource`, `recovery-module`,
 `recovery-sharing`, or `gpu-validation` identifies the failed operation.
+`gpu-backend` identifies a wait for the original GPU allocator to become ready.
+The outer cleanup deadline preserves that current step rather than replacing it
+with a generic `cleanup` stage. Keep the journal and resolve the reported backend
+condition; a timeout is never permission to release its lock.
 Retained setup access can need cleanup even when the test lock is already free.
 The button handles that state too. Its adjacent explanation distinguishes
 already clean, active work and missing ownership evidence; disabled never
