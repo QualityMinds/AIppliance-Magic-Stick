@@ -1,7 +1,7 @@
 import {readFileSync,readdirSync} from 'node:fs';
 import {join} from 'node:path';
 
-export interface ProcessMember {pid:number;group:number;session:number;state:string;started:string}
+export interface ProcessMember {pid:number;group:number;session:number;state:string;started:string;threads?:number}
 export interface ProcessGroupState {state:'stopped'|'live'|'unknown';members:ProcessMember[];detail?:'unreadable'|'identity'|'overflow'}
 const gone=(error:unknown)=>['ENOENT','ESRCH'].includes((error as NodeJS.ErrnoException).code??'');
 
@@ -19,8 +19,8 @@ export function processBirth(pid:number,root='/proc'):string|undefined {
   catch{return;}
 }
 
-/** kill(pgid,0) also succeeds for zombies. Only Z/X are incapable of future
- * writes; sleeping, stopped and uninterruptible workers remain live. An
+/** kill(pgid,0) also succeeds for zombies. Only fully exited single-thread
+ * remnants count as stopped; sleeping, stopped and uninterruptible workers remain live. An
  * incomplete inventory is never proof of termination. The birth check stops
  * a recycled leader PID from authorizing signals to an unrelated group. */
 export function inspectLinuxGroup(pid:number,started:string|undefined,root='/proc'):ProcessGroupState {
@@ -46,6 +46,19 @@ function scanLinuxGroup(pid:number,started:string|undefined,root:string):Process
       if(member.pid!==Number(name))throw new Error('Invalid process identity.');
       if(member.group!==pid)continue;
       if(member.session!==pid||member.pid===pid&&member.started!==started)return {state:'unknown',members,detail:'identity'};
+      if(['Z','X','x'].includes(member.state)) {
+        // A thread-group leader can be Z after pthread_exit while other
+        // threads still execute. Z alone is not a whole-process death proof.
+        let status:string;
+        try {status=readFileSync(join(root,name,'status'),'utf8');}
+        catch(error){
+          if(gone(error))try {readFileSync(join(root,name,'stat'),'utf8');}catch(statError){if(gone(statError))continue;}
+          throw error;
+        }
+        const threads=Number(/^Threads:\s+(\d+)\s*$/m.exec(status)?.[1]);
+        if(!Number.isSafeInteger(threads)||threads<1)throw new Error('Unreadable thread state.');
+        member.threads=threads;
+      }
       if(members.length>=128)return {state:'unknown',members,detail:'overflow'};
       members.push(member);
     }
@@ -55,6 +68,6 @@ function scanLinuxGroup(pid:number,started:string|undefined,root:string):Process
       if(leader.pid!==pid||leader.started!==started||leader.group!==pid||leader.session!==pid)return {state:'unknown',members,detail:'identity'};
     }catch(error){if(!gone(error))throw error;}
     if(members.length&&!started)return {state:'unknown',members,detail:'identity'};
-    return {state:members.some(member=>!['Z','X','x'].includes(member.state))?'live':'stopped',members};
+    return {state:members.some(member=>!['Z','X','x'].includes(member.state)||(member.threads??1)>1)?'live':'stopped',members};
   }catch{return {state:'unknown',members,detail:'unreadable'};}
 }

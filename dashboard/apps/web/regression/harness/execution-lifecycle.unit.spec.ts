@@ -251,16 +251,18 @@ function stat(pid:number,state:string,group=41,session=41,started='12345') {
 }
 test('HAR-07 HAR-10 Linux termination distinguishes zombies from sleeping stopped and uninterruptible writers',async()=>fixture(async root=>{
   await writePrivate(join(root,'1/stat'),stat(1,'I',0,0)); // Unrelated kernel task.
+  await writePrivate(join(root,'42/status'),'Threads:\t1\n');
   for(const state of ['Z','X','x','R','S','D','T','t']) {
     await writePrivate(join(root,'42/stat'),stat(42,state));
     const result=inspectLinuxGroup(41,'12345',root);
     expect(result.state).toBe(['Z','X','x'].includes(state)?'stopped':'live');
-    expect(result.members).toEqual([{pid:42,group:41,session:41,state,started:'12345'}]);
+    expect(result.members).toMatchObject([{pid:42,group:41,session:41,state,started:'12345'}]);
   }
   expect(processStat(stat(42,'S')).started).toBe('12345');
 }));
 test('HAR-07 HAR-10 unreadable process evidence or a recycled group cannot release the cleanup fence',async()=>fixture(async root=>{
   await writePrivate(join(root,'42/stat'),stat(42,'Z'));
+  await writePrivate(join(root,'42/status'),'Threads:\t1\n');
   expect(inspectLinuxGroup(41,undefined,root)).toMatchObject({state:'unknown',detail:'identity'});
   await writePrivate(join(root,'41/stat'),stat(41,'S',41,41,'67890'));
   expect(inspectLinuxGroup(41,'12345',root)).toMatchObject({state:'unknown',detail:'identity'});
@@ -268,6 +270,16 @@ test('HAR-07 HAR-10 unreadable process evidence or a recycled group cannot relea
   await writePrivate(join(root,'43/stat'),'invalid stat');
   expect(inspectLinuxGroup(41,'12345',root)).toMatchObject({state:'unknown',detail:'unreadable'});
   expect(inspectLinuxGroup(41,'12345',join(root,'missing'))).toMatchObject({state:'unknown',detail:'unreadable'});
+}));
+
+test('HAR-07 HAR-10 an exited Linux thread leader cannot hide still-running threads',async()=>fixture(async root=>{
+  await writePrivate(join(root,'42/stat'),stat(42,'Z'));
+  await writePrivate(join(root,'42/status'),'Threads:\t2\n');
+  expect(inspectLinuxGroup(41,'12345',root)).toMatchObject({state:'live',members:[{pid:42,state:'Z',threads:2}]});
+  for(const status of ['Threads:\t0\n','missing thread evidence']) {
+    await writePrivate(join(root,'42/status'),status);
+    expect(inspectLinuxGroup(41,'12345',root)).toMatchObject({state:'unknown',detail:'unreadable'});
+  }
 }));
 
 test('HAR-07 HAR-10 real Linux zombie-only group finishes without a false infrastructure error',async()=>{
@@ -303,6 +315,26 @@ time.sleep(0.4)
   const {readFile}=await import('node:fs/promises'); // Synthetic Python output, not a private credential.
   expect(Number(await readFile(marker,'utf8'))).toBe(child.child.pid);
   expect(result.processState.members).toEqual([]);
+  // pthread_exit can leave the process leader in Z while its worker thread is
+  // still able to write. Verify the real kernel shape, not only synthetic stat.
+  const threaded=join(directory,'thread-finished.json');
+  const script=`import ctypes,threading,time
+def work():
+    time.sleep(0.4)
+    with open(${JSON.stringify(threaded)},'w') as out: out.write('worker finished')
+threading.Thread(target=work).start()
+ctypes.CDLL(None).pthread_exit(None)
+`;
+  const worker=supervisedProcess('python3',['-c',script],{stdio:'ignore'},{hardTimeoutMs:3000,drainMs:100});
+  let observed=false;
+  for(let attempt=0;attempt<30;attempt++) {
+    const state=inspectLinuxGroup(worker.child.pid!,worker.identity.started);
+    if(state.members.some(member=>member.state==='Z')){expect(state.state).toBe('live');observed=true;break;}
+    await new Promise(r=>setTimeout(r,10));
+  }
+  expect(observed,'The real pthread_exit leader must not certify stopped workers').toBe(true);
+  expect(await worker.finished).toMatchObject({exitCode:0,processesStopped:true,forced:false});
+  expect(await readFile(threaded,'utf8')).toBe('worker finished');
 }));
 
 test('HAR-08 HAR-10 a real Playwright teardown fixture retains its own budget after the test times out',async()=>fixture(async directory=>{
