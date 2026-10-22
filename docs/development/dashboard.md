@@ -107,6 +107,14 @@ Optional `cleanup` status is independent of test outcome and `credentialsCleaned
 The runner verifies exact root/worker journals and borrowed settings before
 reporting `verified`; missing legacy evidence stays unknown. The API preserves
 the run-owned account for unverified mutating cleanup, even after Job termination.
+The main **All checks** metrics use complete `result.counts` and `blockedCounts`.
+Closed **Executable scenarios** details use `executionCounts` and
+`executionBlockedCounts`; live `evidenceCounts` and phases stay separate.
+Never reconstruct global totals from overlapping phases or the limited case list.
+Missing final counts remain unavailable; only explicitly preliminary scenario
+progress may be shown. 100% denotes completed execution, not a passing outcome.
+New HTML/text exports use this same evidence-first order; JSON/JUnit meanings
+and stored historical reports stay unchanged.
 The start dialog selects one or more P0 phases (0–8, all by default) through the
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic

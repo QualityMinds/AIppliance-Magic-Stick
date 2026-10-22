@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import type {RegressionBlockedCounts,RegressionPhase,RegressionResult,RegressionRun,RegressionTestMode} from '@magicstick/dashboard-contracts';
+import type {RegressionBlockedCounts,RegressionCounts,RegressionPhase,RegressionResult,RegressionRun,RegressionTestMode} from '@magicstick/dashboard-contracts';
 import {regressionBlockedKind,regressionBlockedLabel,regressionBlockedSummary} from '@magicstick/dashboard-core';
 import {api} from '../api';
 import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, StatusBadge} from '../components';
@@ -21,6 +21,19 @@ const allPhases = phaseOptions.map(option => option.phase);
 const timestamp = (value?: string) => value ? new Date(value).toLocaleString() : '—';
 const BlockedBreakdown = ({counts,total}: {counts?: RegressionBlockedCounts;total: number}) =>
   total===0 ? null : counts ? <small>{regressionBlockedSummary(counts)}</small> : <small>Cause breakdown unavailable for this older run.</small>;
+const recordedCounts = (value:unknown):value is RegressionCounts => Boolean(value && typeof value==='object' &&
+  (['Passed','Failed','Blocked'] as const).every(outcome=>{
+    const count=(value as Record<string,unknown>)[outcome];
+    return typeof count==='number' && Number.isSafeInteger(count) && count>=0;
+  }));
+const OutcomeMetrics = ({counts,blockedCounts,label,unit}: {
+  counts:RegressionCounts;blockedCounts?:RegressionBlockedCounts;label:string;unit:string;
+}) => <div className="metric-grid three" aria-label={label}>
+  {(['Passed','Failed','Blocked'] as const).map(outcome=><article className="metric" key={outcome}>
+    <span>{outcome}</span><strong>{counts[outcome]}</strong><small>{unit}</small>
+    {outcome==='Blocked'&&<BlockedBreakdown counts={blockedCounts} total={counts.Blocked}/>}
+  </article>)}
+</div>;
 const CaseBadge = ({row}: {row:RegressionResult['cases'][number]}) => {
   if(row.outcome!=='Blocked')return <StatusBadge phase={row.outcome}/>;
   const kind=row.blockedBy?.kind ?? (row.reason==='PREREQUISITE'&&!row.executionId?'unknown':regressionBlockedKind(row.reason));
@@ -31,7 +44,12 @@ const Result = ({run}: {run: RegressionRun}) => {
   const [downloading, setDownloading] = useState(false);
   const percent = Math.max(0, Math.min(100, run.progress.percent ?? 0));
   const totalPhases = run.progress.totalPhases ?? run.phases.length;
-  const counts = run.result?.executionCounts ?? run.progress.executionCounts;
+  // Report totals include evidence outside executable scenarios (for example,
+  // setup/runner/cleanup failures). Never infer them from progress or a limited
+  // non-passing case list, nor sum overlapping phase results.
+  const counts = recordedCounts(run.result?.counts) ? run.result.counts : undefined;
+  const executionCounts = recordedCounts(run.result?.executionCounts) ? run.result.executionCounts :
+    !run.result && recordedCounts(run.progress.executionCounts) ? run.progress.executionCounts : undefined;
   const executionBlockedCounts=run.result ? run.result.executionBlockedCounts : run.progress.executionBlockedCounts;
   const preparation=run.result?.preparation;
   const download = async (kind: 'archive' | 'html' | 'junit') => {
@@ -63,12 +81,20 @@ const Result = ({run}: {run: RegressionRun}) => {
       <div className="progress-track"><span style={{width: `${percent}%`}} /></div>
     </div>
     <p className="muted">{run.operation === 'recover-lock' ? 'Cleanup only: verify the old journal, restore owned resources and release its exact lock. No test phases are selected.' : `${run.progress.completedPhases ?? 0} / ${totalPhases} ${totalPhases === 1 ? 'phase' : 'phases'} finished. Progress reflects completed test steps, not an estimated time.`}</p>
+    <p className="muted">100% means execution finished, not passed.</p>
     {run.progress.step && <p>Current step: <code>{run.progress.step}</code> · {run.progress.testIndex ?? 0} / {run.progress.testTotal ?? 0} scenarios</p>}
     {!terminal.has(run.phase) && run.progress.currentTest && <p aria-live="polite">{run.progress.currentTest}</p>}
-    {counts && <div className="metric-grid" aria-label={run.operation === 'recover-lock' ? 'Cleanup check results' : 'Executable scenario results'}>
-      {(['Passed', 'Failed', 'Blocked'] as const).map(outcome => <article className="metric" key={outcome}><span>{outcome}</span><strong>{counts[outcome]}</strong><small>{run.operation === 'recover-lock' ? 'cleanup checks' : 'executable scenarios'}</small>
-        {outcome==='Blocked'&&<BlockedBreakdown counts={executionBlockedCounts} total={counts.Blocked}/>}</article>)}
-    </div>}
+    {counts ? <>
+      <h3>All checks</h3>
+      <p className="muted">Case / variant / layer evidence · isolated + live</p>
+      <OutcomeMetrics counts={counts} blockedCounts={run.result?.blockedCounts} label="All checks" unit="check evidence"/>
+    </> : <p className="muted" aria-label="All checks availability">All-check totals are not available{terminal.has(run.phase)?' for this run':' yet'}.
+      {executionCounts?' Only preliminary executable scenario counts are available.':' No final totals were reported.'}</p>}
+    {executionCounts && <details><summary>Executable scenarios</summary>
+      {!counts&&<p className="muted">Preliminary executable scenario counts; these are not all-check totals.</p>}
+      <p className="muted">One executable scenario can produce several check results. Runner and cleanup errors without a scenario ID are included in All checks, not added as executed scenarios.</p>
+      <OutcomeMetrics counts={executionCounts} blockedCounts={executionBlockedCounts} label="Executable scenario results" unit="executable scenarios"/>
+    </details>}
     <p aria-label="Run lifecycle">Tests: {terminal.has(run.phase)?'finished':'in progress'} · Resource cleanup: {run.cleanup?.state??run.result?.cleanup?.state??'unknown (legacy or not verified)'} · Test account: {run.credentialsCleaned?'removed':'not yet removed'}</p>
     {(run.cleanup?.reason||run.cleanup?.stage)&&<p className="muted">Cleanup reason: {run.cleanup.reason??'not recorded'}{run.cleanup.stage?` · ${run.cleanup.stage}`:''}</p>}
     {(run.result?.recoveryRequired||run.cleanup&&run.cleanup.state!=='verified'&&terminal.has(run.phase)) && <div role="alert" className="notice notice-error">Resource cleanup could not be verified. Removing the test account or finishing the tests does not prove a clean baseline. Use Clean up previous test run or start a full run for exact journal recovery; old test results are never reused.</div>}
@@ -76,7 +102,7 @@ const Result = ({run}: {run: RegressionRun}) => {
     {!!run.result?.phases.length && <div className="table-wrap"><table><caption>Phase results · case / variant / layer evidence</caption><thead><tr><th>Phase</th><th>Outcome</th><th>Passed</th><th>Failed</th><th>Blocked</th></tr></thead><tbody>
       {run.result.phases.map(row => <tr key={row.phase}><td>{row.phase}</td><td><StatusBadge phase={row.outcome} /></td><td>{row.counts.Passed}</td><td>{row.counts.Failed}</td><td>{row.counts.Blocked}<div><BlockedBreakdown counts={row.blockedCounts} total={row.counts.Blocked}/></div></td></tr>)}
     </tbody></table></div>}
-    {!!run.result?.counts.Blocked&&<p className="muted">Blocked evidence (case / variant / layer): {run.result.blockedCounts ? regressionBlockedSummary(run.result.blockedCounts) : 'Cause breakdown unavailable for this older report.'}</p>}
+    {!!counts?.Blocked&&<p className="muted">Blocked evidence (case / variant / layer): {run.result?.blockedCounts ? regressionBlockedSummary(run.result.blockedCounts) : 'Cause breakdown unavailable for this older report.'}</p>}
     {!!run.result?.cases.length && <details><summary>Failures and blocked checks ({run.result.cases.length}{run.result.omittedCases ? ` shown; ${run.result.omittedCases} more in the report` : ''})</summary><div className="list">
       {run.result.cases.map((row, index) => <article className="list-row" key={`${row.id}-${index}`}><div><strong>{row.id} · {row.layer} · {row.variant}</strong>
         {row.description && <p>{row.description}</p>}

@@ -61,8 +61,11 @@
   lock is already free; disabled actions explain their blocking condition.
   Distinguish missing prerequisites from checks blocked by an earlier failure,
   with the original blocking check and trace when recorded.
-  Automatic preparation failures show their setup stage and next action; fixture
-  and live evidence counts are displayed separately.
+  Automatic preparation failures show their setup stage and next action.
+  **All checks** includes isolated and live evidence, including runner and cleanup
+  errors; **Executable scenarios** has separate, initially closed details.
+  Live evidence stays separately labelled. Missing final totals are not shown as
+  zero failures; 100% progress means execution finished, not passed.
   A report-download export failure retains completed results and does not by
   itself require cleanup or repeating the tests.
   Each full start cleans up the previous run and begins again with a fresh test ID.

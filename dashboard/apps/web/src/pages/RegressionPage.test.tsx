@@ -2,7 +2,8 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {render, screen, waitFor, within, act} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import type {RegressionRun, RegressionStatus, Session} from '@magicstick/dashboard-contracts';
+import type {RegressionCounts, RegressionRun, RegressionStatus, Session} from '@magicstick/dashboard-contracts';
+import {reportCountsFixture} from '../../regression/fixtures/regression-results';
 import {RegressionPage} from './RegressionPage';
 import {allowedStatusSections, isStatusSection} from './SystemPage';
 import {api} from '../api';
@@ -28,6 +29,71 @@ beforeEach(() => {
 });
 
 describe('In-Appliance regression tests', () => {
+  it('puts all checks first, including runner and cleanup failures without scenario IDs',async()=>{
+    const result=reportCountsFixture();
+    data.runs=[{...run(),phase:'Failed',phases:[0],result,reportAvailable:true,
+      progress:{percent:100,completedPhases:1,totalPhases:1}}];
+    const original=structuredClone(data.runs[0]),client=mount();
+    const checks=await screen.findByLabelText('All checks');
+    for(const value of ['441','3','18'])expect(within(checks).getByText(value,{selector:'strong'})).toBeVisible();
+    expect(checks).toHaveTextContent('1 by prerequisite · 17 by failure');
+    expect(screen.getByText('Case / variant / layer evidence · isolated + live')).toBeVisible();
+    const toggle=screen.getByText('Executable scenarios',{selector:'summary'});
+    expect(toggle.closest('details')).not.toHaveAttribute('open');
+    const scenarios=screen.getByLabelText('Executable scenario results');expect(scenarios).not.toBeVisible();
+    await userEvent.click(toggle);expect(scenarios).toBeVisible();
+    for(const value of ['345','0','1'])expect(within(scenarios).getByText(value,{selector:'strong'})).toBeVisible();
+    expect(scenarios).toHaveTextContent('1 by prerequisite · 0 by failure');
+    expect(screen.getByLabelText('Live evidence results')).toHaveTextContent('8 passed · 3 failed · 18 blocked');
+    expect(screen.getByText('100% means execution finished, not passed.')).toBeVisible();
+    await act(async()=>{await client.refetchQueries({queryKey:['regression']});});
+    expect(data.runs[0]).toEqual(original);
+    expect(api.startRegression).not.toHaveBeenCalled();expect(api.cancelRegression).not.toHaveBeenCalled();
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  it('uses complete report totals, not summed phases or the limited non-passing case list',async()=>{
+    const result=reportCountsFixture();
+    result.phases.push({...structuredClone(result.phases[0]!),phase:4});
+    result.cases=result.cases.slice(0,1);result.omittedCases=20;
+    data.runs=[{...run(),phase:'Failed',phases:[0,4],result}];mount();
+    const checks=await screen.findByLabelText('All checks');
+    expect(within(checks).getByText('441',{selector:'strong'})).toBeVisible();
+    expect(within(checks).getByText('3',{selector:'strong'})).toBeVisible();
+    expect(within(checks).queryByText('882')).toBeNull();
+    expect(screen.getByText('Failures and blocked checks (1 shown; 20 more in the report)')).toBeVisible();
+  });
+  for(const phase of ['Running','Failed'] as const)it(`labels ${phase} scenario counts as preliminary when final totals are unavailable`,async()=>{
+    data.runs=[{...run(),phase,result:undefined}];mount();
+    expect(await screen.findByLabelText('All checks availability')).toHaveTextContent('All-check totals are not available');
+    expect(screen.queryByLabelText('All checks')).toBeNull();
+    await userEvent.click(screen.getByText('Executable scenarios',{selector:'summary'}));
+    expect(screen.getByText('Preliminary executable scenario counts; these are not all-check totals.')).toBeVisible();
+    const scenarios=screen.getByLabelText('Executable scenario results');
+    for(const value of ['20','1','2'])expect(within(scenarios).getByText(value,{selector:'strong'})).toBeVisible();
+    expect(api.startRegression).not.toHaveBeenCalled();expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  for(const counts of [undefined,{Passed:441,Blocked:18},{Passed:441,Failed:-1,Blocked:18},
+    {Passed:441,Failed:'3',Blocked:18}] as unknown[])it(`does not manufacture final zeros from missing or invalid legacy totals ${JSON.stringify(counts)}`,async()=>{
+    data.runs=[{...run(),phase:'Failed',result:{...reportCountsFixture(),counts:counts as RegressionCounts}}];mount();
+    expect(await screen.findByLabelText('All checks availability')).toHaveTextContent('All-check totals are not available');
+    expect(screen.queryByLabelText('All checks')).toBeNull();
+    await userEvent.click(screen.getByText('Executable scenarios',{selector:'summary'}));
+    expect(screen.getByText('Preliminary executable scenario counts; these are not all-check totals.')).toBeVisible();
+  });
+  it('does not substitute stale progress for absent final scenario totals in an older report',async()=>{
+    const result=reportCountsFixture();result.executionCounts=undefined as unknown as RegressionCounts;
+    data.runs=[{...run(),phase:'Failed',result}];mount();
+    expect(await screen.findByLabelText('All checks')).toHaveTextContent('441');
+    expect(screen.queryByLabelText('Executable scenario results')).toBeNull();
+    expect(screen.queryByText('Executable scenarios',{selector:'summary'})).toBeNull();
+  });
+  it('keeps a genuinely recorded all-zero report distinct from missing final totals',async()=>{
+    data.runs=[{...run(),phase:'Failed',result:{...reportCountsFixture(),counts:{Passed:0,Failed:0,Blocked:0},
+      cases:[],phases:[],evidenceCounts:undefined,blockedCounts:undefined}}];mount();
+    expect(await screen.findByLabelText('All checks')).toHaveTextContent('check evidence');
+    expect(within(screen.getByLabelText('All checks')).getAllByText('0',{selector:'strong'})).toHaveLength(3);
+    expect(screen.queryByLabelText('All checks availability')).toBeNull();
+  });
   it('selects a server-advertised diagnostic with full Phase 4, locks phase edits and sends only its ID',async()=>{
     data.diagnosticSelections=[{id:'slot-race',title:'Last GPU slot race',caseIds:['SLOT-09'],phase:4}];
     mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
@@ -404,6 +470,9 @@ describe('In-Appliance regression tests', () => {
           stage:'report-export',message:'Sanitized report export failed; recorded test results were retained.',
           action:'Inspect report size and storage; do not force recovery.',durationMs:0}]}}];
     mount();expect(await screen.findByText(/Execution finished, but report export failed/)).toBeVisible();
+    const checks=screen.getByLabelText('All checks');
+    for(const value of ['4532','17','145'])expect(within(checks).getByText(value,{selector:'strong'})).toBeVisible();
+    await userEvent.click(screen.getByText('Executable scenarios',{selector:'summary'}));
     expect(screen.getByLabelText('Executable scenario results')).toHaveTextContent('3402');
     expect(screen.getByRole('button',{name:'Download report'})).toBeDisabled();
     expect(screen.getByRole('button',{name:'Start regression tests'})).toBeEnabled();
@@ -422,6 +491,7 @@ describe('In-Appliance regression tests', () => {
     expect(preparation).toHaveTextContent('input-validation');expect(preparation).toHaveTextContent('REVISION');
     expect(preparation).toHaveTextContent('Check the installed image and source revisions');
     expect(preparation).toHaveTextContent('Passed isolated checks are not live acceptance');
+    expect(within(screen.getByLabelText('All checks')).getByText('1',{selector:'strong'})).toBeVisible();
     expect(screen.getByLabelText('Live evidence results')).toHaveTextContent('0 passed · 1 failed · 30 blocked');
     expect(screen.getByRole('button',{name:'Download report'})).toBeEnabled();
     expect(api.startRegression).not.toHaveBeenCalled();expect(api.recoverRegressionLock).not.toHaveBeenCalled();
@@ -429,7 +499,8 @@ describe('In-Appliance regression tests', () => {
   it('shows live blocked counts by prerequisite and failure without changing the total', async () => {
     data.runs=[{...run(),progress:{...run().progress,
       executionBlockedCounts:{prerequisite:1,failure:1,cancelled:0,unknown:0}}}];
-    mount();const metrics=await screen.findByRole('generic',{name:'Executable scenario results'});
+    mount();await userEvent.click(await screen.findByText('Executable scenarios',{selector:'summary'}));
+    const metrics=screen.getByLabelText('Executable scenario results');
     expect(within(metrics).getByText('1 by prerequisite · 1 by failure')).toBeVisible();
     expect(within(metrics).getByText('2',{selector:'strong'})).toBeVisible();
   });
@@ -461,7 +532,7 @@ describe('In-Appliance regression tests', () => {
     }}];
     mount();await screen.findByText('Failures and blocked checks (3)');await userEvent.click(screen.getByText('Failures and blocked checks (3)'));
     expect(screen.getAllByText('Blocked — cause unknown')).toHaveLength(2);expect(screen.getByText('Blocked by cancellation')).toBeVisible();
-    expect(screen.getByText('Cause breakdown unavailable for this older run.')).toBeVisible();
+    expect(within(screen.getByLabelText('All checks')).getByText('Cause breakdown unavailable for this older run.')).toBeVisible();
   });
   it('can start verified recovery without asking for the original credentials or clearing a lock', async () => {
     data.runs = [{...run(), phase: 'Cancelled', credentialsCleaned: false}]; data.recoveryAvailable = true;

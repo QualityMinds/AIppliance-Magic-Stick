@@ -310,10 +310,12 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `<p>${xml(selectionText)}</p>`+(omittedSteps.length?`<details><summary>Not selected in this mode (${omittedSteps.length} steps)</summary><ul>${omittedSteps.map(step=>`<li>${xml(step)}</li>`).join('')}</ul></details>`:'')+
     (prepared ? `<p>${xml(preparationDescription(prepared))}${prepared.outcome==='Passed'?'':' '+xml(reasons[prepared.reason ?? 'PREREQUISITE'])}</p>` : '')+
     `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
-    `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
-    `<p>Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}.</p>`+
+    '<h2>All checks</h2><p>Case / variant / layer evidence · isolated + live</p>'+
     `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+
     `<p>Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}.</p>`+
+    '<details><summary>Executable scenarios</summary>'+
+    `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (runner/cleanup errors, missing or legacy evidence).</p>`+
+    `<p>Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}.</p></details>`+
     `<p>Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.</p>`+
     (cleanup?`<p>Resource cleanup: ${xml(cleanup.state)}${cleanup.reason?' ('+xml(cleanup.reason)+')':''}${cleanup.stage?' ['+xml(cleanup.stage)+']':''}. Test-account removal is separate and follows runner termination.</p>`:'')+
     recoveryAttempts.map(item=>`<p>Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.</p>`).join('')+
@@ -334,6 +336,13 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   await writePrivate(join(directory, 'summary.txt'), `Magic Stick selected regression cases: ${summary.acceptable ? 'PASSED' : 'NOT ACCEPTED'}\n` +
     selectionText+'\n'+(omittedSteps.length?'Not selected in this mode: '+omittedSteps.join(', ')+'\n':'')+
     (prepared ? preparationDescription(prepared)+'\n' : '')+
+    'All checks\nCase / variant / layer evidence · isolated + live\n'+
+    `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
+    `Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}\n`+
+    'Executable scenarios\n'+
+    `Recorded executable scenarios: ${executionCounts.Passed} passed; ${executionCounts.Failed} failed; ${executionCounts.Blocked} blocked.\n`+
+    `Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}\n`+
+    `Evidence rows without executable scenario ID (runner/cleanup errors, missing or legacy evidence): ${safe.filter(item=>!item.executionId).length}\n`+
     `Full Phase 0 P0 gate: ${!limited && mode === 'phase0' ? fullPhase0Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Full Phase 1 P0 gate: ${!limited && mode === 'phase1' ? fullPhase1Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Full Phase 2 P0 gate: ${!limited && mode === 'phase2' ? fullPhase2Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
@@ -344,11 +353,6 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `Scope: ${safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning layers only'}\n` +
     'Catalogue goals describe case families; Passed applies only to the recorded variant, layer and environment.\n' +
     `Excluded experimental engine tests: ${disabledExperimentalEngines.join(', ')}. Product engines are unchanged.\n`+
-    `Recorded executable scenarios: ${executionCounts.Passed} passed; ${executionCounts.Failed} failed; ${executionCounts.Blocked} blocked.\n`+
-    `Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}\n`+
-    `Evidence rows without executable scenario ID (missing or legacy evidence): ${safe.filter(item=>!item.executionId).length}\n`+
-    `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
-    `Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}\n`+
     `Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.\n`+
     (cleanup?`Resource cleanup: ${cleanup.state}${cleanup.reason?' ('+cleanup.reason+')':''}${cleanup.stage?' ['+cleanup.stage+']':''}. Test-account removal is separate and follows runner termination.\n`:'')+
     recoveryAttempts.map(item=>`Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.\n`).join('')+

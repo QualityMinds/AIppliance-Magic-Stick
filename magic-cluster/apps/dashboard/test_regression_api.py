@@ -102,6 +102,25 @@ class RegressionApiTests(unittest.TestCase):
     def start(self, request="1"*32):
         return self.service.start(ACTOR, {"requestId": request, "acknowledgeDisruption": True})
 
+    def test_view_preserves_all_check_and_scenario_totals_without_recounting_cases_or_phases(self):
+        counts = {"Passed": 441, "Failed": 3, "Blocked": 18}
+        scenarios = {"Passed": 345, "Failed": 0, "Blocked": 1}
+        report = {"counts": counts, "executionCounts": scenarios,
+                  "evidenceCounts": {"fixture": {"Passed": 433, "Failed": 0, "Blocked": 0},
+                                     "live": {"Passed": 8, "Failed": 3, "Blocked": 18}},
+                  "cases": [{"id": "HAR-10", "outcome": "Failed", "reason": "UNEXPECTED"}],
+                  "omittedCases": 20, "phases": [{"phase": phase, "counts": counts} for phase in [0, 4]]}
+        saved = {"metadata": {"name": "regression-" + "1"*32, "uid": UID}, "spec": {"phases": [0, 4]},
+                 "status": {"phase": "Failed", "result": report, "progress": {"executionCounts": scenarios}}}
+        original = copy.deepcopy(saved)
+        view = self.service.view(saved)
+        self.assertEqual(view["result"], report)
+        self.assertEqual(view["result"]["counts"], counts)
+        self.assertEqual(view["result"]["executionCounts"], scenarios)
+        self.assertNotIn("executionId", view["result"]["cases"][0])
+        self.assertEqual(saved, original)
+        self.assertEqual(self.writes, [])
+
     def diagnostic(self):
         self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]["diagnosticSelectionVersion"] = "1"
         self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"] = {"data": {"diagnostics.json":

@@ -319,9 +319,11 @@ try {
     const counts={Passed:0,Failed:0,Blocked:0};for(const item of collected)if(Object.hasOwn(counts,item.outcome))counts[item.outcome]++;
     await writePrivate(join(directory,'all-summary.txt'),(nonDestructive?'Magic Stick non-destructive regression (not full-phase acceptance)\n':'Magic Stick complete P0 regression\n')+
       (preparation ? preparationDescription(preparation)+'\n' : '')+
+      'All checks\nCase / variant / layer evidence · isolated + live\n'+
       `Evidence rows (case × variant × layer): Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
-      `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
       `Blocked evidence: ${regressionBlockedSummary(blockedCounts(collected))}\n`+
+      'Executable scenarios\n'+
+      `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
       `Blocked executable scenarios: ${regressionBlockedSummary(blockedCounts(collected,true))}\n`+
       phases.map(item=>`Phase ${item.phase}: ${item.state} (${item.runId ?? 'not executed: run cancelled'})`).join('\n')+'\nDetailed cases: summary.html; machine results: summary.json and junit.xml\n');
     console.log('Private campaign report: '+join(directory,'all-summary.txt'));

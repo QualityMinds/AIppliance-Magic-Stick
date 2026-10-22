@@ -1,6 +1,66 @@
 import {test,expect,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {diagnosticSelections} from '../core/diagnostic-selection.ts';
+import {reportCountsFixture} from '../fixtures/regression-results.ts';
+
+for(const viewport of ['desktop','mobile'] as const)
+test(`HAR-07 HAR-10 UX-02 ${viewport} all-check totals include runner errors while scenario details stay separate`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  const result=reportCountsFixture(),original=structuredClone(result),writes:string[]=[];
+  await fixturePage(page,{'/api/regression':(request:Request)=>{
+    if(request.method()!=='GET')writes.push(request.method());
+    return {registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+      executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],
+      cleanup:{available:false,message:'Retained setup access needs exact cleanup.'},runs:[{
+        id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),
+        phase:'Failed',phases:[0],message:'Resource cleanup is not verified.',testMode:'full',credentialsCleaned:false,reportAvailable:true,
+        progress:{percent:100,completedPhases:1,totalPhases:1,executionCounts:{Passed:345,Failed:0,Blocked:1}},result}]};
+  }});
+  await page.goto(origin+'/#/system/status/regression');
+  const checks=page.getByLabel('All checks',{exact:true}),scenarios=page.getByLabel('Executable scenario results',{exact:true});
+  for(const value of ['441','3','18'])await expect(checks.getByText(value,{exact:true})).toBeVisible();
+  await expect(checks).toContainText('1 by prerequisite · 17 by failure');
+  await expect(page.getByText('Case / variant / layer evidence · isolated + live',{exact:true})).toBeVisible();
+  await expect(page.getByText('100% means execution finished, not passed.',{exact:true})).toBeVisible();
+  await expect(scenarios).toBeHidden();
+  await page.getByText('Executable scenarios',{exact:true}).focus();await page.keyboard.press('Enter');
+  for(const value of ['345','0','1'])await expect(scenarios.getByText(value,{exact:true})).toBeVisible();
+  await expect(scenarios).toContainText('1 by prerequisite · 0 by failure');
+  await expect(page.getByLabel('Live evidence results')).toContainText('8 passed · 3 failed · 18 blocked');
+  await expect(page.getByLabel('Run lifecycle')).toContainText('Resource cleanup: unknown');
+  await expect(page.getByLabel('Run lifecycle')).toContainText('Test account: not yet removed');
+  await page.reload();await expect(scenarios).toBeHidden();
+  await expect(checks.getByText('3',{exact:true})).toBeVisible();
+  await expect(page.getByRole('table',{name:'Phase results · case / variant / layer evidence'})).toContainText('441');
+  await page.getByRole('button',{name:'Refresh tests',exact:true}).click();
+  await expect(checks.getByText('3',{exact:true})).toBeVisible();
+  expect(writes).toEqual([]);expect(result).toEqual(original);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`regression-all-checks-${viewport}.png`),fullPage:true});
+});
+
+for(const viewport of ['desktop','mobile'] as const)
+test(`HAR-10 UX-02 ${viewport} missing final totals show only explicitly preliminary scenarios`,async({page})=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let writes=0;
+  await fixturePage(page,{'/api/regression':(request:Request)=>{
+    if(request.method()!=='GET')writes++;
+    return {registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+      executionLocation:'appliance-kubernetes',externalRunnerRequired:[],runs:[{
+        id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),
+        phase:'Failed',phases:[0],message:'Final report is unavailable.',credentialsCleaned:false,reportAvailable:false,
+        progress:{percent:100,executionCounts:{Passed:345,Failed:0,Blocked:1}}}]};
+  }});
+  await page.goto(origin+'/#/system/status/regression');
+  await expect(page.getByLabel('All checks availability')).toContainText('All-check totals are not available');
+  await expect(page.getByLabel('All checks',{exact:true})).toHaveCount(0);
+  await page.getByText('Executable scenarios',{exact:true}).click();
+  await expect(page.getByText('Preliminary executable scenario counts; these are not all-check totals.')).toBeVisible();
+  await expect(page.getByLabel('Executable scenario results')).toContainText('345');
+  await page.reload();await expect(page.getByLabel('Executable scenario results')).toBeHidden();
+  await expect(page.getByLabel('All checks availability')).toContainText('All-check totals are not available');expect(writes).toBe(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
 
 for(const viewport of ['desktop','mobile'] as const)for(const profile of diagnosticSelections)
 test(`HAR-02 HAR-10 UX-02 ${viewport} starts ${profile.id} as a diagnostic, never the whole Phase 4`,async({page},info)=>{
