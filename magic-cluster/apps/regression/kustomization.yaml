@@ -7,6 +7,11 @@ resources:
   - reports.yaml
   - rbac.yaml
 configMapGenerator:
+  - name: magicstick-regression-diagnostics
+    namespace: magicstick-regression
+    options:
+      disableNameSuffixHash: true
+    files: [diagnostics.json]
   - name: magicstick-regression-reports
     namespace: magicstick-regression
     files: [report_server.py]

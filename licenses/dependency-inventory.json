@@ -2523,7 +2523,7 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
-      "line": 498,
+      "line": 563,
       "reference": "self.objects[CORE + \"/configmaps/magicstick-regression-runtime\"][\"data\"][\"image\"] = \"image:latest\""
     },
     {
@@ -3148,7 +3148,7 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/crds/regressionruns.appliance.magicstick.dev.yaml",
-      "line": 65,
+      "line": 69,
       "reference": "image:"
     },
     {

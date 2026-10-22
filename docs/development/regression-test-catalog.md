@@ -924,6 +924,19 @@ Local checks do not establish published images or live appliance acceptance.
 Update these explicit case/group entries as tests are implemented. Report unmapped IDs as Planned so they cannot disappear
 from the backlog or coverage denominator.
 
+HAR-02/07/10 and UX-02 follow-up, 22 October 2026: fixed Phase 4 diagnostic
+profiles select existing SLOT-03/09, SHR-07/12 and HAR-08 scenarios through the
+Kubernetes API/operator and native runner. The canonical catalog is
+[`diagnostics.json`](../../magic-cluster/apps/regression/diagnostics.json).
+The [selection counterexamples](../../dashboard/apps/web/regression/harness/diagnostic-selection.unit.spec.ts)
+are selected by both `selftest` and `phase4-fast`; owning API/operator tests cover
+allowlists, immutable requests, mixed-version schema/image rejection and unchanged
+full/safe modes. Desktop/mobile fixtures in `harness/regression.browser.spec.ts`
+are selected by both `phase4-fixtures` and `phase8-fixtures`. An isolated real
+subprocess verifies scoped launch, receipt handling, cleanup fencing and report
+scope. These implementation checks do not establish installed hardware acceptance;
+the actual selected live tuples and exact cleanup still require a new appliance run.
+
 ### Regression traceability
 
 Keep named regressions in focused owning-layer tests and in the relevant live

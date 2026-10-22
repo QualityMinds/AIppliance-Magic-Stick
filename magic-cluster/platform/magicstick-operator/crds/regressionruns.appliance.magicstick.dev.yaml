@@ -31,6 +31,10 @@ spec:
               type: object
               required: [applianceUid, nodeUids, phases, requestedBy, image, sourceRevision]
               x-kubernetes-validations:
+                - rule: 'has(self.diagnosticSelection) == has(oldSelf.diagnosticSelection) && (!has(self.diagnosticSelection) || self.diagnosticSelection == oldSelf.diagnosticSelection)'
+                  message: 'The diagnostic selection is immutable. Create a new run instead.'
+                - rule: '!has(self.diagnosticSelection) || (self.operation == "tests" && self.testMode == "full" && size(self.phases) == 1 && self.phases[0] == 4)'
+                  message: 'Diagnostic tests require full mode and only Phase 4.'
                 - rule: '(has(self.testMode) ? self.testMode : "full") == (has(oldSelf.testMode) ? oldSelf.testMode : "full")'
                   message: 'The test mode is immutable. Create a new run instead.'
                 - rule: 'self.operation == "tests" || self.testMode == "full"'
@@ -68,6 +72,7 @@ spec:
                   pattern: '^ghcr[.]io/qualityminds/magicstick-regression:[a-z0-9-]+@sha256:[a-f0-9]{64}$'
                 sourceRevision: {type: string, pattern: '^[a-f0-9]{40}$'}
                 testMode: {type: string, enum: [non-destructive, full], default: full}
+                diagnosticSelection: {type: string, maxLength: 40, pattern: '^[a-z][a-z0-9-]{0,39}$'}
                 operation: {type: string, maxLength: 12, enum: [tests, recover-lock], default: tests}
                 lockRecovery:
                   type: object

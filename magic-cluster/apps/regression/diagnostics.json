@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "profiles": [
+    {"id": "slot-race", "title": "Last GPU slot race", "caseIds": ["SLOT-09"], "grep": "SLOT-09"},
+    {"id": "reload", "title": "Sharing persistence after reload", "caseIds": ["SHR-12"], "grep": "SHR-12"},
+    {"id": "restoration", "title": "Exact sharing and resource restoration", "caseIds": ["HAR-08"], "grep": "HAR-08"},
+    {"id": "remaining", "title": "Slot consumers, independence, race, reload and restoration", "caseIds": ["SLOT-03", "SHR-07", "SLOT-09", "SHR-12", "HAR-08"], "grep": "SLOT-03|SHR-07|SLOT-09|SHR-12|HAR-08"}
+  ]
+}

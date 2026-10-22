@@ -4,7 +4,7 @@ import type {CaseResult} from './report.ts';
 import type {TraceArtifact} from './report-artifacts.ts';
 import {blockerDescription} from './blocker-description.ts';
 import {regressionBlockedLabel} from '../../../../packages/core/src/regression-blocking.ts';
-import type {RegressionCleanup} from '@magicstick/dashboard-contracts';
+import type {RegressionCleanup,RegressionDiagnosticSelection} from '@magicstick/dashboard-contracts';
 
 const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]!));
 type Entry={name:string;classname:string;outcome:string;durationMs:number;detail:string;properties:Record<string,string>;
@@ -20,7 +20,7 @@ function suite(name:string,entries:Entry[],excludedEngines:readonly string[]=[])
 }
 /** Keep case/layer evidence, executable scenarios and steps as distinct suites.
  * Relative attachments work after extracting the sanitized report archive. */
-export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],excludedEngines:readonly string[]=[],selection?:{testMode:string;excludedSteps:string[];cleanup?:RegressionCleanup}) {
+export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],excludedEngines:readonly string[]=[],selection?:{testMode:string;excludedSteps:string[];cleanup?:RegressionCleanup;diagnosticSelection?:RegressionDiagnosticSelection}) {
   const lookup=new Map(artifacts.map(item=>[item.trace.executionId,item]));
   const evidence:Entry[]=cases.map(item=>{
     const artifact=item.executionId?lookup.get(item.executionId):undefined;
@@ -60,6 +60,9 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
       ...(step.handledError?{handledError:'true'}:{} )}})));
   if(selection)for(const item of evidence) {
     item.properties.testMode=selection.testMode;
+    if(selection.diagnosticSelection)Object.assign(item.properties,{
+      diagnosticSelection:selection.diagnosticSelection.id,diagnosticTitle:selection.diagnosticSelection.title,
+      selectedCaseIds:selection.diagnosticSelection.caseIds.join(', '),fullPhaseAcceptance:'not assessed'});
     if(selection.cleanup) {
       item.properties.cleanupState=selection.cleanup.state;
       if(selection.cleanup.reason)item.properties.cleanupReason=selection.cleanup.reason;

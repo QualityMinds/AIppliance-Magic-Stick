@@ -227,7 +227,7 @@ try {
       ...(selectedGpuCase?['--grep',selectedGpuCase.grep]:[])],{stdio:'inherit',env:{...environment,REGRESSION_DISCOVER_ONLY:'1'}},
       {timeoutMs:executionBudget.preparationMs});
     child=discovery.child;supervisors.set(child,discovery);requireSafe(await waitChild(child)===0,'CONFIG');
-    const scenarios=phase4Scenarios(JSON.parse(await readPrivate(join(directory,'scenario-selection.json'))),!selectedGpuCase);
+    const scenarios=phase4Scenarios(JSON.parse(await readPrivate(join(directory,'scenario-selection.json'))),!selectedGpuCase,selectedGpuCase?.ids);
     const collected=[],recoveryAttempts=[],executed=new Set();
     for(const scenario of scenarios) {
       if(stopped()){deadlineReached||=Date.now()>=campaignDeadline;break;}
@@ -262,8 +262,8 @@ try {
         executionId:executionIdentity(runId,scenario.id),executionOutcome:'Blocked',
         blockedBy:{kind:deadlineReached?'failure':'cancelled',caseId:'HAR-10',reason:stopReason(),stage:'runner-execution',
           executionId:executionIdentity(runId,'runner-execution'),traceRunId:runId}});
-    await saveReport(directory,runId,stopped()?completeCases(mode,rows,required,stopReason()):rows,required,process.env.REGRESSION_SOURCE_REVISION,mode,undefined,state);
-    process.exitCode=reportExitCode(rows);
+    const report=await saveReport(directory,runId,stopped()?completeCases(mode,rows,required,stopReason()):rows,required,process.env.REGRESSION_SOURCE_REVISION,mode,undefined,state);
+    process.exitCode=report.counts.Failed?1:report.counts.Blocked||report.recoveryFenceActive?2:0;
   } else if(mode === 'all') {
     let selected=[0,1,2,3,4,5,6,7,8];
     const arguments_=process.argv.slice(3);

@@ -2,6 +2,7 @@ import type {LabConfig} from '../core/config.ts';
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
 import {requirePhase1Profile} from './phase1-p0.ts';
+import {diagnosticSelections} from '../core/diagnostic-selection.ts';
 
 type Definition = {id:string; layers:readonly TestLayer[]};
 const row = (id:string,layers:readonly TestLayer[]): Definition => ({id,layers});
@@ -103,9 +104,8 @@ export const phase3RuntimeCases={
     grep:'(nvidia-ollama|nvidia-vllm) actual'},
 } as const;
 /** Fixed diagnostic subset only; canonical phase4 never selects this case. */
-export const phase4SharingCases = {
-  remaining:{ids:['SLOT-03','SHR-07','SLOT-09','SHR-12','HAR-08'],grep:'SLOT-03|SHR-07|SLOT-09|SHR-12|HAR-08'},
-} as const;
+export const phase4SharingCases:Record<string,{ids:string[];grep:string;title:string}>=Object.fromEntries(
+  diagnosticSelections.map(profile=>[profile.id,{ids:profile.caseIds,grep:profile.grep,title:profile.title}]));
 export const gpuModePhase = (mode?:string):3|4|undefined => /^phase[34](?:-|$)/.test(mode ?? '') ? Number(mode![5]) as 3|4 : undefined;
 export function gpuModeIds(mode?:string,gpuCase?:string) {
   if(gpuCase) {

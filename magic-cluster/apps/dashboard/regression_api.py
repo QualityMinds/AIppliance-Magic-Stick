@@ -114,6 +114,27 @@ class RegressionApi:
                                  and status.get("updatedReplicas", 0) == spec.get("replicas", 1))
         return available, image, revision
 
+    def diagnostics(self):
+        runtime = self.get(CORE + "/configmaps/magicstick-regression-runtime") or {}
+        if runtime.get("data", {}).get("diagnosticSelectionVersion") != "1":
+            return []
+        try:
+            catalog = json.loads((self.get(CORE + "/configmaps/magicstick-regression-diagnostics") or {}).get("data", {})["diagnostics.json"])
+            profiles = catalog["profiles"]
+            if not (catalog["version"] == 1 and isinstance(profiles, list) and 0 < len(profiles) <= 16):
+                raise ValueError("Invalid diagnostic catalog")
+            valid = all(isinstance(p, dict) and set(p) == {"id", "title", "caseIds", "grep"}
+                       and isinstance(p["id"], str) and re.fullmatch(r"[a-z][a-z0-9-]{0,39}", p["id"])
+                       and isinstance(p["title"], str) and 0 < len(p["title"]) <= 160
+                       and isinstance(p["caseIds"], list) and 0 < len(p["caseIds"]) <= 32
+                       and all(isinstance(case, str) and re.fullmatch(r"[A-Z][A-Z0-9]+-[0-9]{2}", case) for case in p["caseIds"])
+                       and p["grep"] == "|".join(p["caseIds"]) for p in profiles)
+            if not valid or len({p["id"] for p in profiles}) != len(profiles):
+                raise ValueError("Invalid diagnostic profiles")
+        except (KeyError, ValueError, TypeError):
+            self.error(503, "The installed diagnostic selection catalog is unavailable. Update the runner before retrying.")
+        return [{"id": p["id"], "title": p["title"], "caseIds": p["caseIds"], "phase": 4} for p in profiles]
+
     def view(self, run):
         meta, spec, status = run.get("metadata", {}), run.get("spec", {}), run.get("status", {})
         result = {"id": meta.get("name"), "uid": meta.get("uid"), "createdAt": meta.get("creationTimestamp"),
@@ -126,6 +147,8 @@ class RegressionApi:
                   "startedAt": status.get("startedAt"), "finishedAt": status.get("finishedAt"),
                   "credentialsCleaned": status.get("credentialsCleaned", False)}
         cleanup = cleanup_view(status.get("cleanup"))
+        if "diagnosticSelection" in spec:
+            result["diagnosticSelection"] = spec["diagnosticSelection"]
         if cleanup:
             result["cleanup"] = cleanup
         return result
@@ -166,6 +189,7 @@ class RegressionApi:
             lock = self.lock_status(runs, registration)
         return {"registered": registration is not None, "applianceUid": self.target()[0],
                 "runtimeAvailable": available, "sourceRevision": revision,
+                "diagnosticSelections": self.diagnostics() if available else [],
                 "message": "" if available else "Enable the regression runner and wait for a CI-published, digest-pinned image.",
                 "runs": [self.view(r) for r in runs[:30]],
                 "recoveryAvailable": self.recovery_candidate(runs) is not None,
@@ -284,7 +308,7 @@ class RegressionApi:
 
     def start(self, principal, payload):
         self.f["live_admin_actor"](principal)
-        if (not {"requestId", "acknowledgeDisruption"} <= set(payload) <= {"requestId", "acknowledgeDisruption", "phases", "testMode"}
+        if (not {"requestId", "acknowledgeDisruption"} <= set(payload) <= {"requestId", "acknowledgeDisruption", "phases", "testMode", "diagnosticSelection"}
                 or payload.get("acknowledgeDisruption") is not True
                 or not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", "")))):
             self.error(400, "A unique request and disruption confirmation are required.")
@@ -296,6 +320,12 @@ class RegressionApi:
         test_mode = payload.get("testMode", "full")
         if test_mode not in ("non-destructive", "full"):
             self.error(400, "Select non-destructive or full tests.")
+        if "diagnosticSelection" in payload:
+            selection = payload["diagnosticSelection"]
+            if not isinstance(selection, str) or phases != [4] or test_mode != "full":
+                self.error(400, "A diagnostic selection requires full mode and only Phase 4.")
+            if selection not in {p["id"] for p in self.diagnostics()}:
+                self.error(409, "This diagnostic selection is not supported by the installed runner. Update before retrying.")
         return self.enqueue(principal, {**payload, "phases": sorted(phases), "testMode": test_mode}, "tests")
 
     def recover_lock(self, principal, payload):
@@ -324,6 +354,8 @@ class RegressionApi:
                     self.error(409, "This request ID already selects different phases. Use a new request ID for a new run.")
                 if operation == "tests" and existing.get("spec", {}).get("testMode", "full") != payload["testMode"]:
                     self.error(409, "This request ID already selects a different test mode. Use a new request ID for a new run.")
+                if existing.get("spec", {}).get("diagnosticSelection") != payload.get("diagnosticSelection"):
+                    self.error(409, "This request ID already selects different diagnostic tests. Use a new request ID for a new run.")
                 return self.view(existing)
             runs = self.f["list_resource"](RUNS)
             recovery = self.recovery_candidate(runs)
@@ -376,12 +408,15 @@ class RegressionApi:
                 "spec": {"applianceUid": registration["applianceUid"], "nodeUids": registration["nodeUids"],
                     "phases": [] if operation == "recover-lock" else payload["phases"], "requestedBy": principal["subject"], "image": image,
                     **({"testMode": payload["testMode"]} if operation == "tests" else {}),
+                    **({"diagnosticSelection": payload["diagnosticSelection"]} if "diagnosticSelection" in payload else {}),
                     "sourceRevision": revision, "cancelRequested": False, **recovery_spec}})
             self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {
                 "cleanup": {"state": "verified" if non_destructive else "unknown"}}})
-            if non_destructive and run.get("spec", {}).get("testMode") != "non-destructive":
-                message = "The installed regression schema does not support non-destructive tests yet. Update the operator/schema before retrying; no test account or Job was created."
-                self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "credentialRecoveryRequired": False, "message": message}})
+            if (non_destructive and run.get("spec", {}).get("testMode") != "non-destructive"
+                    or "diagnosticSelection" in payload and run.get("spec", {}).get("diagnosticSelection") != payload["diagnosticSelection"]):
+                message = "The installed regression schema does not support the requested test selection yet. Update the operator/schema before retrying; no test account or Job was created."
+                self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "credentialRecoveryRequired": False,
+                    "cleanup": {"state": "verified", "checkedAt": datetime.now(timezone.utc).isoformat()}, "message": message}})
                 self.cleanup(run)
                 self.error(503, message)
             try:
@@ -393,7 +428,7 @@ class RegressionApi:
                 # Old operators must not interpret recovery intent as a test
                 # suite during a rolling upgrade: only the new reconciler
                 # understands this distinct readiness key/entrypoint.
-                ready = "recovery-credentials-ready" if operation == "recover-lock" else "non-destructive-credentials-ready" if non_destructive else "credentials-ready"
+                ready = "recovery-credentials-ready" if operation == "recover-lock" else "diagnostic-credentials-ready" if "diagnosticSelection" in payload else "non-destructive-credentials-ready" if non_destructive else "credentials-ready"
                 self.f["patch_json"](RUNS + "/" + name, {"metadata": {"annotations": {"regression.magicstick.dev/" + ready: run["metadata"]["uid"]}}})
             except Exception:
                 self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "message": "Automatic test-account provisioning failed; no tests were started."}})

@@ -20,6 +20,7 @@ import {regressionBlockedKind,regressionBlockedLabel, regressionBlockedSummary} 
 import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses,recoveryCause} from './blocking.ts';
 import {testMode,excludedSteps,isolatedStep} from './test-mode.ts';
 import {nonDestructiveVariants} from './non-destructive.ts';
+import {diagnosticSelection,diagnosticMetadata} from './diagnostic-selection.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
@@ -81,7 +82,10 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
     return {reason,blockedBy:cause};
   };
   const limited=testMode(process.env.REGRESSION_TEST_MODE??'full')==='non-destructive';
+  const diagnostic=mode==='phase4-sharing'&&process.env.REGRESSION_GPU_CASE?
+    diagnosticSelection(process.env.REGRESSION_GPU_CASE,[4],'full'):undefined;
   const matrix=limited?[]:mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
+    diagnostic&&!process.env.REGRESSION_SCENARIO_ID?gpuRequirements(4).filter(r=>r.environment==='live'&&diagnostic.caseIds.includes(r.id)):
     mode === 'phase3' || mode === 'phase4' ? gpuRequirements(Number(mode[5]) as 3|4) :
     mode && remainingPhase(mode) ? remainingRequirements(mode) ?? [] : [];
   for(const item of matrix)if(!result.some(proof=>proof.id === item.id && proof.variant === item.variant &&
@@ -186,8 +190,10 @@ export function liveReportScope(mode?: string) {
     return 'Phase 3 diagnostic subset: AMD/NVIDIA vLLM inference, logs, browser Stop/Start and exact restoration; not complete installed Phase 3 acceptance';
   if(mode === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'nvidia-lifecycle')
     return 'Phase 3 diagnostic subset: three independent NVIDIA Ollama and vLLM inference/logs/Stop/Start cycles each; AMD sharing unchanged; not complete installed Phase 3 acceptance';
-  if(mode === 'phase4-sharing' && process.env.REGRESSION_GPU_CASE === 'remaining')
-    return 'Phase 4 diagnostic subset: verification consumer, provider/CPU independence, last-slot races, reload and exact restoration; not complete installed Phase 4 acceptance';
+  if(mode === 'phase4-sharing' && process.env.REGRESSION_GPU_CASE) {
+    const profile=diagnosticSelection(process.env.REGRESSION_GPU_CASE,[4],'full')!;
+    return `Phase 4 diagnostic subset: ${profile.title} (${profile.caseIds.join(', ')}); normal identity, lock and cleanup rules; not complete installed Phase 4 acceptance`;
+  }
   if(mode === 'gpu-recover') return 'explicit recovery of one reviewed GPU journal; same node/boot/source/image pins; no Lease takeover, resource adoption or new inference workloads';
   if (mode?.startsWith('phase3')) return 'Phase 3 P0 installed AMD/NVIDIA Ollama/vLLM exclusive runtimes, physical inventory, memory, logs and scoped validation; borrowed sharing restored; Intel and reboot acceptance separate';
   if (mode?.startsWith('phase4')) return 'Phase 4 P0 installed AMD DRA/NVIDIA time-slicing transitions, mixed/same-engine pairs, full/released slots, races and cross-provider independence; borrowed sharing restored; reboot/CDI recovery acceptance separate';
@@ -213,11 +219,13 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),limited=runTestMode==='non-destructive';
+  const diagnostic=mode==='phase4-sharing'&&process.env.REGRESSION_GPU_CASE?
+    diagnosticSelection(process.env.REGRESSION_GPU_CASE,[4],runTestMode):undefined;
   const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='all'?
     (process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number):[];
   const omittedSteps=excludedSteps(runTestMode,selectionPhases);
-  const selectionText=limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.';
-  const portableArchive=mode==='all'||mode==='selftest'||mode==='recover'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
+  const selectionText=diagnostic?`Phase 4 diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.';
+  const portableArchive=mode==='all'||mode==='selftest'||mode==='recover'||mode==='phase4-sharing'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
   const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
@@ -279,6 +287,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   const openGates = limited?[]:laterCoverage ? [...new Set(laterCoverage.missingLayers.map(item=>`${item.id}/${item.layer}: ${item.gate ?? item.group} evidence required`))] : mode?.startsWith('phase4') ? ['BOOT-04: separately authorized live driver restart/CDI recovery'] :
     mode?.startsWith('phase3') ? ['Intel: unavailable lab hardware'] : [];
   await writePrivate(join(directory, 'summary.json'), {version: 2, runId, sourceRevision: revision,testMode:runTestMode,excludedSteps:omittedSteps,
+    ...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{}),
     ...(prepared ? {automaticPreparation: prepared} : {}),
     scope: limited?selectionText:safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning-layer tests; no appliance acceptance',
     fullPhase0Accepted,
@@ -293,7 +302,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
     ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,
     ...(cleanup?{cleanup}:{}),excludedEngineTests:disabledExperimentalEngines, cases: safe});
-  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps,cleanup}));
+  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps,cleanup,...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{})}));
   await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+

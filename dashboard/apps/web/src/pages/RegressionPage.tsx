@@ -3,7 +3,7 @@ import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import type {RegressionBlockedCounts,RegressionPhase,RegressionResult,RegressionRun,RegressionTestMode} from '@magicstick/dashboard-contracts';
 import {regressionBlockedKind,regressionBlockedLabel,regressionBlockedSummary} from '@magicstick/dashboard-core';
 import {api} from '../api';
-import {Button, ConfirmDialog, Empty, ErrorNotice, Loading, Panel, StatusBadge} from '../components';
+import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, StatusBadge} from '../components';
 
 const terminal = new Set(['Passed', 'Failed', 'Blocked', 'Cancelled']);
 const phaseOptions = [
@@ -45,6 +45,8 @@ const Result = ({run}: {run: RegressionRun}) => {
   return <Panel title={run.operation === 'recover-lock' ? 'Previous run cleanup' : timestamp(run.createdAt)} meta={`${run.operation === 'recover-lock' ? timestamp(run.createdAt) + ' · ' : ''}Runner revision ${run.sourceRevision.slice(0, 12)}`} actions={<StatusBadge phase={run.phase} />}>
     <p role="status">{run.message}</p>
     {run.operation !== 'recover-lock' && <p aria-label="Selected test phases">Selected phases: {run.phases.join(', ')}.</p>}
+    {run.diagnosticSelection&&<p aria-label="Diagnostic selection">Diagnostic subset: {run.result?.diagnosticSelection?.title??run.diagnosticSelection}
+      {run.result?.diagnosticSelection?.caseIds.length?` (${run.result.diagnosticSelection.caseIds.join(', ')})`:''}. Full-phase acceptance is not assessed.</p>}
     {run.operation !== 'recover-lock' && <p aria-label="Test mode">Test mode: {run.testMode === 'non-destructive' ? 'Non-destructive only' : 'Full, including destructive tests'}.</p>}
     {!!run.result?.excludedSteps?.length && <details><summary>Not selected in this mode ({run.result.excludedSteps.length} steps)</summary>
       <p>Destructive and preparation-dependent live steps were not run or counted as passed. Full-phase acceptance was not assessed.</p>
@@ -101,6 +103,7 @@ export const RegressionPage = () => {
   const [reviewedLock, setReviewedLock] = useState<string>();
   const [selectedPhases, setSelectedPhases] = useState<RegressionPhase[]>(allPhases);
   const [testMode, setTestMode] = useState<RegressionTestMode>('non-destructive');
+  const [diagnostic, setDiagnostic] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [enableRequested, setEnableRequested] = useState(false);
   const query = useQuery({queryKey: ['regression'], queryFn: () => api.regression(), refetchInterval: 2000});
@@ -120,7 +123,9 @@ export const RegressionPage = () => {
     if (action === 'start') {
       if (!selectedPhases.length) throw new Error('Select at least one test phase.');
       if (testMode === 'non-destructive' && (cleanupPending || (data?.lock && data.lock.state !== 'free'))) throw new Error('Clean up the previous run separately before non-destructive tests.');
-      return api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases, testMode);
+      if(diagnostic&&!data?.diagnosticSelections?.some(p=>p.id===diagnostic))throw new Error('This diagnostic selection is no longer available. Refresh before starting.');
+      return diagnostic?api.startRegression(crypto.randomUUID().replaceAll('-', ''),[4],'full',diagnostic):
+        api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases, testMode);
     }
     if (action === 'recover') {
       if (!reviewedLock || cleanup.revision !== reviewedLock || !cleanup.available) throw new Error('The lock changed after review. Refresh and review it again.');
@@ -130,7 +135,7 @@ export const RegressionPage = () => {
     return api.cancelRegression(active.id);
   }, retry: false, onSuccess: async (_result, action) => {
     setEnableRequested(action === 'enable');
-    if (action === 'start') setTestMode('non-destructive');
+    if (action === 'start') {setTestMode('non-destructive');setDiagnostic('');}
     setConfirm(null); await client.invalidateQueries({queryKey: ['regression']});
   }});
   const disabled = query.isPending || Boolean(query.error) || mutation.isPending;
@@ -182,11 +187,19 @@ export const RegressionPage = () => {
       {confirm === 'start' && <>
         <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending}>
           <legend>Test mode</legend>
-          <label className="check-field"><input type="radio" name="regression-test-mode" value="non-destructive" checked={testMode === 'non-destructive'} onChange={() => setTestMode('non-destructive')} />Non-destructive only</label>
+          <label className="check-field"><input type="radio" name="regression-test-mode" value="non-destructive" checked={testMode === 'non-destructive'} onChange={() => {setTestMode('non-destructive');setDiagnostic('');}} />Non-destructive only</label>
           <label className="check-field"><input type="radio" name="regression-test-mode" value="full" checked={testMode === 'full'} onChange={() => setTestMode('full')} />Include destructive tests</label>
         </fieldset>
+        {!!data?.diagnosticSelections?.length&&<Field label="Test selection">
+          <select aria-label="Test selection" value={diagnostic} disabled={mutation.isPending} onChange={event=>{
+            setDiagnostic(event.target.value);if(event.target.value){setTestMode('full');setSelectedPhases([4]);}
+          }}><option value="">All tests in selected phases</option>
+            {data.diagnosticSelections.map(profile=><option key={profile.id} value={profile.id}>{profile.title} ({profile.caseIds.join(', ')})</option>)}
+          </select>
+        </Field>}
+        {diagnostic&&<p role="status">Only this Phase 4 diagnostic subset will run. Preparation and cleanup remain required; this is not full-phase acceptance.</p>}
         {nonDestructiveBlocked && <p role="alert">Clean up the previous run separately before non-destructive tests. This mode never restores old test resources or clears their lock.</p>}
-        <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending} aria-describedby="regression-phase-hint">
+        <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending||Boolean(diagnostic)} aria-describedby="regression-phase-hint">
           <legend>Test phases</legend>
           <div className="actions">
             <Button type="button" variant="ghost" disabled={mutation.isPending} onClick={() => setSelectedPhases(allPhases)}>Select all</Button>

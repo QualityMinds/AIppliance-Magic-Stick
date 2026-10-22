@@ -12,11 +12,13 @@ class RegressionImagePromotionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 image_reference(source, digest)
 
-    def test_only_two_pin_fields_change_and_duplicate_layout_is_rejected(self):
+    def test_pins_and_qualified_diagnostic_capability_are_idempotent_and_duplicate_layout_is_rejected(self):
         source = 'data:\n  image: ""\n  sourceRevision: ""\n  other: keep\n'
         changed = replacement(source, "a"*40, "sha256:" + "b"*64)
         self.assertIn('  other: keep\n', changed)
         self.assertIn('  sourceRevision: "' + "a"*40 + '"', changed)
+        self.assertEqual(changed.count('  diagnosticSelectionVersion: "1"'), 1)
+        self.assertEqual(replacement(changed, "a"*40, "sha256:" + "b"*64), changed)
         with self.assertRaises(ValueError):
             replacement(source + '  image: duplicate\n', "a"*40, "sha256:" + "b"*64)
 

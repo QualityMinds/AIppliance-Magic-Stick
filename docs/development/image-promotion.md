@@ -36,7 +36,7 @@ GitHub Release tag or manual Pod restart is needed for a branch follower.
 For a runner promotion made with `GITHUB_TOKEN`, a new push CI run does not exist.
 The helper recognizes this by content, not by an author name or commit message:
 only the runner pin and generated deployment-reference inventory may differ;
-the two pin fields must be exactly the standard replacement for the **same
+the image/source fields and versioned diagnostic capability must be exactly the standard replacement for the **same
 tested source**, and all package, legal and unrelated reference metadata must
 be unchanged. Refreshed navigation line numbers are accepted only when the
 unchanged reference is proved at that exact line in the committed source;

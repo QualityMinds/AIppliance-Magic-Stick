@@ -28,6 +28,38 @@ beforeEach(() => {
 });
 
 describe('In-Appliance regression tests', () => {
+  it('selects a server-advertised diagnostic with full Phase 4, locks phase edits and sends only its ID',async()=>{
+    data.diagnosticSelections=[{id:'slot-race',title:'Last GPU slot race',caseIds:['SLOT-09'],phase:4}];
+    mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    const dialog=screen.getByRole('dialog');
+    await userEvent.selectOptions(within(dialog).getByRole('combobox',{name:'Test selection'}),'slot-race');
+    expect(within(dialog).getByRole('radio',{name:'Include destructive tests'})).toBeChecked();
+    expect(within(dialog).getByRole('checkbox',{name:/^Phase 4/})).toBeChecked();
+    for(const checkbox of within(dialog).getAllByRole('checkbox'))expect(checkbox).toBeDisabled();
+    expect(within(dialog).getByText(/Only this Phase 4 diagnostic subset/)).toBeVisible();
+    expect(api.startRegression).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole('button',{name:'Start tests'}));
+    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[4],'full','slot-race'));
+  });
+  it('returning to safe mode clears the diagnostic and old installations do not offer unsupported selections',async()=>{
+    data.diagnosticSelections=[{id:'reload',title:'Reload',caseIds:['SHR-12'],phase:4}];
+    const client=mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
+    const dialog=screen.getByRole('dialog'),selection=within(dialog).getByRole('combobox',{name:'Test selection'});
+    await userEvent.selectOptions(selection,'reload');
+    await userEvent.click(within(dialog).getByRole('radio',{name:'Non-destructive only'}));
+    expect(selection).toHaveValue('');expect(within(dialog).getByRole('checkbox',{name:/^Phase 4/})).toBeEnabled();
+    data={...data,diagnosticSelections:undefined};
+    await act(async()=>{await client.refetchQueries({queryKey:['regression']});});
+    await waitFor(()=>expect(within(dialog).queryByRole('combobox',{name:'Test selection'})).toBeNull());
+    await userEvent.click(within(dialog).getByRole('button',{name:'Start tests'}));
+    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[4],'non-destructive'));
+  });
+  it('retains the saved diagnostic scope after reload without claiming a complete phase',async()=>{
+    data.runs=[{...run(),phases:[4],diagnosticSelection:'restoration',testMode:'full'}];
+    mount();expect(await screen.findByLabelText('Diagnostic selection')).toHaveTextContent('restoration');
+    expect(screen.getByLabelText('Diagnostic selection')).toHaveTextContent('Full-phase acceptance is not assessed');
+    expect(api.startRegression).not.toHaveBeenCalled();
+  });
   it('defaults to non-destructive checks and never sends a test before confirmation',async()=>{
     mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
     const dialog=screen.getByRole('dialog');
