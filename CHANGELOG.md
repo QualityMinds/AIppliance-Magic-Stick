@@ -10,7 +10,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 - Keep identity changes in both Dashboard build and browser CI selection. Include
   the separately selected Remember-me browser coverage in catalogue validation
-  without treating it as installed Phase 5 evidence.
+  without treating it as installed Phase 5 evidence. Keep subprocess test output
+  in private temporary directories so the counterexamples also run in the
+  read-only Linux runner image; missing proof is a failure, not a prerequisite.
 
 - Run Phase 4 sharing and multi-GPU scenarios sequentially with independent
   execution and cleanup budgets. Preserve global timeouts and interrupted

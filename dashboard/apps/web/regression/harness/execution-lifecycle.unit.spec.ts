@@ -248,7 +248,7 @@ test('HAR-07 HAR-10 coordinator exit does not shorten a still-running worker cle
 
 test('HAR-08 HAR-10 a real Playwright teardown fixture retains its own budget after the test times out',async()=>fixture(async directory=>{
   const marker=join(directory,'cleanup-completed.json'),config=join(directory,'playwright.config.mjs');
-  await writePrivate(config,`export default ${JSON.stringify({testDir:directory,testMatch:'owned.spec.mjs',timeout:60,globalTimeout:5000,workers:1,retries:0,reporter:'dot'})};`);
+  await writePrivate(config,`export default ${JSON.stringify({testDir:directory,testMatch:'owned.spec.mjs',outputDir:join(directory,'test-output'),timeout:60,globalTimeout:5000,workers:1,retries:0,reporter:'dot'})};`);
   await writePrivate(join(directory,'owned.spec.mjs'),`import {test as base} from ${JSON.stringify(import.meta.resolve('@playwright/test'))};
     import {writeFile} from 'node:fs/promises';
     const test=base.extend({owned:[async({},use)=>{try{await use(true);}finally{await new Promise(r=>setTimeout(r,150));await writeFile(${JSON.stringify(marker)},'verified',{mode:0o600});}},{timeout:1000}]});
@@ -256,12 +256,13 @@ test('HAR-08 HAR-10 a real Playwright teardown fixture retains its own budget af
   const child=supervisedProcess(process.execPath,[fileURLToPath(import.meta.resolve('@playwright/test/cli')),'test','--config',config],
     {stdio:'ignore'},{hardTimeoutMs:10_000,drainMs:500});
   expect(await child.finished).toMatchObject({exitCode:1,timedOut:false,processesStopped:true});
+  await expect(lstat(marker),'The interrupted fixture must produce its cleanup receipt').resolves.toBeDefined();
   expect(await readPrivate(marker)).toBe('verified');
 }));
 
 test('HAR-10 a real Playwright global timeout after a prerequisite is exported as its own deadline failure',async()=>fixture(async directory=>{
   const runId=newRunId(),report=join(directory,'results'),config=join(directory,'playwright.config.mjs');
-  await writePrivate(config,`export default ${JSON.stringify({testDir:directory,testMatch:'global.spec.mjs',timeout:10000,globalTimeout:2500,workers:1,retries:0,
+  await writePrivate(config,`export default ${JSON.stringify({testDir:directory,testMatch:'global.spec.mjs',outputDir:join(directory,'test-output'),timeout:10000,globalTimeout:2500,workers:1,retries:0,
     reporter:[[fileURLToPath(new URL('../reporter.ts',import.meta.url))]]})};`);
   const annotations=(id:string)=>JSON.stringify({annotation:[{type:'regression',description:JSON.stringify({id,layer:'U'})}]});
   await writePrivate(join(directory,'global.spec.mjs'),`import {test} from ${JSON.stringify(import.meta.resolve('@playwright/test'))};
@@ -273,6 +274,7 @@ test('HAR-10 a real Playwright global timeout after a prerequisite is exported a
     {stdio:'ignore',env:{...process.env,REGRESSION_MODE:'preflight',REGRESSION_RUN_ID:runId,REGRESSION_RUN_DIR:report,REGRESSION_SCENARIO_ID:'',REGRESSION_DISCOVER_ONLY:''}},
     {hardTimeoutMs:8000,graceMs:1000,drainMs:300});
   expect((await child.finished).exitCode).toBe(1);
+  await expect(lstat(join(report,'summary.json')),'The interrupted reporter must export its exact failure evidence').resolves.toBeDefined();
   const value=JSON.parse(await readPrivate(join(report,'summary.json')));
   expect(value.cases.filter((c:{id:string;reason?:string})=>c.id==='HAR-02'&&c.reason==='UNEXPECTED')).toEqual([]);
   expect(value.cases).toEqual(expect.arrayContaining([
