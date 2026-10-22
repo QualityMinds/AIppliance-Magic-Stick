@@ -595,7 +595,8 @@ as unmeasured product performance. Existing security/release CI remains required
 
 22 October 2026, HAR-07/HAR-10 process-lifecycle follow-up: Linux process-group
 inspection distinguishes exited Z/X tasks from live R/S/D/T workers, rejects
-unreadable/recycled identities and retains bounded private process diagnostics.
+unreadable/recycled identities and zombie leaders with remaining live threads,
+and retains bounded private process diagnostics.
 The runner bundles a subreaper for Docker and Kubernetes command overrides;
 signal forwarding preserves the coordinator's teardown window. Existing
 [`execution-lifecycle.unit.spec.ts`](../../dashboard/apps/web/regression/harness/execution-lifecycle.unit.spec.ts)
