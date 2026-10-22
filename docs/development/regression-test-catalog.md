@@ -598,6 +598,17 @@ state before restoration, so empty cleanup cannot certify either. This is source
 coverage, not a new installed acceptance: exact old-journal recovery, slot race,
 reload/restoration and then full Phase 4 still require an authorized rollout.
 
+22 October 2026 Remember-me deployment correction: AUTH-01's existing owning
+policy selection now checks that only the mounted session-policy ConfigMap is
+excluded from Flux variable substitution. Public release checks additionally
+discover `RememberMeFluxBuildTests` in the same owning test file and run the
+actual strict Flux post-build. They preserve the runtime script byte-for-byte,
+substitute identity hosts, reject the original unprotected script, and reject
+missing variables in other resources. The in-Appliance runner still needs no
+Flux CLI; CI render evidence is not credited as installed login acceptance.
+The previous successful script/routine renders did not cover strict post-build
+substitution; historical results remain unchanged.
+
 21 October 2026 Remember-me follow-up: AUTH-01's
 `remember-me-policy-contract` is selected by Phase 1 `smoke-fast` and runs the
 owning [realm/migration counterexamples](../../magic-cluster/platform/identity/tests/test_remember_me.py).

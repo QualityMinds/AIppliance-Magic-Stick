@@ -3,6 +3,9 @@ kind: Kustomization
 configMapGenerator:
   - name: keycloak-session-policy
     namespace: identity-system
+    options:
+      annotations:
+        kustomize.toolkit.fluxcd.io/substitute: disabled
     files:
       - keycloak-session-policy.sh
   - name: auth-pilot-nginx

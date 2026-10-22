@@ -48,7 +48,8 @@ responder.
 
 ## Session policy and Remember me
 
-Run the owning import/migration counterexamples first:
+Run the owning import/migration counterexamples first. The complete file also
+requires the Flux CLI pinned by Public release checks (currently 2.9.2):
 
 ```sh
 python3 -m unittest discover -s magic-cluster/platform/identity/tests -p test_remember_me.py
@@ -59,6 +60,17 @@ Phase 1 `smoke-fast` also selects that suite under AUTH-01's
 preserves custom policies, and covers missing bootstrap authority, read/write
 failure, lost write acknowledgements and verified readback. It does not extend
 the setup or Dashboard service accounts' realm permissions.
+
+The in-Appliance selection runs `RememberMePolicyTests`, including the scoped
+ConfigMap annotation contract, without adding a Flux CLI dependency to the
+runner. Public release checks additionally discover `RememberMeFluxBuildTests`.
+Those tests run the actual identity graph through `flux build kustomization`
+with `--dry-run --strict-substitute`: the mounted migration script must remain
+byte-for-byte unchanged, while the other identity host variables are replaced.
+Removing the script ConfigMap's `kustomize.toolkit.fluxcd.io/substitute: disabled`
+annotation must reproduce the missing `before` variable error. A missing variable
+in another ConfigMap must still fail; do not disable strict substitution globally.
+These are isolated deployment-contract checks, not installed login acceptance.
 
 On a developer/CI host with Docker, Python with PyYAML, the locked Dashboard
 workspace and Playwright Chromium installed, run the explicit protocol profile:

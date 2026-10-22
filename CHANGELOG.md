@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Preserve the mounted Remember-me migration script during Flux post-build
+  substitution, so shell variables cannot block identity and dependent Dashboard
+  or regression rollouts. Add actual strict Flux build counterexamples while
+  retaining strict checks for other identity resources.
+
 - Keep identity changes in both Dashboard build and browser CI selection. Include
   the separately selected Remember-me browser coverage in catalogue validation
   without treating it as installed Phase 5 evidence. Keep subprocess test output
