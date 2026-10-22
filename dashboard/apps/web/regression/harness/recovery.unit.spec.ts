@@ -16,6 +16,8 @@ import type {LabRegistration} from '../core/lab-policy.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {HarnessError} from '../core/errors.ts';
 import {gpuWorkerJournal} from '../core/gpu-scenario.ts';
+import {attestKubernetesTermination,verifiedKubernetesTermination,reconcileKubernetesSession} from '../core/kubernetes-termination.ts';
+import {assessCleanup} from '../core/cleanup-state.ts';
 
 test('HAR-06 HAR-09 cleanup always runs without replacing the original scenario error', async () => {
   const primary = new HarnessError('DEADLINE', 'Failed', 'model-ready');
@@ -419,7 +421,123 @@ test('HAR-04 HAR-07 campaign recovery never takes over a live runner foreign chi
     if(fault==='foreign')f.store.value.metadata.annotations!['regression.magicstick.dev/run-id']=newRunId();
     if(fault==='renewed')f.store.value.spec.renewTime=new Date().toISOString();
     await expect(campaignRecoveryLease(f.root,f.runId,registration.applianceUid,f.store,{timeoutMs:25,intervalMs:1}))
-      .rejects.toMatchObject({code:fault==='running'?'LOCK_BUSY':fault==='foreign'?'RECOVERY':'LOCK_STALE'});
+      .rejects.toMatchObject({code:fault==='running'?'PROCESS_STATE':fault==='foreign'?'RECOVERY':'LOCK_STALE',
+        ...(fault==='running'?{outcome:'Failed',stage:'recovery-barrier'}:{})});
     expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
   });
 });
+
+async function kubernetesFixture(directory:string) {
+  const f=await fixture(directory),runtimeRunUid='11111111-1111-4111-8111-111111111111',currentRunUid='22222222-2222-4222-8222-222222222222';
+  const reports=join(directory,'reports'),owner='regression.magicstick.dev/run-uid';
+  const session={version:1,runId:f.runId,targetUid:registration.applianceUid,state:'running',processesStopped:false,
+    interrupted:true,updatedAt:new Date(Date.now()-5000).toISOString()};
+  await writePrivate(join(f.path,'runner-session.json'),session);
+  await writePrivate(join(f.path,'summary.json'),{version:2,runId:f.runId,counts:{Passed:8,Failed:3,Blocked:18},acceptable:false});
+  const published={version:1,runUid:runtimeRunUid,progress:{ownedRunIds:[f.runId]}};
+  await writePrivate(join(reports,runtimeRunUid,'status.json'),published);
+  const run:KubeObject={metadata:{uid:runtimeRunUid,name:'synthetic-run',namespace:'ai-system',resourceVersion:'7'},
+    spec:{applianceUid:registration.applianceUid,nodeUids:registration.nodeUids,image:'registry.example.invalid/runner@sha256:'+'a'.repeat(64)},status:{phase:'Failed'}};
+  const job:KubeObject={metadata:{uid:'synthetic-job',name:'synthetic-run',namespace:'magicstick-regression',resourceVersion:'8',labels:{[owner]:runtimeRunUid}},status:{active:0}};
+  const pod:KubeObject={metadata:{uid:'synthetic-pod',name:'synthetic-run-worker',namespace:'magicstick-regression',resourceVersion:'9',
+    labels:{[owner]:runtimeRunUid},ownerReferences:[{kind:'Job',uid:job.metadata.uid!,controller:true}]},
+    spec:{nodeName:'synthetic-node',securityContext:{runAsNonRoot:true},containers:[{name:'runner',image:run.spec!.image,
+      securityContext:{allowPrivilegeEscalation:false,capabilities:{drop:['ALL']}}}]},
+    status:{phase:'Succeeded',containerStatuses:[{name:'runner',containerID:'containerd://synthetic-container',
+      state:{terminated:{exitCode:0,finishedAt:new Date(Date.now()-1000).toISOString()}}}]}};
+  const node:KubeObject={metadata:{name:'synthetic-node',uid:registration.nodeUids[0]}};
+  const reads:string[]=[],reader={list:async(resource:string)=>{
+    reads.push(resource);return structuredClone(resource==='nodes'?[node]:resource==='pods'?[pod]:[run]);
+  },get:async(resource:string)=>{
+    reads.push(resource);return structuredClone(resource==='pods'?pod:resource==='jobs.batch'?job:run);
+  }};
+  const options={root:f.root,reports,runId:f.runId,runtimeRunUid,accountRunUid:runtimeRunUid,currentRunUid,identity:registration,reader};
+  return {...f,options,session,published,run,job,pod,node,reads,reports,runtimeRunUid};
+}
+
+test('HAR-07 HAR-10 exact terminated Kubernetes ownership permits regular recovery, not a report rewrite or force unlock',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory),name=f.journal.prefix+'owned';
+  await f.journal.requested('model',name);await f.journal.owned('model',name,'synthetic-model',1);f.resources.set(name,'synthetic-model');
+  const originalSession=await readPrivate(join(f.path,'runner-session.json')),originalReport=await readPrivate(join(f.path,'summary.json'));
+  await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now(),true)).rejects.toMatchObject({code:'PROCESS_STATE'});
+  await attestKubernetesTermination(f.options);
+  expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(true);
+  expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
+  // Termination alone is not proof that the model is absent.
+  expect((await assessCleanup(f.path,true)).state).toBe('required');
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now(),true)).execute(f.adapters);
+  expect(f.deleted).toEqual([name]);expect(f.store.value.spec.holderIdentity).toBe('');
+  expect((await assessCleanup(f.path,true)).state).toBe('verified');
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now(),true)).execute(f.adapters);
+  expect(f.deleted).toEqual([name]);
+  expect(await readPrivate(join(f.path,'runner-session.json'))).toBe(originalSession);
+  expect(await readPrivate(join(f.path,'summary.json'))).toBe(originalReport);
+}));
+
+test('HAR-07 HAR-10 Kubernetes reconciliation rejects active foreign missing changed and unsafe execution evidence',async()=>{
+  for(const fault of ['active','unlisted-owner','foreign-run','foreign-account','foreign-job','foreign-pod','foreign-node','same-run',
+    'missing-pod','worker-running','host-pid','privileged','ephemeral','changed-pod','changed-job','changed-session'] as const)await isolated(async directory=>{
+    const f=await kubernetesFixture(directory);
+    if(fault==='active')f.run.status!.phase='Running';
+    if(fault==='unlisted-owner'){f.published.progress.ownedRunIds=[];await writePrivate(join(f.reports,f.runtimeRunUid,'status.json'),f.published);}
+    if(fault==='foreign-run')f.run.spec!.applianceUid='other-appliance';
+    if(fault==='foreign-account')f.run.spec!.accountRunUid='33333333-3333-4333-8333-333333333333';
+    if(fault==='foreign-job')f.job.metadata.labels!['regression.magicstick.dev/run-uid']='other-run';
+    if(fault==='foreign-pod')f.pod.metadata.ownerReferences![0]!.uid='other-job';
+    if(fault==='foreign-node')f.node.metadata.uid='other-node';
+    if(fault==='same-run')f.options.currentRunUid=f.options.runtimeRunUid;
+    if(fault==='missing-pod')f.options.reader.list=async resource=>resource==='pods'?[]:resource==='nodes'?[f.node]:[f.run];
+    if(fault==='worker-running')f.pod.status!.containerStatuses![0]!.state={running:{startedAt:new Date().toISOString()}};
+    if(fault==='host-pid')f.pod.spec!.hostPID=true;
+    if(fault==='privileged')(f.pod.spec!.containers as any[])[0].securityContext.allowPrivilegeEscalation=true;
+    if(fault==='ephemeral')f.pod.spec!.ephemeralContainers=[{name:'unobserved-debugger'}];
+    const original=f.options.reader.get;
+    if(['changed-pod','changed-job','changed-session'].includes(fault))f.options.reader.get=async resource=>{
+      const value=await original(resource);
+      // The first Job read is before the Pod inventory, subsequent reads close
+      // the attestation. Changing a revision during that window must reject it.
+      if(fault==='changed-pod'&&resource==='pods')value.metadata.uid='replacement-pod';
+      if(fault==='changed-job'&&resource==='jobs.batch'&&f.reads.filter(r=>r==='jobs.batch').length>1)value.metadata.resourceVersion='10';
+      if(fault==='changed-session'&&resource==='pods')await writePrivate(join(f.path,'runner-session.json'),{...f.session,updatedAt:new Date(Date.now()+1000).toISOString()});
+      return value;
+    };
+    await expect(attestKubernetesTermination(f.options),fault).rejects.toBeInstanceOf(HarnessError);
+    expect(await verifiedKubernetesTermination(f.path,f.runId,registration),fault).toBe(false);
+    expect(f.store.replacements,fault).toBe(0);expect(f.deleted,fault).toEqual([]);
+  });
+});
+
+test('HAR-07 Kubernetes termination receipts bind the unchanged session and node identity',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory);await attestKubernetesTermination(f.options);
+  expect(await verifiedKubernetesTermination(f.path,f.runId,{...registration,nodeUids:['replacement-node']})).toBe(false);
+  await writePrivate(join(f.path,'runner-session.json'),{...f.session,updatedAt:new Date(Date.now()+1000).toISOString()});
+  expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(false);
+  await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now()+2000,true)).rejects.toMatchObject({code:'PROCESS_STATE'});
+}));
+
+test('HAR-07 exact execution ownership is separate from a retained account reused by later runs',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory),account='33333333-3333-4333-8333-333333333333';
+  f.run.spec!.accountRunUid=account;f.options.accountRunUid=account;
+  await attestKubernetesTermination(f.options);
+  expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(true);
+  const proof=JSON.parse(await readPrivate(join(f.path,'runner-termination.json')));
+  expect(proof.runtimeRunUid).toBe(f.runtimeRunUid);expect(proof.runtimeRunUid).not.toBe(account);
+}));
+
+test('HAR-07 setup reconciliation uses only fixed reads for the Lease-linked Kubernetes execution',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory),commands:string[][]=[];
+  const account='33333333-3333-4333-8333-333333333333';f.run.spec!.accountRunUid=account;
+  const env={REGRESSION_EXECUTION:'kubernetes',REGRESSION_ACCOUNT_RUN_UID:account,REGRESSION_RUN_UID:f.options.currentRunUid};
+  const command=async(args:string[])=>{
+    commands.push(args);expect(args[0]).toBe('get');expect(args.slice(-2)).toEqual(['-o','json']);
+    const resource=args[1]!;
+    return args[2]==='-n'||args[2]==='-o'?{items:await f.options.reader.list(resource)}:f.options.reader.get(resource);
+  };
+  await reconcileKubernetesSession({root:f.root,runId:f.runId,reports:f.reports,identity:registration,env,command,runtimeRunUid:f.runtimeRunUid});
+  expect(commands.length).toBe(7);expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(true);
+  expect(commands.find(args=>args[1]==='nodes')).toEqual(['get','nodes','-o','json']);
+  expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
+  commands.length=0;
+  await reconcileKubernetesSession({root:f.root,runId:f.runId,identity:registration,env:{REGRESSION_EXECUTION:'external'},command});
+  expect(commands).toEqual([]);
+}));

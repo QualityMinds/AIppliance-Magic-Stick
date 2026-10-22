@@ -26,6 +26,7 @@ export const reasons = {
   CONFLICT: 'An intervening revision prevents automatic restoration.',
   DEADLINE: 'The stage deadline expired without matching current-generation evidence.',
   UNEXPECTED: 'The harness failed unexpectedly; private diagnostics require review.',
+  PROCESS_STATE: 'The previous runner did not prove that all worker processes stopped. Exact process or Kubernetes termination evidence is required before recovery; this is not another run owning the lease.',
   MISSING_EVIDENCE: 'The runner did not record a required test/layer result or a causal prerequisite. This is a harness reporting failure, not a missing lab prerequisite.',
   REPORT_EXPORT: 'Execution finished, but a sanitized report download could not be published. The recorded test results were retained; this does not imply a cleanup failure.',
   CI_ACCESS: 'The exact native companion build has no public acceptance proof and its legacy Actions artifacts require authentication. Publish the workflow acceptance check; no Appliance administrator credential can replace it.',

@@ -9,6 +9,7 @@ import {ResourceJournal,newRunId} from '../core/journal.ts';
 import {readPrivate,writePrivate} from '../core/private-files.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {supervisedProcess} from '../core/process-supervisor.ts';
+import {inspectLinuxGroup,processStat} from '../core/process-group.ts';
 import {executionBudget} from '../core/execution-budget.ts';
 import {phase4Scenarios,scenarioGrep} from '../core/scenario-selection.ts';
 import {phase4Requirements} from '../profiles/gpu-p0.ts';
@@ -229,11 +230,10 @@ test('HAR-07 a real worker cannot write after its process group has been verifie
   const coordinator=`require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:'ignore'});setInterval(()=>{},50)`;
   const child=supervisedProcess(process.execPath,['-e',coordinator],{stdio:'ignore'},{hardTimeoutMs:150,drainMs:300});
   const result=await child.finished;expect(result.forced).toBe(true);
-  // Platforms that retain an orphan zombie must keep the fence rather than
-  // claiming it stopped. Either way, no live worker may produce a late write.
   await new Promise(resolve=>setTimeout(resolve,550));
   await expect(lstat(marker)).rejects.toMatchObject({code:'ENOENT'});
-  expect((await assessCleanup(directory,result.processesStopped)).state).toBe(result.processesStopped?'verified':'unknown');
+  expect(result.processesStopped).toBe(true);
+  expect((await assessCleanup(directory,result.processesStopped)).state).toBe('verified');
 }));
 
 test('HAR-07 HAR-10 coordinator exit does not shorten a still-running worker cleanup window',async()=>fixture(async directory=>{
@@ -243,7 +243,66 @@ test('HAR-07 HAR-10 coordinator exit does not shorten a still-running worker cle
   const child=supervisedProcess(process.execPath,['-e',coordinator],{stdio:'ignore'},{timeoutMs:150,graceMs:1000,drainMs:10});
   const result=await child.finished;
   expect(await readPrivate(marker)).toBe('verified');expect(result.timedOut).toBe(true);
-  if(result.processesStopped)expect(result.forced).toBe(false);
+  expect(result.processesStopped).toBe(true);expect(result.forced).toBe(false);
+}));
+
+function stat(pid:number,state:string,group=41,session=41,started='12345') {
+  return `${pid} (synthetic worker (with spaces)) ${state} 1 ${group} ${session} ${Array(15).fill('0').join(' ')} ${started} 0`;
+}
+test('HAR-07 HAR-10 Linux termination distinguishes zombies from sleeping stopped and uninterruptible writers',async()=>fixture(async root=>{
+  await writePrivate(join(root,'1/stat'),stat(1,'I',0,0)); // Unrelated kernel task.
+  for(const state of ['Z','X','x','R','S','D','T','t']) {
+    await writePrivate(join(root,'42/stat'),stat(42,state));
+    const result=inspectLinuxGroup(41,'12345',root);
+    expect(result.state).toBe(['Z','X','x'].includes(state)?'stopped':'live');
+    expect(result.members).toEqual([{pid:42,group:41,session:41,state,started:'12345'}]);
+  }
+  expect(processStat(stat(42,'S')).started).toBe('12345');
+}));
+test('HAR-07 HAR-10 unreadable process evidence or a recycled group cannot release the cleanup fence',async()=>fixture(async root=>{
+  await writePrivate(join(root,'42/stat'),stat(42,'Z'));
+  expect(inspectLinuxGroup(41,undefined,root)).toMatchObject({state:'unknown',detail:'identity'});
+  await writePrivate(join(root,'41/stat'),stat(41,'S',41,41,'67890'));
+  expect(inspectLinuxGroup(41,'12345',root)).toMatchObject({state:'unknown',detail:'identity'});
+  await rm(join(root,'41'),{recursive:true});
+  await writePrivate(join(root,'43/stat'),'invalid stat');
+  expect(inspectLinuxGroup(41,'12345',root)).toMatchObject({state:'unknown',detail:'unreadable'});
+  expect(inspectLinuxGroup(41,'12345',join(root,'missing'))).toMatchObject({state:'unknown',detail:'unreadable'});
+}));
+
+test('HAR-07 HAR-10 real Linux zombie-only group finishes without a false infrastructure error',async()=>{
+  test.skip(process.platform!=='linux','Actual /proc and fork behavior is verified by the Linux runner, not emulated on macOS.');
+  const code=`import os,time
+pid=os.fork()
+if pid==0: os._exit(0)
+time.sleep(0.15)
+os._exit(0)
+`;
+  const child=supervisedProcess('python3',['-c',code],{stdio:'ignore'},{graceMs:200,drainMs:100});
+  expect(await child.finished).toMatchObject({exitCode:0,processesStopped:true,forced:false,orphaned:false});
+});
+
+test('HAR-07 HAR-10 the bundled Linux subreaper adopts and reaps orphaned descendants',async()=>fixture(async directory=>{
+  test.skip(process.platform!=='linux','The actual bundled Linux init is verified by the runner image.');
+  const marker=join(directory,'adopted.json');
+  const code=`import os,time
+pid=os.fork()
+if pid==0:
+    worker=os.fork()
+    if worker==0:
+        time.sleep(0.15)
+        with open(${JSON.stringify(marker)},'w') as out: out.write(str(os.getppid()))
+        os._exit(0)
+    os._exit(0)
+os.waitpid(pid,0)
+time.sleep(0.4)
+`;
+  const child=supervisedProcess('/usr/bin/tini',['-s','--','python3','-c',code],{stdio:'ignore'},{hardTimeoutMs:3000,graceMs:300,drainMs:100});
+  const result=await child.finished;
+  expect(result).toMatchObject({exitCode:0,processesStopped:true,forced:false,orphaned:false});
+  const {readFile}=await import('node:fs/promises'); // Synthetic Python output, not a private credential.
+  expect(Number(await readFile(marker,'utf8'))).toBe(child.child.pid);
+  expect(result.processState.members).toEqual([]);
 }));
 
 test('HAR-08 HAR-10 a real Playwright teardown fixture retains its own budget after the test times out',async()=>fixture(async directory=>{

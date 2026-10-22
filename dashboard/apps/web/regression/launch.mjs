@@ -33,7 +33,9 @@ import {phase4Scenarios,scenarioGrep} from './core/scenario-selection.ts';
 import {interruptedEvidence} from './core/interrupted-evidence.ts';
 import {executionIdentity} from './core/shared-workflow.ts';
 import {saveExecutionTrace} from './core/execution-trace.ts';
+import {ensureProcessInit} from './core/process-init.ts';
 
+await ensureProcessInit();
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 const mode = process.argv[2], runId = process.env.REGRESSION_CHILD_RUN_ID||newRunId();
@@ -65,7 +67,7 @@ const requiredBase = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) 
   mode === 'gpu-recover' ? ['HAR-07','HAR-08'] : mode === 'recover' ? ['HAR-07'] : ['HAR-01', 'HAR-02', 'HAR-03']);
 const scenarioId=process.env.REGRESSION_SCENARIO_ID||undefined;
 const required=scenarioId?(process.env.REGRESSION_SCENARIO_REQUIRED??'').split(','):mode==='non-destructive-live'?['HAR-01','HAR-02']:nonDestructive&&/^phase[0-8]$/.test(mode)?[]:requiredBase;
-let home, child, interruptedSignal, session,lastProcessResult,sessionFinished=false,campaignDeadline,deadlineReached=false;
+let home, child, interruptedSignal, session,targetUid,lastProcessResult,sessionFinished=false,campaignDeadline,deadlineReached=false;
 const supervisors=new WeakMap();
 const allocatedRuns=new WeakMap();
 const allocatedModes=new WeakMap();
@@ -192,7 +194,8 @@ try {
     } else {
       await ResourceJournal.create(join(directory, 'journal.json'), runId, config.expected.applianceUid);
     }
-    if(mode!=='cleanup-plan')session=await runnerSession(directory,runId,config.expected.applianceUid);
+    targetUid=config.expected.applianceUid;
+    if(mode!=='cleanup-plan')session=await runnerSession(directory,runId,targetUid);
     if(['recover','gpu-recover','campaign-recover'].includes(mode)) {
       let target=recoveryRunId;
       if(!target) {
@@ -407,6 +410,8 @@ try {
     child=execution.child;supervisors.set(child,execution);
     process.exitCode=await waitChild(child);
     if(mode !== 'typecheck') {
+      if(lastProcessResult)await writePrivate(join(directory,'process-state.json'),{version:1,runId,targetUid,
+        checkedAt:new Date().toISOString(),process:execution.identity,...lastProcessResult});
       if(session){await session.finish(Boolean(interruptedSignal)||lastProcessResult?.interrupted,lastProcessResult?.processesStopped===true);sessionFinished=true;}
       let report;
       try {report=JSON.parse(await readPrivate(join(directory,'summary.json')));}
@@ -418,7 +423,7 @@ try {
       if(lastProcessResult?.timedOut||lastProcessResult?.forced||lastProcessResult?.orphaned||lastProcessResult?.processesStopped===false) {
         const fixture=mode==='selftest'||/(?:-fast|-fixtures)$/.test(mode);
         report.cases.push({id:'HAR-10',layer:fixture?'U':'A',environment:fixture?'fixture':'live',outcome:'Failed',durationMs:0,
-          reason:lastProcessResult.timedOut?'DEADLINE':'UNEXPECTED',stage:'runner-execution'});
+          reason:lastProcessResult.timedOut?'DEADLINE':lastProcessResult.processesStopped===false?'PROCESS_STATE':'UNEXPECTED',stage:'runner-execution'});
         report.acceptable=false;
         if(fixture||nonDestructive)await saveReport(directory,runId,report.cases,required,process.env.REGRESSION_SOURCE_REVISION,mode);
       }

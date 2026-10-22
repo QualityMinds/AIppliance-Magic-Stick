@@ -321,6 +321,17 @@ test('HAR-10 cleanup cause survives later phase guards and only verified restora
   inheritRecoveryCause(environment,[],false);expect(environment).toEqual({});expect(root.outcome).toBe('Failed');
 });
 
+test('HAR-07 HAR-10 recovery guards preserve the original process failure instead of another-run prerequisite',()=>{
+  const environment:Record<string,string|undefined>={};
+  const root:CaseResult={id:'HAR-10',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:'PROCESS_STATE',stage:'runner-execution'};
+  inheritRecoveryCause(environment,[{id:'HAR-07',outcome:'Failed',reason:'CLEANUP'},root],true);
+  expect(recoveryCause(environment.REGRESSION_RECOVERY_CAUSE)).toEqual({kind:'failure',caseId:'HAR-10',reason:'PROCESS_STATE',stage:'runner-execution'});
+  const rows=completeCases('phase0',[{id:'HAR-07',outcome:'Blocked',reason:'RECOVERY',durationMs:0,layer:'A',
+    blockedBy:recoveryCause(environment.REGRESSION_RECOVERY_CAUSE)}],[],'PREREQUISITE',true);
+  expect(rows.filter(row=>row.outcome==='Blocked'&&row.environment==='live').every(row=>row.blockedBy?.kind==='failure'&&row.blockedBy.caseId==='HAR-10')).toBe(true);
+  expect(withBlockedCauses([{id:'HAR-07',outcome:'Blocked',reason:'PROCESS_STATE'}])[0]?.blockedBy?.kind).toBe('failure');
+});
+
 test('HAR-10 exact blocked variants retain a known missing prerequisite instead of an invented failure',()=>{
   const source:CaseResult={id:'MGPU-01',variant:'p3-multigpu-vllm-4',layer:'A',environment:'live',durationMs:0,
     outcome:'Blocked',reason:'CAPABILITY',blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}};

@@ -115,6 +115,16 @@ Missing final counts remain unavailable; only explicitly preliminary scenario
 progress may be shown. 100% denotes completed execution, not a passing outcome.
 New HTML/text exports use this same evidence-first order; JSON/JUnit meanings
 and stored historical reports stay unchanged.
+Runner process failures use `PROCESS_STATE` when worker termination is not
+proved, retaining the original `HAR-10 / runner-execution` cause across recovery
+guards. Private process-state diagnostics distinguish live tasks from Linux
+zombies; permission/read errors stay unknown. Docker and native Kubernetes
+entrypoints use the bundled Tini subreaper without changing Pod privileges.
+For legacy unfinished sessions, only the retained account's exact terminal
+Kubernetes run/Job/Pod/container and current node identity can attest termination
+against the unchanged session. This does not update old results or replace
+UID/revision-bound cleanup and independent resource absence checks. No new API
+endpoint or service-account permission is added.
 The start dialog selects one or more P0 phases (0–8, all by default) through the
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic

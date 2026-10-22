@@ -18,7 +18,9 @@ import {assessCleanup,assessRunCleanup,cleanupStatus} from './core/cleanup-state
 import {diagnosticSelection} from './core/diagnostic-selection.ts';
 import {runDiagnosticSelection} from './core/kubernetes-diagnostic.ts';
 import {saveKubernetesRegistration} from './core/kubernetes-registration.ts';
+import {ensureProcessInit} from './core/process-init.ts';
 
+await ensureProcessInit();
 process.umask(0o077);
 const uid=process.env.REGRESSION_RUN_UID;
 if(!/^[a-f0-9-]{36}$/.test(uid??''))throw new Error('Invalid run identity.');

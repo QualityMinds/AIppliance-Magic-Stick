@@ -31,7 +31,7 @@ export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; env
 export interface RecoveryAttempt {runId:string;state:'restored'|'blocked';reason?:ReasonCode}
 export function needsRecovery(cases:CaseResult[]) {
   return cases.some(item=>item.recoveryRequired===true||item.reason&&
-    ['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason));
+    ['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY','PROCESS_STATE'].includes(item.reason));
 }
 
 export const reportVariants: Record<string, string> = {...phase0Variants, ...phase1Variants,...nonDestructiveVariants,
@@ -132,6 +132,7 @@ export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionB
   if(reason==='MISSING_EVIDENCE')return 'Repair the runner selection/evidence mapping or interrupted child report. Do not configure a prerequisite or reuse an older result to fill this gap.';
   if(kind==='unknown'&&reason==='PREREQUISITE')return 'Inspect the missing evidence and preceding runner steps; no causal prerequisite or failure was recorded.';
   if(reason === 'UNEXPECTED')return 'Inspect the filtered scenario/step trace and runner status, correct the failing assertion or harness error, then repeat the suite.';
+  if(reason === 'PROCESS_STATE')return 'Inspect the retained private process-state diagnostic. After the exact old Kubernetes Pod has terminated, use Clean up previous test run for identity-bound recovery. Do not force-release its Lease or mark a running session finished.';
   if(reason === 'COMPONENT')return 'Inspect the archived owning component diagnostic and its source test, then repeat the isolated component check.';
   if(reason === 'CONFIG' || reason === 'PRIVATE_FILE')return 'Repeat automatic setup with the same retained storage; verify runner version, file permissions and available storage. Do not manually delete recovery receipts.';
   if(reason === 'REVISION')return 'Verify the selected source revision, image promotion and healthy Flux/Deployment convergence, then repeat automatic preparation. Do not accept stale images or bypass revision checks.';

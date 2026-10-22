@@ -593,6 +593,21 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+22 October 2026, HAR-07/HAR-10 process-lifecycle follow-up: Linux process-group
+inspection distinguishes exited Z/X tasks from live R/S/D/T workers, rejects
+unreadable/recycled identities and retains bounded private process diagnostics.
+The runner bundles a subreaper for Docker and Kubernetes command overrides;
+signal forwarding preserves the coordinator's teardown window. Existing
+[`execution-lifecycle.unit.spec.ts`](../../dashboard/apps/web/regression/harness/execution-lifecycle.unit.spec.ts)
+adds synthetic process-state counterexamples and actual Linux fork/adoption
+probes (explicitly skipped on non-Linux hosts). `selftest` and `phase4-fast`
+select these tests. Existing recovery/reporting specs in the same selections
+cover exact terminated run/Job/Pod/container and node binding, changed session/
+UID/revision rejection, repeated regular cleanup and original failure attribution.
+Termination proof alone never proves resource removal; historical session and
+report contents remain unchanged. These are isolated checks, not Strix Phase 0
+or installed-appliance acceptance.
+
 22 October 2026, HAR-10 and UX-02 report-count follow-up: the Dashboard and new
 HTML/text exports show all check evidence before executable scenarios. The shared
 public-safe report fixture retains 441/3/18 total, 345/0/1 scenarios and 8/3/18

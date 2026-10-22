@@ -19,12 +19,13 @@ import {recordedLeaseSession} from './core/runner-session.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {editRevision} from './core/owned-model.ts';
 import {poll} from './core/poll.ts';
-import {bootstrapRegisteredLab,bootstrapTestLicenses} from './core/automatic-bootstrap.ts';
+import {bootstrapRegisteredLab,bootstrapTestLicenses,bootstrapCommand} from './core/automatic-bootstrap.ts';
 import {parseRegistration} from './core/lab-policy.ts';
 import {AutomaticRecovery} from './core/automatic-recovery.ts';
 import {recoveryAdapters} from './core/recovery-adapters.ts';
 import {parseRecoveryLock} from './core/lock-recovery.ts';
 import {applicationModuleIds,protectedModule} from './core/application-modules.ts';
+import {reconcileKubernetesSession} from './core/kubernetes-termination.ts';
 
 process.umask(0o077);
 const directory = resolve(process.env.REGRESSION_INPUT_DIR ?? '/inputs');
@@ -309,7 +310,13 @@ try {
             setupStage = 'lab-bootstrap';
             const bootstrapped=await bootstrapRegisteredLab(directory,registration,request.mode === 'register',async lease=>{
               setupStage='run-recovery';
-              const plan=await AutomaticRecovery.prepare(resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs'),lease,registration);
+              const root=resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs');
+              const runId=lease.metadata.annotations?.['regression.magicstick.dev/run-id']??lease.spec.holderIdentity;
+              requireSafe(/^reg-[a-f0-9-]{36}$/.test(runId??''),'RECOVERY');
+              await reconcileKubernetesSession({root,runId,identity:registration,env:process.env,
+                runtimeRunUid:lease.metadata.annotations?.['regression.magicstick.dev/kubernetes-run-uid'],
+                command:args=>bootstrapCommand(join(directory,'.setup-bootstrap.kubeconfig'),args)});
+              const plan=await AutomaticRecovery.prepare(root,lease,registration,Date.now(),process.env.REGRESSION_EXECUTION==='kubernetes');
               return async()=>{
                 const id=await plan.execute(await recoveryAdapters(directory,context,registration));
                 console.log('Previous interrupted regression run automatically restored; original failed evidence retained.');

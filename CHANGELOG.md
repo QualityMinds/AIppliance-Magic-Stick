@@ -8,6 +8,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Verify regression worker termination from Linux process state, retaining a
+  private bounded diagnostic and reaping orphaned children with Tini. Zombies
+  cannot cause a permanent running-session fence; live or unreadable workers
+  still block recovery. Kubernetes cleanup can attest an exact old terminated
+  run/Job/Pod and unchanged session before using existing identity-bound resource
+  recovery. Historical sessions/results are not rewritten. Process failures
+  retain their original cause instead of claiming another run owns the Lease.
+
 - Show all regression check evidence first, including runner and cleanup errors.
   Keep executable-scenario totals in a closed detail view and live evidence
   separately labelled. Missing final totals remain unavailable, not zero failures;
