@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY = ROOT.parents[2]
 SCRIPT = ROOT / "keycloak-session-policy.sh"
 MARKER = "magicstickRememberMePolicyVersion"
 
@@ -172,3 +174,74 @@ class RememberMePolicyTests(unittest.TestCase):
         self.assertIn({"name": "session-policy", "mountPath": "/opt/magicstick", "readOnly": True}, container["volumeMounts"])
         self.assertIn({"name": "session-policy", "configMap": {"name": "keycloak-session-policy"}}, pod["volumes"])
         self.assertIn("keycloak-session-policy.sh", (ROOT / "kustomization.yaml").read_text())
+
+    def test_only_the_runtime_session_script_is_excluded_from_flux_substitution(self):
+        manifest = yaml.safe_load((ROOT / "kustomization.yaml").read_text())
+        generators = {item["name"]: item for item in manifest["configMapGenerator"]}
+        annotation = "kustomize.toolkit.fluxcd.io/substitute"
+        self.assertEqual(generators["keycloak-session-policy"].get("options", {})
+                         .get("annotations", {}).get(annotation), "disabled")
+        self.assertNotEqual(generators["auth-pilot-nginx"].get("options", {})
+                            .get("annotations", {}).get(annotation), "disabled")
+        self.assertNotEqual(manifest.get("generatorOptions", {}).get("annotations", {})
+                            .get(annotation), "disabled")
+
+
+class RememberMeFluxBuildTests(unittest.TestCase):
+    """Actual Flux post-build checks, selected by Public release checks discovery.
+
+    Installed Phase 1 selects RememberMePolicyTests only: its runner does not
+    require the host-side Flux CLI or claim these CI renders as live acceptance.
+    """
+
+    def setUp(self):
+        self.flux = shutil.which("flux")
+        self.assertIsNotNone(self.flux, "Install the pinned Flux CLI for identity post-build checks")
+        self.temp = tempfile.TemporaryDirectory(prefix="magicstick-identity-flux-")
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+        self.identity = self.directory / "identity"
+        self.graph = self.directory / "identity-pilot.yaml"
+        shutil.copyfile(REPOSITORY / "magic-cluster/flux/graph/base/10-identity-pilot.yaml", self.graph)
+        shutil.copytree(ROOT, self.identity, ignore=shutil.ignore_patterns("__pycache__"))
+
+    def build(self):
+        return subprocess.run([
+            self.flux, "build", "kustomization", "identity-pilot",
+            "--path", str(self.identity), "--kustomization-file",
+            str(self.graph),
+            "--dry-run", "--strict-substitute", "--in-memory-build",
+        ], cwd=self.directory, text=True, capture_output=True, timeout=30)
+
+    def test_strict_flux_build_preserves_runtime_script_and_substitutes_identity_hosts(self):
+        result = self.build()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        documents = list(yaml.safe_load_all(result.stdout))
+        config = next(item for item in documents if item["kind"] == "ConfigMap"
+                      and item["metadata"]["name"].startswith("keycloak-session-policy-"))
+        self.assertEqual(config["data"]["keycloak-session-policy.sh"], SCRIPT.read_text())
+        deployment = next(item for item in documents if item["kind"] == "Deployment"
+                          and item["metadata"]["name"] == "keycloak")
+        env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+        self.assertEqual(next(item["value"] for item in env if item["name"] == "KC_HOSTNAME"),
+                         "https://id.magicstick.local")
+
+    def test_strict_flux_build_rejects_the_original_unprotected_script(self):
+        path = self.identity / "kustomization.yaml"
+        manifest = yaml.safe_load(path.read_text())
+        generator = next(item for item in manifest["configMapGenerator"]
+                         if item["name"] == "keycloak-session-policy")
+        generator.get("options", {}).get("annotations", {}).pop(
+            "kustomize.toolkit.fluxcd.io/substitute", None)
+        path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+        result = self.build()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("variable not set", result.stderr)
+        self.assertIn('"before"', result.stderr)
+
+    def test_strict_flux_build_still_rejects_missing_variables_in_other_resources(self):
+        path = self.identity / "auth-pilot-nginx.conf"
+        path.write_text(path.read_text() + "\n# ${MAGICSTICK_REQUIRED_IDENTITY_FIXTURE}\n")
+        result = self.build()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("MAGICSTICK_REQUIRED_IDENTITY_FIXTURE", result.stderr)
