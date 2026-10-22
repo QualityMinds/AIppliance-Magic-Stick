@@ -39,6 +39,15 @@ ID**, and runs the selected P0 phases from the beginning. All Phase 0–8 tests 
 selected by default. Progress and reports identify the saved selection; other
 phases are not run or counted as passed. Earlier results are never reused.
 Reloading the page does not stop the Kubernetes Job.
+
+For focused Phase 4 checks, **Test selection** offers **Last GPU slot race**
+(`SLOT-09`), **Sharing persistence after reload** (`SHR-12`), **Exact sharing and
+resource restoration** (`HAR-08`), or their combined profile including `SLOT-03`
+and `SHR-07`. Choosing one sets full mode and only Phase 4. Normal automatic
+preparation, baseline checks and exact cleanup still run. The report retains the
+profile after reload and is not full Phase 4 acceptance. **All tests in selected
+phases** returns to ordinary phase selection. Unsupported installed versions do
+not offer these profiles or silently expand them into a whole phase.
 **Refresh tests** remains available during automatic updates. **Cancel tests**
 requests bounded cleanup.
 
@@ -142,6 +151,11 @@ live case IDs this way. The same registered-lab, identity, lock and cleanup rule
 apply. This creates a fresh **scoped** report, not a full-phase acceptance result.
 Rebuild the runner after source changes; do not run another test while the lab
 lock is owned by an active run.
+The same Phase 4 catalog is available externally as
+`bash tools/regression.sh phase4-sharing slot-race`, `reload`, `restoration` or
+`remaining`. It uses the existing sequential launcher and per-scenario budgets,
+not a second test engine. Diagnostic discovery requires every selected live
+case/variant/layer tuple, and missing execution evidence remains a harness failure.
 
 The lab lock renews independently of browser/model waits. Independent checks
 continue after failures; unproved cleanup blocks later live writes. A campaign
@@ -242,6 +256,9 @@ by anonymous pull; the summary records its immutable digest. Manual dispatch
 never promotes `main` or `develop`. Adopt that digest and `sourceRevision` in
 `magic-cluster/apps/regression/runtime.yaml` on the feature branch, refresh
 the generated deployment references and verify the installed revision separately.
+Use the tested-source replacement in `tools/promote_regression_image.py` so its
+`diagnosticSelectionVersion: "1"` capability advances with that exact qualified
+image. Do not add this capability to an older runner pin.
 
 On registered test Appliances, host software convergence defers while a test or
 cleanup run is active. Updates reserve the same lab Lease through Flux rollout;

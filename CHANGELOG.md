@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Select fixed Phase 4 diagnostics in the Kubernetes runner: last-slot races,
+  sharing reload, exact restoration or their combined remaining-case profile.
+  Reuse existing serial scenarios and UID-bound cleanup. Persist selection and
+  report scope; reject unsupported images/schemas instead of running a whole
+  phase. Diagnostic evidence never certifies complete Phase 4 acceptance.
+
 - Migrate legacy setup Deployments from `RollingUpdate` to `Recreate` before
   Flux applies identity updates. Clear retained rollout fields with UID/version
   preconditions, preserving the Deployment, Pod template and setup state.

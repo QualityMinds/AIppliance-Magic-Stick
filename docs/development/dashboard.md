@@ -111,6 +111,13 @@ The start dialog selects one or more P0 phases (0–8, all by default) through t
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic
 cleanup and baseline checks, and show only their selected-phase progress/results.
+An optional immutable `diagnosticSelection` selects a fixed Phase 4 subset from
+the Git-owned regression catalog. The API advertises profiles only for a qualified
+runner; the operator rechecks catalog, pins and capability before creating its
+Job. Distinct credential readiness and a diagnostic entrypoint fail closed during
+mixed-version upgrades. The native runner reuses `phase4-sharing <profile>`, not
+an arbitrary script or an all-phase fallback. Reports retain the diagnostic
+scope and do not grant full-phase acceptance.
 The dialog also selects `testMode`: non-destructive by default, or full including
 destructive scenarios. The API stores the immutable choice. Non-destructive Jobs
 receive only a fresh viewer account and report-store mount; no old private inputs

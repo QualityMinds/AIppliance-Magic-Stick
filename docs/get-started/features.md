@@ -50,6 +50,9 @@
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
   Run all phases by default or select one or more, such as Phase 3 only; progress
   and reports retain that selection without crediting unselected phases.
+  Phase 4 also offers fixed diagnostic subsets for slot races, reload and exact
+  restoration, individually or together. These retain automatic preparation and
+  cleanup and never certify the whole phase.
   Choose **Non-destructive only** (default) for isolated tests and live read-only
   inventory, or **Include destructive tests** for model/service/configuration
   workflows. The limited mode creates only test infrastructure and a temporary

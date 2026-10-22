@@ -389,7 +389,7 @@ test('HAR-10 GPU acceptance needs every variant-layer tuple and keeps maintenanc
 });
 test('HAR-10 the fixed sharing diagnostic uses its selected IDs and can never certify canonical Phase 4',async()=>{
   const ids=gpuModeIds('phase4-sharing','remaining')!;
-  expect(ids).toEqual(phase4SharingCases.remaining.ids);
+  expect(ids).toEqual(phase4SharingCases.remaining!.ids);
   expect(gpuModeIds('phase4')).toEqual(gpuIds(4));
   for(const mode of ['phase3-gpu','phase4','phase4-fast'])
     expect(()=>gpuModeIds(mode,'remaining')).toThrow('[CONFIG]');

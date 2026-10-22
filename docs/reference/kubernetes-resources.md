@@ -276,6 +276,12 @@ intentional exclusions remain in reports, without full-phase acceptance.
 intent uses `operation: recover-lock`, `phases: []` and an immutable
 `lockRecovery` snapshot of the Lease UID/resource version and original journal
 run ID. It cannot select test phases or bypass journal verification.
+Optional immutable `diagnosticSelection` references the Git-owned Phase 4
+diagnostic catalog. It requires `operation: tests`, `testMode: full`, and
+`phases: [4]`. The API and operator reject unknown or unsupported selections;
+distinct credential readiness and the native diagnostic entrypoint prevent
+older schemas/operators/images from silently executing a whole phase. The Job
+receives only the validated ID; it reuses existing serial scenarios and cleanup.
 The existing Magic Stick Operator creates one non-retrying, deadline-bound Job
 in `magicstick-regression`, with UID labels (no cross-namespace owner reference),
 read-only container root, no GPU/host/Docker mounts, and affinity to the retained

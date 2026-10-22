@@ -33,8 +33,12 @@ def replacement(text, source, digest):
     image = image_reference(source, digest)
     if len(re.findall(r"^  image:", text, re.M)) != 1 or len(re.findall(r"^  sourceRevision:", text, re.M)) != 1:
         raise ValueError("Expected exactly one runner pin and source revision.")
-    return re.sub(r'^  sourceRevision:.*$', '  sourceRevision: "' + source + '"',
+    updated = re.sub(r'^  sourceRevision:.*$', '  sourceRevision: "' + source + '"',
         re.sub(r'^  image:.*$', '  image: "' + image + '"', text, flags=re.M), flags=re.M)
+    capability = '  diagnosticSelectionVersion: "1"'
+    if re.search(r'^  diagnosticSelectionVersion:', updated, re.M):
+        return re.sub(r'^  diagnosticSelectionVersion:.*$', capability, updated, flags=re.M)
+    return updated.rstrip() + '\n' + capability + '\n'
 
 
 def git(*args):

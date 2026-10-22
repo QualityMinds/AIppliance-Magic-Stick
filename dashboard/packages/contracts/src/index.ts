@@ -17,7 +17,9 @@ export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type RegressionTestMode = 'non-destructive' | 'full';
 export interface RegressionStartRequest {
   requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[]; testMode?: RegressionTestMode;
+  diagnosticSelection?: string;
 }
+export interface RegressionDiagnosticSelection {id:string;title:string;caseIds:string[]}
 export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
 export interface RegressionCleanup {
   state: 'unknown' | 'required' | 'running' | 'verified' | 'blocked';
@@ -34,6 +36,7 @@ export interface RegressionProgress {
   executionBlockedCounts?: RegressionBlockedCounts;
 }
 export interface RegressionResult {
+  diagnosticSelection?: RegressionDiagnosticSelection;
   cleanup?: RegressionCleanup;
   testMode?: RegressionTestMode; excludedSteps?: string[];
   counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
@@ -47,6 +50,7 @@ export interface RegressionResult {
     phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker}>;
 }
 export interface RegressionRun {
+  diagnosticSelection?: string;
   cleanup?: RegressionCleanup;
   testMode?: RegressionTestMode;
   id: string; uid: string; createdAt: string; phases: number[]; sourceRevision: string;
@@ -56,6 +60,7 @@ export interface RegressionRun {
   operation?: 'tests' | 'recover-lock';
 }
 export interface RegressionStatus {
+  diagnosticSelections?: Array<RegressionDiagnosticSelection & {phase:4}>;
   registered: boolean; applianceUid: string; runtimeAvailable: boolean; sourceRevision: string; message: string;
   recoveryAvailable?: boolean;
   cleanup?: {available: boolean; message: string; revision?: string; runId?: string; released?: boolean};

@@ -39,6 +39,9 @@ export const selections: Record<string, string[]> = {
 };
 
 selections.selftest!.unshift('harness/execution-lifecycle.unit.spec.ts');
+selections.selftest!.unshift('harness/diagnostic-selection.unit.spec.ts');
+selections['phase4-fast']!.unshift('harness/diagnostic-selection.unit.spec.ts');
+selections['phase4-fixtures']!.push('harness/regression.browser.spec.ts');
 
 export const phaseSteps = {
   phase0: ['selftest', 'preflight', 'locktest', 'foundations', 'preflight'],

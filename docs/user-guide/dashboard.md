@@ -70,6 +70,13 @@ All phases are selected by default. To run only GPU
 tests, choose **Clear selection**, check **Phase 3**, then **Start tests**. You
 can also select several phases. The saved selection appears beside progress
 and limits the report to those phases.
+For focused Phase 4 diagnosis, use **Test selection** to choose slot races
+(`SLOT-09`), sharing reload (`SHR-12`), exact restoration (`HAR-08`), or the
+combined remaining-case profile (also `SLOT-03` and `SHR-07`). This selects
+**Include destructive tests** and only Phase 4, with normal preparation and
+cleanup. The report is explicitly a diagnostic subset, not full-phase acceptance.
+Choose **All tests in selected phases** to return to phase selection. These
+profiles appear only after a supporting runner has been published and installed.
 The suite runs in Kubernetes and survives leaving or reloading the page.
 It can stop models and change test-server state; never
 register a production Appliance.

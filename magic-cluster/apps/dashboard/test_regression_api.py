@@ -102,6 +102,71 @@ class RegressionApiTests(unittest.TestCase):
     def start(self, request="1"*32):
         return self.service.start(ACTOR, {"requestId": request, "acknowledgeDisruption": True})
 
+    def diagnostic(self):
+        self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]["diagnosticSelectionVersion"] = "1"
+        self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"] = {"data": {"diagnostics.json":
+            (Path(__file__).resolve().parents[3] / "magic-cluster/apps/regression/diagnostics.json").read_text()}}
+        return {"requestId": "1"*32, "acknowledgeDisruption": True, "phases": [4], "testMode": "full", "diagnosticSelection": "remaining"}
+
+    def test_diagnostic_selection_is_catalog_owned_immutable_and_distinct_from_a_full_phase(self):
+        payload = self.diagnostic()
+        offered = self.service.list()["diagnosticSelections"]
+        self.assertEqual({p["id"] for p in offered}, {"remaining", "slot-race", "reload", "restoration"})
+        self.assertNotIn("grep", json.dumps(offered))
+        run = self.service.start(ACTOR, payload)
+        self.assertEqual(run["phases"], [4])
+        self.assertEqual(run["diagnosticSelection"], "remaining")
+        saved = self.objects[RUNS + "/" + run["id"]]
+        self.assertEqual(saved["metadata"]["annotations"]["regression.magicstick.dev/diagnostic-credentials-ready"], saved["metadata"]["uid"])
+        self.assertNotIn("regression.magicstick.dev/credentials-ready", saved["metadata"]["annotations"])
+        self.writes.clear()
+        self.assertEqual(self.service.start(ACTOR, payload)["id"], run["id"])
+        for changed in ({**payload, "diagnosticSelection": "reload"}, {k: v for k, v in payload.items() if k != "diagnosticSelection"}):
+            with self.assertRaisesRegex(RequestError, "different diagnostic tests"):
+                self.service.start(ACTOR, changed)
+        self.assertEqual(self.writes, [])
+
+    def test_invalid_or_unsupported_diagnostics_never_create_identity_or_intent(self):
+        payload = self.diagnostic()
+        for changes in ({"diagnosticSelection": "arbitrary"}, {"diagnosticSelection": None}, {"diagnosticSelection": ""},
+                        {"diagnosticSelection": []}, {"diagnosticSelection": True}, {"phases": [3, 4]}, {"phases": [3]},
+                        {"testMode": "non-destructive"}):
+            with self.subTest(changes=changes), self.assertRaises(RequestError):
+                self.service.start(ACTOR, {**payload, **changes})
+            self.assertEqual(self.writes, [])
+            self.assertEqual(self.users, {})
+        self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"].pop("diagnosticSelectionVersion")
+        self.assertEqual(self.service.list()["diagnosticSelections"], [])
+        with self.assertRaises(RequestError):
+            self.service.start(ACTOR, payload)
+        self.assertEqual(self.writes, [])
+
+    def test_old_schema_cannot_silently_expand_diagnostic_to_whole_phase(self):
+        payload = self.diagnostic()
+        original = self.functions["request_json"]
+        def old_schema(method, path, value):
+            if path == RUNS:
+                value = copy.deepcopy(value)
+                value["spec"].pop("diagnosticSelection", None)
+            return original(method, path, value)
+        self.functions["request_json"] = old_schema
+        with self.assertRaises(RequestError):
+            self.service.start(ACTOR, payload)
+        self.assertEqual(self.users, {})
+        self.assertFalse(any("/secrets" in path for _, path, _ in self.writes))
+        self.assertFalse(any("credentials-ready" in json.dumps(data) for _, _, data in self.writes))
+        saved = self.objects[RUNS + "/regression-" + payload["requestId"]]
+        self.assertEqual(saved["status"]["cleanup"]["state"], "verified")
+        self.assertTrue(saved["status"]["credentialsCleaned"])
+
+    def test_diagnostic_catalog_malformed_fails_closed_without_exposing_data(self):
+        payload = self.diagnostic()
+        self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"]["data"]["diagnostics.json"] = '{"version":1,"profiles":[{"id":"synthetic-private"}]}'
+        with self.assertRaises(RequestError) as error:
+            self.service.start(ACTOR, payload)
+        self.assertNotIn("synthetic-private", str(error.exception))
+        self.assertEqual(self.writes, [])
+
     def test_non_destructive_mode_is_saved_uses_only_viewer_and_distinct_readiness(self):
         roles = Mock()
         self.functions["_replace_managed_roles"] = roles
