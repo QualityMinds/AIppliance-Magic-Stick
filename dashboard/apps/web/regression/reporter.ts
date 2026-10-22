@@ -2,7 +2,7 @@ import type {FullConfig, FullResult, Reporter, Suite, TestCase, TestResult,TestS
 import {join} from 'node:path';
 import {HarnessError, reasons, stages, blockedReasons, type ReasonCode, type Stage} from './core/errors.ts';
 import {executionIdentity} from './core/shared-workflow.ts';
-import {phase1FastVariants, phase1FixtureVariants, phase1LiveVariants} from './profiles/phase1-p0.ts';
+import {phase1StepIds} from './profiles/phase1-p0.ts';
 import {phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases} from './profiles/phase2-p0.ts';
 import {gpuModeIds} from './profiles/gpu-p0.ts';
 import {remainingIds} from './profiles/remaining-p0.ts';
@@ -279,17 +279,12 @@ export default class SafeReporter implements Reporter {
     for(const trace of this.traces)await saveExecutionTrace(directory,trace);
     const modelCase = process.env.REGRESSION_MODEL_CASE as keyof typeof phase2ModelCases | undefined;
     if (modelCase && !Object.hasOwn(phase2ModelCases, modelCase)) throw new HarnessError('CONFIG');
-    const required = process.env.REGRESSION_SCENARIO_ID?[...new Set(this.selected.flatMap(test=>this.mapping(test).evidence.map(e=>e.id)))]:process.env.REGRESSION_MODE==='non-destructive-live'?['HAR-01','HAR-02']:remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? (process.env.REGRESSION_MODE==='campaign-recover'?['HAR-07']:process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
+    const required = process.env.REGRESSION_SCENARIO_ID?[...new Set(this.selected.flatMap(test=>this.mapping(test).evidence.map(e=>e.id)))]:process.env.REGRESSION_MODE==='non-destructive-live'?['HAR-01','HAR-02']:remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? phase1StepIds(process.env.REGRESSION_MODE) ?? (process.env.REGRESSION_MODE==='campaign-recover'?['HAR-07']:process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
       process.env.REGRESSION_MODE === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-readonly' ? ['DISC-03'] :
       process.env.REGRESSION_MODE === 'phase2-models' ? modelCase ? [...phase2ModelCases[modelCase].ids] : phase2ModelIds :
       process.env.REGRESSION_MODE === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
-      process.env.REGRESSION_MODE === 'smoke-fast' ? [...new Set(Object.values(phase1FastVariants))] :
-      process.env.REGRESSION_MODE === 'smoke-fixtures' ? [...new Set(Object.values(phase1FixtureVariants))] :
-      process.env.REGRESSION_MODE === 'core-smoke' ? [...new Set(Object.entries(phase1LiveVariants).filter(([variant]) =>
-        !['login-session', 'anonymous-api', 'anonymous-browser', 'logout-session', 'final-idle'].includes(variant)).map(([, id]) => id))] :
-      process.env.REGRESSION_MODE === 'session-smoke' ? ['AUTH-01', 'AUTH-02', 'AUTH-06'] :
       process.env.REGRESSION_MODE === 'locktest' ? ['HAR-04', 'HAR-08', 'HAR-09'] :
       process.env.REGRESSION_MODE === 'ownedtest' ? ['HAR-05', 'HAR-06', 'HAR-07'] :
       process.env.REGRESSION_MODE === 'foundations' ? ['HAR-02', 'HAR-03', 'HAR-04', 'HAR-05', 'HAR-06', 'HAR-07', 'HAR-09'] :

@@ -12,7 +12,7 @@ import {completeCases,guardedLiveCases,saveReport, stepCases,reportExitCode,summ
 import {childEvidence} from './core/campaign-evidence.ts';
 import {modeDescription} from './core/case-descriptions.ts';
 import {phase0Ids, requirePhase0Profile} from './profiles/phase0-p0.ts';
-import {phase1Ids, phase1FastVariants, requirePhase1Profile} from './profiles/phase1-p0.ts';
+import {phase1Ids, phase1StepIds, requirePhase1Profile} from './profiles/phase1-p0.ts';
 import {phase2Ids, phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases, requirePhase2Profile} from './profiles/phase2-p0.ts';
 import {phaseSteps} from './profiles/selections.ts';
 import {gpuModeIds,requireGpuProfile,phase3RuntimeCases,phase4SharingCases} from './profiles/gpu-p0.ts';
@@ -53,13 +53,10 @@ const directory = join(output, runId);
 const playwrightCli = resolve('node_modules/@playwright/test/cli.js');
 const typeScriptCli = resolve('node_modules/typescript/bin/tsc');
 // Invalid drill arguments are handled by the redacted reporting path below.
-const requiredBase = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
+const requiredBase = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? phase1StepIds(mode) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
   mode === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] : mode === 'phase2-readonly' ? ['DISC-03'] :
   mode === 'phase2-models' ? selectedModelCase?.ids ?? phase2ModelIds :
   mode === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
-  mode === 'phase1' ? phase1Ids : mode === 'session-smoke' ? ['AUTH-01', 'AUTH-02', 'AUTH-06'] :
-  mode === 'smoke-fast' ? [...new Set(Object.values(phase1FastVariants))] :
-  mode === 'core-smoke' || mode === 'smoke-fixtures' ? phase1Ids :
   mode === 'phase0' ? phase0Ids : mode === 'foundations' ? ['HAR-02', 'HAR-03', 'HAR-04', 'HAR-05', 'HAR-06', 'HAR-07', 'HAR-09'] :
   mode === 'locktest' ? ['HAR-04', 'HAR-07', 'HAR-08', 'HAR-09'] : mode === 'ownedtest' ? ['HAR-05', 'HAR-06', 'HAR-07'] :
   mode === 'smoke' ? ['LIFE-01', 'ROUTE-01', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :

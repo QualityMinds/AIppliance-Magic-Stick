@@ -37,6 +37,21 @@ export const phase1Variants = {...phase1LiveVariants, ...phase1FixtureVariants, 
 export type Phase1Variant = keyof typeof phase1Variants;
 export const phase1Ids = [...new Set(Object.values(phase1Variants))];
 
+const sessionVariants = new Set(['login-session', 'anonymous-api', 'anonymous-browser', 'logout-session']);
+
+/** The reporter and launcher must finalize the same selected step, not the
+ * entire phase. Full-phase variant/layer acceptance remains separate below. */
+export function phase1StepIds(mode?: string): string[] | undefined {
+  if (mode === 'phase1') return [...phase1Ids];
+  if (mode === 'core-smoke') return [...new Set(Object.entries(phase1LiveVariants)
+    .filter(([variant]) => !sessionVariants.has(variant) && variant !== 'final-idle').map(([, id]) => id))];
+  if (mode === 'smoke-fast') return [...new Set(Object.values(phase1FastVariants))];
+  if (mode === 'smoke-fixtures') return [...new Set(Object.values(phase1FixtureVariants))];
+  if (mode === 'session-smoke') return [...new Set(Object.entries(phase1LiveVariants)
+    .filter(([variant]) => sessionVariants.has(variant)).map(([, id]) => id))];
+  return undefined;
+}
+
 export function requirePhase1Profile(config: LabConfig) { requirePhase0Profile(config); }
 
 /** Finite, reviewable Test-ID × parameter variant × layer acceptance matrix. */
