@@ -14,6 +14,7 @@ import {poll} from './poll.ts';
 import {recoveryInventory,type ModuleReceipt,type SharingReceipt} from './recovery-inventory.ts';
 import {attestCleanup,verifyReservationReleased} from './cleanup-state.ts';
 import {progressEvent} from './progress.ts';
+import {verifiedKubernetesTermination} from './kubernetes-termination.ts';
 
 const runPattern=/^reg-[0-9a-f-]{36}$/;
 const drainMs=60_000;
@@ -23,7 +24,8 @@ export async function campaignRecoveryLease(root:string,runId:string,targetUid:s
   options:{timeoutMs?:number;intervalMs?:number;now?:()=>number}={}) {
   requireSafe(runPattern.test(runId),'RECOVERY');
   const session=JSON.parse(await readPrivate(join(root,runId,'runner-session.json'))) as RunnerSession;
-  requireSafe(session.version===1&&session.runId===runId&&session.targetUid===targetUid&&session.state==='finished','LOCK_BUSY');
+  requireSafe(session.version===1&&session.runId===runId&&session.targetUid===targetUid,'RECOVERY');
+  if(session.state!=='finished'||session.processesStopped===false)throw new HarnessError('PROCESS_STATE','Failed','recovery-barrier');
   const now=options.now??Date.now;
   try {
     return await poll(()=>store.read(),lease=>{
@@ -61,10 +63,10 @@ export class AutomaticRecovery {
     this.runId=runId;this.directory=directory;this.expected=expected;this.registration=registration;
     this.journals=journals;this.modules=modules;this.sharing=sharing;
   }
-  static async prepare(root:string,lease:Lease,registration:LabRegistration,now=Date.now()) {
-    return atStage('recovery-journal',()=>this.prepareJournal(root,lease,registration,now));
+  static async prepare(root:string,lease:Lease,registration:LabRegistration,now=Date.now(),requireTermination=false) {
+    return atStage('recovery-journal',()=>this.prepareJournal(root,lease,registration,now,requireTermination));
   }
-  private static async prepareJournal(root:string,lease:Lease,registration:LabRegistration,now:number) {
+  private static async prepareJournal(root:string,lease:Lease,registration:LabRegistration,now:number,requireTermination:boolean) {
     requireSafe(lease.metadata.labels['regression.magicstick.dev/appliance-uid']===registration.applianceUid,'LAB');
     requireSafe(!lease.spec.holderIdentity||leaseHolderReason(lease,now)==='LOCK_STALE'&&
       now>=Date.parse(lease.spec.renewTime!)+lease.spec.leaseDurationSeconds!*1000+drainMs,'LOCK_STALE');
@@ -77,7 +79,10 @@ export class AutomaticRecovery {
       const session=JSON.parse(await readPrivate(sessionFile)) as RunnerSession;
       requireSafe(session.version===1&&session.runId===runId&&session.targetUid===registration.applianceUid&&
         ['running','finished'].includes(session.state)&&Number.isFinite(Date.parse(session.updatedAt))&&now>=Date.parse(session.updatedAt),'RECOVERY');
-      requireSafe(session.state==='finished'||now-Date.parse(session.updatedAt)>=180_000,'LOCK_BUSY');
+      const finished=session.state==='finished'&&session.processesStopped!==false;
+      const terminated=requireTermination&&!finished&&await verifiedKubernetesTermination(directory,runId,registration);
+      if(requireTermination&&!finished&&!terminated)throw new HarnessError('PROCESS_STATE','Failed','recovery-barrier');
+      requireSafe(finished||terminated||now-Date.parse(session.updatedAt)>=180_000,'LOCK_BUSY');
     } else {
       // Compatibility with completed runs made before parent liveness receipts.
       // No report means the old runner's lifecycle is unknown, not permission.

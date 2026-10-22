@@ -7,7 +7,7 @@ export const emptyBlockedCounts = (): RegressionBlockedCounts => ({prerequisite:
 export function regressionBlockedKind(reason?: string): RegressionBlockedKind {
   if (reason === 'CANCELLED') return 'cancelled';
   if (['PREPARATION_FAILED', 'CONFIG', 'AUTH', 'API', 'COMPONENT', 'MUTATION', 'OWNERSHIP', 'CLEANUP',
-    'CONFLICT', 'DEADLINE', 'UNEXPECTED', 'LOCK_LOST', 'RECOVERY'].includes(reason ?? '')) return 'failure';
+    'CONFLICT', 'DEADLINE', 'UNEXPECTED', 'PROCESS_STATE', 'LOCK_LOST', 'RECOVERY'].includes(reason ?? '')) return 'failure';
   if (['PREREQUISITE', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY', 'APPLICATION_MODEL', 'GPU_PROVIDER', 'GPU_VALIDATION', 'HOST', 'BUSY', 'OBSERVER',
     'LOCK_BUSY', 'LOCK_STALE', 'LAB', 'EXTERNAL_RUNNER'].includes(reason ?? '')) return 'prerequisite';
   return 'unknown';

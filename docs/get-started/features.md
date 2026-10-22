@@ -72,6 +72,9 @@
   Non-destructive starts require any previous-run cleanup to be completed separately.
   **Clean up previous test run** is also available for diagnosis; cleanup
   verifies the retained resource identities and revisions.
+  Interrupted Kubernetes executions require exact termination evidence as well;
+  ended Linux zombies are distinguished from live workers, and original runner
+  failures remain visible after cleanup.
   Test completion, verified resource cleanup and test-account removal are shown
   separately; an old report without cleanup evidence is not labelled clean.
   Host-disconnecting drills still require an external runner.

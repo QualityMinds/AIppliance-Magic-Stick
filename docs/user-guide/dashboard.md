@@ -95,6 +95,11 @@ Its adjacent status explains whether cleanup is needed, already complete or
 blocked by active work or unverifiable ownership.
 An active run or unavailable journal disables the button and explains why.
 External runs must be recovered from their original runner's private journal.
+If cleanup reports `PROCESS_STATE`, the runner could not confirm that its
+workers ended. After the old Kubernetes run has stopped, use the same cleanup
+button: it checks the exact execution before cleaning resources. Missing or
+changed ownership evidence still requires inspection; do not remove the lock
+manually. Original failed reports remain failed after successful cleanup.
 Non-destructive runs never perform that cleanup automatically: clean up a
 previous interrupted run separately first. A successful limited report does not
 certify complete phases or real model inference. The saved mode survives reload.

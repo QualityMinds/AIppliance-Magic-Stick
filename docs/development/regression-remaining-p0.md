@@ -88,6 +88,18 @@ or intervening revision requires inspection; the lock cannot be force-released.
 External-run journals must be cleaned up on their original runner. Historical
 failed reports remain unchanged.
 
+`PROCESS_STATE` means the old runner did not prove all its workers stopped; it
+is a harness failure, not a missing prerequisite or proof of another owner.
+The bounded private `process-state.json` records process states and birth
+identities, never command lines or environment. Live or unreadable workers stay
+fenced. Linux zombies are already unable to write and are reaped by the runner's
+init. For an old Kubernetes session, normal cleanup verifies the retained
+account's exact completed run, Job, Pod/container and node identity before
+attesting termination. The original session/report is not changed; resource
+absence, restored settings and Lease release are still checked separately by
+the existing recovery. A missing old Pod or changed identity requires review,
+not a manual lock release.
+
 Service checks borrow an idle standalone service, test enable/disable and restore
 its original state. An empty instance-provider module is not a service fixture.
 Missing optional parameter maps are preserved, not treated as invalid setup.

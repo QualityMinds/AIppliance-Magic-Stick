@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).parent))
-from regression_api import RegressionApi, RUNS, CORE, OWNER, LEASE
+from regression_api import RegressionApi, RUNS, CORE, OWNER, LEASE, cleanup_view
 from test_dashboard_api import load_server
 
 UID = "11111111-2222-3333-4444-555555555555"
@@ -24,6 +24,12 @@ class RequestError(Exception):
 
 
 class RegressionApiTests(unittest.TestCase):
+    def test_cleanup_retains_process_failure_but_never_private_diagnostics(self):
+        value = {"state": "blocked", "reason": "PROCESS_STATE", "stage": "recovery-barrier",
+                 "processes": [{"pid": 123}], "privatePath": "/private/synthetic-receipt"}
+        self.assertEqual(cleanup_view(value), {"state": "blocked", "reason": "PROCESS_STATE", "stage": "recovery-barrier"})
+        self.assertEqual(cleanup_view({**value, "reason": "synthetic-secret"}), {"state": "blocked", "stage": "recovery-barrier"})
+
     def setUp(self):
         self.objects = {"/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/appliances/local": {"metadata": {"uid": UID}},
             "/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/moduleactivations/regression": {"spec": {"enabled": True}},
