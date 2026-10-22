@@ -937,6 +937,15 @@ subprocess verifies scoped launch, receipt handling, cleanup fencing and report
 scope. These implementation checks do not establish installed hardware acceptance;
 the actual selected live tuples and exact cleanup still require a new appliance run.
 
+HAR-02/07 follow-up, 22 October 2026: the native startup registration retains
+its exact ID, Appliance/Node UIDs, policy and original creation identity when
+the configured dashboard/Keycloak origins are renamed. The existing Kubernetes
+unit selection exercises actual private-file persistence, equivalent object/key
+order, both changed origins, foreign IDs/nodes/policy/unknown fields and symlinks.
+This updates only the native API account's trusted origins; it does not clear a
+Lease, change recovery journals or infer successful cleanup. A fresh live run
+must still pass normal preparation, baseline checks and owned-resource recovery.
+
 ### Regression traceability
 
 Keep named regressions in focused owning-layer tests and in the relevant live

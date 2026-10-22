@@ -12,6 +12,39 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
+import {saveKubernetesRegistration} from '../core/kubernetes-registration.ts';
+
+test('HAR-02 HAR-07 native registration follows renamed origins only for the exact same registered installation',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'native-registration-')),filename=join(directory,'lab-registration.json');
+  const registration={version:1,kind:'disposable-regression-lab',policyVersion:1,id:'11111111-2222-3333-4444-555555555555',
+    applianceUid:'appliance-fixture',nodeUids:['node-b','node-a'],createdAt:'2026-10-01T00:00:00Z',
+    dashboardUrl:'https://old.example.local',identityUrl:'https://id.old.example.local'};
+  try {
+    await saveKubernetesRegistration(filename,registration);
+    const original=await readPrivate(filename);
+    // An equivalent JSON object/order is not a changed registration.
+    await saveKubernetesRegistration(filename,Object.fromEntries(Object.entries({...registration,nodeUids:['node-a','node-b']}).reverse()));
+    expect(await readPrivate(filename)).toBe(original);
+    const renamed={...registration,dashboardUrl:'https://renamed.example.local',identityUrl:'https://id.renamed.example.local'};
+    expect(JSON.stringify(registration)).not.toBe(JSON.stringify(renamed)); // Former startup guard rejects this real transition.
+    await saveKubernetesRegistration(filename,renamed);
+    expect(JSON.parse(await readPrivate(filename))).toEqual(renamed);
+    expect((await lstat(filename)).mode&0o077).toBe(0);
+    const after=await readPrivate(filename);
+    for(const change of [{id:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'},{applianceUid:'other-appliance'},
+      {nodeUids:['other-node']},{createdAt:'2026-10-02T00:00:00Z'},{futureIdentity:'foreign'}]) {
+      await expect(saveKubernetesRegistration(filename,{...renamed,...change})).rejects.toThrow('[IDENTITY]');
+      expect(await readPrivate(filename)).toBe(after);
+    }
+    for(const change of [{policyVersion:2},{kind:'other-lab'},{identityUrl:'http://id.renamed.example.local'}]) {
+      await expect(saveKubernetesRegistration(filename,{...renamed,...change})).rejects.toThrow('[LAB]');
+      expect(await readPrivate(filename)).toBe(after);
+    }
+    const link=join(directory,'unsafe.json');await symlink(filename,link);
+    await expect(saveKubernetesRegistration(link,renamed)).rejects.toThrow('[PRIVATE_FILE]');
+    expect(await readPrivate(filename)).toBe(after);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 
 test('HAR-07 recovery accepts only fixed setup stage/detail markers',()=>{
   expect(setupWorkerMarker('[SETUP_STAGE:kubernetes-access] [detail:ERR_MODULE_NOT_FOUND]')).toEqual(

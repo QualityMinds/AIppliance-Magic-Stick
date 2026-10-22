@@ -40,6 +40,11 @@ selected by default. Progress and reports identify the saved selection; other
 phases are not run or counted as passed. Earlier results are never reused.
 Reloading the page does not stop the Kubernetes Job.
 
+After renaming the appliance, native preparation refreshes the dashboard and
+Keycloak origins supplied by that same installation. Its saved registration ID,
+Appliance/Node identities and policy must still match exactly. This does not
+replace registration, discard old journals or bypass previous-run cleanup.
+
 For focused Phase 4 checks, **Test selection** offers **Last GPU slot race**
 (`SLOT-09`), **Sharing persistence after reload** (`SHR-12`), **Exact sharing and
 resource restoration** (`HAR-08`), or their combined profile including `SLOT-03`
