@@ -214,6 +214,13 @@ Passed fixture checks do not prove live acceptance. New reports flag missing req
 execution evidence as `HAR-10 / MISSING_EVIDENCE`, rather than guessing a missing
 prerequisite. Older reports keep unknown causes and their original outcomes.
 
+Phase 1's reporter and post-cleanup finalization use the same step-specific
+requirements from `profiles/phase1-p0.ts`. Core CPU/Ollama evidence does not
+include the separate session, browser-fixture or final-preflight checks. The
+complete Phase 1 report still requires all selected variants and layers across
+those steps. A genuine missing selected check still fails `MISSING_EVIDENCE`;
+repairing the scope does not remove failures from historical reports.
+
 The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
 scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
 cause properties. The archive retains every row, even when the Dashboard limits

@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Finalize Phase 1 reports with the same per-step evidence scope in the runner
+  and reporter. Core CPU/Ollama checks no longer require session, browser-fixture
+  or final-preflight results from other steps. Missing selected evidence, real
+  failures, cleanup fences and the complete Phase 1 layer matrix remain enforced;
+  historical reports are unchanged.
+
 - Verify regression worker termination from Linux process state, retaining a
   private bounded diagnostic and reaping orphaned children with Tini. Zombies
   cannot cause a permanent running-session fence; live or unreadable workers

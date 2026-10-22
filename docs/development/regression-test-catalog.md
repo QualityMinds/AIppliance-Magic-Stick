@@ -593,6 +593,19 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+23 October 2026, HAR-10 Phase 1 evidence-scope follow-up: the reporter and
+launcher now share the existing profile's per-step requirements. A passing
+`core-smoke` must remain passing when finalized after verified cleanup; it must
+not demand the seven case families owned by session, fixture and final-preflight
+steps. Focused counterexamples in
+[`reporting.unit.spec.ts`](../../dashboard/apps/web/regression/harness/reporting.unit.spec.ts),
+selected by the existing `selftest` in every phase, reproduce the old seven
+synthetic dependencies and one `MISSING_EVIDENCE` failure. They also reject a
+genuinely absent selected check or full-phase layer, preserve real cleanup
+failures and verify that the complete Phase 1 matrix is unchanged. This records
+isolated coverage, not acceptance of a new installed run; existing failed
+Strix/Aimonster reports remain unchanged.
+
 22 October 2026, HAR-07/HAR-10 process-lifecycle follow-up: Linux process-group
 inspection distinguishes exited Z/X tasks from live R/S/D/T workers, rejects
 unreadable/recycled identities and zombie leaders with remaining live threads,
