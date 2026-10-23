@@ -30,8 +30,36 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.ts';
 import {OwnedModelClient} from '../core/owned-model.ts';
+import {moduleIntentSnapshot} from './mesh-live.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+
+test('MESH-01 read-only navigation compares persisted module intent, not changing reconciliation status',
+  evidenceAnnotations({id:'MESH-01',layer:'U'},{id:'HAR-10',layer:'U'}),()=>{
+  const before:KubeObject[]=[{metadata:{name:'dashboard',namespace:'ai-system',uid:'dashboard-uid',generation:3,resourceVersion:'10'},
+    spec:{module:'dashboard',enabled:true,parameters:{host:'example.local'}},
+    status:{phase:'Ready',observedGeneration:3}},{metadata:{name:'mesh',namespace:'ai-system',uid:'mesh-uid',generation:1},
+    spec:{module:'private-mesh',enabled:true}}];
+  const reconciled=structuredClone(before).reverse();
+  reconciled[1]!.metadata.resourceVersion='11';reconciled[1]!.status={phase:'Reconciling',observedGeneration:3};
+  expect(moduleIntentSnapshot(reconciled)).toBe(moduleIntentSnapshot(before));
+  for(const mutate of [
+    (items:KubeObject[])=>{items[0]!.spec!.enabled=false;},
+    (items:KubeObject[])=>{items[0]!.spec!.parameters={host:'other.example.local'};},
+    (items:KubeObject[])=>{items[0]!.metadata.uid='recreated-uid';},
+    (items:KubeObject[])=>{items[0]!.metadata.generation=4;},
+    (items:KubeObject[])=>{items[0]!.metadata.deletionTimestamp='2026-01-01T00:00:00Z';},
+    (items:KubeObject[])=>{items.pop();},
+    (items:KubeObject[])=>{items.push({metadata:{name:'another',namespace:'ai-system',uid:'new-uid',generation:1},spec:{module:'another'}});},
+  ]) {const changed=structuredClone(before);mutate(changed);expect(moduleIntentSnapshot(changed)).not.toBe(moduleIntentSnapshot(before));}
+  for(const broken of [
+    [{metadata:{name:'dashboard',namespace:'ai-system',generation:3},spec:{module:'dashboard'}}],
+    [{metadata:{name:'dashboard',namespace:'ai-system',uid:'uid',generation:0},spec:{module:'dashboard'}}],
+    [{metadata:{name:'dashboard',namespace:'other',uid:'uid',generation:1},spec:{module:'dashboard'}}],
+    [...before,before[0]!],
+    [{metadata:{name:'dashboard',namespace:'ai-system',uid:'uid',generation:1}}],
+  ])expect(()=>moduleIntentSnapshot(broken)).toThrow('[API]');
+});
 
 function applicationInputs() {
   const models={activations:[],presets:{small:{variants:[

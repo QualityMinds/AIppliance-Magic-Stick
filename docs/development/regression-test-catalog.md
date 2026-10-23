@@ -593,6 +593,20 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+23 October 2026, MESH-01/HAR-10 navigation follow-up: the installed read-only
+Mesh settings check now compares independently observed ModuleActivation UIDs,
+generations and full persisted specs rather than the volatile `/api/modules`
+status response. Named steps separately prove unchanged Mesh configuration,
+unchanged module intent and no attempted writes. A focused counterexample in
+[`safety.unit.spec.ts`](../../dashboard/apps/web/regression/administration/safety.unit.spec.ts)
+fails with the former whole-object comparison and permits status/resourceVersion
+updates and reordered lists only. Changes to enabled flags, parameters, resource
+identity or generation, deletion, new/removed modules and malformed observations
+remain failures. The existing Phase 7 fast selection executes this owning unit
+coverage; a fresh installed MESH-01 run remains required. The historical
+Aimonster trace lacks a before/after payload diff, so the exact fluctuating
+status field is not claimed as established.
+
 23 October 2026, HAR-07/08/10 cleanup-receipt scope follow-up: a restored root
 baseline and a later independently cleaned Playwright worker must remain
 verifiable together. The previous aggregate-only fingerprint incorrectly marked

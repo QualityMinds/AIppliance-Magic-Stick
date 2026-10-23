@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Verify read-only Mesh navigation against independently observed module UIDs,
+  generations and complete saved configuration. Normal status reconciliation
+  and list ordering no longer look like a write; actual configuration changes,
+  replacements, deletions and blocked write attempts still fail MESH-01.
+
 - Verify regression cleanup receipts per journal scope as well as for the whole
   run. Later independently cleaned workers no longer invalidate an unchanged
   root receipt. Open resources, changed receipts, live workers and unverified
