@@ -12,7 +12,8 @@ async function optionalJson(filename:string) {
 }
 function proofHeader(value:any,runId:string,targetUid:string) {
   requireSafe(value?.version===1&&value.state==='verified'&&value.runId===runId&&value.targetUid===targetUid&&
-    /^[a-f0-9]{64}$/.test(value.fingerprint)&&Array.isArray(value.nodeUids)&&value.nodeUids.length<=64&&
+    /^[a-f0-9]{64}$/.test(value.fingerprint)&&(value.ownFingerprint===undefined||/^[a-f0-9]{64}$/.test(value.ownFingerprint))&&
+    Array.isArray(value.nodeUids)&&value.nodeUids.length<=64&&
     value.nodeUids.every((n:unknown)=>typeof n==='string'&&n.length>0)&&Number.isFinite(Date.parse(value.checkedAt)),'RECOVERY');
 }
 
@@ -43,7 +44,8 @@ export async function attestCleanup(directory:string,identity:RecoveryIdentity,r
   const inventory=await recoveryInventory(directory,identity);requireSafe(inventory.open===0&&inventory.leasePending===0,'CLEANUP');
   const status:RegressionCleanup={state:'verified',checkedAt:new Date().toISOString()};
   await writePrivate(join(directory,'cleanup-verification.json'),{version:1,runId:inventory.journals[0]!.runId,
-    targetUid:identity.applianceUid,nodeUids:identity.nodeUids,recovered,fingerprint:inventory.fingerprint(directory),...status});
+    targetUid:identity.applianceUid,nodeUids:identity.nodeUids,recovered,fingerprint:inventory.fingerprint(directory),
+    ownFingerprint:inventory.ownFingerprint(directory),...status});
   return status;
 }
 
@@ -78,9 +80,9 @@ export async function assessCleanup(directory:string,processesStopped:boolean):P
     const session=await optionalJson(join(directory,'runner-session.json'));
     if(session!==undefined)requireSafe(session.version===1&&session.runId===root.runId&&session.targetUid===root.targetUid&&
       ['finished','running'].includes(session.state),'RECOVERY');
-    const matches=(value:any,path:string)=>value?.version===1&&value.state==='verified'&&value.targetUid===root.targetUid&&
+    const matches=(value:any,path:string,own=false)=>value?.version===1&&value.state==='verified'&&value.targetUid===root.targetUid&&
       inventory.journals.some(j=>j.runId===value.runId&&j.filename===join(path,'journal.json'))&&
-      value.fingerprint===inventory.fingerprint(path)&&Number.isFinite(Date.parse(value.checkedAt));
+      (own?value.ownFingerprint===inventory.ownFingerprint(path):value.fingerprint===inventory.fingerprint(path))&&Number.isFinite(Date.parse(value.checkedAt));
     if(!processesStopped||session&&(session.state!=='finished'||session.processesStopped===false)&&!(proof?.recovered===true&&matches(proof,directory)))
       return {state:'unknown',checkedAt,reason:'RECOVERY',stage:'recovery-barrier'};
     if(matches(proof,directory))return {state:'verified',checkedAt};
@@ -90,7 +92,10 @@ export async function assessCleanup(directory:string,processesStopped:boolean):P
         (file.endsWith('/journal.json')||file.endsWith('.journal.json')?JSON.parse(body).entries.length>0:true));
       if(!changed)continue;
       const value=await optionalJson(join(path,'cleanup-verification.json'));
-      if(!matches(value,path))return {state:'unknown',checkedAt,reason:'RECOVERY',stage:'recovery-journal'};
+      // Later workers change an aggregate hash, but not the earlier worker's
+      // exact local receipt. Check every scope independently; an old aggregate
+      // receipt without this additional proof remains conservatively unknown.
+      if(!matches(value,path)&&!matches(value,path,true))return {state:'unknown',checkedAt,reason:'RECOVERY',stage:'recovery-journal'};
     }
     return {state:'verified',checkedAt};
   }catch(error) {

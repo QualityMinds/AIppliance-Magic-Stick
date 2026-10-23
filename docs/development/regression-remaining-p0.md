@@ -104,7 +104,12 @@ Service checks borrow an idle standalone service, test enable/disable and restor
 its original state. An empty instance-provider module is not a service fixture.
 Missing optional parameter maps are preserved, not treated as invalid setup.
 Mutation receipts are isolated per worker, including after a failed case restarts
-its browser worker. Each GPU scenario also reserves its own recovery journal,
+its browser worker. Cleanup checks the full resource inventory, then verifies
+each mutated journal scope independently. Adding a later already-cleaned worker
+does not invalidate an unchanged root receipt. Any open resource or changed
+receipt still fences writes; older receipts without sufficient proof require
+the same exact-journal recovery rather than inferred approval.
+Each GPU scenario also reserves its own recovery journal,
 even when consecutive successful cases share a worker. Fresh exclusive GPU
 defaults need no manual sharing setup. Full GPU scenarios borrow that baseline,
 configure the required allocator and restore exclusive device-plugin readiness
