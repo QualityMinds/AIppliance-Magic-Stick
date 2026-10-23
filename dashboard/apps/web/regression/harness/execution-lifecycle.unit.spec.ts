@@ -55,6 +55,44 @@ test('HAR-07 HAR-08 cleanup receipts require verification and are invalidated by
   await expect(attestCleanup(directory,identity)).rejects.toThrow('[CLEANUP]');
 }));
 
+test('HAR-07 HAR-10 independently verified later workers do not invalidate an unchanged root cleanup receipt',async()=>fixture(async output=>{
+  const {directory}=await run(output);
+  // Phase 5 restores its original license/module baseline before a blocked
+  // prerequisite starts another Playwright worker. That is not a delayed write
+  // to the original worker's resources or proof.
+  await writePrivate(join(directory,'license-baseline-lic-01.json'),{version:1,state:'restored'});
+  await attestCleanup(directory,identity);
+  for(const number of [1,2]) {
+    const path=join(directory,`worker-${number}`),worker=await ResourceJournal.create(join(path,'journal.json'),newRunId(),identity.applianceUid);
+    await worker.requested('key',worker.prefix+'rejected');await worker.rejected('key',worker.prefix+'rejected');
+    await attestCleanup(path,identity);
+    expect((await assessCleanup(directory,true)).state).toBe('verified');
+  }
+  expect((await assessCleanup(directory,false)).state).toBe('unknown');
+  const proof=join(directory,'cleanup-verification.json'),saved=JSON.parse(await readPrivate(proof));
+  // A legacy aggregate hash cannot prove an unchanged root once later workers
+  // exist. It still needs the existing exact recovery, never inferred approval.
+  delete saved.ownFingerprint;await writePrivate(proof,saved);
+  expect((await assessCleanup(directory,true)).state).toBe('unknown');
+}));
+
+test('HAR-07 HAR-08 scoped cleanup proofs reject changed root and worker evidence even when no resource remains',async()=>fixture(async output=>{
+  const {directory}=await run(output),baseline=join(directory,'license-baseline-lic-01.json');
+  await writePrivate(baseline,{version:1,state:'restored'});await attestCleanup(directory,identity);
+  const path=join(directory,'worker-1'),worker=await ResourceJournal.create(join(path,'journal.json'),newRunId(),identity.applianceUid);
+  await worker.requested('key',worker.prefix+'rejected');await worker.rejected('key',worker.prefix+'rejected');await attestCleanup(path,identity);
+  expect((await assessCleanup(directory,true)).state).toBe('verified');
+  await writePrivate(baseline,{version:1,state:'restored',changed:true});
+  expect((await assessCleanup(directory,true)).state).toBe('unknown');
+  await writePrivate(baseline,{version:1,state:'restored'});
+  await worker.requested('key',worker.prefix+'late');await worker.rejected('key',worker.prefix+'late');
+  expect((await assessCleanup(directory,true)).state).toBe('unknown');
+  await attestCleanup(path,identity);expect((await assessCleanup(directory,true)).state).toBe('verified');
+  const proof=join(directory,'cleanup-verification.json'),saved=JSON.parse(await readPrivate(proof));
+  await writePrivate(proof,{...saved,ownFingerprint:'invalid'});
+  expect((await assessCleanup(directory,true)).state).toBe('blocked');
+}));
+
 test('HAR-07 running workers and symlink evidence never prove cleanup',async()=>fixture(async output=>{
   const {directory,id}=await run(output);
   expect((await assessCleanup(directory,false)).state).toBe('unknown');

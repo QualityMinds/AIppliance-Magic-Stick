@@ -593,6 +593,20 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+23 October 2026, HAR-07/08/10 cleanup-receipt scope follow-up: a restored root
+baseline and a later independently cleaned Playwright worker must remain
+verifiable together. The previous aggregate-only fingerprint incorrectly marked
+that Phase 5 sequence as unknown. New private receipts retain the whole-run hash
+and add a hash of their own journal scope; the evaluator checks every mutated
+scope independently after checking the complete inventory and stopped processes.
+Focused counterexamples in
+[`execution-lifecycle.unit.spec.ts`](../../dashboard/apps/web/regression/harness/execution-lifecycle.unit.spec.ts)
+first reproduce the false fence and then reject changed root/worker receipts,
+open resources, malformed evidence and missing legacy proof. Existing `selftest`
+and `phase4-fast` selections execute them. No new public API/UI or historical
+report migration is needed. This is isolated coverage; a new installed Phase 5
+run still needs to prove the native cleanup path.
+
 23 October 2026, HAR-10 Phase 1 evidence-scope follow-up: the reporter and
 launcher now share the existing profile's per-step requirements. A passing
 `core-smoke` must remain passing when finalized after verified cleanup; it must

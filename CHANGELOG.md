@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Verify regression cleanup receipts per journal scope as well as for the whole
+  run. Later independently cleaned workers no longer invalidate an unchanged
+  root receipt. Open resources, changed receipts, live workers and unverified
+  legacy evidence still fence subsequent writes; historical reports are unchanged.
+
 - Finalize Phase 1 reports with the same per-step evidence scope in the runner
   and reporter. Core CPU/Ollama checks no longer require session, browser-fixture
   or final-preflight results from other steps. Missing selected evidence, real

@@ -1,5 +1,5 @@
 import {lstat,readdir} from 'node:fs/promises';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {createHash} from 'node:crypto';
 import {ResourceJournal} from './journal.ts';
 import {readPrivate} from './private-files.ts';
@@ -65,13 +65,14 @@ export async function recoveryInventory(directory:string,identity:RecoveryIdenti
   }
   for(const lease of leases)requireSafe(journals.some(j=>j.runId===lease.value.runId&&
     j.filename.slice(0,j.filename.lastIndexOf('/'))===lease.filename.slice(0,lease.filename.lastIndexOf('/'))),'RECOVERY');
-  const fingerprint=(scope:string)=>{
+  const fingerprint=(scope:string,recursive=true)=>{
     const hash=createHash('sha256');
-    for(const [filename,body]of [...files].sort(([a],[b])=>a.localeCompare(b)))if(filename.startsWith(scope+'/'))
+    for(const [filename,body]of [...files].sort(([a],[b])=>a.localeCompare(b)))if(recursive?filename.startsWith(scope+'/'):dirname(filename)===scope)
       hash.update(filename.slice(scope.length+1)+'\0'+body+'\0');
     return hash.digest('hex');
   };
   const open=journals.reduce((n,j)=>n+j.recoveryPlan().length,0)+modules.filter(m=>m.state!=='restored').length+
     sharing.filter(s=>s.pending).length+unfinished;
-  return {paths,journals,modules,sharing,leases,leasePending:leases.filter(l=>l.state!=='released').length,unfinished,open,files,fingerprint};
+  return {paths,journals,modules,sharing,leases,leasePending:leases.filter(l=>l.state!=='released').length,unfinished,open,files,fingerprint,
+    ownFingerprint:(scope:string)=>fingerprint(scope,false)};
 }
