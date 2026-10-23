@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Pin Envoy Proxy 1.38.7 by immutable image digest across the controller default,
+  identity/setup gateways and isolated session fixture. This patch includes
+  main-thread destruction of SDS secret providers during filter teardown.
+  Keep gateway crash/restart assertions and exact regression cleanup fences;
+  native route-churn acceptance remains required after updating an appliance.
+
 - Verify read-only Mesh navigation against independently observed module UIDs,
   generations and complete saved configuration. Normal status reconciliation
   and list ordering no longer look like a write; actual configuration changes,

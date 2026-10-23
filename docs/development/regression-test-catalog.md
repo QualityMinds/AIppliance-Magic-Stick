@@ -593,6 +593,29 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+23 October 2026, MOD-03/04/APP-02 gateway follow-up: both appliances recorded
+an Envoy 1.38.6 exit 139 during service/route changes; on Strix the proxy exited
+at the failed API read and the borrowed service remained applied. Pin 1.38.7
+consistently in the controller default, identity/setup EnvoyProxy and isolated
+session fixture. Upstream's
+[SDS provider lifetime fix](https://github.com/envoyproxy/envoy/commit/159c19f759b15c418128872a428f629e51f117a1)
+ensures main-thread destruction; stripped appliance traces do not establish
+that exact C++ frame as the crash site. The owning SetupGatewayTests enforce
+the coordinated immutable pin. Existing gateway-stability counterexamples keep
+rejecting exit 139, replacement, restart, OOM and unavailable observations,
+while installed module workflows still require stable gateway processes and
+exact restoration. Local renders/protocol fixtures do not replace a fresh
+installed Phase 5 test. Historical failed reports and cleanup locks are untouched.
+
+23 October 2026, MGPU-01/02/UX-02 isolated test synchronization: the NVIDIA
+startup-RAM component case now waits for the matching two-card and changed-context
+estimate responses rather than racing a debounced request against a DOM deadline.
+Both vLLM and Ollama still require the 18,000 MiB default, the updated 22,000 MiB
+recommendation and the unchanged manually selected/saved 20,000 MiB budget.
+No production timeout or memory default changes. MESH-01's independent module
+snapshot uses the registered appliance namespace, rejecting foreign namespaces.
+These are isolated counterexamples, not new installed acceptance.
+
 23 October 2026, MESH-01/HAR-10 navigation follow-up: the installed read-only
 Mesh settings check now compares independently observed ModuleActivation UIDs,
 generations and full persisted specs rather than the volatile `/api/modules`

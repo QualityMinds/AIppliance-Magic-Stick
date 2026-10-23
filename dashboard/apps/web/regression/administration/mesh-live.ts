@@ -19,11 +19,12 @@ import type {KubeObject} from '../core/observer.ts';
 /** Read-only navigation must preserve saved module configuration and identity.
  * Reconciliation status, resourceVersion and list/key ordering may change while
  * the page is open; none is a user write or a substitute for persisted intent. */
-export function moduleIntentSnapshot(items:KubeObject[]) {
+export function moduleIntentSnapshot(items:KubeObject[],applianceNamespace='ai-system') {
+  requireSafe(Boolean(applianceNamespace),'API');
   const names=new Set<string>(),uids=new Set<string>();
   const intent=items.map(item=>{
     const {name,namespace,uid,generation,deletionTimestamp}=item.metadata;
-    requireSafe(name && namespace==='ai-system' && uid && Number.isSafeInteger(generation) && Number(generation)>0 &&
+    requireSafe(name && namespace===applianceNamespace && uid && Number.isSafeInteger(generation) && Number(generation)>0 &&
       item.spec && typeof item.spec==='object' && !Array.isArray(item.spec) &&
       !names.has(name) && !uids.has(uid),'API');
     names.add(name!);uids.add(uid!);

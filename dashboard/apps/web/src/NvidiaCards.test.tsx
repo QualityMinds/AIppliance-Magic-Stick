@@ -59,15 +59,29 @@ beforeEach(() => {
 
 describe('NVIDIA physical card selection', () => {
   it.each(['VLLM', 'OLlama'])('uses startup RAM defaults for %s groups and preserves a manual host budget', async (engine) => {
-    vi.mocked(api.estimateMemory).mockResolvedValue({...estimate, systemMemory: systemMemoryFixture()});
+    // Card changes restart the real estimate debounce. Synchronize with the
+    // matching response, not a one-second DOM deadline shared with CI load.
+    const groupEstimated = Promise.withResolvers<void>();
+    vi.mocked(api.estimateMemory).mockImplementation(async (request) => {
+      const input = request as {gpuDevices?: unknown[]};
+      if (input.gpuDevices?.length === 2) groupEstimated.resolve();
+      return {...estimate, systemMemory: systemMemoryFixture()};
+    });
     mount(fourNvidiaCards()); const submit = await create(engine);
     await selectCards(0, 1);
-    await waitFor(() => expect(screen.getByLabelText('Host RAM budget (MiB)')).toHaveValue(18000));
+    await act(async () => {await groupEstimated.promise;});
+    expect(screen.getByLabelText('Host RAM budget (MiB)')).toHaveValue(18000);
     fireEvent.change(screen.getByLabelText('Host RAM budget (MiB)'), {target: {value: '20000'}});
-    vi.mocked(api.estimateMemory).mockResolvedValue({...estimate, systemMemory: systemMemoryFixture({recommendedMi: 22000})});
+    const contextEstimated = Promise.withResolvers<void>();
+    vi.mocked(api.estimateMemory).mockImplementation(async (request) => {
+      const input = request as {contextWindow?: number; gpuDevices?: unknown[]};
+      if (input.contextWindow === 8192 && input.gpuDevices?.length === 2) contextEstimated.resolve();
+      return {...estimate, systemMemory: systemMemoryFixture({recommendedMi: 22000})};
+    });
     fireEvent.change(screen.getByLabelText('Context Size'), {target: {value: '8192'}});
-    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({contextWindow: 8192})));
-    await waitFor(() => expect(screen.getByText('Conservative recommended budget').parentElement).toHaveTextContent('21 GiB'));
+    await act(async () => {await contextEstimated.promise;});
+    expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({contextWindow: 8192}));
+    expect(screen.getByText('Conservative recommended budget').parentElement).toHaveTextContent('21 GiB');
     expect(screen.getByLabelText('Host RAM budget (MiB)')).toHaveValue(20000);
     await userEvent.click(submit);
     expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({memoryRequiredMi: 20000})}));

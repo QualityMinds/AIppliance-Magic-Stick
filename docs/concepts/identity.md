@@ -129,7 +129,7 @@ session policy, API keys and API token validation are unchanged. See the
 
 The current implementation provides:
 
-- Envoy Gateway `v1.8.5` with Envoy Proxy `v1.38.6` as the primary `LoadBalancer` data plane
+- Envoy Gateway `v1.8.5` with Envoy Proxy `v1.38.7` as the primary `LoadBalancer` data plane
 - Keycloak with PostgreSQL in namespace `identity-system`
 - runtime-generated database, bootstrap-admin, and OIDC client secrets
 - a first-run wizard that creates the first human and recovery administrators

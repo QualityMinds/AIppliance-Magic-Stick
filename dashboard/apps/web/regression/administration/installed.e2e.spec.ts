@@ -291,11 +291,12 @@ async function runCase(definition:P0Definition,browser:Browser) {
   }
   if(id === 'MESH-01') {
     const before=stableMesh(await client.api.mesh());
-    const modules=moduleIntentSnapshot(await live!.observer.list('moduleactivations.appliance.magicstick.dev','ai-system'));
+    const namespace=live!.config.expected.applianceNamespace;
+    const modules=moduleIntentSnapshot(await live!.observer.list('moduleactivations.appliance.magicstick.dev',namespace),namespace);
     await visible('system/settings/mesh','Private Mesh');
     await test.step('Mesh settings navigation preserves Mesh configuration',async()=>checked(stableMesh(await client.api.mesh()) === before));
     await test.step('Mesh settings navigation preserves module UIDs, generations and saved configuration',async()=>
-      checked(moduleIntentSnapshot(await live!.observer.list('moduleactivations.appliance.magicstick.dev','ai-system')) === modules));
+      checked(moduleIntentSnapshot(await live!.observer.list('moduleactivations.appliance.magicstick.dev',namespace),namespace) === modules));
     await test.step('Mesh settings navigation sends no writes',async()=>checked(writesBlocked === 0));return;
   }
   if(id === 'LIC-01' || id === 'SSO-01') {

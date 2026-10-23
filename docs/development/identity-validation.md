@@ -81,7 +81,7 @@ REGRESSION_MODE=auth-sessions pnpm --filter @magicstick/dashboard-web exec playw
   --config regression/playwright.config.ts --reporter=line
 ```
 
-This starts isolated Keycloak 26.6.3 and Envoy Proxy 1.38.6 containers, matching
+This starts isolated Keycloak 26.6.3 and Envoy Proxy 1.38.7 containers, matching
 the appliance versions. It imports the real policy with synthetic credentials,
 runs the real migration/CLI, and shortens session limits only inside that
 disposable realm. Chromium checks normal idle expiry, remembered access after a
