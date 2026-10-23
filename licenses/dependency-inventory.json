@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "a02bc5de449b26bc997cb1cf01f557585fa05b2b898741b3f7a499b54451b8f5",
+  "deploymentReferencesSha256": "68cf45aef80469fe291caa38f0706a3e5a119da8c37328ac5ea1d92a2f0d41f4",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2984,7 +2984,7 @@
     {
       "file": "magic-cluster/platform/gateway/envoy-gateway/helmrelease.yaml",
       "line": 23,
-      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"
     },
     {
       "file": "magic-cluster/platform/gateway/envoy-gateway/oci-repository.yaml",
@@ -3109,7 +3109,7 @@
     {
       "file": "magic-cluster/platform/identity/gateway.yaml",
       "line": 18,
-      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"
     },
     {
       "file": "magic-cluster/platform/identity/keycloak.yaml",

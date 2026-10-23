@@ -43,6 +43,10 @@ test('MESH-01 read-only navigation compares persisted module intent, not changin
   const reconciled=structuredClone(before).reverse();
   reconciled[1]!.metadata.resourceVersion='11';reconciled[1]!.status={phase:'Reconciling',observedGeneration:3};
   expect(moduleIntentSnapshot(reconciled)).toBe(moduleIntentSnapshot(before));
+  const custom=structuredClone(before);custom.forEach(item=>{item.metadata.namespace='custom-appliance';});
+  expect(moduleIntentSnapshot(custom,'custom-appliance')).toContain('custom-appliance');
+  expect(()=>moduleIntentSnapshot(custom)).toThrow('[API]');
+  expect(()=>moduleIntentSnapshot(custom,'')).toThrow('[API]');
   for(const mutate of [
     (items:KubeObject[])=>{items[0]!.spec!.enabled=false;},
     (items:KubeObject[])=>{items[0]!.spec!.parameters={host:'other.example.local'};},

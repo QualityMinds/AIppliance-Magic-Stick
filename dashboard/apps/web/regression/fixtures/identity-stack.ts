@@ -11,7 +11,7 @@ import {promisify} from 'node:util';
 const execute = promisify(execFile);
 // Match the appliance's pinned versions, including cookie/refresh behaviour.
 const keycloakImage = 'quay.io/keycloak/keycloak:26.6.3@sha256:9b0330756022422149aa6502eb2def8cd47c6e1b000c7c65cdb13e7c0133e992';
-const envoyImage = 'envoyproxy/envoy:distroless-v1.38.6@sha256:83a31e8f80481e5a81d43d0075398d446645f8036d1110c6356b36bc2715466f';
+const envoyImage = 'docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda';
 const clientId = 'magicstick-human-gateway-local';
 const marker = 'magicstickRememberMePolicyVersion';
 export const accessSeconds = 8;
