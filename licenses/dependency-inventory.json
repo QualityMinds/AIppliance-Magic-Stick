@@ -2793,7 +2793,7 @@
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
-      "line": 743,
+      "line": 788,
       "reference": "self.wrapper[\"runtime_version\"] = lambda package, version=version: version"
     },
     {

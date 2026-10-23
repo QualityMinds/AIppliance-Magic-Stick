@@ -388,6 +388,26 @@ data:
             log(f"CPU quota={quota} cores; startup_threads={threads}; serving_threads=native; binding=nobind")
 
 
+    def configure_cpu_runner():
+        """Use the qualified CPU runner without changing GPU or explicit policy.
+
+        The reviewed 0.31 CPU image defaults to MRV2 when Triton is present.
+        On the AVX2 native trial its first request exceeded 90 seconds even
+        with model compilation disabled. MRV1 answered with the same cold
+        caches, precision, quota and request deadline; its native compiler
+        settings do not need to be overridden.
+        """
+        if "VLLM_USE_V2_MODEL_RUNNER" in os.environ:
+            return
+        try:
+            version = runtime_version("vllm")
+        except PackageNotFoundError:
+            return
+        if version.split("+", 1)[0] == "0.31.0":
+            os.environ["VLLM_USE_V2_MODEL_RUNNER"] = "0"
+            log(f"vllm={version}: CPU default model_runner=V1; explicit runtime policy is preserved")
+
+
     def configure_argv():
         compute_target = os.environ.get("MAGICSTICK_COMPUTE_TARGET", "nvidia-gpu").strip().lower()
         args = normalize_legacy_cache_flags(strip_gpu_memory_utilization(sys.argv[1:]))
@@ -407,6 +427,7 @@ data:
             filtered.append(arg)
         args = [*filtered, "--scheduling-policy", "priority"]
         if compute_target == "cpu":
+            configure_cpu_runner()
             configure_cpu_threads()
             sys.argv[:] = [sys.argv[0], *args]
             log(
