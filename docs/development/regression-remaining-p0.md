@@ -57,7 +57,10 @@ not offer these profiles or silently expand them into a whole phase.
 requests bounded cleanup.
 
 Experimental **Omni/Realtime tests are temporarily excluded** (`RT-01`–`RT-08`).
-Phase 7 still runs Mesh/companion checks. Setup does not prepare Omni models or
+Phase 7 still runs Mesh/companion checks. Its read-only Mesh navigation proof
+checks complete saved module intent plus UIDs/generations through the existing
+observer, separately from volatile reconciliation status and the no-write fence.
+Setup does not prepare Omni models or
 GPU transitions for these excluded tests; reports list `VLLM-Omni` as excluded,
 not passed or blocked. Ordinary Ollama/vLLM tests and product Omni support stay
 unchanged. Re-enable the retained cases after Realtime is ready for acceptance.
