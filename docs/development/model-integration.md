@@ -171,6 +171,23 @@ The native checker receives the operator manifest through `--controller-manifest
 and extracts its actual KV-cache argument producer, testing both Auto and FP8
 against the installed parser rather than a manually selected flag list.
 
+The reviewed **0.31.0 CPU** wrapper defaults `VLLM_USE_V2_MODEL_RUNNER` to `0`
+before vLLM reads its configuration. The native MRV2 path exceeded the existing
+90-second first-inference deadline on an AVX2 lab host, including with model
+compilation disabled. Selecting MRV1 alone answered the same cold-cache request
+with the same model revision, BF16 weights, eight-core quota and RAM/KV budgets.
+This is a CPU execution-policy default, not a timeout increase, dtype conversion
+or internal `VLLM_CPU_CI_ENV` shortcut. Explicit runner environment policy,
+compiler arguments, other vLLM versions and all GPU targets remain unchanged.
+See the selected upstream's [runner decision](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/config/vllm.py)
+and [CPU implementations](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/v1/worker/cpu_worker.py).
+The native contract also constructs the real CPU engine configuration from the
+wrapper's arguments and checks both the default and an explicit V2 override,
+without loading weights. Phase 2's `engine-create-contract` selects the owning
+counterexamples for version/override isolation, unchanged budgets/arguments and
+GPU non-interference. Native direct probes do not replace the installed
+LIFE-02/ENG-01 routed lifecycle retest.
+
 vLLM 0.28 removed `--calculate-kv-scales`. The controller no longer generates
 that switch for the current 0.31.0 pins. The wrapper still checks package
 metadata without initializing CUDA and removes legacy saved switches on 0.28+.

@@ -590,6 +590,51 @@ class Qwen4ExpPLEPinnedHostEmbedding:
                 self.wrapper["configure_cpu_threads"]()
                 self.assertEqual(dict(os.environ), override)
 
+    def test_cpu_runner_default_is_version_bound_and_preserves_native_arguments_and_budgets(self):
+        for version in ("0.31.0", "0.31.0+cpu"):
+            with self.subTest(version=version), patch.dict(os.environ, {
+                    "MAGICSTICK_COMPUTE_TARGET": "cpu", "VLLM_CPU_KVCACHE_SPACE": "1",
+                    "OMP_NUM_THREADS": "3"}, clear=True), \
+                    patch.dict(self.wrapper, {"runtime_version": lambda _: version}):
+                self.wrapper["sys"].argv[:] = ["wrapper.py", "--model=synthetic-public-model",
+                    "--dtype=bfloat16", "--max-model-len=1024", "--compilation-config.mode=2"]
+                self.wrapper["configure_argv"]()
+                self.assertEqual(os.environ.get("VLLM_USE_V2_MODEL_RUNNER"), "0")
+                self.assertEqual(self.wrapper["sys"].argv, ["wrapper.py", "--model=synthetic-public-model",
+                    "--dtype=bfloat16", "--max-model-len=1024", "--compilation-config.mode=2",
+                    "--scheduling-policy", "priority"])
+                self.assertEqual(os.environ["OMP_NUM_THREADS"], "3")
+                self.assertEqual(os.environ["VLLM_CPU_KVCACHE_SPACE"], "1")
+                self.assertNotIn("VLLM_CPU_CI_ENV", os.environ)
+                self.assertNotIn("VLLM_USE_AOT_COMPILE", os.environ)
+
+    def test_cpu_runner_preserves_explicit_policy_and_does_not_guess_for_other_versions(self):
+        for value in ("0", "1", "", "invalid-native-policy"):
+            with self.subTest(value=value), patch.dict(os.environ, {"VLLM_USE_V2_MODEL_RUNNER": value}, clear=True), \
+                    patch.dict(self.wrapper, {"runtime_version": lambda _: self.fail("Explicit policy must win")}):
+                self.wrapper["configure_cpu_runner"]()
+                self.assertEqual(dict(os.environ), {"VLLM_USE_V2_MODEL_RUNNER": value})
+        for version in ("0.30.0", "0.31.1", "0.32.0", "0.31.0rc1", "unidentified"):
+            with self.subTest(version=version), patch.dict(os.environ, {}, clear=True), \
+                    patch.dict(self.wrapper, {"runtime_version": lambda _: version}):
+                self.wrapper["configure_cpu_runner"]()
+                self.assertNotIn("VLLM_USE_V2_MODEL_RUNNER", os.environ)
+        def unavailable(_):
+            raise self.wrapper["PackageNotFoundError"]("vllm")
+        with patch.dict(os.environ, {}, clear=True), patch.dict(self.wrapper, {"runtime_version": unavailable}):
+            self.wrapper["configure_cpu_runner"]()
+            self.assertNotIn("VLLM_USE_V2_MODEL_RUNNER", os.environ)
+
+    def test_gpu_targets_never_apply_the_cpu_runner_default(self):
+        for target in ("nvidia-gpu", "amd-gpu", "intel-gpu"):
+            with self.subTest(target=target), patch.dict(os.environ, {
+                    "MAGICSTICK_COMPUTE_TARGET": target, "MAGICSTICK_VLLM_VRAM_LIMIT": "12000Mi"}, clear=True), \
+                    patch.dict(self.wrapper, {"gpu_total_mib": lambda *_: 24000,
+                        "configure_cpu_runner": lambda: self.fail("CPU policy applied to GPU")}):
+                self.wrapper["sys"].argv[:] = ["wrapper.py", "--model=synthetic"]
+                self.wrapper["configure_argv"]()
+                self.assertNotIn("VLLM_USE_V2_MODEL_RUNNER", os.environ)
+
     def test_auto_cpu_startup_threads_do_not_disable_native_vllm_serving_thread_reduction(self):
         # The live failure was Ready + OMP_NUM_THREADS=7 in both EngineCore
         # and worker. Native 0.31 treats an unmarked value as user policy and

@@ -234,6 +234,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   standalone service fixture and retain serial-test failure dependencies.
 - Bound default CPU-vLLM OpenMP workers by the container's real CPU quota,
   preserving explicit runtime tuning instead of increasing inference timeouts.
+- Default the reviewed vLLM 0.31.0 CPU image to its classic model runner after
+  reproducing the newer runner's first-response timeout on AVX2. Preserve
+  explicit native policy, compiler arguments, dtype, budgets and GPU execution;
+  cover the policy in Phase 2 and the real pinned-image configuration contract.
 - Follow the pinned Kubernetes-login plugin's actual local callback instruction,
   validate its IdP/PKCE redirect and final callback state, and isolate mutation
   receipts when a failed regression case restarts its browser worker.
