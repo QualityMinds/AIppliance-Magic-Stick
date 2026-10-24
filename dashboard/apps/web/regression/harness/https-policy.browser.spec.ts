@@ -63,7 +63,7 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
     const priorGlobalTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     let serviceStatus = 200, inferenceStatus = 200, sessionType = 'session.created',wrongCopy=false;
     let terminal=terminalFixture(()=>wrongCopy);
-    let openCodeFault:'none'|'wrong-model'|'stale'='none',nativeMessages:unknown[]=[],nativeSubmissions=0;
+    let openCodeFault:'none'|'wrong-model'|'stale'|'wrong-selection'|'never-ready'='none',nativeMessages:unknown[]=[],nativeSubmissions=0;
     try {
       const key = join(directory, 'key.pem'), cert = join(directory, 'cert.pem');
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
@@ -85,7 +85,15 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
           response.writeHead(200,{'Content-Type':'text/html'});
           response.end(`<!doctype html><div data-component="prompt-input" contenteditable="true" role="textbox"></div>
             <button data-action="prompt-submit">Send message</button><div data-slot="session-turn-assistant-content" aria-hidden="false"></div><script>
+            // Native v1.17.11 renders the editor before the asynchronous
+            // agents/providers queries. An early click returns without sending.
+            let composerReady=false;
+            if(${openCodeFault!=='never-ready'})setTimeout(()=>{
+              composerReady=true;
+              document.body.insertAdjacentHTML('beforeend','<div data-action="prompt-model">${openCodeFault==='wrong-selection'?'foreign-model':'reg-fixture-model'}</div><button data-action="prompt-agent">Build</button>');
+            },250);
             document.querySelector('button').onclick=async()=>{try{
+              if(!composerReady)return;
               const parts=[{type:'text',text:document.querySelector('[contenteditable]').innerText}];
               const result=await fetch('/session/ses_fixture/prompt_async',{method:'POST',
                 headers:{'Content-Type':'application/json','x-opencode-directory':'%2Fworkspace'},body:JSON.stringify({messageID:'msg_prompt',
@@ -167,16 +175,19 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
           expect(await chat.evaluate(()=>navigator.clipboard.readText().then(value=>value===''))).toBe(true);
         }finally{await chat.close();}
       }
-      for(openCodeFault of ['none','wrong-model','stale'] as const) {
+      for(openCodeFault of ['none','wrong-model','stale','wrong-selection','never-ready'] as const) {
         nativeMessages=[];nativeSubmissions=0;
         const chat=await functional.newPage(),proof=new OpenCodeChatEvidence(origin,'reg-fixture-model');
         await observeOpenCodeChat(chat,proof,async()=>{});
         try {
           await chat.goto(origin+openCodeChatPath);
-          const result=verifyOpenCodeChat(chat,proof,async()=>{},'REGRESSION',{readyMs:3000,requestMs:1000,inferenceMs:750});
+          const result=verifyOpenCodeChat(chat,proof,async()=>{},'REGRESSION',{readyMs:750,requestMs:1000,inferenceMs:750});
           if(openCodeFault==='wrong-model') {
             await expect(result).rejects.toMatchObject({code:'MUTATION',outcome:'Failed',stage:'model-inference'});
             expect(nativeSubmissions).toBe(0);
+          }else if(openCodeFault==='wrong-selection'||openCodeFault==='never-ready') {
+            await expect(result).rejects.toMatchObject({outcome:'Failed',stage:'app-ready'});
+            expect(nativeSubmissions).toBe(0);expect(proof.snapshot().submitted).toBe(false);
           }else if(openCodeFault==='stale')await expect(result).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-inference'});
           else {await result;expect(proof.snapshot()).toMatchObject({submitted:true,acknowledged:true,completed:true,rendered:true,failed:false});}
         }finally{await chat.close();}

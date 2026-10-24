@@ -593,6 +593,31 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+24 October 2026, existing APP-02/APP-06 and LIC-04/HAR-02 readiness follow-up:
+the next native Phase 5 run completed with verified resource cleanup and removed
+test credentials; the earlier worker-receipt cleanup error did not recur.
+Its KubeOpenCode proof recorded no submitted request before the timeout. In the
+pinned OpenCode composer, the editor can render before asynchronous agent and
+provider queries; submitting without those selections returns without a request.
+The adapter now waits for the visible owned-model and nonempty agent controls
+before its first submission. The existing HAR-10 Chromium fixture reproduces
+that cold-start ordering, fails with the old adapter and passes with the fix;
+wrong/missing selections must fail at `app-ready` without sending. Existing
+wrong-model request fences and fresh assistant/model/session proofs remain.
+
+That same run also failed its final deployment-pin check after LIC-04 restarted
+the API. Current pins match; the retained evidence does not establish which
+historical container failed the assertion. The restart workflow nevertheless
+had a reproduced lifecycle gap: a Ready replacement was accepted while the
+exact original terminating Pod still existed. It now waits within the existing
+restart budget for that UID's absence and one nonterminating, Running, Ready,
+owned replacement with the exact image digest. The existing LIC-04 unit case
+exercises the real restart workflow with staged observations; the old code
+finalizes one read too early and fails the counterexample. Foreign ownership,
+wrong images, extra replacements and unready/terminating/completed Pods cannot
+pass. Deployment-pin checks are unchanged. No cases, variants or layers were
+registered; both fixes still require matching-image installed acceptance.
+
 24 October 2026, existing APP-02/APP-06 KubeOpenCode and KEY-04/HAR-07 follow-up:
 the latest mixed-GPU Phase 5 run passed MOD-06 A/E and KEY-04 A; the actual
 Hermes UI also completed its owned-model turn and native clipboard proof before

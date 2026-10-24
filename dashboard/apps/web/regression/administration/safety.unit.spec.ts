@@ -440,11 +440,12 @@ test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application
   const nativeReply={info:{id:'msg_response',sessionID:'ses_fixture',parentID:'msg_prompt',role:'assistant',providerID:'litellm',
     modelID:'reg-model',time:{created:1,completed:2},finish:'stop'},parts:[{type:'text',text:nativeMarker,sessionID:'ses_fixture',messageID:'msg_response'}]};
   const nativeProof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');
+  expect(nativeProof.snapshot().composerReady).toBe(false);nativeProof.ready();
   expect(nativeProof.begin(nativeMarker)).toBe(nativePrompt);nativeProof.submit(requestUrl,'POST',nativeBody);
   nativeProof.acknowledge(requestUrl,'POST',204);expect(nativeProof.accepted()).toBe(true);
   expect(new URL(nativeProof.messageUrl()).pathname).toBe('/session/ses_fixture/message');
   expect(nativeProof.observe([nativeReply])).toBe(true);nativeProof.renderedResponse();
-  expect(nativeProof.snapshot()).toEqual({submitted:true,acknowledged:true,completed:true,rendered:true,failed:false});
+  expect(nativeProof.snapshot()).toEqual({composerReady:true,submitted:true,acknowledged:true,completed:true,rendered:true,failed:false});
   const headerProof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');headerProof.begin(nativeMarker);
   headerProof.submit(requestUrl.split('?')[0]!,'POST',nativeBody,{directory:encodeURIComponent('/workspace'),workspace:'owned-workspace'});
   headerProof.acknowledge(requestUrl.split('?')[0]!,'POST',204);expect(headerProof.accepted()).toBe(true);

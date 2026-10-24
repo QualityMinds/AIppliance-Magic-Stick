@@ -136,6 +136,10 @@ the automatically generated Free Registered and Commercial fixtures; LIC-03
 rejects invalid documents independently; only LIC-04 activates and restarts the
 API Pod. An identical-document import need not change its revision. Confirmed
 revisions and private restoration receipts are saved before UI postconditions.
+Restart completion requires the exact old API Pod to be absent as well as one
+owned, Running, nonterminating, Ready replacement on the expected image digest.
+A replacement serving HTTP while the old Pod drains is not completion; the
+unchanged final deployment-pin check still inspects the installed baseline.
 An unfinished receipt fails cleanup and retains the safety lock. License stages
 are `license-review`, `license-reject`, `license-activate`, `license-restart` and
 `license-restore`; historical reports are not rewritten after repair.
@@ -254,10 +258,14 @@ A wrong built-in UI adapter is a harness failure, not an external prerequisite.
 KubeOpenCode uses its pinned OpenCode workspace/session composer. The browser's
 real native submission must select the owned `litellm` model and `/workspace`;
 native POST directory headers and GET query scopes are checked explicitly.
+The adapter first waits for loaded owned-model and agent controls, not just the
+editor: native submission can return without sending while those queries load.
+Missing/wrong selections fail at `app-ready`; the first request is not retried.
 Only a fresh completed assistant message with the submitted parent/model/session
 identity and matching visible assistant content proves inference. Prompt echoes,
 old turns, tool-only/partial/error messages and external models cannot pass.
-The private `opencode-chat-proof.json` contains booleans, not raw messages.
+The private `opencode-chat-proof.json` contains readiness/submission/completion
+booleans, not raw messages.
 KEY-04's unmanaged-key transaction belongs beside that worker's journal, including
 after an earlier case restarted the worker. It must not change the original
 worker's verified scope. A successfully recovered cleanup can coexist with a
