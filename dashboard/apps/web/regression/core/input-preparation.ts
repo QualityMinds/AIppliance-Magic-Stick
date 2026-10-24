@@ -12,6 +12,7 @@ import {requireGpuProfile} from '../profiles/gpu-p0.ts';
 import {remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
 import {recipeBundle,type HostDrillRecipes} from './host-drill-recipes.ts';
 import {automaticPreparationMeasure,preparationMeasure,type PreparationMeasure,type PreparationMeasureId} from './preparation-measures.ts';
+import {repositoryAppAdapter} from './application-adapters.ts';
 
 type Json = Record<string, any>;
 export const approvals = ['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile','federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills'] as const;
@@ -156,7 +157,7 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
   for(const type of ['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const) {
     const fixture=apps?.fixtures?.find((item:Json)=>item.type === type);
     add('applications',`app-${type}`,[[snapshot.modules.catalogJson?.applications?.[type],'The application is not advertised in the current catalog.'],
-      [fixture && (fixture.adapter === 'semantic-chat-v1' ? ['originTemplate','responseMarker'] :
+      [fixture && (repositoryAppAdapter(fixture) ? ['originTemplate','responseMarker'] :
         ['originTemplate','promptLabel','sendButton','responseSelector','responseMarker']).every(key=>filled(fixture[key])),
         'The reviewed HTTPS template and actual prompt/send/response controls are incomplete.']]);
   }

@@ -9,10 +9,11 @@ import {bounded} from './run-lifecycle.ts';
 import {readPrivate} from './private-files.ts';
 import {ownedJournalName,type JournalEntry} from './journal.ts';
 import {poll,currentReady} from './poll.ts';
+import type {ApplicationAdapter} from './application-adapters.ts';
 
 export const appTypes=['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const;
 export type AppType=typeof appTypes[number];
-export interface AppFixture {type:AppType; originTemplate:string; adapter?:'semantic-chat-v1'; promptLabel?:string; sendButton?:string; responseSelector?:string; responseMarker:string}
+export interface AppFixture {type:AppType; originTemplate:string; adapter?:ApplicationAdapter; promptLabel?:string; sendButton?:string; responseSelector?:string; responseMarker:string}
 const resource='appinstances.appliance.magicstick.dev';
 
 /** The HelmRelease is a control-plane object. Its targetNamespace describes

@@ -245,6 +245,12 @@ verified native context for all selected applications and their context edits;
 the ordinary CPU smoke model remains separate. `APPLICATION_MODEL` means no
 compatible catalog candidate fits the currently available RAM. API/estimator
 errors remain failures, not missing prerequisites.
+Hermes uses its native `/chat` terminal, not a generic Send form. The existing
+application workflow observes the browser's own PTY and same-channel events
+feed, requires the owned local model and a fresh completed assistant turn, then
+checks **Copy last assistant response** and clears the clipboard. The separate
+sidebar/configuration connection and prompt echoes are not inference evidence.
+A wrong built-in UI adapter is a harness failure, not an external prerequisite.
 Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
 exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
 MOD-06 waits for the saved ModuleActivation generation and its projected profile

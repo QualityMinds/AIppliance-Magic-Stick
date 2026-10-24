@@ -134,6 +134,15 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD teleme
   delete prepared.parsed.gpu!.devices.amd;
   expect(profile.identity.approveDisposableUsers).toBe(true);expect(profile.license.approveLicenseReplacement).toBe(true);
   expect(profile.unmanagedKey.createDisposableFixture).toBe(true);
+  observed.modules.catalogJson??={};observed.modules.catalogJson.applications??={};
+  for(const type of ['hermes','openclaw','paperclip','kubeopencode','odysseus'])observed.modules.catalogJson!.applications[type]={};
+  const applications=automaticProfile(observed,{},prepared.parsed).applications;
+  expect(applications.fixtures).toContainEqual({type:'hermes',adapter:'hermes-terminal-v1',
+    originTemplate:'https://{name}.hermes.dashboard.example.local/',responseMarker:'REGRESSION'});
+  expect(applications.fixtures.filter((item:{type:string})=>item.type!=='hermes').every((item:{adapter:string})=>item.adapter==='semantic-chat-v1')).toBe(true);
+  observed.readableFiles.push('/inputs/app-cleaner.kubeconfig');
+  const appReadiness=inputReadiness(prepared.parsed,{...profile,applications},observed,{...options,phases:[5],automatic:true})[0]!;
+  expect(appReadiness.measures.some(item=>String(item.id).startsWith('app-'))).toBe(false);
   const report=inputReadiness(prepared.parsed,profile,observed,{...options,automatic:true,approve:[...labPolicy.scopes] as any});
   const guidance=readinessLines(report).join('\n');
   expect(guidance).not.toMatch(/--approve|ACCEPT|answer .*questions|accept .*proposal/i);

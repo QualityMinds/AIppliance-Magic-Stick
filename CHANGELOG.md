@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Use Hermes' native terminal in the existing application regression instead of
+  looking for a generic Send button. Verify its same-channel live model/session,
+  fresh completed answer and actual UI clipboard export; clear clipboard data
+  afterwards. An incompatible built-in app adapter is a harness failure, not a
+  missing external prerequisite. No campaign cases or phases were added.
+
 - Wait for the exact saved AMD profile generation and controller projection
   before the regression reload assertion, and verify the restored projection
   separately. Use the installer's opaque LiteLLM master credential in the
