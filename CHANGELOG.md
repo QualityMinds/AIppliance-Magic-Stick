@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Report a failed physical GPU verification binding as a failed proof at
+  `gpu-binding`, not an unavailable hardware prerequisite. Retain a bounded
+  private detail code for the failed check without weakening card/claim/image
+  identity checks or changing historical results. Match NVIDIA verification
+  against its exact DRA pool's complete current generation, not retired or
+  same-named devices in another pool.
+
 - Prepare the real **Upstream operator rules only** AMD profile choice when the
   current explicit profile is the only advertised profile. Keep that explicit
   empty value distinct from a missing fixture; reject unchanged, unadvertised

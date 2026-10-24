@@ -247,6 +247,11 @@ compatible catalog candidate fits the currently available RAM. API/estimator
 errors remain failures, not missing prerequisites.
 Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
 exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
+An observed HW-06 binding or image mismatch after verification was submitted
+is a failed proof at `gpu-binding`, not evidence that hardware is absent. Its
+private `verification-binding-failure.json` retains only fixed check codes and
+run/request identity; no credentials or raw runtime output are exported. Inspect
+that exact proof before changing allocator settings or repeating the test.
 Functional browser, API, inference and Realtime probes use HTTPS but do not
 validate its certificate. Certificate acceptance belongs to HAR-01 and trusted
 credential setup; Kubernetes access still checks the downloaded CA contract.
