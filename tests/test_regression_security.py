@@ -186,8 +186,22 @@ class RegressionSecurityTests(unittest.TestCase):
         lock = yaml.safe_load((ROOT / 'dashboard/pnpm-lock.yaml').read_text())
         version = lock['overrides']['undici']
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
-        self.assertGreaterEqual(tuple(map(int, version.split('.'))), (8, 10, 2))
+        self.assertGreaterEqual(tuple(map(int, version.split('.'))), (8, 12, 2))
         self.assertIn('undici@' + version, lock['packages'])
+
+    def test_known_javascript_advisory_fixes_cover_every_locked_copy(self):
+        # Offline downgrade guards for the October advisories, not a replacement
+        # for the strict fresh registry audit (including future advisories).
+        lock = yaml.safe_load((ROOT / 'dashboard/pnpm-lock.yaml').read_text())
+        for package, minimum in [('vite', (8, 2, 4)), ('zod', (4, 6, 6)), ('undici', (8, 12, 2)),
+                                 ('vitest', (5, 0, 3)), ('@vitest/mocker', (5, 0, 3))]:
+            versions = [key.removeprefix(package + '@') for key in lock['packages']
+                        if key.startswith(package + '@')]
+            self.assertTrue(versions, package)
+            for version in versions:
+                with self.subTest(package=package, version=version):
+                    self.assertRegex(version, r'^\d+\.\d+\.\d+$')
+                    self.assertGreaterEqual(tuple(map(int, version.split('.'))), minimum)
 
     def test_secret_checks_are_real_redacted_scans_not_success_stubs(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/public-release-checks.yml').read_text())
