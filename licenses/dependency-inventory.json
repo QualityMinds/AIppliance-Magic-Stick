@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "e42d2e8176c3ff3e43887473c09d1b6763fe91152dca131c0291e0d4b815a89a",
+  "deploymentReferencesSha256": "9c22ea829d93de266a0927c2539ad09d5a0ca1a8b4a2f5b078b2be71d1bde5b2",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2478,7 +2478,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-9e817db2cc6c9f759a519698156ef4b91fb2e20b@sha256:07f01c67511d9a53cc8b3b733abfcfdce12ba05ec7b75772a31e39b1a94e9a20"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-70272e2064ff0f11d9755d5caf64f4c57d488c1a@sha256:6feb0a91d01a645d0d7ddd3106283bfa7bd71724d8ce1ab13c74952019877be5"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2498,7 +2498,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-9e817db2cc6c9f759a519698156ef4b91fb2e20b@sha256:9f87337403ad5c2c217dd9f70a3b3a32db2f20e0718b759a44c8c749ac4970b4"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-70272e2064ff0f11d9755d5caf64f4c57d488c1a@sha256:a63c060f5037f3689f9a777f734cf72cb10507049dcf01fa52a76a976e953183"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
@@ -2693,7 +2693,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-9e817db2cc6c9f759a519698156ef4b91fb2e20b@sha256:9fdf270b8e4cb006feb1fe324d8b244ede752b13578fc593dd5b9dd0659914f7\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-70272e2064ff0f11d9755d5caf64f4c57d488c1a@sha256:0d46fd5ae7cea27608079572c9d55ba9fb80b2293edf58da31cd04a22af33d6e\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
