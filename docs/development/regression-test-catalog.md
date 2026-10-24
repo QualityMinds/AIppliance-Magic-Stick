@@ -593,6 +593,23 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+24 October 2026, Phase 5 MOD-06/KEY-04 follow-up: the latest mixed-GPU lab run
+confirmed that the profile intent was saved while the immediate Hardware reload
+still displayed the preceding controller projection. MOD-06 now waits for the
+same UID, generation and complete spec plus matching observed generation,
+selected profile and experimental flag. It verifies the reload without changing
+the expected value, then verifies restored-profile projection separately; missing
+or stale observations time out, while foreign revisions and API errors fail
+immediately. The existing MOD-06 safety scenario covers those paths.
+KEY-04 also assumed the installer's valid master credential had a user-token
+`sk-` prefix. The fixture now accepts bounded opaque header-safe credentials from
+the existing administrator API, keeping authentication, hash-only URLs, zero
+inference budget and exact metadata-bound cleanup. Its existing lifecycle and
+foreign-record counterexamples retain both credential formats and reject header
+injection/oversize values. No campaign cases, variants or layers were added.
+These are source/isolated corrections; matching native retests remain required.
+Historical failures and the separate native application-adapter gap are unchanged.
+
 24 October 2026, HW-06 binding-diagnosis follow-up: the four-NVIDIA-card lab's
 single-card and all-card requests each left a completed native Ollama Job, but
 the existing runner classified a later binding-proof rejection as an unspecified

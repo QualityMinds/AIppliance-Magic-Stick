@@ -3,6 +3,11 @@ import type {APIRequestContext} from '@playwright/test';
 import {HarnessError,requireSafe} from './errors.ts';
 
 export interface UnmanagedKeyIdentity {id:string;alias:string;runId:string;applianceUid:string}
+/** The installer generates an opaque master credential, not a user API token.
+ * Keep it byte-for-byte and in memory; only bound safe HTTP header material. */
+export function usableLiteLlmMaster(value:unknown):value is string {
+  return typeof value==='string'&&value.length>0&&value.length<=4096&&!/[^\x21-\x7e]/.test(value);
+}
 export function disposableUnmanagedKey(runId:string,applianceUid:string) {
   requireSafe(/^reg-[a-f0-9-]{36}$/.test(runId) && /^[A-Za-z0-9-]{1,64}$/.test(applianceUid),'IDENTITY');
   const secret='sk-'+randomBytes(32).toString('hex');
@@ -25,7 +30,7 @@ export function verifyUnmanagedKey(value:any,identity?:UnmanagedKeyIdentity) {
 export class UnmanagedKeyFixtureClient {
   constructor(readonly request:APIRequestContext,readonly origin:string,private master:string,
     readonly guard:()=>Promise<void>,readonly timeout:number) {
-    requireSafe(new URL(origin).origin === origin && new URL(origin).protocol === 'https:' && master.startsWith('sk-'),'CONFIG');
+    requireSafe(new URL(origin).origin === origin && new URL(origin).protocol === 'https:' && usableLiteLlmMaster(master),'CONFIG');
   }
   private async call(path:string,method:'GET'|'POST',body?:unknown,missing=false) {
     await this.guard();

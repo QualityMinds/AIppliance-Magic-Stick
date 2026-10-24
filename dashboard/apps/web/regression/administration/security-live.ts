@@ -7,7 +7,7 @@ import {requireProof as requireSafe} from '../core/errors.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
 import {AdministrationApi} from '../core/administration-api.ts';
 import {openInferenceSession} from '../core/auth.ts';
-import {disposableUnmanagedKey,UnmanagedKeyFixtureClient,verifyUnmanagedKey} from '../core/unmanaged-key-fixture.ts';
+import {disposableUnmanagedKey,UnmanagedKeyFixtureClient,verifyUnmanagedKey,usableLiteLlmMaster} from '../core/unmanaged-key-fixture.ts';
 import type {ModulesPayload} from '@magicstick/dashboard-contracts';
 
 type Rule={apiGroups?:string[];resources?:string[];verbs?:string[];resourceNames?:string[];nonResourceURLs?:string[]};
@@ -110,7 +110,7 @@ export async function unmanagedKeyWorkflow(live:LiveFoundation) {
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
   const values=(await api.api.moduleCredentials('litellm')).credentials ?? [];
   const master=values.find(item=>item.key === 'master_key')?.value;
-  requireSafe(master && master.startsWith('sk-'),'PREREQUISITE');
+  requireSafe(usableLiteLlmMaster(master),'API');
   const fixtureClient=new UnmanagedKeyFixtureClient(live.context.request,live.config.inferenceUrl,master,live.guard,live.config.requestTimeoutMs);
   const fixture=plan.createDisposableFixture === true ? disposableUnmanagedKey(live.journal.runId,live.config.expected.applianceUid) : undefined;
   const id=fixture?.identity.id ?? plan.id;

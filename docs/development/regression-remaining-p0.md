@@ -247,6 +247,12 @@ compatible catalog candidate fits the currently available RAM. API/estimator
 errors remain failures, not missing prerequisites.
 Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
 exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
+MOD-06 waits for the saved ModuleActivation generation and its projected profile
+before reloading Hardware; a stale or missing projection is not a persisted-form
+failure after five seconds. A foreign intent fails immediately, and restoration
+has its own bounded `recovery-module` readback. KEY-04 consumes the existing
+administrator credential response as opaque header material, not a user API token
+with a prescribed prefix. No master credential is copied into reports or URLs.
 An observed HW-06 binding or image mismatch after verification was submitted
 is a failed proof at `gpu-binding`, not evidence that hardware is absent. Its
 private `verification-binding-failure.json` retains only fixed check codes and
