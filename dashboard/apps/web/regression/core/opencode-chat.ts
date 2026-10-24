@@ -42,6 +42,7 @@ export class OpenCodeChatEvidence {
   private acknowledged=false;
   private completed=false;
   private rendered=false;
+  private composerReady=false;
   private failure?:HarnessError;
   readonly origin:string;
   readonly model:string;
@@ -86,7 +87,8 @@ export class OpenCodeChatEvidence {
     catch(error){this.fail(error);throw error;}
   }
   renderedResponse() {this.check();requireProof(this.completed,'API');this.rendered=true;}
-  snapshot() {return {submitted:Boolean(this.turn),acknowledged:this.acknowledged,completed:this.completed,rendered:this.rendered,failed:Boolean(this.failure)};}
+  ready() {this.check();this.composerReady=true;}
+  snapshot() {return {composerReady:this.composerReady,submitted:Boolean(this.turn),acknowledged:this.acknowledged,completed:this.completed,rendered:this.rendered,failed:Boolean(this.failure)};}
 }
 
 /** Fence the browser's real native prompt request before it can use another
@@ -110,7 +112,17 @@ export async function observeOpenCodeChat(page:Page,evidence:OpenCodeChatEvidenc
 export async function verifyOpenCodeChat(page:Page,evidence:OpenCodeChatEvidence,guard:()=>Promise<void>,responseMarker:string,
   options:{readyMs?:number;requestMs?:number;inferenceMs?:number}={}) {
   const input=page.locator('[data-component="prompt-input"][contenteditable="true"]');
-  await atStage('app-ready',()=>input.waitFor({state:'visible',timeout:options.readyMs??120_000}));
+  await atStage('app-ready',async()=>{
+    const timeout=options.readyMs??120_000;
+    await input.waitFor({state:'visible',timeout});
+    // Native v1.17.11 exposes the editor before its agents/providers queries
+    // complete. handleSubmit silently returns when either selection is absent;
+    // a visible editor and an enabled Send button do not prove readiness.
+    const model=page.locator('[data-action="prompt-model"]'),agent=page.locator('[data-action="prompt-agent"]');
+    await expect(model).toBeVisible({timeout});await expect(model).toHaveText(evidence.model,{timeout});
+    await expect(agent).toBeVisible({timeout});await expect(agent).toHaveText(/\S/,{timeout});
+    await guard();evidence.ready();
+  });
   return atStage('model-inference',async()=>{
     const marker=responseMarker+'_'+randomBytes(8).toString('hex'),prompt=evidence.begin(marker);
     await guard();await input.fill(prompt);await page.locator('[data-action="prompt-submit"]').click();

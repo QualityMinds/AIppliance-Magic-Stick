@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Wait for the pinned OpenCode composer's loaded owned-model and agent controls
+  before its first regression submission; a visible editor alone does not prove
+  native readiness. Verify the exact old API Pod is absent before completing the
+  existing license-restart check, avoiding a race with final deployment-pin
+  validation. Existing Chromium and license fixtures cover both regressions;
+  no campaign cases or phases were added.
+
 - Use the pinned OpenCode application's native workspace/session composer in
   the existing KubeOpenCode regression workflow. Fence its actual UI submission
   to the owned local model and verify a fresh completed assistant turn through
