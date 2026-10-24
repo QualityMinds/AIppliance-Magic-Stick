@@ -27,6 +27,7 @@ import {catalogFixture} from '../core/input-preparation.ts';
 import {HarnessError} from '../core/errors.ts';
 import {HermesTerminalEvidence} from '../core/hermes-terminal.ts';
 import {OpenCodeChatEvidence,completedOpenCodeTurn,openCodeChatPath} from '../core/opencode-chat.ts';
+import {openCodeBackendReady} from '../core/opencode-backend.ts';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -155,6 +156,46 @@ test('APP-02 observes the current controller-owned HelmRelease in the Appliance 
   ])expect(appReleaseReady(item,observed,[change],owned,'ai-system')).toBe(false);
   expect(()=>appReleaseReady({...item,status:{...item.status,phase:'Degraded'}},observed,[child],owned,'ai-system'))
     .toThrow('[stage:app-ready]');
+  // APP-02's real server probe must not create a session while the Service
+  // still load-balances two independent OpenCode databases during a rollout.
+  const agent='fixture-agent',name='kubeopencode-'+agent,namespace='ai',digest='sha256:'+'a'.repeat(64);
+  const agentOwner={kind:'Agent',name:agent,uid:'agent-uid'};
+  const service:KubeObject={metadata:{name:agent,namespace,uid:'service-uid',ownerReferences:[agentOwner]},
+    spec:{selector:{'kubeopencode.io/agent':agent}}};
+  const deployment:KubeObject={metadata:{name:agent+'-server',namespace,uid:'deployment-uid',generation:2,ownerReferences:[agentOwner]},
+    spec:{replicas:1,template:{spec:{containers:[{name:'opencode-server',image:'registry.example.invalid/devbox@'+digest}]}}},
+    status:{observedGeneration:2,replicas:1,readyReplicas:1,updatedReplicas:1,availableReplicas:1} as KubeObject['status']};
+  const replica:KubeObject={metadata:{namespace,uid:'replica-uid',ownerReferences:[{kind:'Deployment',uid:'deployment-uid'}]}};
+  const pod:KubeObject={metadata:{namespace,uid:'pod-uid',labels:{'kubeopencode.io/agent':agent},
+    ownerReferences:[{kind:'ReplicaSet',uid:'replica-uid'}]},status:{phase:'Running',
+      containerStatuses:[{name:'opencode-server',ready:true,imageID:'registry.example.invalid/devbox@'+digest}]}};
+  const readyBackend=(d=deployment,s=service,ps=[pod],rs=[replica])=>openCodeBackendReady(name,namespace,s,d,rs,ps);
+  expect(readyBackend()?.metadata.uid).toBe('pod-uid');
+  const draining={...pod,metadata:{...pod.metadata,uid:'old-pod',deletionTimestamp:new Date().toISOString()}};
+  expect(readyBackend(deployment,service,[draining,pod])).toBeUndefined();
+  for(const change of [{...deployment,status:{...deployment.status,observedGeneration:1}},
+    {...deployment,metadata:{...deployment.metadata,generation:undefined},status:{...deployment.status,observedGeneration:undefined}},
+    {...deployment,status:{...deployment.status,replicas:2}}, {...deployment,metadata:{...deployment.metadata,deletionTimestamp:'now'}}])
+    expect(readyBackend(change)).toBeUndefined();
+  expect(readyBackend(deployment,service,[{...pod,status:{...pod.status,containerStatuses:[{name:'opencode-server',ready:true,imageID:'foreign'}]}}]))
+    .toBeUndefined();
+  expect(()=>readyBackend(deployment,{...service,metadata:{...service.metadata,ownerReferences:[{...agentOwner,uid:'foreign-agent'}]}}))
+    .toThrow('[OWNERSHIP]');
+  expect(()=>readyBackend(deployment,service,[{...pod,metadata:{...pod.metadata,ownerReferences:[{kind:'ReplicaSet',uid:'foreign-replica'}]}}]))
+    .toThrow('[OWNERSHIP]');
+  let reads=0;
+  const observer={list:async(resource:string)=>{
+    if(resource==='services'){reads++;return [service];}
+    if(resource==='helmreleases.helm.toolkit.fluxcd.io')return [{...child,metadata:{...child.metadata,name,
+      labels:{...child.metadata.labels,'appliance.magicstick.dev/appinstance':name,'appliance.magicstick.dev/application':'kubeopencode'}}}];
+    return resource==='deployments.apps'?[deployment]:resource==='replicasets.apps'?[replica]:reads===1?[draining,pod]:[pod];
+  }};
+  const openCodeItem:AppInstance={...item,metadata:{...item.metadata,name},spec:{...item.spec,application:'kubeopencode'},
+    status:{...item.status,name}};
+  const nativeApps=Object.create(OwnedAppClient.prototype) as OwnedAppClient;
+  Object.defineProperties(nativeApps,{owned:{value:new Map([[name,owned]])},read:{value:async()=>openCodeItem},
+    cleaner:{value:{find:async()=>openCodeItem}},live:{value:{guard:async()=>{},observer,config:{expected:{applianceNamespace:'ai-system'}}}}});
+  expect((await nativeApps.ready(name)).item.metadata?.name).toBe(name);expect(reads).toBe(2);
 });
 
 test('MOD-06 profile mutation requires physical AMD hardware and bounded exact-revision status readback',annotation,async()=>{
@@ -445,7 +486,7 @@ test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application
   nativeProof.acknowledge(requestUrl,'POST',204);expect(nativeProof.accepted()).toBe(true);
   expect(new URL(nativeProof.messageUrl()).pathname).toBe('/session/ses_fixture/message');
   expect(nativeProof.observe([nativeReply])).toBe(true);nativeProof.renderedResponse();
-  expect(nativeProof.snapshot()).toEqual({composerReady:true,submitted:true,acknowledged:true,completed:true,rendered:true,failed:false});
+  expect(nativeProof.snapshot()).toEqual({composerReady:true,submitted:true,acknowledged:true,completed:true,rendered:true,failed:false,promptStatus:204});
   const headerProof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');headerProof.begin(nativeMarker);
   headerProof.submit(requestUrl.split('?')[0]!,'POST',nativeBody,{directory:encodeURIComponent('/workspace'),workspace:'owned-workspace'});
   headerProof.acknowledge(requestUrl.split('?')[0]!,'POST',204);expect(headerProof.accepted()).toBe(true);

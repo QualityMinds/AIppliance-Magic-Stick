@@ -258,6 +258,11 @@ A wrong built-in UI adapter is a harness failure, not an external prerequisite.
 KubeOpenCode uses its pinned OpenCode workspace/session composer. The browser's
 real native submission must select the owned `litellm` model and `/workspace`;
 native POST directory headers and GET query scopes are checked explicitly.
+Before opening that composer, APP-02 waits for the instance's same-Agent Service
+and fully observed single-server Deployment, with exactly one owned ready Pod
+and the configured runtime image. A Helm-ready CR can still have two native
+server Pods during a rollout; creating a session on one and prompting the other
+does not establish a working application.
 The adapter first waits for loaded owned-model and agent controls, not just the
 editor: native submission can return without sending while those queries load.
 Missing/wrong selections fail at `app-ready`; the first request is not retried.
@@ -265,7 +270,7 @@ Only a fresh completed assistant message with the submitted parent/model/session
 identity and matching visible assistant content proves inference. Prompt echoes,
 old turns, tool-only/partial/error messages and external models cannot pass.
 The private `opencode-chat-proof.json` contains readiness/submission/completion
-booleans, not raw messages.
+booleans and the native prompt HTTP status when observed, not raw messages.
 KEY-04's unmanaged-key transaction belongs beside that worker's journal, including
 after an earlier case restarted the worker. It must not change the original
 worker's verified scope. A successfully recovered cleanup can coexist with a
@@ -283,6 +288,12 @@ is a failed proof at `gpu-binding`, not evidence that hardware is absent. Its
 private `verification-binding-failure.json` retains only fixed check codes and
 run/request identity; no credentials or raw runtime output are exported. Inspect
 that exact proof before changing allocator settings or repeating the test.
+NVIDIA binding is observed while the diagnostic runs. Kubernetes can clear the
+claim's allocation when its last consumer completes, before the successful Pod
+is deleted. Only an allocation already verified for that same Pod and unchanged
+Claim UID/generation/spec may then prove the completed diagnostic. A raced Pod
+read is refreshed by exact UID; an unseen, replaced, changed, still-running or
+wrong-card allocation is not accepted as successful verification.
 Functional browser, API, inference and Realtime probes use HTTPS but do not
 validate its certificate. Certificate acceptance belongs to HAR-01 and trusted
 credential setup; Kubernetes access still checks the downloaded CA contract.

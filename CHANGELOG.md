@@ -8,6 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Preserve the exact NVIDIA validation allocation observed while its Job runs;
+  Kubernetes may release that allocation before removing the successful Pod.
+  A completed verification still needs the same Pod/Claim identities, unchanged
+  claim intent, physical UUID and runtime image. Wait for KubeOpenCode's single
+  native server backend after its asynchronous rollout, not only Helm readiness,
+  before starting the existing application workflow. Keep native prompt HTTP
+  status in the private diagnostic; do not retry failed submissions. Existing
+  cases cover these regressions without adding campaign tests.
+
 - Wait for the pinned OpenCode composer's loaded owned-model and agent controls
   before its first regression submission; a visible editor alone does not prove
   native readiness. Verify the exact old API Pod is absent before completing the

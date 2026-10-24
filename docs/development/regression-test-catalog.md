@@ -593,6 +593,34 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+25 October 2026, existing HW-06 and APP-02 native lifecycle follow-up: the latest
+four-card Phase 3 run passed every two-/four-GPU split and replica scenario, but
+both HW-06 scopes failed `claim-allocation` immediately after their successful
+native Ollama Jobs completed. The pinned Kubernetes claim controller clears the
+last consumer's allocation before deleting the completed Pod. The runner now
+retains a binding actually observed during execution, tied to exact Pod/Claim
+UIDs, unchanged claim generation/spec, current physical UUID and runtime image.
+It refreshes the same Pod if completion races a Claim read; completion without
+prior proof cannot invent an allocation. The existing HW-06 test drives this
+real polling transition and rejects replaced/changed claims, a foreign Pod,
+live deallocation, unseen or wrong allocations and an unverified image. Its
+positive lifecycle fails with the previous implementation.
+
+The latest Phase 5 run passed LIC-04 and its final HAR-02 pin check, but APP-02's
+native OpenCode prompt received HTTP 404. Gateway evidence shows its session
+creation and prompt went to different upstream backends. Helm readiness did not
+wait for the asynchronous single-server rollout. The existing owned-app ready
+workflow now observes the same-Agent Service/Deployment, current generation and
+replica convergence, exact ReplicaSet/Pod ownership and pinned ready image before
+opening OpenCode. The existing APP-02 test exercises the actual ready workflow
+across a draining extra Pod and fails with the old Helm-only behavior. Its
+counterexamples retain foreign-owner, stale-generation, extra-Pod and wrong-image
+rejection. The existing HAR-10 Chromium fixture also rejects a native 404 after
+exactly one submission; only the HTTP status is added to its private proof.
+No case, variant, layer or scenario registration changes. Matching runner CI,
+installed HW-06/application retests and later complete campaigns remain pending;
+historical failed reports and genuine missing-hardware/IdP blocks are unchanged.
+
 24 October 2026, existing APP-02/APP-06 and LIC-04/HAR-02 readiness follow-up:
 the next native Phase 5 run completed with verified resource cleanup and removed
 test credentials; the earlier worker-receipt cleanup error did not recur.

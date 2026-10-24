@@ -7,6 +7,7 @@ import {HarnessError,requireSafe,atStage} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
 import {join} from 'node:path';
 import {requireGpuProvider} from './prerequisites.ts';
+import {canonical} from '../core/borrowed-sharing.ts';
 
 export async function validationJobs(s:GpuScenario) {
   return [...await s.live.observer.list('jobs','ai'),...await s.live.observer.list('jobs',s.config.expected.applianceNamespace)];
@@ -123,6 +124,7 @@ export async function requestValidationUi(s:GpuScenario,page:Page,engine:'OLlama
 export async function completedValidation(s:GpuScenario,request:Awaited<ReturnType<typeof requestValidationUi>>) {
   const captured=new Map<string,KubeObject>();
   const bindings=new Map<string,{deviceId:string;podUid:string;imageId:string}>();
+  const allocatedClaims=new Map<string,KubeObject>();
   const result=await poll(async ()=>{
     await s.live.guard();const jobs=await validationJobs(s);
     for (const job of jobs.filter(j=>j.metadata.annotations?.['appliance.magicstick.dev/validation-request'] === request.requestId)) {
@@ -136,7 +138,7 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
     for (const job of captured.values()) {
       const deviceId=job.metadata.annotations!['appliance.magicstick.dev/validation-device'],device=inventory.devices.find(d=>d.id === deviceId)!;
       requireSafe(device && device.nodeUid===s.config.gpu!.nodeUid && device.bootId===s.config.gpu!.bootId,'IDENTITY');
-      for (const pod of pods.filter(p=>p.metadata.ownerReferences?.some(o=>o.kind === 'Job' && o.uid === job.metadata.uid))) {
+      for (let pod of pods.filter(p=>p.metadata.ownerReferences?.some(o=>o.kind === 'Job' && o.uid === job.metadata.uid))) {
         const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;image:string;resources?:{limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
         if (spec.nodeName) bindingProof(spec.nodeName === s.config.gpu!.nodeName,'engine-node');
         const engine=spec.initContainers?.find(c=>c.name === 'engine');bindingProof(engine,'engine-node');
@@ -145,10 +147,45 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
           // Allocation is asynchronous. Before scheduling, check at the next
           // observation instead of failing a legitimately pending DRA claim.
           if(sharing.backend==='dra'&&!spec.nodeName)continue;
-          nvidiaValidationBinding(pod,device,sharing,sharing.backend==='dra'&&card?
-            await s.live.observer.get('resourceclaims.resource.k8s.io','ai',card.claimName):undefined,
+          const claim=sharing.backend==='dra'&&card?
+            await s.live.observer.get('resourceclaims.resource.k8s.io','ai',card.claimName):undefined;
+          let proof=claim;
+          if(sharing.backend==='dra'&&claim&&claim.status?.allocation===undefined&&
+            allocatedClaims.has(pod.metadata.uid??'')&&pod.status?.phase!=='Succeeded') {
+            // The Pod list and Claim GET are not an atomic snapshot. Confirm
+            // the same Pod completed if deallocation raced these two reads.
+            bindingProof(pod.metadata.name&&pod.metadata.namespace==='ai','claim-allocation');
+            const current=await s.live.observer.get('pods','ai',pod.metadata.name);
+            bindingProof(current.metadata.uid===pod.metadata.uid&&current.status?.phase==='Succeeded'&&
+              canonical(current.spec)===canonical(pod.spec),'claim-allocation');
+            pod=current;
+          }
+          if(sharing.backend==='dra'&&claim&&claim.status?.allocation===undefined&&pod.status?.phase==='Succeeded') {
+            // Kubernetes v1.36 clears allocation/reservedFor as soon as the
+            // last consumer completes, before deleting its successful Pod.
+            // Reuse only an allocation actually verified for this exact Pod,
+            // on the same undeleted Claim UID and unchanged intent generation.
+            // Completion alone, a same-named replacement or an unseen claim
+            // cannot invent the earlier physical-device proof.
+            const previous=allocatedClaims.get(pod.metadata.uid??'');
+            const reserved=(claim.status as {reservedFor?:unknown}|undefined)?.reservedFor;
+            bindingProof(previous&&claim.metadata.uid===previous.metadata.uid&&
+              claim.metadata.generation===previous.metadata.generation&&!claim.metadata.deletionTimestamp&&
+              !pod.metadata.deletionTimestamp&&canonical(claim.spec)===canonical(previous.spec)&&
+              (reserved===undefined||Array.isArray(reserved)&&reserved.length===0),'claim-allocation');
+            proof=previous;
+          }
+          nvidiaValidationBinding(pod,device,sharing,proof,
             sharing.backend==='dra'?await s.live.observer.list('resourceslices.resource.k8s.io'):[],
             inventory.devices.filter(candidate=>candidate.vendor==='nvidia' && candidate.nodeUid===device.nodeUid).length);
+          if(sharing.backend==='dra'&&pod.status?.phase!=='Succeeded') {
+            bindingProof(pod.metadata.uid&&claim?.metadata.uid&&Number.isSafeInteger(claim.metadata.generation)&&
+              claim.metadata.generation!>0&&claim.spec&&!claim.metadata.deletionTimestamp&&!pod.metadata.deletionTimestamp,'claim-allocation');
+            const previous=allocatedClaims.get(pod.metadata.uid);
+            bindingProof(!previous||claim.metadata.uid===previous.metadata.uid&&
+              claim.metadata.generation===previous.metadata.generation&&canonical(claim.spec)===canonical(previous.spec),'claim-allocation');
+            if(!previous)allocatedClaims.set(pod.metadata.uid,structuredClone(claim));
+          }
         }
         else {
           const sharing=await s.state('amd');
