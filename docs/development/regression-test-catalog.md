@@ -593,6 +593,28 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+24 October 2026, LIFE-02/ENG-01 CPU acceptance follow-up: fresh regular
+Kubernetes Phase 2 runs with source `3948d35` images passed on both registered
+lab appliances, including the AVX2-only CPU. Each recorded 580 passed checks,
+zero failures/blocks and 48 passed live checks, with resource cleanup verified
+and the generated account removed. CPU vLLM creation, routed inference,
+revision-safe editing, Stop/Start and removal completed through the normal
+workflow. This accepts the targeted CPU runner correction, not the GPU matrix
+or a complete Phase 0–8 campaign; earlier failed reports remain unchanged.
+
+24 October 2026, SEC-03 fresh-advisory follow-up: the exact installed `fffed82`
+audit detected high findings in Vite, Zod and Undici, plus two moderate findings
+in Vitest's mocker. Update only the pinned affected dependencies to Vite 8.2.4,
+Zod 4.6.6, Undici 8.12.2 and Vitest 5.0.3, and regenerate the frozen dependency
+inventory. The existing supply-chain owning selection executes
+[`test_regression_security.py`](../../tests/test_regression_security.py), whose
+new downgrade counterexamples reject the previous versions, including duplicate
+locked copies. The strict registry audit remains unchanged; an offline minimum
+version check cannot establish that no newer advisory exists. Existing client,
+contract and browser-fixture suites cover unchanged validation and runner
+consumers. Matching source CI, rebuilt images and fresh installed Phase 8
+acceptance remain required; the previous failed audit is not reclassified.
+
 23 October 2026, MOD-03/04/APP-02 gateway follow-up: both appliances recorded
 an Envoy 1.38.6 exit 139 during service/route changes; on Strix the proxy exited
 at the failed API read and the borrowed service remained applied. Pin 1.38.7

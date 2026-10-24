@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Update the pinned Dashboard build/test dependencies and shared Zod validation
+  library for the October security advisories. Retain strict fresh dependency
+  audits and add offline downgrade guards for every affected locked copy;
+  isolated checks do not replace exact-revision CI or appliance acceptance.
+
 - Pin Envoy Proxy 1.38.7 by immutable image digest across the controller default,
   identity/setup gateways and isolated session fixture. This patch includes
   main-thread destruction of SDS secret providers during filter teardown.
