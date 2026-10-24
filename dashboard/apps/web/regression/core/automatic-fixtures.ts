@@ -52,7 +52,13 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
     .sort(([a],[b])=>Number(snapshot.modules.modules[a]?.enabled)-Number(snapshot.modules.modules[b]?.enabled) || a.localeCompare(b))[0];
   if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:snapshot.modules.modules[optional[0]]?.parameters ?? {}};
   const compatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
-  const alternate=compatibility?.profiles?.filter(p=>p.id !== compatibility.selectedProfile).sort((a,b)=>a.id.localeCompare(b.id))[0];
+  const currentProfile=compatibility?.selectedProfile ?? '',amdProfiles=compatibility?.profiles ?? [];
+  // The UI's empty value is the real "Upstream operator rules only" choice,
+  // not a missing fixture. Never borrow an unknown current override that the
+  // advertised profile validator could not restore afterwards.
+  const alternate=(!currentProfile || amdProfiles.some(p=>p.id===currentProfile)) ?
+    amdProfiles.filter(p=>p.id!==currentProfile).sort((a,b)=>a.id.localeCompare(b.id))[0] ??
+      (currentProfile ? {id:'',experimental:false} : undefined) : undefined;
   const amdPin=lab.gpu?.devices.amd;
   const eligibleAmd=amdPin && Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []).some(device=>
     device.vendor==='amd' && device.id===amdPin.id && device.pciAddress===amdPin.pciAddress && device.nodeUid===lab.gpu!.nodeUid &&

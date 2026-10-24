@@ -593,6 +593,21 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+24 October 2026, MOD-06/HAR-10 profile-fixture follow-up: a device with its only
+advertised AMD profile already selected was always missing an alternate fixture.
+Automatic preparation now also uses the existing UI's **Upstream operator rules
+only** choice (`profileId: ""`). Readiness distinguishes that explicit value
+from a missing choice and rejects unchanged, unknown or unapproved alternatives;
+an unknown current override is not borrowed because it could not be restored
+through the catalog validator. Two counterexamples in the existing
+[`input-preparation.unit.spec.ts`](../../dashboard/apps/web/regression/harness/input-preparation.unit.spec.ts)
+reproduce the old omission and empty-value rejection, then cover both valid
+choice directions and reject ineligible/missing hardware. They remain selected by `selftest`.
+The installed MOD-06 workflow still writes through the real Hardware UI and
+verifies saved parameters, unchanged GPU sharing and exact original spec
+restoration. Fresh image CI and an installed Phase 5 execution are required;
+preparation readiness itself is not live test evidence.
+
 24 October 2026, LIFE-02/ENG-01 CPU acceptance follow-up: fresh regular
 Kubernetes Phase 2 runs with source `3948d35` images passed on both registered
 lab appliances, including the AVX2-only CPU. Each recorded 580 passed checks,

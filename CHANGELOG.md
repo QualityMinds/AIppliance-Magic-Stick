@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Prepare the real **Upstream operator rules only** AMD profile choice when the
+  current explicit profile is the only advertised profile. Keep that explicit
+  empty value distinct from a missing fixture; reject unchanged, unadvertised
+  or unapproved changes and preserve the normal exact-restoration checks.
+
 - Update the pinned Dashboard build/test dependencies and shared Zod validation
   library for the October security advisories. Retain strict fresh dependency
   audits and add offline downgrade guards for every affected locked copy;
