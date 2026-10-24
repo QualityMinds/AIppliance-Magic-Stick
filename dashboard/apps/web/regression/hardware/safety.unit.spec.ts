@@ -63,11 +63,31 @@ test('HW-06 validation accepts legacy or exact DRA binding and rejects another i
   const pod:KubeObject={metadata:{},spec:{nodeName:device.node,resourceClaims:[{name:'gpu',resourceClaimName:card.claimName}],
     initContainers:[{name:'engine',resources:{claims:[{name:'gpu'}]}}]}};
   const claim:KubeObject={metadata:{name:card.claimName,namespace:'ai'},status:{allocation:{devices:{results:[{driver:'gpu.nvidia.com',pool:card.pool,device:card.name}]}}}};
-  const slices:KubeObject[]=[{metadata:{},spec:{driver:'gpu.nvidia.com',nodeName:card.node,devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}}];
+  const slice=(pool=card.pool,generation=2,count=1,uuid=card.uuid):KubeObject=>({metadata:{uid:`${pool}-${generation}-${uuid}`},
+    spec:{driver:'gpu.nvidia.com',nodeName:card.node,pool:{name:pool,generation,resourceSliceCount:count},
+      devices:[{name:card.name,attributes:{uuid:{string:uuid}}}]}});
+  const slices=[slice()];
   nvidiaValidationBinding(pod,device,state,claim,slices);
+  // Device names are unique within a driver/pool, not across every Slice on
+  // the node. Only the pool's highest, complete generation can prove binding.
+  nvidiaValidationBinding(pod,device,state,claim,[slice(card.pool,1,1,'GPU-retired'),...slices,slice('foreign-pool')]);
+  for(const observed of [[slice('foreign-pool')],[slice(card.pool,2,2)],
+    [slice(card.pool,1),slice(card.pool,2,1,'GPU-other')],
+    [slice(card.pool,2,2),slice(card.pool,2,2,'GPU-other')],
+    [slice(card.pool,2,1),slice(card.pool,2,2,'GPU-other')]])
+    expect(()=>nvidiaValidationBinding(pod,device,state,claim,observed)).toThrow('[CAPABILITY]');
   for(const patch of [{uuid:'GPU-other'},{name:'gpu-other'},{claimName:'other'},{pool:'other-node'},{pciAddress:'0000:02:00.0'}])
     expect(()=>nvidiaValidationBinding(pod,device,{...state,devices:[{...card,...patch}]},claim,slices)).toThrow('[CAPABILITY]');
   expect(()=>nvidiaValidationBinding(pod,device,state,claim,[])).toThrow('[CAPABILITY]');
+  // Exact-card availability has already been established by prepareValidation.
+  // A mismatched observed allocation is a failed proof, not missing hardware.
+  const wrongSlices:KubeObject[][]=[[],
+    [{...slices[0]!,spec:{...slices[0]!.spec,devices:[{name:card.name,attributes:{uuid:{string:'GPU-other'}}}]}}]];
+  for(const observed of wrongSlices) {
+    let failure:unknown;
+    try{nvidiaValidationBinding(pod,device,state,claim,[...observed]);}catch(error){failure=error;}
+    expect(failure).toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding',check:'slice-uuid'});
+  }
   const legacy:KubeObject={metadata:{},spec:{nodeName:device.node,initContainers:[{name:'engine',resources:{limits:{'nvidia.com/gpu':'1'}}}]}};
   nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'});
   expect(()=>nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'},undefined,[],4)).toThrow('[CAPABILITY]');
@@ -110,6 +130,20 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
   const scenario={config:config(),live:{guard:async()=>{},observer:{list:async()=>[job]}},
     inventory:async()=>{throw new Error('A terminal failed Job must not be polled until a deadline');}} as unknown as GpuScenario;
   await expect(completedValidation(scenario,request)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-validation'});
+  const lab=config(),runId=newRunId(),card={name:'gpu-0',pool:lab.gpu!.nodeName,node:lab.gpu!.nodeName,
+    nodeUid:lab.gpu!.nodeUid,pciAddress:lab.gpu!.devices.nvidia!.pciAddress,claimName:'exact-claim',uuid:'GPU-exact'};
+  const device={id:'fixture-card',vendor:'nvidia',node:card.node,nodeUid:card.nodeUid,bootId:lab.gpu!.bootId,pciAddress:card.pciAddress};
+  const pod:KubeObject={metadata:{uid:'pod-uid',ownerReferences:[{kind:'Job',uid:'validation-uid'}]},
+    spec:{nodeName:card.node,resourceClaims:[{name:'gpu',resourceClaimName:card.claimName}],
+      initContainers:[{name:'engine',resources:{claims:[{name:'gpu'}]}}]}};
+  const claim:KubeObject={metadata:{name:card.claimName,namespace:'ai'},
+    status:{allocation:{devices:{results:[{driver:'gpu.nvidia.com',pool:card.pool,device:card.name}]}}}};
+  const bindingScenario={config:lab,directory,live:{journal:{runId},guard:async()=>{},observer:{
+    list:async(resource:string)=>resource==='jobs'?[{...job,status:{}}]:resource==='pods'?[pod]:[],get:async()=>claim}},
+    state:async()=>({backend:'dra',devices:[card]}),inventory:async()=>({devices:[device]})} as unknown as GpuScenario;
+  await expect(completedValidation(bindingScenario,request)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding'});
+  expect(JSON.parse(await readFile(join(directory,'verification-binding-failure.json'),'utf8')))
+    .toEqual({version:1,runId,requestId:request.requestId,engine:'OLlama',check:'slice-uuid'});
 });
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
 test.afterEach(async()=>{await rm(directory,{recursive:true,force:true});});

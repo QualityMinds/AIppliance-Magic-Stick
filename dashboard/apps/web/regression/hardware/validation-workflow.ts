@@ -12,6 +12,15 @@ export async function validationJobs(s:GpuScenario) {
   return [...await s.live.observer.list('jobs','ai'),...await s.live.observer.list('jobs',s.config.expected.applianceNamespace)];
 }
 
+type ValidationBindingCheck='engine-node'|'legacy-resource'|'pod-claim'|'claim-allocation'|'slice-uuid'|'runtime-image';
+class ValidationBindingError extends HarnessError {
+  readonly check:ValidationBindingCheck;
+  constructor(check:ValidationBindingCheck) {super('CAPABILITY','Failed','gpu-binding');this.check=check;}
+}
+function bindingProof(condition:unknown,check:ValidationBindingCheck):asserts condition {
+  if(!condition)throw new ValidationBindingError(check);
+}
+
 /** A DRA validation must consume the exact inventoried physical card, not a
  * node-wide extended-resource token. Check both the Pod reference and the
  * independently observed allocation; sharing does not relax UUID identity. */
@@ -20,21 +29,28 @@ export function nvidiaValidationBinding(pod:KubeObject,device:HardwareGpuDevice,
   const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;resources?:{
     limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
   const engine=spec.initContainers?.find(c=>c.name==='engine');
-  requireSafe(engine && (!spec.nodeName||spec.nodeName===device.node),'CAPABILITY');
+  bindingProof(engine && (!spec.nodeName||spec.nodeName===device.node),'engine-node');
   if(sharing.backend!=='dra') {
-    requireSafe(physicalCount===1 && Number(engine.resources?.limits?.['nvidia.com/gpu'])===1&&!spec.resourceClaims?.length,'CAPABILITY');return;
+    bindingProof(physicalCount===1 && Number(engine.resources?.limits?.['nvidia.com/gpu'])===1&&!spec.resourceClaims?.length,'legacy-resource');return;
   }
   const card=sharing.devices?.find(d=>d.nodeUid===device.nodeUid&&d.node===device.node&&d.pciAddress===device.pciAddress);
-  requireSafe(card&&spec.resourceClaims?.length===1&&spec.resourceClaims[0]?.resourceClaimName===card.claimName&&
+  bindingProof(card&&spec.resourceClaims?.length===1&&spec.resourceClaims[0]?.resourceClaimName===card.claimName&&
     engine.resources?.claims?.length===1&&engine.resources.claims[0]?.name===spec.resourceClaims[0].name&&
-    !engine.resources.limits?.['nvidia.com/gpu']&&claim?.metadata.name===card.claimName&&claim.metadata.namespace==='ai','CAPABILITY');
+    !engine.resources.limits?.['nvidia.com/gpu']&&claim?.metadata.name===card.claimName&&claim.metadata.namespace==='ai','pod-claim');
   const results=(claim.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
-  requireSafe(results?.length===1&&results[0]!.driver==='gpu.nvidia.com'&&results[0]!.pool===card.pool&&results[0]!.device===card.name,'CAPABILITY');
-  const matches=slices.flatMap(slice=>{
-    const value=slice.spec as {driver?:string;nodeName?:string;devices?:Array<{name:string;attributes?:Record<string,{string?:string}>}>};
-    return value.driver==='gpu.nvidia.com'&&value.nodeName===card.node ? (value.devices??[]).filter(d=>d.name===card.name) : [];
-  });
-  requireSafe(matches.length===1&&matches[0]?.attributes?.uuid?.string===card.uuid,'CAPABILITY');
+  bindingProof(results?.length===1&&results[0]!.driver==='gpu.nvidia.com'&&results[0]!.pool===card.pool&&results[0]!.device===card.name,'claim-allocation');
+  const pool=slices.map(slice=>slice.spec as {driver?:string;nodeName?:string;
+    pool?:{name?:string;generation?:number;resourceSliceCount?:number};
+    devices?:Array<{name:string;attributes?:Record<string,{string?:string}>}>})
+    .filter(value=>value?.driver==='gpu.nvidia.com'&&value.nodeName===card.node&&value.pool?.name===card.pool);
+  bindingProof(pool.length>0&&pool.every(value=>Number.isSafeInteger(value.pool?.generation)&&value.pool!.generation!>=0),'slice-uuid');
+  // Kubernetes identifies a device by driver/pool/name. Old generations and
+  // another pool's same-named device cannot establish or disprove this claim.
+  const generation=Math.max(...pool.map(value=>value.pool!.generation!));
+  const current=pool.filter(value=>value.pool!.generation===generation);
+  bindingProof(current.every(value=>value.pool!.resourceSliceCount===current.length),'slice-uuid');
+  const matches=current.flatMap(value=>(value.devices??[]).filter(device=>device.name===card.name));
+  bindingProof(matches.length===1&&matches[0]?.attributes?.uuid?.string===card.uuid,'slice-uuid');
 }
 
 function validationDevices(s:GpuScenario,devices:HardwareGpuDevice[],scope:'all'|'nvidia') {
@@ -122,8 +138,8 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
       requireSafe(device && device.nodeUid===s.config.gpu!.nodeUid && device.bootId===s.config.gpu!.bootId,'IDENTITY');
       for (const pod of pods.filter(p=>p.metadata.ownerReferences?.some(o=>o.kind === 'Job' && o.uid === job.metadata.uid))) {
         const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;image:string;resources?:{limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
-        if (spec.nodeName) requireSafe(spec.nodeName === s.config.gpu!.nodeName,'CAPABILITY');
-        const engine=spec.initContainers?.find(c=>c.name === 'engine');requireSafe(engine,'CAPABILITY');
+        if (spec.nodeName) bindingProof(spec.nodeName === s.config.gpu!.nodeName,'engine-node');
+        const engine=spec.initContainers?.find(c=>c.name === 'engine');bindingProof(engine,'engine-node');
         if (device.vendor === 'nvidia') {
           const sharing=await s.state('nvidia'),card=sharing.devices?.find(d=>d.nodeUid===device.nodeUid&&d.pciAddress===device.pciAddress);
           // Allocation is asynchronous. Before scheduling, check at the next
@@ -136,12 +152,12 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
         }
         else {
           const sharing=await s.state('amd');
-          requireSafe(sharing.mode === 'shared' ? spec.resourceClaims?.some(c=>c.resourceClaimName === sharing.claimName) &&
-            engine.resources?.claims?.some(c=>c.name === 'gpu') : Number(engine.resources?.limits?.['amd.com/gpu']) === 1,'CAPABILITY');
+          bindingProof(sharing.mode === 'shared' ? spec.resourceClaims?.some(c=>c.resourceClaimName === sharing.claimName) &&
+            engine.resources?.claims?.some(c=>c.name === 'gpu') : Number(engine.resources?.limits?.['amd.com/gpu']) === 1,'pod-claim');
         }
         const imageId=pod.status?.initContainerStatuses?.find(c=>c.name === 'engine')?.imageID;
         if (pod.status?.phase === 'Succeeded') {
-          requireSafe(pod.metadata.uid && imageId && /sha256:[a-f0-9]{64}$/.test(imageId),'CAPABILITY');
+          bindingProof(pod.metadata.uid && imageId && /sha256:[a-f0-9]{64}$/.test(imageId),'runtime-image');
           bindings.set(job.metadata.uid!,{deviceId:deviceId!,podUid:pod.metadata.uid,imageId});
         }
       }
@@ -154,7 +170,16 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
         j.metadata.annotations?.['appliance.magicstick.dev/validation-device'] === id && bindings.get(j.metadata.uid!)?.deviceId === id &&
         bindings.get(j.metadata.uid!)?.imageId === result.imageId &&
         j.status?.conditions?.some(c=>c.type === 'Complete' && c.status === 'True'));
-  }),{timeoutMs:2_700_000,intervalMs:1000,stage:'gpu-validation'});
+  }),{timeoutMs:2_700_000,intervalMs:1000,stage:'gpu-validation'}).catch(async(error:unknown)=>{
+    if(error instanceof ValidationBindingError) {
+      // Fixed detail codes only: no selectors, requests, Secrets or runtime
+      // output. Preserve the original failed proof if diagnostic storage fails.
+      await writePrivate(join(s.directory,'verification-binding-failure.json'),{
+        version:1,runId:s.live.journal.runId,requestId:request.requestId,engine:request.engine,check:error.check,
+      }).catch(()=>{});
+    }
+    throw error;
+  });
   await writePrivate(join(s.directory,`verification-${request.requestId}-result.json`),{
     version:1,runId:s.live.journal.runId,engine:request.engine,
     bindings:[...bindings].map(([jobUid,proof])=>({jobUid,...proof})),completed:true});

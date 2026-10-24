@@ -593,6 +593,25 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+24 October 2026, HW-06 binding-diagnosis follow-up: the four-NVIDIA-card lab's
+single-card and all-card requests each left a completed native Ollama Job, but
+the existing runner classified a later binding-proof rejection as an unspecified
+`CAPABILITY` prerequisite. Binding postconditions now fail at `gpu-binding`,
+with a fixed private check code for engine/node, legacy resource, Pod/claim,
+claim allocation, Slice/UUID or runtime-image evidence. Exact-card prerequisites
+are still checked before submission, and all existing UID/UUID/allocation/image
+assertions remain in force. The Slice proof now uses the exact driver/pool/device
+identity and only its complete highest generation, as required by the
+[pinned Kubernetes ResourceSlice contract](https://github.com/kubernetes/kubernetes/blob/v1.36.4/staging/src/k8s.io/api/resource/v1/types.go).
+The existing HW-06 safety cases reproduce the wrong Blocked classification and
+the previous rejection of legitimate retired/foreign-pool Slices; they also
+reject foreign-only, incomplete, conflicting and wrong-UUID current pools and
+verify the private diagnostic. No additional campaign case, variant, layer or
+scenario is selected. This repairs a reproduced protocol mismatch and narrows
+the remaining native diagnosis; the old artifacts do not prove it caused that
+native binding discrepancy or establish live HW-06 acceptance. A fresh matching
+runner execution must verify that remaining path; old reports stay unchanged.
+
 24 October 2026, MOD-06/HAR-10 profile-fixture follow-up: a device with its only
 advertised AMD profile already selected was always missing an alternate fixture.
 Automatic preparation now also uses the existing UI's **Upstream operator rules
