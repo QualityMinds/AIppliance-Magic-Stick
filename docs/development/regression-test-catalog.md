@@ -593,6 +593,22 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+24 October 2026, existing APP-02/APP-06 Hermes adapter follow-up: the application
+workflow formerly treated the native terminal as a missing generic chat form.
+Automatic preparation now selects `hermes-terminal-v1`, following the pinned
+[ChatPage](https://github.com/NousResearch/hermes-agent/blob/v2026.9.24/web/src/pages/ChatPage.tsx)
+and its same-channel notification-only events feed. The browser types the prompt
+through xterm, verifies the exact local model/provider and session's fresh,
+successful terminal turn, and exercises the native response-copy button with
+clipboard acknowledgement and clearing. Lazy bootstrap is not full agent or
+inference proof; sidecar/configuration data, foreign sessions, stale/replayed
+events, partial/error turns and prompt echoes cannot pass. Existing HAR-10
+fixture/safety and functional HTTPS Chromium scenarios cover those boundaries,
+including stale clipboard rejection. Built-in adapter mismatches fail instead
+of inventing an external prerequisite. No scenario registrations, IDs, variants
+or layers were added. Matching native acceptance and the remaining applications
+are still required; historical reports remain unchanged.
+
 24 October 2026, Phase 5 MOD-06/KEY-04 follow-up: the latest mixed-GPU lab run
 confirmed that the profile intent was saved while the immediate Hardware reload
 still displayed the preceding controller projection. MOD-06 now waits for the

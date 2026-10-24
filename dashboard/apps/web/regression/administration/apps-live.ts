@@ -5,7 +5,7 @@ import {AppCleaner,OwnedAppClient,appTypes,type AppFixture,ownedChild} from '../
 import {AdministrationApi} from '../core/administration-api.ts';
 import {OwnedIdentityClient} from '../core/owned-identity.ts';
 import {realLogin} from '../core/auth.ts';
-import {readPrivate} from '../core/private-files.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {join,dirname} from 'node:path';
 import {BorrowedModule} from '../core/borrowed-module.ts';
 import {applicationModuleIds,protectedModule} from '../core/application-modules.ts';
@@ -17,6 +17,8 @@ import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
 import {applicationModel,applicationEditContext} from '../core/application-model.ts';
 import {preparationApi,estimateInput} from '../core/preparation-api.ts';
 import {regressionContextOptions} from '../core/https-policy.ts';
+import {repositoryAppAdapter} from '../core/application-adapters.ts';
+import {HermesTerminalEvidence,observeHermesTerminal,verifyHermesTerminalChat} from '../core/hermes-terminal.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
  * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
@@ -49,25 +51,27 @@ async function prepareApplications(live:LiveFoundation,api:AdministrationApi,fix
 }
 
 export function validateAppFixtures(value:unknown):AppFixture[] {
-  const automatic=Array.isArray(value) && value.length > 0 && value.every(item=>item.adapter === 'semantic-chat-v1');
+  const automatic=Array.isArray(value) && value.length > 0 && value.every(item=>item&&repositoryAppAdapter(item));
   requireSafe(Array.isArray(value) && (automatic ? value.length <= appTypes.length : value.length === appTypes.length) &&
     new Set(value.map(item=>item.type)).size === value.length,'CONFIG');
   for(const item of value) {
-    requireSafe(appTypes.includes(item.type) && (item.adapter === 'semantic-chat-v1' ?
+    requireSafe(appTypes.includes(item.type) && (repositoryAppAdapter(item) ?
       Object.keys(item).sort().join(',') === 'adapter,originTemplate,responseMarker,type' :
       Object.keys(item).sort().join(',') === 'originTemplate,promptLabel,responseMarker,responseSelector,sendButton,type') &&
-      (item.adapter === 'semantic-chat-v1' ? ['responseMarker'] : ['promptLabel','responseMarker','responseSelector','sendButton']).every(key=>typeof item[key] === 'string' && item[key].length > 0 && item[key].length < 256) &&
+      (repositoryAppAdapter(item) ? ['responseMarker'] : ['promptLabel','responseMarker','responseSelector','sendButton']).every(key=>typeof item[key] === 'string' && item[key].length > 0 && item[key].length < 256) &&
       typeof item.originTemplate === 'string' && item.originTemplate.split('{name}').length === 2,'CONFIG');
+    if(item.adapter==='hermes-terminal-v1')requireSafe(/^[A-Za-z0-9_-]{1,64}$/.test(item.responseMarker),'CONFIG');
     const url=new URL(item.originTemplate.replace('{name}','reg-fixture'));
     requireSafe(url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash,'CONFIG');
   }return value;
 }
-async function appPage(context:BrowserContext,origin:string,guard:()=>Promise<void>) {
+async function appPage(context:BrowserContext,origin:string,guard:()=>Promise<void>,options:{path?:string;observe?:(page:Page)=>void}={}) {
   const page=await context.newPage();
   // Only the exact run-owned application's origin is admitted. Cross-origin
   // provider/API traffic remains fenced by the existing login context.
   await page.route(origin+'/**',async route=>{requireSafe(new URL(route.request().url()).origin === origin,'MUTATION');await guard();await route.continue();});
-  await page.goto(origin,{waitUntil:'domcontentloaded'});return page;
+  try {options.observe?.(page);await page.goto(origin+(options.path??'/'),{waitUntil:'domcontentloaded'});return page;}
+  catch(error){await page.close();throw error;}
 }
 async function credentials(api:AdministrationApi,page:Page,name:string,supported:boolean) {
   const card=page.locator('article.service-instance').filter({hasText:name});
@@ -135,20 +139,25 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
           requireSafe([302,303,401,403].includes(result.status()),'API');
         }finally{await anonymous.close();}
         // The actual application UI must invoke the selected local model.
-        const app=await appPage(actors[0]!,origin,live.guard);
+        const terminal=fixture.adapter==='hermes-terminal-v1'?new HermesTerminalEvidence(origin,model.client.name):undefined;
+        const app=await appPage(actors[0]!,origin,live.guard,terminal?{path:'/chat',observe:page=>{observeHermesTerminal(page,terminal);}}:{});
         try {
           requireSafe(new URL(app.url()).origin === origin,'AUTH');
-          if(fixture.adapter === 'semantic-chat-v1') {
+          if(terminal) {
+            await withCleanup(()=>test.step('Use the native Hermes terminal and copy its fresh assistant response',()=>
+              verifyHermesTerminalChat(app,terminal,live.guard,fixture.responseMarker)),
+            ()=>writePrivate(journalFile(live.journal,'hermes-chat-proof.json'),{version:1,...terminal.snapshot()}));
+          }else if(fixture.adapter === 'semantic-chat-v1') {
             // Discover a unique visible semantic chat control, not a manually
-            // maintained CSS selector. Ambiguous/unsupported app surfaces are
-            // a missing adapter prerequisite, never synthetic inference.
+            // maintained CSS selector. A wrong built-in adapter is a harness
+            // failure, not a missing external prerequisite or fake inference.
             const input=app.getByRole('textbox').filter({visible:true});
             const send=app.getByRole('button',{name:/^(send|send message|submit|send prompt)$/i}).filter({visible:true});
-            requireSafe(await input.count() === 1 && await send.count() === 1,'PREREQUISITE');
+            requireSafe(await input.count() === 1 && await send.count() === 1,'API');
             const responses=app.getByRole('article',{name:/assistant|assistant response/i})
               .or(app.getByRole('region',{name:/assistant response/i}));
             // Do not count the prompt echoed in a chat log as an answer.
-            requireSafe(await responses.count() <= 1,'PREREQUISITE');
+            requireSafe(await responses.count() <= 1,'API');
             await input.fill('Reply with exactly '+fixture.responseMarker);await send.click();
             await expect(responses).toContainText(fixture.responseMarker,{timeout:180_000});
           } else {

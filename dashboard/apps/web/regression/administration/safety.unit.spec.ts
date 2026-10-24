@@ -25,6 +25,7 @@ import type {MemoryEstimate,ModelsPayload,ModulesPayload} from '@magicstick/dash
 import {applicationModel,applicationContexts,applicationEditContext} from '../core/application-model.ts';
 import {catalogFixture} from '../core/input-preparation.ts';
 import {HarnessError} from '../core/errors.ts';
+import {HermesTerminalEvidence} from '../core/hermes-terminal.ts';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -425,6 +426,75 @@ test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application
   expect(()=>validateAppFixtures(fixtures.slice(1))).toThrow();
   expect(()=>validateAppFixtures([...fixtures.slice(1),fixtures[1]])).toThrow();
   expect(()=>validateAppFixtures([{...fixtures[0],originTemplate:'http://{name}.example.invalid'},...fixtures.slice(1)])).toThrow();
+  const terminal={type:'hermes',originTemplate:'https://{name}.hermes.example.invalid/',adapter:'hermes-terminal-v1',responseMarker:'REGRESSION'};
+  expect(validateAppFixtures([terminal])).toEqual([terminal]);
+  expect(()=>validateAppFixtures([{...terminal,type:'openclaw'}])).toThrow('[CONFIG]');
+  expect(()=>validateAppFixtures([{...terminal,adapter:'unreviewed'}])).toThrow('[CONFIG]');
+  expect(()=>validateAppFixtures([{...terminal,responseMarker:'arbitrary prompt with spaces'}])).toThrow('[CONFIG]');
+  const wire=(type:string,seq:number,payload?:unknown,session_id='root')=>JSON.stringify({jsonrpc:'2.0',method:'event',params:{type,seq,session_id,payload}});
+  const model='reg-fixture-model',marker='REGRESSION_fresh',origin='https://hermes.example.invalid';
+  const prepared=()=>{
+    const proof=new HermesTerminalEvidence(origin,model);
+    expect(proof.open('wss://hermes.example.invalid/api/ws?token=private-token')).toBeUndefined();
+    expect(proof.open('wss://foreign.example.invalid/api/events?channel=owned')).toBeUndefined();
+    expect(proof.open('ws://hermes.example.invalid/api/events?channel=owned')).toBeUndefined();
+    const pty=proof.open('wss://hermes.example.invalid/api/pty?channel=owned&token=private-token')!;
+    const feed=proof.open('wss://hermes.example.invalid/api/events?channel=owned&ticket=private-ticket')!;
+    proof.received(feed,wire('session.info',1,{model,lazy:true}));expect(proof.ready()).toBe(true);
+    const prompt=proof.begin(marker);
+    for(const character of prompt)proof.sent(pty,character);
+    proof.sent(pty,'\r');
+    return {proof,pty,feed,prompt};
+  };
+  const live=(current:ReturnType<typeof prepared>)=>{
+    current.proof.received(current.feed,wire('session.info',2,{model,provider:'custom:litellm',version:'synthetic'}));
+    current.proof.received(current.feed,wire('message.start',3));
+  };
+  const success=prepared();live(success);
+  success.proof.received(success.feed,wire('message.complete',4,{status:'complete',text:marker},'foreign-session'));
+  success.proof.received(success.feed,wire('message.complete',1,{status:'complete',text:marker}));
+  expect(success.proof.complete()).toBe(false);
+  success.proof.received(success.feed,wire('message.complete',4,{status:'complete',text:marker}));
+  expect(success.proof.complete()).toBe(true);expect(success.proof.expectedCopy()).toBe(marker);
+  success.proof.copiedResponse();expect(success.proof.snapshot()).toMatchObject({agent:true,submitted:true,started:true,completed:true,copied:true,failed:false});
+  expect(JSON.stringify(success.proof.snapshot())).not.toMatch(/private-token|private-ticket|root|reg-fixture-model/);
+  for(const result of [{status:'interrupted',text:marker},{status:'error',text:marker},{text:marker},
+    {status:'complete',partial:true,text:marker},{status:'complete',error:'synthetic',text:marker},
+    {status:'complete',failure_reason:'synthetic',text:marker},{status:'complete',text:'stale answer'},
+    {status:'complete',text:'Reply with exactly '+marker}]) {
+    const current=prepared();live(current);current.proof.received(current.feed,wire('message.complete',4,result));
+    expect(()=>current.proof.complete()).toThrow('[API]');
+  }
+  const lazy=prepared();lazy.proof.received(lazy.feed,wire('message.start',2));
+  lazy.proof.received(lazy.feed,wire('message.complete',3,{status:'complete',text:marker}));
+  expect(()=>lazy.proof.complete()).toThrow('[API]');
+  const noStart=prepared();noStart.proof.received(noStart.feed,wire('message.complete',4,{status:'complete',text:marker}));
+  expect(()=>noStart.proof.complete()).toThrow('[API]');
+  for(const info of [{model:'foreign-model',provider:'custom:litellm',version:'synthetic'},
+    {model,provider:'external-provider',version:'synthetic'},{model,provider:'custom:litellm',version:'synthetic',credential_warning:'synthetic'}]) {
+    const current=prepared();current.proof.received(current.feed,wire('session.info',2,info));
+    expect(()=>current.proof.complete()).toThrow('[API]');
+  }
+  for(const damage of ['closed','reconnected','malformed','oversize','sequence'] as const) {
+    const current=prepared();live(current);
+    if(damage==='closed')current.proof.close(current.pty);
+    if(damage==='reconnected')current.proof.open('wss://hermes.example.invalid/api/pty?channel=replacement');
+    if(damage==='malformed')current.proof.received(current.feed,'not json');
+    if(damage==='oversize')current.proof.received(current.feed,'x'.repeat(1024*1024+1));
+    if(damage==='sequence')current.proof.received(current.feed,wire('message.complete',NaN,{status:'complete',text:marker}));
+    expect(()=>current.proof.complete()).toThrow('[API]');
+  }
+  const otherChannel=new HermesTerminalEvidence(origin,model);
+  otherChannel.open('wss://hermes.example.invalid/api/pty?channel=owned');
+  const foreignFeed=otherChannel.open('wss://hermes.example.invalid/api/events?channel=foreign')!;
+  otherChannel.received(foreignFeed,wire('session.info',1,{model,provider:'custom:litellm',version:'synthetic'}));
+  expect(otherChannel.ready()).toBe(false);
+  const unsent=new HermesTerminalEvidence(origin,model);
+  unsent.open('wss://hermes.example.invalid/api/pty?channel=owned');
+  const feed=unsent.open('wss://hermes.example.invalid/api/events?channel=owned')!;
+  unsent.received(feed,wire('session.info',1,{model,provider:'custom:litellm',version:'synthetic'}));unsent.begin(marker);
+  unsent.received(feed,wire('message.start',2));unsent.received(feed,wire('message.complete',3,{status:'complete',text:marker}));
+  expect(unsent.complete()).toBe(false);
 });
 
 test('HAR-10 Realtime frames are masked, bounded and reject malformed/extended server messages',annotation,()=>{

@@ -11,6 +11,47 @@ import {verifiedEndpoint} from '../core/preflight.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {realtimeSession} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
+import {HermesTerminalEvidence,observeHermesTerminal,verifyHermesTerminalChat} from '../core/hermes-terminal.ts';
+import type {Duplex} from 'node:stream';
+
+/** Tiny native-protocol fixture, not another application or inference backend.
+ * Actual Chromium keyboard, browser-created WSS feeds and clipboard are used. */
+function terminalFixture(wrongCopy:()=>boolean) {
+  let pty:Duplex|undefined,feed:Duplex|undefined,input='',answer='',bootstrapped=false;
+  const send=(socket:Duplex,value:unknown)=>{
+    const payload=Buffer.from(JSON.stringify(value)),header=Buffer.alloc(payload.length<126?2:4);
+    header[0]=0x81;header[1]=payload.length<126?payload.length:126;if(payload.length>=126)header.writeUInt16BE(payload.length,2);
+    socket.write(Buffer.concat([header,payload]));
+  };
+  const event=(type:string,seq:number,payload?:unknown)=>{
+    if(feed)send(feed,{jsonrpc:'2.0',method:'event',params:{type,seq,session_id:'fixture-root',payload}});
+  };
+  return (path:string,socket:Duplex)=>{
+    if(path==='/api/events')feed=socket;else pty=socket;
+    if(pty&&feed&&!bootstrapped){bootstrapped=true;event('session.info',1,{model:'reg-fixture-model',lazy:true});}
+    let pending=Buffer.alloc(0);
+    socket.on('data',(chunk:Buffer)=>{
+      pending=Buffer.concat([pending,chunk]);
+      while(pending.length>=2) {
+        const opcode=pending[0]!&15,short=pending[1]!&127,header=short===126?4:2;
+        if(short===127){socket.destroy();return;}if(pending.length<header)return;
+        const length=short===126?pending.readUInt16BE(2):short;
+        if(pending.length<header+4+length)return;
+        const mask=pending.subarray(header,header+4),body=Buffer.from(pending.subarray(header+4,header+4+length));
+        for(let index=0;index<body.length;index++)body[index]=body[index]!^mask[index%4]!;
+        pending=pending.subarray(header+4+length);
+        if(opcode===8){socket.end();return;}
+        if(socket!==pty||opcode!==1)continue;
+        input+=body.toString('utf8');if(!input.endsWith('\r'))continue;
+        const prompt=/^Reply with exactly ([A-Za-z0-9_-]+)\r$/.exec(input);
+        if(prompt){answer=prompt[1]!;event('session.info',2,{model:'reg-fixture-model',provider:'custom:litellm',version:'synthetic'});
+          event('message.start',3);event('message.complete',4,{status:'complete',text:answer});}
+        else if(input==='/copy\r')send(socket,{copy:wrongCopy()?'stale synthetic clipboard':answer});
+        input='';
+      }
+    });
+  };
+}
 
 test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks exclude certificates; certificate checks remain strict',
   evidenceAnnotations({id: 'HAR-10', layer: 'B'}), async ({browser, playwright}) => {
@@ -19,13 +60,26 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
     const contexts: Awaited<ReturnType<typeof browser.newContext>>[] = [];
     const apis: Awaited<ReturnType<typeof playwright.request.newContext>>[] = [];
     const priorGlobalTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-    let serviceStatus = 200, inferenceStatus = 200, sessionType = 'session.created';
+    let serviceStatus = 200, inferenceStatus = 200, sessionType = 'session.created',wrongCopy=false;
+    let terminal=terminalFixture(()=>wrongCopy);
     try {
       const key = join(directory, 'key.pem'), cert = join(directory, 'cert.pem');
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
         '-subj', '/CN=not-this-host.invalid', '-days', '1', '-addext', 'subjectAltName=DNS:not-this-host.invalid'], {stdio: 'pipe'});
       server = createServer({key: await readFile(key), cert: await readFile(cert)}, (request, response) => {
-        if (request.url === '/v1/chat/completions' || request.url === '/v1/models') {
+        if(request.url==='/chat') {
+          response.writeHead(200,{'Content-Type':'text/html'});
+          response.end(`<!doctype html><div class="hermes-chat-xterm-host"><textarea class="xterm-helper-textarea"></textarea></div>
+            <button aria-label="Copy last assistant response">Copy</button><script>
+            const root='wss://'+location.host,feed=new WebSocket(root+'/api/events?channel=fixture&ticket=synthetic'),
+              pty=new WebSocket(root+'/api/pty?channel=fixture&token=synthetic');
+            document.querySelector('textarea').addEventListener('keydown',e=>{
+              if(e.key==='Enter'){e.preventDefault();pty.send('\\r');}else if(e.key.length===1)pty.send(e.key);
+            });
+            document.querySelector('button').onclick=()=>{pty.send('/copy');setTimeout(()=>pty.send('\\r'),100);};
+            pty.onmessage=e=>{const result=JSON.parse(e.data);if(result.copy)void navigator.clipboard.writeText(result.copy);};
+            </script>`);
+        }else if (request.url === '/v1/chat/completions' || request.url === '/v1/models') {
           response.writeHead(inferenceStatus, {'Content-Type': 'application/json'});
           response.end(JSON.stringify(request.url === '/v1/models' ? {data: [{id: 'fixture'}]} :
             {model: 'fixture', choices: [{message: {content: 'OK'}}]}));
@@ -38,6 +92,8 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
       server.on('upgrade', (request, socket) => {
         const accept = createHash('sha1').update(String(request.headers['sec-websocket-key']) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
         socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+        const path=new URL(request.url!,'https://fixture.invalid').pathname;
+        if(['/api/pty','/api/events'].includes(path)){terminal(path,socket);return;}
         const payload = Buffer.from(JSON.stringify({type: sessionType, session: {id: 'synthetic'}}));
         socket.end(Buffer.concat([Buffer.from([0x81, payload.length]), payload]));
       });
@@ -73,6 +129,18 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
       // No policy leaks into the explicit TLS check or process environment.
       await expect(verifiedEndpoint(origin, 2000)).rejects.toMatchObject({code: 'TLS'});
       expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe(priorGlobalTls);
+      for(wrongCopy of [false,true]) {
+        terminal=terminalFixture(()=>wrongCopy);
+        const chat=await functional.newPage(),proof=new HermesTerminalEvidence(origin,'reg-fixture-model');
+        observeHermesTerminal(chat,proof);
+        try {
+          await chat.goto(origin+'/chat');
+          const result=verifyHermesTerminalChat(chat,proof,async()=>{},'REGRESSION',{readyMs:3000,inferenceMs:3000,copyMs:750});
+          if(wrongCopy)await expect(result).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-inference'});
+          else {await result;expect(proof.snapshot()).toMatchObject({submitted:true,started:true,completed:true,copied:true,failed:false});}
+          expect(await chat.evaluate(()=>navigator.clipboard.readText().then(value=>value===''))).toBe(true);
+        }finally{await chat.close();}
+      }
     } finally {
       for (const api of apis) await api.dispose();
       for (const context of contexts) await context.close();
