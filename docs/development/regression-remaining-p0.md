@@ -251,6 +251,17 @@ feed, requires the owned local model and a fresh completed assistant turn, then
 checks **Copy last assistant response** and clears the clipboard. The separate
 sidebar/configuration connection and prompt echoes are not inference evidence.
 A wrong built-in UI adapter is a harness failure, not an external prerequisite.
+KubeOpenCode uses its pinned OpenCode workspace/session composer. The browser's
+real native submission must select the owned `litellm` model and `/workspace`;
+native POST directory headers and GET query scopes are checked explicitly.
+Only a fresh completed assistant message with the submitted parent/model/session
+identity and matching visible assistant content proves inference. Prompt echoes,
+old turns, tool-only/partial/error messages and external models cannot pass.
+The private `opencode-chat-proof.json` contains booleans, not raw messages.
+KEY-04's unmanaged-key transaction belongs beside that worker's journal, including
+after an earlier case restarted the worker. It must not change the original
+worker's verified scope. A successfully recovered cleanup can coexist with a
+historical cleanup error in the same report; neither outcome is rewritten.
 Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
 exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
 MOD-06 waits for the saved ModuleActivation generation and its projected profile
