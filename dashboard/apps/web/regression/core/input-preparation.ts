@@ -162,7 +162,13 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
   }
   add('applications','optional-module',[[filled(profile.modules?.id),'No idle standalone optional-service fixture was selected.'],
     [approved(profile.modules,'approveOptionalModule'),'The optional-module enable/disable test has not been approved.']],!approved(profile.modules,'approveOptionalModule'));
-  add('applications','amd-profile',[[filled(profile.moduleProfile?.profileId),'No advertised alternate AMD profile fixture was selected.'],
+  const amdCompatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
+  const currentAmdProfile=amdCompatibility?.selectedProfile ?? '',amdProfiles=amdCompatibility?.profiles ?? [];
+  const requestedAmdProfile=profile.moduleProfile?.profileId;
+  const amdProfileChange=typeof requestedAmdProfile==='string' && typeof profile.moduleProfile?.allowExperimental==='boolean' &&
+    (!currentAmdProfile || amdProfiles.some(item=>item.id===currentAmdProfile)) && requestedAmdProfile!==currentAmdProfile &&
+    (!requestedAmdProfile || amdProfiles.some(item=>item.id===requestedAmdProfile));
+  add('applications','amd-profile',[[amdProfileChange,'No different advertised AMD profile or upstream-rules choice was selected.'],
     [approved(profile.moduleProfile,'approveTemporaryProfile'),'The temporary AMD profile change has not been approved.']],!approved(profile.moduleProfile,'approveTemporaryProfile'));
   add('kubernetes','oidc-plugin',[[file(profile.kubernetes?.plugin?.filename,snapshot) && /^[a-f0-9]{64}$/.test(profile.kubernetes?.plugin?.sha256 ?? ''),
     'The executable Linux OIDC plugin and its verified SHA-256 are missing or unreadable.']]);
