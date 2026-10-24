@@ -478,6 +478,7 @@ spec:
                       # three-minute reconciliation window.
                       while [ "$attempt" -lt 120 ]; do
                         if sync_callbacks; then
+                          /bin/sh /opt/magicstick/keycloak-session-policy.sh "$config" || exit 1
                           echo "Synchronized scoped Keycloak clients"
                           exit 0
                         fi
@@ -542,6 +543,7 @@ spec:
                               --rolename view-users \
                               --rolename view-realm >/dev/null 2>&1 || true
                             if sync_callbacks; then
+                              /bin/sh /opt/magicstick/keycloak-session-policy.sh "$config" || exit 1
                               echo "Provisioned and synchronized scoped Keycloak clients"
                               exit 0
                             fi
@@ -590,10 +592,16 @@ spec:
                 - ALL
             runAsNonRoot: true
           volumeMounts:
+            - name: session-policy
+              mountPath: /opt/magicstick
+              readOnly: true
             - name: realm
               mountPath: /opt/keycloak/data/import
               readOnly: true
       volumes:
+        - name: session-policy
+          configMap:
+            name: keycloak-session-policy
         - name: realm
           configMap:
             name: keycloak-realm

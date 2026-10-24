@@ -139,6 +139,13 @@ export class ResourceJournal {
     automaticallyRemovable: (item.state === 'owned' || item.state === 'blocked') && item.uid !== null &&
       (!['model','app'].includes(item.kind) || item.generation !== undefined)})); }
 
+  async verifyCleanup(adapters:Record<ResourceKind,CleanupAdapter>,assertHeld:()=>Promise<void>) {
+    requireSafe(this.recoveryPlan().length===0,'CLEANUP');
+    for(const entry of this.entries) {
+      await assertHeld();requireSafe(await adapters[entry.kind].verifyRemoved(entry),'CLEANUP');
+    }
+  }
+
   async cleanup(adapters: Record<ResourceKind, CleanupAdapter>, assertHeld: () => Promise<void>,
     only?: {kind: ResourceKind; name: string}) {
     if (only) requireSafe(this.data.entries.some(entry => entry.kind === only.kind && entry.name === only.name), 'OWNERSHIP');

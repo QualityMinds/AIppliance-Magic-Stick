@@ -34,6 +34,13 @@ publishes the primary hostname when the route is accepted and the Gateway has
 an address. First-run setup and the physical CLI/TUI console keep their existing
 handoff URLs and do not require another dashboard address.
 
+Long-lived browser login is Keycloak/Envoy policy, not a second Dashboard
+authentication mechanism. The native **Remember me** checkbox selects the
+[session lifetime](../concepts/identity.md#browser-session-lifetime); no new UI
+page, public API, local-storage token or service-account realm permission is
+needed. [Identity validation](identity-validation.md#session-policy-and-remember-me)
+covers migration and accelerated protocol checks.
+
 The former ConfigMap frontend and separate preview Deployment, Service, route,
 OIDC policy and mDNS hostname are removed. There is no old-UI fallback link.
 See [operations](../administration/troubleshooting/dashboard-upgrades.md#dashboard-upgrade-cleanup) for upgrade cleanup,
@@ -96,10 +103,39 @@ test identity, exposes sanitized artifacts and reclaims the identity after exact
 Pod termination and verified setup recovery. Interrupted runs retain their exact
 generated identity and private restoration receipt for the next run. It never
 receives a user-supplied test script or image.
+Optional `cleanup` status is independent of test outcome and `credentialsCleaned`.
+The runner verifies exact root/worker journals and borrowed settings before
+reporting `verified`; missing legacy evidence stays unknown. The API preserves
+the run-owned account for unverified mutating cleanup, even after Job termination.
+The main **All checks** metrics use complete `result.counts` and `blockedCounts`.
+Closed **Executable scenarios** details use `executionCounts` and
+`executionBlockedCounts`; live `evidenceCounts` and phases stay separate.
+Never reconstruct global totals from overlapping phases or the limited case list.
+Missing final counts remain unavailable; only explicitly preliminary scenario
+progress may be shown. 100% denotes completed execution, not a passing outcome.
+New HTML/text exports use this same evidence-first order; JSON/JUnit meanings
+and stored historical reports stay unchanged.
+Runner process failures use `PROCESS_STATE` when worker termination is not
+proved, retaining the original `HAR-10 / runner-execution` cause across recovery
+guards. Private process-state diagnostics distinguish live tasks from Linux
+zombies; permission/read errors stay unknown. Docker and native Kubernetes
+entrypoints use the bundled Tini subreaper without changing Pod privileges.
+For legacy unfinished sessions, only the retained account's exact terminal
+Kubernetes run/Job/Pod/container and current node identity can attest termination
+against the unchanged session. This does not update old results or replace
+UID/revision-bound cleanup and independent resource absence checks. No new API
+endpoint or service-account permission is added.
 The start dialog selects one or more P0 phases (0–8, all by default) through the
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic
 cleanup and baseline checks, and show only their selected-phase progress/results.
+An optional immutable `diagnosticSelection` selects a fixed Phase 4 subset from
+the Git-owned regression catalog. The API advertises profiles only for a qualified
+runner; the operator rechecks catalog, pins and capability before creating its
+Job. Distinct credential readiness and a diagnostic entrypoint fail closed during
+mixed-version upgrades. The native runner reuses `phase4-sharing <profile>`, not
+an arbitrary script or an all-phase fallback. Reports retain the diagnostic
+scope and do not grant full-phase acceptance.
 The dialog also selects `testMode`: non-destructive by default, or full including
 destructive scenarios. The API stores the immutable choice. Non-destructive Jobs
 receive only a fresh viewer account and report-store mount; no old private inputs
@@ -111,6 +147,13 @@ Enabling, registering, starting, cancelling and downloading reports are core
 functions with no license prerequisite. Test registration binds a disposable
 installation, not a licensing edition; keep license queries out of that control
 path. License/SSO scenarios retain their own signed-fixture/entitlement checks.
+Full GPU scenarios support both saved sharing settings and a fresh exclusive
+installation with no sharing intent. The shared
+[`restoreDefaults` contract](../reference/dashboard-api.md#module-parameters-and-local-identities)
+can remove only previously unset sharing/validation fields after the controller
+has restored exclusive Device-plugin readiness. UID/generation-bound journals
+retain the exact absent/empty representation and unrelated module parameters;
+an unacknowledged write is not adopted. Safe-mode runs never use this mutation.
 Provider Secrets created from user-entered model credentials must stay scoped to
 that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.

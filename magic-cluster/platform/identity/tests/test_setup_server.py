@@ -75,7 +75,7 @@ class SetupGatewayTests(unittest.TestCase):
         gateway = identity.parent / "gateway" / "envoy-gateway"
         release = yaml.safe_load((gateway / "helmrelease.yaml").read_text())
         source = yaml.safe_load((gateway / "oci-repository.yaml").read_text())
-        expected = "docker.io/envoyproxy/envoy:distroless-v1.38.6"
+        expected = "docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"
         for proxy in (setup_proxy, identity_proxy):
             with self.subTest(proxy=proxy["metadata"]["name"]):
                 # No mergeType means Replace: the Helm default alone is not enough.
@@ -83,6 +83,8 @@ class SetupGatewayTests(unittest.TestCase):
                                  ["envoyDeployment"]["container"]["image"], expected)
                 self.assertNotIn("bootstrap", proxy["spec"])
         self.assertEqual(release["spec"]["values"]["global"]["images"]["envoyProxy"]["image"], expected)
+        fixture = identity.parents[2] / "dashboard/apps/web/regression/fixtures/identity-stack.ts"
+        self.assertIn(f"const envoyImage = '{expected}';", fixture.read_text(encoding="utf-8"))
         self.assertEqual(source["spec"]["ref"]["tag"], "v1.8.5")
         self.assertEqual(identity_proxy["spec"]["filterOrder"], [{
             "name": "envoy.filters.http.ext_authz", "after": "envoy.filters.http.jwt_authn",

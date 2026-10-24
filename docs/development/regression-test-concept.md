@@ -152,6 +152,16 @@ important dashboard action also needs a browser test. Do not repeat every
 precision/context combination through mouse clicks. Conversely, API tests alone
 will not find an unclickable slider or a form overwritten by polling.
 
+System Status Back/Forward has its own `NAV-02` browser scenarios in
+[`navigation/history.browser.spec.ts`](../../dashboard/apps/web/regression/navigation/history.browser.spec.ts),
+selected by `smoke-fixtures` in Phase 1. The profile requires desktop/mobile at
+normal speed and with 12× Chromium CPU slowdown. Each cycle confirms the URL,
+selected tab and visible panel before the next hash navigation or history action;
+a same-document `goto` alone is not UI readiness. History failures do not relabel
+the separate lazy-loading, role, keyboard or no-mutation workflow. Fixed step
+names remain available in filtered traces and JUnit. These are isolated browser
+checks, not live Appliance or CPU-model acceptance.
+
 For example, one sharing test should:
 
 1. Change the provider's slot limit in Hardware and confirm the disruption.
@@ -453,7 +463,7 @@ The exact layer expansion is reviewable independently of the workflow order:
 
 | ID | Selected variant group | Required layers |
 |---|---|---|
-| AUTH-01 | `login-session` | A+E |
+| AUTH-01 | `remember-me-policy-contract`, `login-session` | C; A+E respectively |
 | AUTH-02 | `anonymous-contract`, `anonymous-api`, `anonymous-browser` | C; A; E respectively |
 | AUTH-06 | `logout-browser`, `logout-session` | B; A+E respectively |
 | NAV-03 | `navigation-component`, `navigation-browser`, `read-only-navigation` | U; B; A+E respectively |

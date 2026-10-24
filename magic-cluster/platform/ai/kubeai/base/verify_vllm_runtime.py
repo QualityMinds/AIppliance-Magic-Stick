@@ -74,6 +74,7 @@ def main():
         # Parse the GPU adapter's flags using the installed native parser. This
         # does not construct a GPU worker or claim that an accelerator works.
         from vllm.entrypoints.launchers.cli_args import make_arg_parser
+        from vllm.engine.arg_utils import EngineArgs
         from vllm.utils.argparse_utils import FlexibleArgumentParser
         parser = make_arg_parser(FlexibleArgumentParser())
         # Exercise the real producer as well as the real consumer. Hand-picked
@@ -107,6 +108,31 @@ def main():
         for backend in ("TRITON_ATTN", "TORCH_SDPA", "FLASH_ATTN"):
             vision = parser.parse_args(["--model", str(model), f"--mm-encoder-attn-backend={backend}"])
             assert getattr(vision.mm_encoder_attn_backend, "name", vision.mm_encoder_attn_backend) == backend
+        # Exercise the real wrapper and native CPU configuration together, not
+        # just an environment-string assertion. No worker or weights are loaded.
+        original_environment, original_argv = dict(os.environ), list(sys.argv)
+        try:
+            os.environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"
+            os.environ["VLLM_CPU_KVCACHE_SPACE"] = "1"
+            os.environ.pop("VLLM_USE_V2_MODEL_RUNNER", None)
+            sys.argv[:] = ["wrapper.py", "--model", str(model), "--max-model-len=128",
+                           "--max-num-seqs=1", "--skip-tokenizer-init"]
+            wrapper.configure_argv()
+            assert os.environ["VLLM_USE_V2_MODEL_RUNNER"] == "0"
+            parsed = parser.parse_args(sys.argv[1:])
+            native_config = EngineArgs.from_cli_args(parsed).create_engine_config()
+            assert native_config.device_config.device_type == "cpu"
+            assert native_config.use_v2_model_runner is False
+            # An administrator's explicit native policy remains authoritative.
+            os.environ["VLLM_USE_V2_MODEL_RUNNER"] = "1"
+            wrapper.configure_cpu_runner()
+            assert os.environ["VLLM_USE_V2_MODEL_RUNNER"] == "1"
+            explicit_config = EngineArgs.from_cli_args(parsed).create_engine_config()
+            assert explicit_config.use_v2_model_runner is True
+        finally:
+            os.environ.clear()
+            os.environ.update(original_environment)
+            sys.argv[:] = original_argv
         environment.update(MAGICSTICK_VLLM_WRAPPER_ENABLED="true",
                            MAGICSTICK_VLLM_WRAPPER_APPLIED="false",
                            MAGICSTICK_COMPUTE_TARGET="cpu")
@@ -125,6 +151,7 @@ def main():
     print(json.dumps({"runtime": version, "modelRegistry": "passed", "modelConfigProbe": "passed",
                       "flashNextConfig": "passed",
                       "nativeCliFlags": "passed", "cpuEntrypointWrapper": "passed",
+                      "nativeCpuRunnerPolicy": "passed",
                       "controllerKvCacheArguments": "passed",
                       "diagnosticEntrypoint": "passed", "visionCliChoices": "passed",
                       "workerCacheConfig": "passed",

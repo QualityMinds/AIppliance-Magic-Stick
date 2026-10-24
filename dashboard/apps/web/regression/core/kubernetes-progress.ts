@@ -6,6 +6,8 @@ import {blockedCounts,checkedBlocker,withBlockedCauses} from './blocking.ts';
 import {emptyBlockedCounts,regressionBlockedKind} from '../../../../packages/core/src/regression-blocking.ts';
 import {parsePreparationDiagnostic,preparationDescription} from './preparation-diagnostic.ts';
 import {testMode,excludedSteps} from './test-mode.ts';
+import {cleanupStatus} from './cleanup-state.ts';
+import {diagnosticSelection,diagnosticMetadata} from './diagnostic-selection.ts';
 
 const count=(n:unknown)=>Number.isSafeInteger(n)&&Number(n)>=0&&Number(n)<=100_000 ? Number(n):0;
 const outcomes=['Passed','Failed','Blocked'] as const;
@@ -78,10 +80,14 @@ export function publicResult(summary:Record<string,any>,campaign:Record<string,a
     Object.fromEntries(['fixture','live'].map(environment=>[environment,Object.fromEntries(outcomes.map(outcome=>
       [outcome,rows.filter(r=>r.environment===environment&&r.outcome===outcome).length]))])):undefined;
   const runTestMode=testMode(summary.testMode??'full');
+  const diagnostic=summary.diagnosticSelection===undefined?undefined:
+    diagnosticSelection(summary.diagnosticSelection?.id,[4],runTestMode);
   return {testMode:runTestMode,excludedSteps:excludedSteps(runTestMode,phases.map(p=>p.phase)),counts:counts(summary.counts),executionCounts:counts(summary.executionCounts),
+    ...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{}),
     blockedCounts:publicBlockedCounts(blockedCounts(rows),count(summary.counts?.Blocked)),
     executionBlockedCounts:publicBlockedCounts(blockedCounts(rows,true),count(summary.executionCounts?.Blocked)),phases,cases,
     omittedCases:Math.max(0,rows.filter((r:any)=>r.outcome!=='Passed').length-cases.length),recoveryRequired:summary.recoveryFenceActive===true,
+    ...(cleanupStatus(summary.cleanup)?{cleanup:cleanupStatus(summary.cleanup)}:{}),
     ...(evidenceCounts?{evidenceCounts}:{}),...(preparation?{preparation:{...preparation,message:preparationDescription(preparation),
       ...(preparation.outcome!=='Passed'?{action:blockedAction(preparation.reason??'PREREQUISITE')}:{} )}}:{})};
 }

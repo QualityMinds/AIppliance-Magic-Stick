@@ -55,6 +55,60 @@ class RegressionRunsTests(unittest.TestCase):
         self.writes.append(("DELETE", path, data))
         del self.objects[path]
 
+    def diagnostic(self):
+        self.run["spec"].update(phases=[4], testMode="full", diagnosticSelection="remaining")
+        self.run["metadata"]["annotations"] = {"regression.magicstick.dev/diagnostic-credentials-ready": UID}
+        base = "/api/v1/namespaces/" + NS + "/configmaps/"
+        self.objects[base + "magicstick-regression-runtime"] = {"data": {"diagnosticSelectionVersion": "1",
+            "image": self.run["spec"]["image"], "sourceRevision": self.run["spec"]["sourceRevision"]}}
+        self.objects[base + "magicstick-regression-diagnostics"] = {"data": {"diagnostics.json":
+            (ROOT.parents[2] / "magic-cluster/apps/regression/diagnostics.json").read_text()}}
+
+    def test_diagnostic_reuses_existing_job_but_has_distinct_entrypoint_and_fixed_selection(self):
+        self.diagnostic()
+        self.assertTrue(self.controller.reconcile(self.run))
+        container = self.writes[0][2]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["command"], ["node", "regression/kubernetes-diagnostic.mjs"])
+        env = {e["name"]: e["value"] for e in container["env"]}
+        self.assertEqual(env["REGRESSION_DIAGNOSTIC_SELECTION"], "remaining")
+        self.assertEqual(env["REGRESSION_PHASES"], "4")
+        self.assertNotIn("REGRESSION_GPU_CASE", env)
+        self.assertNotIn("privileged", json.dumps(container))
+
+    def test_diagnostic_rechecks_capability_and_pins_before_start_but_never_interrupts_existing_job(self):
+        self.diagnostic()
+        runtime = self.objects["/api/v1/namespaces/" + NS + "/configmaps/magicstick-regression-runtime"]["data"]
+        for field in ("diagnosticSelectionVersion", "image", "sourceRevision"):
+            original = runtime[field]
+            runtime[field] = "unsupported"
+            self.assertFalse(self.controller.reconcile(self.run))
+            self.assertEqual(self.run["status"]["phase"], "Blocked")
+            self.assertEqual(self.writes, [])
+            self.run["status"] = {}
+            runtime[field] = original
+        self.assertTrue(self.controller.reconcile(self.run))
+        runtime["image"] = "updated-after-job-start"
+        self.assertTrue(self.controller.reconcile(self.run))
+        self.assertEqual(len(self.writes), 1)
+
+    def test_invalid_diagnostic_cannot_fall_back_to_full_or_recovery(self):
+        for changes in ({"diagnosticSelection": "unknown"}, {"diagnosticSelection": None}, {"phases": [3, 4]},
+                        {"testMode": "non-destructive"}, {"operation": "recover-lock"}):
+            with self.subTest(changes=changes):
+                self.setUp()
+                self.diagnostic()
+                self.run["spec"].update(changes)
+                self.assertFalse(self.controller.reconcile(self.run))
+                self.assertEqual(self.writes, [])
+
+    def test_diagnostic_schema_is_optional_bounded_immutable_and_full_phase_four_only(self):
+        schema = yaml.safe_load((ROOT / "crds/regressionruns.appliance.magicstick.dev.yaml").read_text())["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        self.assertNotIn("diagnosticSelection", schema["required"])
+        self.assertEqual(schema["properties"]["diagnosticSelection"]["maxLength"], 40)
+        rules = [rule["rule"] for rule in schema["x-kubernetes-validations"] if "diagnosticSelection" in rule["rule"]]
+        self.assertTrue(any("oldSelf.diagnosticSelection" in rule for rule in rules))
+        self.assertTrue(any('self.testMode == "full"' in rule and 'self.phases[0] == 4' in rule and 'self.operation == "tests"' in rule for rule in rules))
+
     def test_exact_job_uses_existing_runner_no_gpu_host_docker_or_sa(self):
         self.assertTrue(self.controller.reconcile(self.run))
         job = self.writes[0][2]
@@ -275,7 +329,38 @@ class RegressionRunsTests(unittest.TestCase):
         job["status"] = {"conditions": [{"type": "Complete", "status": "True"}]}
         self.controller.report = lambda _: {"runUid": UID, "outcome": "Passed", "credentialRecoveryRequired": False}
         self.controller.reconcile(self.run)
+        self.assertTrue(self.run["status"]["credentialRecoveryRequired"], "A legacy flag does not prove resource cleanup")
+        self.assertEqual(self.run["status"]["cleanup"]["state"], "unknown")
+        self.run["status"] = {"phase": "Running"}
+        self.controller.report = lambda _: {"runUid": UID, "outcome": "Passed", "credentialRecoveryRequired": False,
+                                            "cleanup": {"state": "verified", "checkedAt": "2026-10-22T12:00:00Z"}}
+        self.controller.reconcile(self.run)
         self.assertFalse(self.run["status"]["credentialRecoveryRequired"])
+
+    def test_export_failure_keeps_campaign_counts_and_verified_cleanup_state(self):
+        self.controller.reconcile(self.run)
+        job = self.objects[JOBS + "/" + self.run["metadata"]["name"]]
+        job["status"] = {"conditions": [{"type": "Complete", "status": "True"}]}
+        result = {"counts": {"Passed": 4532, "Failed": 17, "Blocked": 145},
+                  "executionCounts": {"Passed": 3402, "Failed": 6, "Blocked": 56},
+                  "cases": [{"id": "HAR-10", "reason": "REPORT_EXPORT", "stage": "report-export"}]}
+        for recovery in (False, True):
+            self.run["status"] = {"phase": "Running"}
+            self.controller.report = lambda _: {"runUid": UID, "outcome": "Failed", "result": result,
+                                                "cleanup": {"state": "required" if recovery else "verified"},
+                                                "reportAvailable": False, "credentialRecoveryRequired": recovery}
+            self.controller.reconcile(self.run)
+            self.assertEqual(self.run["status"]["phase"], "Failed")
+            self.assertEqual(self.run["status"]["result"], result)
+            self.assertEqual(self.run["status"]["credentialRecoveryRequired"], recovery)
+            self.assertFalse(self.run["status"]["reportAvailable"])
+            self.assertIn("report export failed", self.run["status"]["message"])
+
+    def test_run_retains_twenty_four_hour_limit_and_fifteen_minute_teardown_grace(self):
+        self.controller.reconcile(self.run)
+        job = self.objects[JOBS + "/" + self.run["metadata"]["name"]]
+        self.assertEqual(job["spec"]["activeDeadlineSeconds"], 86400)
+        self.assertEqual(job["spec"]["template"]["spec"]["terminationGracePeriodSeconds"], 900)
 
     def test_separately_accepted_intent_waits_for_previous_account_cleanup(self):
         predecessor = copy.deepcopy(self.run)

@@ -76,12 +76,13 @@ for (const viewport of ['desktop', 'mobile'] as const) {
     for (const section of ['model-cache', 'regression']) {
       await page.goto(origin + '/#/system/' + section);
       await expect(page).toHaveURL(origin + '/#/system/status/' + section);
+      await expect(tabs.getByRole('tab', {name: section === 'model-cache' ? 'Model cache' : 'Regression tests', exact: true}))
+        .toHaveAttribute('aria-selected', 'true');
     }
-    await page.goto(origin + '/#/system/status/flux');
-    await page.goto(origin + '/#/system/status/network');
-    await page.goBack();
-    await expect(tabs.getByRole('tab', {name: 'Flux', exact: true})).toHaveAttribute('aria-selected', 'true');
-    await page.goForward();
+    // Browser history has its own NAV-02 scenarios; a history failure must not
+    // label this lazy-loading/visibility/keyboard workflow as five failures.
+    await tabs.getByRole('tab', {name: 'Network & routes', exact: true}).click();
+    await expect(page).toHaveURL(origin + '/#/system/status/network');
     await expect(tabs.getByRole('tab', {name: 'Network & routes', exact: true})).toHaveAttribute('aria-selected', 'true');
     await tabs.getByRole('tab', {name: 'Network & routes', exact: true}).press('Home');
     await expect(overview).toBeFocused();

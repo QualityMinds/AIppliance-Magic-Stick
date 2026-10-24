@@ -18,7 +18,7 @@ try {
   const journal=await ResourceJournal.create(join(process.env.REGRESSION_RUN_DIR,'worker-'+index,'journal.json'),
     newRunId(),config.expected.applianceUid);
   lease = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
-    journal.runId, config.expected.applianceUid, Date.now, 30);
+    journal.runId, config.expected.applianceUid, Date.now, 30,{journal});
   await lease.acquire(process.env.REGRESSION_RUN_ID);
   held = true;
   await new Promise(resolve => setTimeout(resolve, 2500));

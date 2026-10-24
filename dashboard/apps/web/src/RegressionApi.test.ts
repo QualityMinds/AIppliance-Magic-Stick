@@ -2,6 +2,12 @@ import {describe,expect,it,vi} from 'vitest';
 import {MagicStickApi,ApiError} from '@magicstick/dashboard-api-client';
 
 describe('Shared regression API contract',()=>{
+  it('sends a diagnostic ID without accepting or inventing a command or selector expression',async()=>{
+    const fetch=vi.fn().mockResolvedValue(new Response('{}',{headers:{'content-type':'application/json'}}));
+    await new MagicStickApi({fetch}).startRegression('a'.repeat(32),[4],'full','remaining');
+    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toEqual({requestId:'a'.repeat(32),acknowledgeDisruption:true,
+      phases:[4],testMode:'full',diagnosticSelection:'remaining'});
+  });
   it('sends the selected immutable test mode without silently upgrading a non-destructive request',async()=>{
     const fetch=vi.fn().mockImplementation(async()=>new Response('{}',{headers:{'content-type':'application/json'}}));
     const client=new MagicStickApi({fetch});

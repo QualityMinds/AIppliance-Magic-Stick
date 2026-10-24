@@ -151,6 +151,41 @@ test('HAR-10 automatic base identity tests remain selectable when no inference r
   expect(recipes.cases['NET-07']).toBeUndefined();
 });
 
+test('MOD-06 HAR-10 one selected AMD profile still has the real upstream-rules alternative',()=>{
+  const observed=snapshot(),host=observed.hosts[0]!,lab=prepareInputs(source(),observed,options,{}).parsed;
+  const device={id:'node-uid/0000:02:00.0',pciAddress:'0000:02:00.0',vendor:'amd',node:host.name,
+    nodeUid:host.nodeUid,name:'Synthetic AMD',eligible:true};
+  const compatibility={selectedProfile:'strix-halo',profiles:[{id:'strix-halo',displayName:'AMD',experimental:true,memoryArchitecture:'unified'}]};
+  observed.status.hardwareOperators={'amd-gpu':{devices:[device],compatibility}} as any;
+  lab.gpu={selection:'available-providers',acknowledgeSharingTransitions:true,nodeName:host.name,nodeUid:host.nodeUid,
+    bootId:host.bootId,sharedSlots:2,devices:{amd:{id:device.id,pciAddress:device.pciAddress}},models:{}};
+  const profile=automaticProfile(observed,{},lab);
+  expect(profile.moduleProfile).toEqual({approveTemporaryProfile:true,profileId:'',allowExperimental:false});
+  const readiness=inputReadiness(lab,profile,observed,{...options,phases:[5],automatic:true})[0]!;
+  expect(readiness.measures.some(item=>item.id==='amd-profile')).toBe(false);
+  device.eligible=false;expect(automaticProfile(observed,{},lab).moduleProfile).toBeUndefined();
+  device.eligible=true;compatibility.selectedProfile='not-advertised';
+  expect(automaticProfile(observed,{},lab).moduleProfile).toBeUndefined();
+});
+
+test('MOD-06 HAR-10 AMD profile readiness distinguishes upstream rules from a missing or unchanged choice',()=>{
+  const observed=snapshot(),lab=prepareInputs(source(),observed,options,{}).parsed;
+  observed.status.hardwareOperators={'amd-gpu':{compatibility:{selectedProfile:'strix-halo',profiles:[
+    {id:'strix-halo',displayName:'AMD',experimental:true,memoryArchitecture:'unified'}]}}} as any;
+  const blocked=(moduleProfile:unknown)=>inputReadiness(lab,{moduleProfile},observed,{...options,phases:[5],automatic:true})[0]!
+    .measures.some(item=>item.id==='amd-profile');
+  expect(blocked({approveTemporaryProfile:true,profileId:'',allowExperimental:false})).toBe(false);
+  for(const plan of [undefined,{approveTemporaryProfile:true},
+    {approveTemporaryProfile:true,profileId:'strix-halo',allowExperimental:true},
+    {approveTemporaryProfile:true,profileId:'not-advertised',allowExperimental:true},
+    {approveTemporaryProfile:false,profileId:'',allowExperimental:false}])expect(blocked(plan)).toBe(true);
+  observed.status.hardwareOperators!['amd-gpu']!.compatibility!.selectedProfile='';
+  expect(blocked({approveTemporaryProfile:true,profileId:'',allowExperimental:false})).toBe(true);
+  expect(blocked({approveTemporaryProfile:true,profileId:'strix-halo',allowExperimental:true})).toBe(false);
+  observed.status.hardwareOperators!['amd-gpu']!.compatibility!.selectedProfile='not-advertised';
+  expect(blocked({approveTemporaryProfile:true,profileId:'',allowExperimental:false})).toBe(true);
+});
+
 test('HAR-10 automatic discovery prepares NVIDIA fixtures for four identical physical cards',()=>{
   const observed=snapshot(),host=observed.hosts[0]!;
   observed.status.hardwareOperators={gpu:{devices:Array.from({length:4},(_,index)=>({id:`node-uid/0000:0${index+1}:00.0`,vendor:'nvidia',

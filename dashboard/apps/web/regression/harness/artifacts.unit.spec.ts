@@ -14,6 +14,7 @@ import {parseExecutionTrace,saveExecutionTrace,type ExecutionTrace} from '../cor
 import {privateDirectory,writePrivate} from '../core/private-files.ts';
 import {saveReport,type CaseResult} from '../core/report.ts';
 import {staticDiagnosticTitles} from '../core/case-descriptions.ts';
+import {junitReport} from '../core/junit.ts';
 
 const source={file:'regression/harness/artifacts.unit.spec.ts',line:1};
 const secret='synthetic-credential-never-archive';
@@ -29,6 +30,27 @@ function trace(runId=newRunId()):ExecutionTrace {
         outcome:'Failed',reason:'DEADLINE',stage:'model-estimate',source},
       {index:3,category:'hook',title:secret,durationMs:0,outcome:'Blocked',source}]};
 }
+
+test('HAR-10 full-size JUnit keeps every step once without duplicating its JSON payload',()=>{
+  // A complete campaign records thousands of scenarios. Repeating every step
+  // as both XML properties and escaped JSON exceeded the 64 MiB download bound.
+  const artifacts=Array.from({length:3500},(_,index)=>{
+    const executionId=index.toString(16).padStart(24,'0'),runId='reg-11111111-2222-3333-4444-555555555555';
+    const recorded:ExecutionTrace={version:1,runId,executionId,outcome:'Passed',durationMs:1000,source,
+      steps:Array.from({length:25},(_,step)=>({index:step+1,category:'pw:api',title:'Browser/API operation',
+        durationMs:10,outcome:'Passed',source,...(step?{parentIndex:1}:{})}))};
+    return {trace:recorded,path:`report-artifacts/${runId}/traces/${executionId}.json`};
+  });
+  const cases:CaseResult[]=Array.from({length:5000},(_,index)=>({id:'LIFE-02',variant:'local-create-vllm',layer:'A',
+    environment:'live',outcome:'Passed',durationMs:1000,executionId:(index%3500).toString(16).padStart(24,'0'),executionOutcome:'Passed'}));
+  const xml=junitReport(cases,artifacts);
+  expect(xml).toContain('name="magicstick-executable-scenarios" tests="3500"');
+  expect(xml).toContain('name="magicstick-test-steps" tests="87500"');
+  expect(Buffer.byteLength(xml)).toBeLessThan(64*1024*1024);
+  expect(xml).toContain('name="parentStep" value="1"');expect(xml).toContain('line="1"');
+  expect(xml).not.toContain('&quot;category&quot;');
+  expect(xml).toContain('[[ATTACHMENT|'+artifacts[3499]!.path+']]');
+});
 
 test('HAR-11 traces retain reviewed step labels and safe outcomes but never dynamic values or raw error bodies',()=>{
   const value=trace();
@@ -140,7 +162,8 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     const reporter=new SafeReporter(),selected={title:'HAR-10 reporter records handled negative steps truncation and secondary cleanup failures separately',
       annotations:[],location:{file:fileURLToPath(import.meta.url),line:1,column:1}} as unknown as TestCase;
     const passed={status:'passed',retry:0,duration:4321,errors:[]} as unknown as TestResult;
-    reporter.onBegin({} as FullConfig,{allTests:()=>[selected]} as Suite);reporter.onTestBegin(selected);
+    const failedSelected={...selected,id:'fixture-failed'},blockedSelected={...selected,id:'fixture-blocked'};
+    reporter.onBegin({} as FullConfig,{allTests:()=>[selected,failedSelected,blockedSelected]} as Suite);reporter.onTestBegin(selected);
     for(let index=0;index<2003;index++) {
       const step={category:'expect',title:secret,duration:1,error:index===0?{message:secret}:undefined} as TestStep;
       reporter.onStepBegin(selected,passed,step);reporter.onStepEnd(selected,passed,step);
@@ -150,14 +173,15 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     expect(recorded.steps).toHaveLength(2000);expect(recorded.omittedSteps).toBe(3);expect(recorded.durationMs).toBe(4321);
     expect(recorded.steps[0]).toMatchObject({outcome:'Passed',handledError:true});expect(JSON.stringify(recorded)).not.toContain(secret);
     const failed={...passed,status:'failed',errors:[{message:'Raw timeout '+secret},{message:new HarnessError('CLEANUP','Failed','cleanup').message}]} as TestResult;
-    reporter.onTestEnd(selected,failed);
+    reporter.onTestBegin(failedSelected);reporter.onTestEnd(failedSelected,failed);
     const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
     expect(rows.at(-1)).toMatchObject({outcome:'Failed',reason:'UNEXPECTED',recoveryRequired:true,executionOutcome:'Failed'});
     expect(JSON.stringify(rows)).not.toContain(secret);
     const blocked={...passed,status:'failed',errors:[{message:new HarnessError('PREREQUISITE').message}]} as TestResult,
       prerequisite={category:'test.step',title:secret,duration:1,error:blocked.errors[0]} as TestStep;
-    reporter.onStepBegin(selected,blocked,prerequisite);reporter.onStepEnd(selected,blocked,prerequisite);
-    reporter.onTestEnd(selected,blocked);
+    reporter.onTestBegin(blockedSelected);
+    reporter.onStepBegin(blockedSelected,blocked,prerequisite);reporter.onStepEnd(blockedSelected,blocked,prerequisite);
+    reporter.onTestEnd(blockedSelected,blocked);
     expect((reporter as unknown as {traces:ExecutionTrace[]}).traces.at(-1)?.steps[0])
       .toMatchObject({outcome:'Blocked',reason:'PREREQUISITE'});
   }finally{if(previous===undefined)delete process.env.REGRESSION_RUN_ID;else process.env.REGRESSION_RUN_ID=previous;}

@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import type {ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
-import {validCompanionReport} from './companion-live.ts';
+import {validCompanionReport,publicCompanionProof,discoverCompanionRun,companionAcceptanceCheck,companionWorkflow} from './companion-live.ts';
 import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
 import {AdministrationApi,allowedAdministrationRead} from '../core/administration-api.ts';
 import type {APIRequestContext} from '@playwright/test';
@@ -11,7 +11,7 @@ import {inspectOidcConfig} from '../core/oidc-exec.ts';
 import {verifyAppCleanerRules,OwnedAppClient,appReleaseTarget,appReleaseReady} from '../core/owned-app.ts';
 import type {AppInstance} from '@magicstick/dashboard-contracts';
 import type {KubeObject} from '../core/observer.ts';
-import {moduleProfileWorkflow} from './modules-live.ts';
+import {moduleProfileWorkflow,waitModuleProfileReadback} from './modules-live.ts';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
@@ -25,9 +25,45 @@ import type {MemoryEstimate,ModelsPayload,ModulesPayload} from '@magicstick/dash
 import {applicationModel,applicationContexts,applicationEditContext} from '../core/application-model.ts';
 import {catalogFixture} from '../core/input-preparation.ts';
 import {HarnessError} from '../core/errors.ts';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.ts';
 import {OwnedModelClient} from '../core/owned-model.ts';
+import {moduleIntentSnapshot} from './mesh-live.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+
+test('MESH-01 read-only navigation compares persisted module intent, not changing reconciliation status',
+  evidenceAnnotations({id:'MESH-01',layer:'U'},{id:'HAR-10',layer:'U'}),()=>{
+  const before:KubeObject[]=[{metadata:{name:'dashboard',namespace:'ai-system',uid:'dashboard-uid',generation:3,resourceVersion:'10'},
+    spec:{module:'dashboard',enabled:true,parameters:{host:'example.local'}},
+    status:{phase:'Ready',observedGeneration:3}},{metadata:{name:'mesh',namespace:'ai-system',uid:'mesh-uid',generation:1},
+    spec:{module:'private-mesh',enabled:true}}];
+  const reconciled=structuredClone(before).reverse();
+  reconciled[1]!.metadata.resourceVersion='11';reconciled[1]!.status={phase:'Reconciling',observedGeneration:3};
+  expect(moduleIntentSnapshot(reconciled)).toBe(moduleIntentSnapshot(before));
+  const custom=structuredClone(before);custom.forEach(item=>{item.metadata.namespace='custom-appliance';});
+  expect(moduleIntentSnapshot(custom,'custom-appliance')).toContain('custom-appliance');
+  expect(()=>moduleIntentSnapshot(custom)).toThrow('[API]');
+  expect(()=>moduleIntentSnapshot(custom,'')).toThrow('[API]');
+  for(const mutate of [
+    (items:KubeObject[])=>{items[0]!.spec!.enabled=false;},
+    (items:KubeObject[])=>{items[0]!.spec!.parameters={host:'other.example.local'};},
+    (items:KubeObject[])=>{items[0]!.metadata.uid='recreated-uid';},
+    (items:KubeObject[])=>{items[0]!.metadata.generation=4;},
+    (items:KubeObject[])=>{items[0]!.metadata.deletionTimestamp='2026-01-01T00:00:00Z';},
+    (items:KubeObject[])=>{items.pop();},
+    (items:KubeObject[])=>{items.push({metadata:{name:'another',namespace:'ai-system',uid:'new-uid',generation:1},spec:{module:'another'}});},
+  ]) {const changed=structuredClone(before);mutate(changed);expect(moduleIntentSnapshot(changed)).not.toBe(moduleIntentSnapshot(before));}
+  for(const broken of [
+    [{metadata:{name:'dashboard',namespace:'ai-system',generation:3},spec:{module:'dashboard'}}],
+    [{metadata:{name:'dashboard',namespace:'ai-system',uid:'uid',generation:0},spec:{module:'dashboard'}}],
+    [{metadata:{name:'dashboard',namespace:'other',uid:'uid',generation:1},spec:{module:'dashboard'}}],
+    [...before,before[0]!],
+    [{metadata:{name:'dashboard',namespace:'ai-system',uid:'uid',generation:1}}],
+  ])expect(()=>moduleIntentSnapshot(broken)).toThrow('[API]');
+});
 
 function applicationInputs() {
   const models={activations:[],presets:{small:{variants:[
@@ -119,9 +155,34 @@ test('APP-02 observes the current controller-owned HelmRelease in the Appliance 
     .toThrow('[stage:app-ready]');
 });
 
-test('MOD-06 absent AMD hardware blocks profile mutation before reading its module or a stale preparation file',annotation,async()=>{
+test('MOD-06 profile mutation requires physical AMD hardware and bounded exact-revision status readback',annotation,async()=>{
   await expect(moduleProfileWorkflow({config:{gpu:{devices:{nvidia:{id:'node/pci'}}}}} as unknown as LiveFoundation))
     .rejects.toMatchObject({code:'GPU_PROVIDER',outcome:'Blocked',stage:'gpu-backend'});
+  const intent:KubeObject={metadata:{uid:'owned-module',generation:2},spec:{enabled:true,module:'amd-gpu',
+    parameters:{compatibilityProfile:'',allowExperimental:'false',gpuSharing:'unchanged-sharing'}},status:{observedGeneration:2}};
+  const stale={schemaVersion:1,profiles:[],nodes:[],selectedProfile:'strix-halo',allowExperimental:true};
+  const current={...stale,selectedProfile:'',allowExperimental:false};
+  let reads=0;
+  await expect(waitModuleProfileReadback(async()=>({intent,compatibility:++reads===1?stale:current}),intent,{timeoutMs:2000}))
+    .resolves.toEqual({intent,compatibility:current});
+  expect(reads).toBe(2);
+  for(const compatibility of [undefined,stale,{...current,allowExperimental:undefined}])
+    await expect(waitModuleProfileReadback(async()=>({intent,compatibility}),intent,{timeoutMs:5}))
+      .rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'module-ready'});
+  await expect(waitModuleProfileReadback(async()=>({intent:{...intent,status:{observedGeneration:1}},compatibility:current}),intent,{timeoutMs:5}))
+    .rejects.toMatchObject({code:'DEADLINE',stage:'module-ready'});
+  for(const changed of [{...intent,metadata:{...intent.metadata,uid:'foreign'}},
+    {...intent,metadata:{...intent.metadata,generation:3}},
+    {...intent,metadata:{...intent.metadata,deletionTimestamp:'2026-10-24T16:00:00Z'}},
+    {...intent,spec:{...intent.spec,parameters:{compatibilityProfile:'',allowExperimental:'false',gpuSharing:'foreign-sharing'}}}])
+    await expect(waitModuleProfileReadback(async()=>({intent:changed,compatibility:current}),intent))
+      .rejects.toMatchObject({code:'CONFLICT',outcome:'Failed'});
+  reads=0;
+  await expect(waitModuleProfileReadback(async()=>{reads++;throw new HarnessError('API','Failed');},intent))
+    .rejects.toMatchObject({code:'API',outcome:'Failed'});
+  expect(reads).toBe(1);
+  await expect(waitModuleProfileReadback(async()=>({intent,compatibility:stale}),intent,{timeoutMs:5,stage:'recovery-module'}))
+    .rejects.toMatchObject({code:'DEADLINE',stage:'recovery-module'});
 });
 test('HAR-10 license UI protection allows bodyless polling but rejects unrelated and stale writes',annotation,()=>{
   const document='synthetic-license',revision='synthetic-revision',origin='https://dashboard.example.local';
@@ -229,6 +290,98 @@ test('HAR-10 native companion proof is commit/platform/format bound and is not m
   for(const patch of [{archiveSha256:'short'},{launchCheck:{...proof.launchCheck,loopbackAuthVerified:false}},
     {launchCheck:{...proof.launchCheck,meshInferenceVerified:true}},{launchCheck:{...proof.launchCheck,platform:'win32'}}])
     expect(validCompanionReport({...proof,...patch},'linux-x64',revision)).toBe(false);
+});
+
+function publicCompanionFixture() {
+  const revision='a'.repeat(40),run={id:123,run_attempt:2,head_sha:revision,event:'workflow_dispatch',
+    path:'.github/workflows/build-mesh-companion.yml',status:'completed',conclusion:'success',updated_at:new Date().toISOString(),
+    repository:{full_name:'QualityMinds/AIppliance-Magic-Stick'}};
+  const reports=Object.entries({'macos-arm64':'darwin','macos-x64':'darwin','linux-x64':'linux','windows-x64':'win32'})
+    .map(([platform,native])=>({version:1,platform,sourceRevision:revision,archiveSha256:'b'.repeat(64),
+      launchCheck:{version:1,platform:native,launcherVerified:true,transportVerified:true,loopbackAuthVerified:true,
+        inferenceAuthorityVerified:true,originHostVerified:true,isolatedStateVerified:true,meshInferenceVerified:false}}));
+  const check={name:companionAcceptanceCheck,head_sha:revision,external_id:'123:2',app:{slug:'github-actions'},
+    details_url:'https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/123',status:'completed',conclusion:'success',
+    output:{text:JSON.stringify({version:1,runId:123,runAttempt:2,sourceRevision:revision,reports})}};
+  return {revision,run,reports,check};
+}
+test('MESH-09 automatic discovery prefers the readable trusted proof over a newer PR artifact build',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const newer={...run,id:999,event:'pull_request'},requests:number[]=[];
+  const artifacts=async(id:number)=>{requests.push(id);return {artifacts:reports.map(report=>({
+    name:'companion-acceptance-'+report.platform,expired:false}))};};
+  expect(await discoverCompanionRun([newer,run],{check_runs:[check]},revision,artifacts)).toEqual(run);
+  expect(requests).toEqual([run.id]);
+  expect(await discoverCompanionRun([newer],{check_runs:[check]},revision,artifacts)).toBeUndefined();
+  expect(await discoverCompanionRun([newer],{check_runs:[]},revision,artifacts,true)).toEqual(newer);
+  requests.length=0;
+  expect(await discoverCompanionRun([newer,run],{check_runs:[check]},revision,artifacts,true)).toEqual(run);
+  expect(requests).toEqual([run.id]);
+});
+test('MESH-09 automatic discovery rejects missing attempt proof and expired or ambiguous platform artifacts',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const complete=reports.map(report=>({name:'companion-acceptance-'+report.platform,expired:false}));
+  expect(await discoverCompanionRun([run],{check_runs:[]},revision,async()=>({artifacts:complete}))).toBeUndefined();
+  for(const artifacts of [complete.slice(0,3),[...complete,complete[0]],complete.map((v,i)=>i?v:{...v,expired:true})])
+    expect(await discoverCompanionRun([run],{check_runs:[check]},revision,async()=>({artifacts}))).toBeUndefined();
+  await expect(discoverCompanionRun([run],{check_runs:[{...check,head_sha:'c'.repeat(40)}]},revision,
+    async()=>({artifacts:complete}))).rejects.toThrow('[REVISION]');
+});
+test('MESH-09 public native proof requires the exact GitHub workflow attempt and every verified platform',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  expect(publicCompanionProof({check_runs:[check]},run,revision)).toHaveLength(4);
+  expect(publicCompanionProof({check_runs:[]},run,revision)).toBeUndefined();
+  for(const patch of [{head_sha:'c'.repeat(40)},{app:{slug:'foreign'}},{status:'in_progress'},{conclusion:'failure'},
+    {details_url:'https://example.invalid/run/123'}])
+    expect(()=>publicCompanionProof({check_runs:[{...check,...patch}]},run,revision)).toThrow('[REVISION]');
+  for(const altered of [reports.slice(0,3),[...reports.slice(0,3),reports[0]],
+    reports.map((r,i)=>i? r:{...r,launchCheck:{...r.launchCheck,originHostVerified:false}})])
+    expect(()=>publicCompanionProof({check_runs:[{...check,output:{text:JSON.stringify({version:1,runId:123,runAttempt:2,sourceRevision:revision,reports:altered})}}]},run,revision)).toThrow();
+  expect(()=>publicCompanionProof({check_runs:[{...check,output:{text:'private-invalid-json'}}]},run,revision)).toThrow('[API]');
+});
+
+test('MESH-09 accepts the canonical check-ID URL returned by GitHub Actions but not foreign or mismatched links',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const url='https://github.com/QualityMinds/AIppliance-Magic-Stick/runs/456';
+  const actual={...check,id:456,details_url:url,html_url:url};
+  expect(publicCompanionProof({check_runs:[actual]},run,revision)).toHaveLength(4);
+  expect(await discoverCompanionRun([run],{check_runs:[actual]},revision,async()=>({artifacts:reports.map(report=>({
+    name:'companion-acceptance-'+report.platform,expired:false}))}))).toEqual(run);
+  for(const patch of [{id:457},{id:0},{id:'456'},{id:456.5},{html_url:url+'?untrusted'},
+    {details_url:url+'/extra'}, {details_url:'https://example.invalid/runs/456'},
+    {details_url:url.replace('QualityMinds','Other')},{app:{slug:'foreign'}}])
+    expect(()=>publicCompanionProof({check_runs:[{...actual,...patch}]},run,revision)).toThrow('[REVISION]');
+  expect(publicCompanionProof({check_runs:[{...actual,external_id:'123:1'}]},run,revision)).toBeUndefined();
+});
+
+test('MESH-09 anonymous workflow proof needs no artifact token; legacy access blocks without a doomed ZIP request',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-companion-proof-'));
+  const oldProfile=process.env.REGRESSION_REMAINING_PROFILE,oldRun=process.env.REGRESSION_RUN_DIR;
+  try {
+    const {revision,run,check}=publicCompanionFixture();await privateDirectory(directory);
+    const file=join(directory,'profile.json');await writePrivate(file,{companion:{runId:123,sourceRevision:revision}});
+    process.env.REGRESSION_REMAINING_PROFILE=file;process.env.REGRESSION_RUN_DIR=directory;
+    const requests:string[]=[];let publicProof=true;
+    const live={config:{requestTimeoutMs:1000,expected:{flux:{revision:'branch@sha1:'+revision}}},context:{request:{get:async(url:string,options:any)=>{
+      requests.push(url);expect(options.headers).not.toHaveProperty('Authorization');
+      const data=url.includes('/check-runs?')?{check_runs:publicProof?[check]:[]}:run;
+      return {status:()=>200,body:async()=>Buffer.from(JSON.stringify(data)),json:async()=>data};
+    }}}} as unknown as LiveFoundation;
+    await companionWorkflow(live);
+    expect(JSON.parse(await readPrivate(join(directory,'companion-acceptance.json')))).toMatchObject({proofSource:'github-check',meshInferenceVerified:false});
+    publicProof=false;
+    await expect(companionWorkflow(live)).rejects.toMatchObject({code:'CI_ACCESS',outcome:'Blocked',stage:'companion-evidence'});
+    expect(requests.some(url=>url.includes('/zip')||url.includes('/artifacts'))).toBe(false);
+  }finally {
+    if(oldProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=oldProfile;
+    if(oldRun===undefined)delete process.env.REGRESSION_RUN_DIR;else process.env.REGRESSION_RUN_DIR=oldRun;
+    await rm(directory,{recursive:true,force:true});
+  }
 });
 
 test('HAR-10 online security evidence cannot use stale, pending, wrong-repo or wrong-commit CI',annotation,()=>{

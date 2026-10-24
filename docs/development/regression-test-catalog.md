@@ -64,6 +64,14 @@ coverage.
 | HAR-10 | Generate a report with failed, blocked, skipped, unimplemented and retry-passed cases. Required gaps cannot yield a green profile or a successful empty run. In System regression execution, select all phases by default or a nonempty subset of phases 0–8; persist the immutable selection and selection-bound progress/results across reloads without running or crediting other phases. Empty/invalid selections and changed idempotency selections are rejected before new writes. Distinguish blocks caused by prerequisites from blocks caused by failures, retaining the original blocking check and trace when recorded; cancellation and unrecorded causes remain separate. Show reason, phase/variant/layer, stage and next action; allow only sanitized archive/HTML/JUnit downloads. Administrators can enable/register/start/cancel/download without a product license or license-status dependency; test registration is not license activation. Show pending runner activation separately from the readiness wait, without duplicate enables, fabricated percentage progress or automatic test starts. Offer immutable non-destructive/full selection; list deliberately excluded steps separately, never as passed tests or full-phase acceptance. | U+C+B | P0 · fast |
 | HAR-11 | Seed synthetic credentials into fixture headers, dialogs, logs and auth state. Public/sanitized artifacts omit them; raw live state is restricted and deleted by policy. | U+C+B | P0 · fast |
 
+HAR-10 and UX-02 also verify report presentation: **All checks** uses complete
+case/variant/layer totals, including runner and cleanup errors; **Executable
+scenarios** is a separate, initially closed detail view. Each uses its own blocked
+causes. Live evidence remains separate, overlapping phases and a limited failure
+list do not redefine totals, and missing final data never means zero failures.
+100% progress means execution finished, not passed. HTML/text use evidence-first
+ordering; JSON/JUnit retain their original units and historical results stay intact.
+
 ## 2. Authentication, sessions and role boundaries
 
 Repeat role checks for administrator, operator, viewer and an ordinary identity
@@ -71,12 +79,12 @@ without dashboard-management grants. Follow the current shared role contract.
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
-| AUTH-01 | Complete a real local OIDC login and reach the dashboard at the intended route. `/api/session` identifies the correct actor and effective roles. | A+E | P0 · smoke |
+| AUTH-01 | Complete a real local OIDC login and reach the dashboard at the intended route. `/api/session` identifies the correct actor and effective roles. Check opt-in Remember me defaults/migration and browser-restart persistence without changing ordinary limits. | C+B+A+E | P0 · smoke |
 | AUTH-02 | Open a protected dashboard/API route without login. Browser enters the expected login flow; direct unauthenticated API access reveals no inventory or mutating capability. | C+A+E | P0 · smoke |
-| AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. | U+C+A | P0 · identity |
+| AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. Verify automatic short-token refresh, normal idle expiry and the absolute Remember me maximum despite activity. | U+C+B+A | P0 · identity |
 | AUTH-04 | Test every mutation family with viewer/ordinary-user sessions and direct API requests, not only hidden controls. Model/module/app operations follow role policy; all administrator-only operations are denied. | C+A+E | P0 · identity |
 | AUTH-05 | Omit or forge browser CSRF/origin headers on cookie-authenticated mutations. Reject without saved intent; valid same-origin and supported terminal Bearer requests still work. | U+C+A | P0 · identity |
-| AUTH-06 | Log out and revisit/reload a protected page with old session state. No stale privileged content/action is treated as authenticated. | B+A+E | P0 · smoke |
+| AUTH-06 | Log out and revisit/reload a protected page with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
 | AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
@@ -256,6 +264,18 @@ check that the Create Model engine list contains only supported runtimes.
 These cases require an approved `sharing` window with no unrelated workloads
 affected. Current scope is one supported physical GPU on one selected node per
 provider. Restore the original observed configuration after the suite.
+Fresh exclusive installation defaults require no manually saved sharing intent.
+HAR-08 records absent/empty fields separately, restores exclusive backend
+readiness before unsetting borrowed intent, and fences ambiguous writes or
+foreign revisions rather than adopting custom/inherited sharing.
+
+The owning NVIDIA DRA controller checks also cover missing completion markers,
+restart at each reverse-handoff step, foreign/reserved claims, terminating and
+terminal-but-still-present driver Pods, external chart/selector/configuration,
+and actual plugin capacity before Ready. HAR-07/08 deadline counterexamples
+keep the current `gpu-backend` stage, retained borrowed intent and exact Lease.
+Existing `phase4-fast` owning selection and `selftest` discover these checks;
+installed recovery and sharing remain separate acceptance evidence.
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
@@ -563,7 +583,7 @@ as unmeasured product performance. Existing security/release CI remains required
 | SEC-03 | Test pinned dependency vulnerabilities, secret scan, unsafe product/global TLS disablement and unbounded parsing/input fixtures. The scoped functional regression certificate policy is not a product TLS exception; HAR-01 and credential bootstrap remain strict. Existing security checks fail actionable regressions without silently dismissing alerts. Full acceptance also requires fresh successful fixed-workflow advisory and redacted secret-scan CI runs for the exact installed commit; offline checks alone cannot certify current advisories. | U+C+A | P0 · fast + fresh CI |
 | SEC-04 | Inspect generated routes/policies/RBAC and credential references. No broader Secret read, public exposure or namespace ownership appears from an ordinary feature change. | C+A | P0 · identity |
 | UX-01 | Walk pages, dialogs, help and actions by keyboard/touch at desktop and narrow mobile widths. Labels, focus/return, Escape, error announcements, contrast and table/log overflow remain usable; status is not conveyed by color alone. | B+E+N | P1 · functional |
-| UX-02 | Verify accordions/defaults, loading/empty/error states and unchanged/changed/reverted fields across every settings form. Polling cannot erase drafts or trigger actions. | U+B+E | P0 · functional |
+| UX-02 | Verify accordions/defaults, loading/empty/error states and unchanged/changed/reverted fields across every settings form. Regression All checks totals and closed scenario details retain their separate evidence units across reloads, including missing final data. Polling cannot erase drafts or trigger actions. | U+B+E | P0 · functional |
 | UX-03 | Smoke real auth/navigation/create/edit/lifecycle in secondary supported browsers after Chromium baseline. Report WebKit/Firefox emulation limits rather than claiming physical iOS/Safari certification. | B+E+N | P2 · functional |
 | UX-04 | Exercise shared CLI/TUI read/form/confirmation contracts with the same API data. Role, units, memory/slots and errors agree; no client-specific authorization or workload path. | U+C | P1 · fast |
 | PERF-01 | Measure dashboard/API/inference response and model stage timings under reviewed small-fixture workloads. Record cold/warm/engine/hardware separately and regressions against an approved baseline. | A+N | P1 · soak |
@@ -572,6 +592,229 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+24 October 2026, Phase 5 MOD-06/KEY-04 follow-up: the latest mixed-GPU lab run
+confirmed that the profile intent was saved while the immediate Hardware reload
+still displayed the preceding controller projection. MOD-06 now waits for the
+same UID, generation and complete spec plus matching observed generation,
+selected profile and experimental flag. It verifies the reload without changing
+the expected value, then verifies restored-profile projection separately; missing
+or stale observations time out, while foreign revisions and API errors fail
+immediately. The existing MOD-06 safety scenario covers those paths.
+KEY-04 also assumed the installer's valid master credential had a user-token
+`sk-` prefix. The fixture now accepts bounded opaque header-safe credentials from
+the existing administrator API, keeping authentication, hash-only URLs, zero
+inference budget and exact metadata-bound cleanup. Its existing lifecycle and
+foreign-record counterexamples retain both credential formats and reject header
+injection/oversize values. No campaign cases, variants or layers were added.
+These are source/isolated corrections; matching native retests remain required.
+Historical failures and the separate native application-adapter gap are unchanged.
+
+24 October 2026, HW-06 binding-diagnosis follow-up: the four-NVIDIA-card lab's
+single-card and all-card requests each left a completed native Ollama Job, but
+the existing runner classified a later binding-proof rejection as an unspecified
+`CAPABILITY` prerequisite. Binding postconditions now fail at `gpu-binding`,
+with a fixed private check code for engine/node, legacy resource, Pod/claim,
+claim allocation, Slice/UUID or runtime-image evidence. Exact-card prerequisites
+are still checked before submission, and all existing UID/UUID/allocation/image
+assertions remain in force. The Slice proof now uses the exact driver/pool/device
+identity and only its complete highest generation, as required by the
+[pinned Kubernetes ResourceSlice contract](https://github.com/kubernetes/kubernetes/blob/v1.36.4/staging/src/k8s.io/api/resource/v1/types.go).
+The existing HW-06 safety cases reproduce the wrong Blocked classification and
+the previous rejection of legitimate retired/foreign-pool Slices; they also
+reject foreign-only, incomplete, conflicting and wrong-UUID current pools and
+verify the private diagnostic. No additional campaign case, variant, layer or
+scenario is selected. This repairs a reproduced protocol mismatch and narrows
+the remaining native diagnosis; the old artifacts do not prove it caused that
+native binding discrepancy or establish live HW-06 acceptance. A fresh matching
+runner execution must verify that remaining path; old reports stay unchanged.
+
+24 October 2026, MOD-06/HAR-10 profile-fixture follow-up: a device with its only
+advertised AMD profile already selected was always missing an alternate fixture.
+Automatic preparation now also uses the existing UI's **Upstream operator rules
+only** choice (`profileId: ""`). Readiness distinguishes that explicit value
+from a missing choice and rejects unchanged, unknown or unapproved alternatives;
+an unknown current override is not borrowed because it could not be restored
+through the catalog validator. Two counterexamples in the existing
+[`input-preparation.unit.spec.ts`](../../dashboard/apps/web/regression/harness/input-preparation.unit.spec.ts)
+reproduce the old omission and empty-value rejection, then cover both valid
+choice directions and reject ineligible/missing hardware. They remain selected by `selftest`.
+The installed MOD-06 workflow still writes through the real Hardware UI and
+verifies saved parameters, unchanged GPU sharing and exact original spec
+restoration. Fresh image CI and an installed Phase 5 execution are required;
+preparation readiness itself is not live test evidence.
+
+24 October 2026, LIFE-02/ENG-01 CPU acceptance follow-up: fresh regular
+Kubernetes Phase 2 runs with source `3948d35` images passed on both registered
+lab appliances, including the AVX2-only CPU. Each recorded 580 passed checks,
+zero failures/blocks and 48 passed live checks, with resource cleanup verified
+and the generated account removed. CPU vLLM creation, routed inference,
+revision-safe editing, Stop/Start and removal completed through the normal
+workflow. This accepts the targeted CPU runner correction, not the GPU matrix
+or a complete Phase 0–8 campaign; earlier failed reports remain unchanged.
+
+24 October 2026, SEC-03 fresh-advisory follow-up: the exact installed `fffed82`
+audit detected high findings in Vite, Zod and Undici, plus two moderate findings
+in Vitest's mocker. Update only the pinned affected dependencies to Vite 8.2.4,
+Zod 4.6.6, Undici 8.12.2 and Vitest 5.0.3, and regenerate the frozen dependency
+inventory. The existing supply-chain owning selection executes
+[`test_regression_security.py`](../../tests/test_regression_security.py), whose
+new downgrade counterexamples reject the previous versions, including duplicate
+locked copies. The strict registry audit remains unchanged; an offline minimum
+version check cannot establish that no newer advisory exists. Existing client,
+contract and browser-fixture suites cover unchanged validation and runner
+consumers. Matching source CI, rebuilt images and fresh installed Phase 8
+acceptance remain required; the previous failed audit is not reclassified.
+
+23 October 2026, MOD-03/04/APP-02 gateway follow-up: both appliances recorded
+an Envoy 1.38.6 exit 139 during service/route changes; on Strix the proxy exited
+at the failed API read and the borrowed service remained applied. Pin 1.38.7
+consistently in the controller default, identity/setup EnvoyProxy and isolated
+session fixture. Upstream's
+[SDS provider lifetime fix](https://github.com/envoyproxy/envoy/commit/159c19f759b15c418128872a428f629e51f117a1)
+ensures main-thread destruction; stripped appliance traces do not establish
+that exact C++ frame as the crash site. The owning SetupGatewayTests enforce
+the coordinated immutable pin. Existing gateway-stability counterexamples keep
+rejecting exit 139, replacement, restart, OOM and unavailable observations,
+while installed module workflows still require stable gateway processes and
+exact restoration. Local renders/protocol fixtures do not replace a fresh
+installed Phase 5 test. Historical failed reports and cleanup locks are untouched.
+
+23 October 2026, MGPU-01/02/UX-02 isolated test synchronization: the NVIDIA
+startup-RAM component case now waits for the matching two-card and changed-context
+estimate responses rather than racing a debounced request against a DOM deadline.
+Both vLLM and Ollama still require the 18,000 MiB default, the updated 22,000 MiB
+recommendation and the unchanged manually selected/saved 20,000 MiB budget.
+No production timeout or memory default changes. MESH-01's independent module
+snapshot uses the registered appliance namespace, rejecting foreign namespaces.
+These are isolated counterexamples, not new installed acceptance.
+
+23 October 2026, MESH-01/HAR-10 navigation follow-up: the installed read-only
+Mesh settings check now compares independently observed ModuleActivation UIDs,
+generations and full persisted specs rather than the volatile `/api/modules`
+status response. Named steps separately prove unchanged Mesh configuration,
+unchanged module intent and no attempted writes. A focused counterexample in
+[`safety.unit.spec.ts`](../../dashboard/apps/web/regression/administration/safety.unit.spec.ts)
+fails with the former whole-object comparison and permits status/resourceVersion
+updates and reordered lists only. Changes to enabled flags, parameters, resource
+identity or generation, deletion, new/removed modules and malformed observations
+remain failures. The existing Phase 7 fast selection executes this owning unit
+coverage; a fresh installed MESH-01 run remains required. The historical
+Aimonster trace lacks a before/after payload diff, so the exact fluctuating
+status field is not claimed as established.
+
+23 October 2026, HAR-07/08/10 cleanup-receipt scope follow-up: a restored root
+baseline and a later independently cleaned Playwright worker must remain
+verifiable together. The previous aggregate-only fingerprint incorrectly marked
+that Phase 5 sequence as unknown. New private receipts retain the whole-run hash
+and add a hash of their own journal scope; the evaluator checks every mutated
+scope independently after checking the complete inventory and stopped processes.
+Focused counterexamples in
+[`execution-lifecycle.unit.spec.ts`](../../dashboard/apps/web/regression/harness/execution-lifecycle.unit.spec.ts)
+first reproduce the false fence and then reject changed root/worker receipts,
+open resources, malformed evidence and missing legacy proof. Existing `selftest`
+and `phase4-fast` selections execute them. No new public API/UI or historical
+report migration is needed. This is isolated coverage; a new installed Phase 5
+run still needs to prove the native cleanup path.
+
+23 October 2026, HAR-10 Phase 1 evidence-scope follow-up: the reporter and
+launcher now share the existing profile's per-step requirements. A passing
+`core-smoke` must remain passing when finalized after verified cleanup; it must
+not demand the seven case families owned by session, fixture and final-preflight
+steps. Focused counterexamples in
+[`reporting.unit.spec.ts`](../../dashboard/apps/web/regression/harness/reporting.unit.spec.ts),
+selected by the existing `selftest` in every phase, reproduce the old seven
+synthetic dependencies and one `MISSING_EVIDENCE` failure. They also reject a
+genuinely absent selected check or full-phase layer, preserve real cleanup
+failures and verify that the complete Phase 1 matrix is unchanged. This records
+isolated coverage, not acceptance of a new installed run; existing failed
+Strix/Aimonster reports remain unchanged.
+
+22 October 2026, HAR-07/HAR-10 process-lifecycle follow-up: Linux process-group
+inspection distinguishes exited Z/X tasks from live R/S/D/T workers, rejects
+unreadable/recycled identities and zombie leaders with remaining live threads,
+and retains bounded private process diagnostics.
+The runner bundles a subreaper for Docker and Kubernetes command overrides;
+signal forwarding preserves the coordinator's teardown window. Existing
+[`execution-lifecycle.unit.spec.ts`](../../dashboard/apps/web/regression/harness/execution-lifecycle.unit.spec.ts)
+adds synthetic process-state counterexamples and actual Linux fork/adoption
+probes (explicitly skipped on non-Linux hosts). `selftest` and `phase4-fast`
+select these tests. Existing recovery/reporting specs in the same selections
+cover exact terminated run/Job/Pod/container and node binding, changed session/
+UID/revision rejection, repeated regular cleanup and original failure attribution.
+Termination proof alone never proves resource removal; historical session and
+report contents remain unchanged. These are isolated checks, not Strix Phase 0
+or installed-appliance acceptance.
+
+22 October 2026, HAR-10 and UX-02 report-count follow-up: the Dashboard and new
+HTML/text exports show all check evidence before executable scenarios. The shared
+public-safe report fixture retains 441/3/18 total, 345/0/1 scenarios and 8/3/18
+live evidence, including unassigned runner/cleanup failures. Existing owning
+component/API and reporting suites cover failed preparation, cleanup/export
+failures, multiple evidence rows per scenario, overlapping phases, truncated
+case lists and missing/legacy totals. Desktop/mobile Chromium fixtures in
+[`regression.browser.spec.ts`](../../dashboard/apps/web/regression/harness/regression.browser.spec.ts)
+check closed details, keyboard use, reload, no overflow and unchanged read-only
+refresh; existing start/cleanup scenarios remain in the same Phase 4/8 fixture
+selections. This is isolated source/fixture coverage, not installed acceptance.
+No historical report or test-server state was changed; the actual runner/cleanup
+failures in the original report remain failures.
+
+22 October 2026 CI follow-up: the exact-layer catalogue check also discovers the
+separate `auth-sessions` browser selection without running it or crediting its
+results to Phase 5. Dashboard build and browser workflows use the same source
+paths, including identity changes. The existing promotion contract rejects drift.
+
+22 October 2026, HAR-07/08/10, SLOT-09 and SHR-12 follow-up: Phase 4 now uses
+the existing discovered selection in separate sequential scenario processes,
+with independent execution/teardown budgets. The selected/started/completed
+ledger preserves interrupted evidence. Open root/worker/model journals override
+report flags; exact recovery and independent absence/backend/Lease checks produce
+fingerprinted cleanup receipts. Tests, resource cleanup and credential removal
+have separate status. Focused counterexamples live in
+[`execution-lifecycle.unit.spec.ts`](../../dashboard/apps/web/regression/harness/execution-lifecycle.unit.spec.ts),
+selected by `selftest` and `phase4-fast`; existing recovery/reporting, API/operator
+and regression-page fixtures cover the shared contract. Real short-lived child
+processes verify signals, timeout, delayed writers and teardown after a test
+timeout without GPUs. SHR-12 changes state before reload; HAR-08 changes borrowed
+state before restoration, so empty cleanup cannot certify either. This is source
+coverage, not a new installed acceptance: exact old-journal recovery, slot race,
+reload/restoration and then full Phase 4 still require an authorized rollout.
+
+22 October 2026 Remember-me deployment correction: AUTH-01's existing owning
+policy selection now checks that only the mounted session-policy ConfigMap is
+excluded from Flux variable substitution. Public release checks additionally
+discover `RememberMeFluxBuildTests` in the same owning test file and run the
+actual strict Flux post-build. They preserve the runtime script byte-for-byte,
+substitute identity hosts, reject the original unprotected script, and reject
+missing variables in other resources. The in-Appliance runner still needs no
+Flux CLI; CI render evidence is not credited as installed login acceptance.
+The previous successful script/routine renders did not cover strict post-build
+substitution; historical results remain unchanged.
+
+21 October 2026 Remember-me follow-up: AUTH-01's
+`remember-me-policy-contract` is selected by Phase 1 `smoke-fast` and runs the
+owning [realm/migration counterexamples](../../magic-cluster/platform/identity/tests/test_remember_me.py).
+The separate, explicitly selected `auth-sessions` profile runs
+[real Keycloak/Envoy Chromium checks](../../dashboard/apps/web/regression/auth/remember-me.browser.spec.ts)
+for AUTH-01/03/06: idle versus maximum expiry, automatic refresh, persistent
+browser restart and logged-out state rejection. The browser CI `identity-sessions`
+job owns this Docker-host gate; native Kubernetes campaigns never require Docker
+or mark these isolated protocol results as installed A/E proof. New installation,
+unchanged-default migration, repeat start, custom preservation and failed/ambiguous
+write behaviour remain owning U/C evidence. Existing installed login/logout and
+API token-denial scenarios retain their scope; new installed Remember-me
+acceptance requires a fresh opt-in login after idle deployment. Historical
+reports and earlier finite-profile acceptance are not changed.
+
+Local verification on 21 October: all 86 identity owning tests (including ten
+Remember-me policy/migration cases), 19 Phase 1 fast scenarios, 19 Phase 1 browser
+fixtures, 307 harness selftests and four real Keycloak/Envoy protocol scenarios
+passed. The original import and Jackson empty-marker formatting were rejected by
+focused counterexamples before correction. Regression typecheck, identity/Flux
+renders, source-license and documentation checks passed. CI/publication is not
+implied. Monster still had an active campaign during this implementation; its
+policy was left unchanged pending an idle, guarded migration and a fresh login.
 
 20 October 2026 first-run follow-up: HAR-10 status checks cover an absent,
 disabled or still-installing optional runner with no runtime metadata,
@@ -625,6 +868,18 @@ without a cookie, another browser, a lost response and retained draft fields.
 Both files are selected by existing identity-unit and dashboard-browser CI.
 First-run setup remains outside the installed Phase 0–8 P0 campaign; this does
 not claim full AUTH-09 live handoff or physical installer acceptance.
+
+22 October 2026 AUTH-09 upgrade follow-up: the host's Flux bootstrap migrates
+only the owned single-replica setup Deployment before server-side apply. Owning
+[counterexamples](../../magic-host/roles/flux-bootstrap/tests/test_setup_strategy.py)
+cover absent/current/legacy state, foreign identity, stale or lost writes and
+unchanged Pod configuration. Public release checks select these tests plus the
+`setup-upgrade` job's [real API contract](../../magic-host/roles/flux-bootstrap/tests/setup_strategy_contract.py)
+on disposable Kind. It reproduces the retained `rollingUpdate` rejection
+(including explicit null), checks actual Kubernetes revision preconditions,
+migrates without replacing the UID, then repeats migration and Flux-like apply.
+It runs with zero replicas and is not installed Phase 0–8 or physical setup
+acceptance. External GitOps upgrades use the documented identity recovery path.
 
 18 October 2026 license follow-up: LIC-02 previews both supported editions without
 activation; LIC-03 independently verifies invalid-document rejection and unchanged
@@ -787,6 +1042,12 @@ adding or splitting cases and document any replacement.
 
 | Case IDs / parameter set | Implementation | Test/procedure | Last reviewed run evidence | Remaining prerequisite |
 |---|---|---|---|---|
+| CPU LIFE-02/ENG-01/09, GPU non-interference · 0.31 CPU model runner | **Owning counterexample reproduced; installed retest pending** | [CPU wrapper policy counterexamples](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), selected Phase 2 [engine contract](../../dashboard/apps/web/regression/models/control.contract.spec.ts), [native configuration check](../../magic-cluster/platform/ai/kubeai/base/verify_vllm_runtime.py) | 2026-10-23: the old wrapper fails the new default-policy counterexample. On one AVX2 lab host, the pinned CPU image with a cold compile cache timed out its first direct HTTP request at the unchanged 90-second limit, even with model compilation disabled. With only the official MRV1 environment selection changed, the same immutable model, BF16 dtype, eight-core quota, 7,656 MiB RAM and 1 GiB KV budget produced HTTP 200 in 50.867 seconds. Both diagnostic resources and workers were independently removed. The correction is CPU-/version-bound and preserves explicit policy, arguments, precision, budgets and GPU paths. | Matching native configuration CI, runner publication/promotion and the ordinary installed CPU inference/Edit/Stop/Start workflow on both appliances. Direct diagnostic success is not routed lifecycle or complete-campaign acceptance; historical failures remain unchanged. |
+| MESH-09 · canonical GitHub Actions check links | **Local counterexample passed; installed retest pending** | [Companion public proof and discovery counterexamples](../../dashboard/apps/web/regression/administration/safety.unit.spec.ts), existing Phase 7 fast/live selections | 2026-10-21: the real successful exact-commit native build returned a canonical `runs/<check-id>` URL instead of the submitted workflow-run URL. The old reader rejected that public proof as `REVISION`. The reader now accepts only the exact repository/check-ID link also returned as `html_url`; foreign, malformed or mismatched links remain rejected, with the trusted App, exact source, workflow attempt and four-platform evidence still required. | Fresh matching runner CI/pin and installed adapter verification. This native packaging proof never substitutes for real cross-appliance Mesh inference. |
+| MGPU-01 · native collective payload dtype | **Local counterexample passed; installed retest pending** | [Every directed peer in two/four-card groups](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), existing Phase 3 fast and GPU selections | 2026-10-21: installed milestones reached NCCL initialization and, with host-mediated transport, all-reduce; point-to-point exchange then stalled. The actual probe inferred Float32 for floating-point send buffers but Int64 for integer-zero receive buffers. Its new owning-layer counterexample rejects that old implementation and passes with explicit Float32 on both allocations, covering every directed pair for two and four ranks. All 45 wrapper tests passed locally. | Matching runner CI/pin, ordinary appliance update and fresh native split/inference acceptance. The direct-transport timeout and independent CPU first-response timeout are not declared fixed by this correction. No historical report is rewritten. |
+| HAR-07/10/11, CPU LIFE-02/ENG-01, MESH-09, MGPU-01 · completed-campaign follow-up | **Implemented locally; installed retest pending** | [Export and recovery counterexamples](../../dashboard/apps/web/regression/harness/kubernetes.unit.spec.ts), [full-size JUnit and privacy](../../dashboard/apps/web/regression/harness/artifacts.unit.spec.ts), [controller status](../../magic-cluster/platform/magicstick-operator/controller/test_regression_runs.py), [native CPU/probe checks](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), [public companion proof contracts](../../dashboard/apps/web/regression/administration/safety.unit.spec.ts), [CI proof safety](../../magic-cluster/apps/ai/private-mesh/test_publish_acceptance.py), [runtime trace privacy](../../dashboard/apps/web/regression/harness/runtime-diagnostic.unit.spec.ts) | 2026-10-21: the completed campaign exceeded the JUnit download bound and replaced its outcomes with a generic HAR-02 failure and false recovery requirement. A 3,500-scenario / 87,500-step / 5,000-evidence counterexample exceeds the bound with the old writer and fits with the compact writer, retaining all steps. Export errors now preserve results and the independently verified cleanup state. CPU automatic startup OMP values no longer suppress vLLM 0.31's serving-thread reduction; explicit policies remain unchanged. Native companion proof uses the exact trusted public workflow check instead of anonymous private-artifact downloads. GPU timeouts gain per-rank fixed milestones without weakening qualification. Existing selections cover the new U/C checks. | No new image publication, Appliance rollout or live CPU/Mesh acceptance is claimed. The four GPU split timeouts are not declared fixed: a fresh targeted installed trial must locate the stalled native milestone. Historical failed reports and cleanup evidence are preserved. |
+| NAV-02 · System Status browser-history synchronization | **Implemented; local retests passed** | [Dedicated history scenarios](../../dashboard/apps/web/regression/navigation/history.browser.spec.ts), [separate navigation workflow](../../dashboard/apps/web/regression/navigation/navigation.browser.spec.ts), [required Phase 1 variants](../../dashboard/apps/web/regression/profiles/phase1-p0.ts), [coverage counterexamples](../../dashboard/apps/web/regression/harness/safety.unit.spec.ts) | 2026-10-20: the unsynchronized navigation reproduced a wrong Back target under 12× CPU slowdown. Back/Forward now has one NAV-02 result per desktop/mobile and normal/slowed variant, with three cycles each. Every action confirms URL, selected tab and visible panel; no sleeps, retries or increased timeouts were added. The former five-ID workflow retains reload, legacy links, lazy queries, role/keyboard and no-mutation checks but no longer owns the history assertion. Missing history variants prevent Phase 1 acceptance. Local verification: 60/60 focused history executions (180 complete cycles), 19/19 Phase 1 browser-fixture executions, 18/18 Phase 1 fast executions and 303/303 harness self-tests passed; regression typecheck, 45 documentation/website tests and strict documentation build passed. Execution counts are separate from evidence rows. | Isolated source-host checks only; matching runner CI/image publication and a fresh installed Phase 1 run remain separate. Historical failed reports are unchanged. |
+| HAR-08, SHR-01/03/04/08/09, MGPU-01/02 · fresh exclusive GPU baseline | **Implemented; focused local counterexamples passed, live acceptance pending** | [Borrowed settings](../../dashboard/apps/web/regression/hardware/borrowed-settings.unit.spec.ts), [backend safety](../../dashboard/apps/web/regression/hardware/safety.unit.spec.ts), [automatic cleanup](../../dashboard/apps/web/regression/harness/recovery.unit.spec.ts), [owning API checks](../../magic-cluster/apps/dashboard/test_gpu_sharing_api.py), existing Phase 3/4 selections | 2026-10-20: reproduced the old `CAPABILITY` block on an unset fresh GPU baseline before changing the implementation. Counterexamples cover NVIDIA/AMD absent/empty maps and fields, unrelated parameters, an untouched baseline, delayed exclusive convergence, status-only CAS retries, foreign UID/generation, lost Lease, non-submission and a lost reset acknowledgement. Automatic cleanup is repeatable; accepted-but-unacknowledged resets remain fenced. Phase 3 restoration now also requires its selected C-layer API proof. | Fresh-appliance GPU inference, two/four-card split/copy workflows and installed controller/allocator convergence must be retested with matching new API and runner images. Local fixtures do not establish that acceptance; historical reports remain unchanged. |
 | LIFE-03/06 · ordinary single/split runtime drain | **Local checks and targeted live repetitions passed** | [Controller lifecycle counterexamples](../../magic-cluster/platform/magicstick-operator/controller/test_model_lifecycle.py), existing [NVIDIA lifecycle repetitions](../../dashboard/apps/web/regression/hardware/runtime.e2e.spec.ts) | 2026-10-16: fourteen lifecycle checks and the full 343-test controller suite passed locally. The operator base renders. With the temporary controller fix on one appliance, all six NVIDIA lifecycle scenarios passed (three Ollama and three vLLM), producing 72 passed evidence rows and no failures or blocked rows. Each verified inference, Logs, Stop, Pod/catalog withdrawal, slot release, Start and inference again. All six owned models and the test key were removed; borrowed AMD/NVIDIA sharing settings were restored. A fresh in-Appliance Phase 2 run passed all 307 scenarios and 431 evidence rows (383 fixture, 48 live), with its generated accounts cleaned, no leftover test models/Pods and the original stopped model definitions unchanged. The unchanged five-minute Stop limit was retained. | These dated runs used a temporary controller override, not a new-source CI image or full Phase 3 acceptance. Slow vLLM Stop observations (about 174, 194 and 32 seconds) and concurrent CPU-consumer CRI timeouts remain a separate host-runtime finding, not a claimed containerd/driver fix. The first emulated-runner attempt failed in sharing preparation before any model was created; its failed report was preserved and its recovery was verified separately. |
 | HAR-07/10, LIFE-02, MGPU-01/02, MOD-03/04, K8S-02–06, LIC-02–04, RT-01, SEC-04, PERF-02 · focused follow-up | **Local corrections; native retest required** | [Cleanup and repeated-cycle counterexamples](../../dashboard/apps/web/regression/administration/cleanup.unit.spec.ts), [successive GPU journals](../../dashboard/apps/web/regression/hardware/safety.unit.spec.ts), [OIDC callback browser checks](../../dashboard/apps/web/regression/auth/oidc-exec.browser.spec.ts), [license and enabled-module RBAC guards](../../dashboard/apps/web/regression/administration/safety.unit.spec.ts), [runtime evidence](../../dashboard/apps/web/regression/harness/model-ui.unit.spec.ts) | 2026-10-15: source `05ad953` and its exact runner/Dashboard CI images converged on both test Appliances. The standalone cleanup Job passed and removed the old owned key without rewriting its failed report. Focused installed runs exposed CPU inference throttling, an OIDC loopback-adapter mismatch, bodyless license reads intercepted as writes, per-worker receipt collisions, repeated GPU scenario journal collisions, the enabled regression module's omitted RBAC grant and a false Pod-UID leak alarm. Counterexamples now reject those defects; Realtime readiness also captures private runtime diagnostics before cleanup. Two-card Ollama split and independent vLLM/Ollama copies passed on the earlier source; vLLM split and later four-card cases did not pass. | New matching runner CI/promotion and staged installed retests. The native split failure needs its preserved startup/collective diagnostic; Realtime readiness and three complete resource cycles need fresh acceptance. No full Phase 0–8 pass or physical hardware matrix is claimed. |
 | HAR-07/09/10/11, MGPU-01/02, LIFE-02, MOD-03/04, APP-02, RT-01, SEC-04, UX-02, PERF-02 · fresh execution and October report repairs | **Implemented locally; staged appliance acceptance pending** | [Cleanup counterexamples](../../dashboard/apps/web/regression/administration/cleanup.unit.spec.ts), [browser write receipts](../../dashboard/apps/web/regression/harness/actions.browser.spec.ts), [GPU sizing and DRA checks](../../dashboard/apps/web/regression/hardware/safety.unit.spec.ts), [form fixtures](../../dashboard/apps/web/regression/administration/configuration.browser.spec.ts), [vLLM wrapper contracts](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), [causal reports](../../dashboard/apps/web/regression/harness/reporting.unit.spec.ts) | 2026-10-15: added counterexamples for unsent/acknowledged/lost writes, interrupted repeat cleanup, failed GPU restoration with independent cleanup, pending/failed Ollama and vLLM Edit estimates, actual per-engine/per-card/per-copy fixture budgets, exact DRA validation claims, repository-derived RBAC, mixed CPU/GPU Realtime choices, and explicit missing-evidence failures. UX-02 now records common forms, optional Mesh form and optional GPU form independently; other form checks continue without those capabilities. PERF-02 retains baseline stages and requires at least three complete model cycles with separate cache accounting. | Exact matching CI and installed digests, old Monster cleanup, focused two/four-card split and replica inference/Edit/Stop/Start, CPU first response, later Magic scenarios, then a fresh full campaign on each device. Local checks do not certify native NCCL transport or live model acceptance. |
@@ -846,6 +1107,28 @@ Local checks do not establish published images or live appliance acceptance.
 
 Update these explicit case/group entries as tests are implemented. Report unmapped IDs as Planned so they cannot disappear
 from the backlog or coverage denominator.
+
+HAR-02/07/10 and UX-02 follow-up, 22 October 2026: fixed Phase 4 diagnostic
+profiles select existing SLOT-03/09, SHR-07/12 and HAR-08 scenarios through the
+Kubernetes API/operator and native runner. The canonical catalog is
+[`diagnostics.json`](../../magic-cluster/apps/regression/diagnostics.json).
+The [selection counterexamples](../../dashboard/apps/web/regression/harness/diagnostic-selection.unit.spec.ts)
+are selected by both `selftest` and `phase4-fast`; owning API/operator tests cover
+allowlists, immutable requests, mixed-version schema/image rejection and unchanged
+full/safe modes. Desktop/mobile fixtures in `harness/regression.browser.spec.ts`
+are selected by both `phase4-fixtures` and `phase8-fixtures`. An isolated real
+subprocess verifies scoped launch, receipt handling, cleanup fencing and report
+scope. These implementation checks do not establish installed hardware acceptance;
+the actual selected live tuples and exact cleanup still require a new appliance run.
+
+HAR-02/07 follow-up, 22 October 2026: the native startup registration retains
+its exact ID, Appliance/Node UIDs, policy and original creation identity when
+the configured dashboard/Keycloak origins are renamed. The existing Kubernetes
+unit selection exercises actual private-file persistence, equivalent object/key
+order, both changed origins, foreign IDs/nodes/policy/unknown fields and symlinks.
+This updates only the native API account's trusted origins; it does not clear a
+Lease, change recovery journals or infer successful cleanup. A fresh live run
+must still pass normal preparation, baseline checks and owned-resource recovery.
 
 ### Regression traceability
 

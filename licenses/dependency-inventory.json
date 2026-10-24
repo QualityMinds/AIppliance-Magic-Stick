@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
-  "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "cdf623728cdeca49597f70205f94c6dd8665f15fd488456199a43f012dbfee44",
+  "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
+  "deploymentReferencesSha256": "24780fe98e0fbf6f2237eaaa78e20aa4835eb448c5728392630f7a46f9080179",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -741,10 +741,10 @@
     },
     {
       "name": "@vitest/mocker",
-      "version": "5.0.0",
+      "version": "5.0.3",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-66PGTMIiVJP3t4a5yxU9qPtf7MdTBs8jmToMvy+HVflB3Yy13WJZTtPePdvU+wjRV02SKK5doLbSA6o9pwOmiA==",
+      "integrity": "sha512-T8sWAIbkSyAjkwTcaEc3Iu0o9A27X1/kdXrizhZkGuSKScRQtRzclfAMpOTcGdXCsqxeWlpGy3XjqaW8CpLORg==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -754,10 +754,10 @@
     },
     {
       "name": "@vitest/spy",
-      "version": "5.0.0",
+      "version": "5.0.3",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-uy+luWBAPw9XfthoHi5AkfHUnuPYEESjl0p/r+meoBnU8bxg5GDQ3Ey8MjcJ6sqahkL4PFyrvfMJJBw7LbU06g==",
+      "integrity": "sha512-XhFysQTB8AZ+P4gMi+Lpo99vg2AZi0qKpaB9yXQl37+CaMEAPO3iH/wGVnSyL5MPERiLezpqTVtrR6UZH5GCXg==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -1525,19 +1525,6 @@
       ]
     },
     {
-      "name": "siginfo",
-      "version": "2.0.0",
-      "declaredLicense": "ISC",
-      "evidence": "installed-package",
-      "integrity": "sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==",
-      "licenseFiles": [
-        {
-          "file": "LICENSE",
-          "sha256": "3bdddf0b9b08aaa2fe4365b803fc958ed32c0597ca0bd727be8d9fcb8b248d18"
-        }
-      ]
-    },
-    {
       "name": "source-map-js",
       "version": "1.2.2",
       "declaredLicense": "BSD-3-Clause",
@@ -1549,14 +1536,6 @@
           "sha256": "6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd"
         }
       ]
-    },
-    {
-      "name": "stackback",
-      "version": "0.0.2",
-      "declaredLicense": "MIT",
-      "evidence": "installed-package",
-      "integrity": "sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==",
-      "licenseFiles": []
     },
     {
       "name": "std-env",
@@ -1720,10 +1699,10 @@
     },
     {
       "name": "undici",
-      "version": "8.10.2",
+      "version": "8.12.2",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==",
+      "integrity": "sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -1733,10 +1712,10 @@
     },
     {
       "name": "vite",
-      "version": "8.2.2",
+      "version": "8.2.4",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==",
+      "integrity": "sha512-lfauXnrf2x0p+UoA+wXh0dgFWnUjCyG6Js95KBkgaCwUU9k0DAHI4W6Q0WCx+h+5g+Alce1y4Zi2QjjK0UvGBw==",
       "licenseFiles": [
         {
           "file": "LICENSE.md",
@@ -1746,14 +1725,14 @@
     },
     {
       "name": "vitest",
-      "version": "5.0.0",
+      "version": "5.0.3",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-gpsMNoRhMjMktVxPtstOH4/PJuPyovVaMDr4oDilXaGH1EcqM2OE96SoHT2VIQ6fTGtTjqmHDrEu2X9RQiXf8Q==",
+      "integrity": "sha512-xMw97S3rjdtj5dkVat7jCsqWBpvchs3RlpQctUqwJD0KkERk40vz2fJ77lDwW/Vzh/pk18eItYAzkodhSes3jQ==",
       "licenseFiles": [
         {
           "file": "LICENSE.md",
-          "sha256": "d47eb4eeddb0a8b7776abd645d9c2d18e14bf6a5ffa52ac75fc3647d672d0260"
+          "sha256": "c8f14eea9df88b94c4710b4c476d8642e080832d7de0d861eba1337746494b4d"
         }
       ]
     },
@@ -1824,10 +1803,10 @@
     },
     {
       "name": "why-is-node-running",
-      "version": "2.3.0",
+      "version": "3.2.1",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==",
+      "integrity": "sha512-Tb2FUhB4vUsGQlfSquQLYkApkuPAFQXGFzxWKHHumVz2dK+X1RUm/HnID4+TfIGYJ1kTcwOaCk/buYCEJr6YjQ==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -1863,10 +1842,10 @@
     },
     {
       "name": "zod",
-      "version": "4.5.4",
+      "version": "4.6.6",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==",
+      "integrity": "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -1953,32 +1932,32 @@
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 68,
+      "line": 69,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 72,
+      "line": 73,
       "reference": "python3 -m pip install pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 119,
+      "line": 120,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 151,
+      "line": 152,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 167,
+      "line": 168,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 183,
+      "line": 184,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
@@ -2053,7 +2032,12 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 264,
+      "line": 261,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 292,
       "reference": "with: {python-version: '3.13'}"
     },
     {
@@ -2098,7 +2082,22 @@
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 67,
+      "line": 70,
+      "reference": "node-version: '24'"
+    },
+    {
+      "file": ".github/workflows/dashboard-browser-smoke.yml",
+      "line": 73,
+      "reference": "python-version: '3.13'"
+    },
+    {
+      "file": ".github/workflows/dashboard-browser-smoke.yml",
+      "line": 79,
+      "reference": "python -m pip install PyYAML==6.0.3"
+    },
+    {
+      "file": ".github/workflows/dashboard-browser-smoke.yml",
+      "line": 92,
       "reference": "node-version: '24'"
     },
     {
@@ -2203,42 +2202,57 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 28,
-      "reference": "node-version: \"24\""
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
-      "line": 33,
+      "line": 24,
       "reference": "version: v1.36.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 38,
+      "line": 27,
+      "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 31,
+      "reference": "python3 -m pip install pyyaml"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 53,
+      "reference": "node-version: \"24\""
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 58,
+      "reference": "version: v1.36.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 63,
       "reference": "version: v2.9.2"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 42,
+      "line": 67,
       "reference": "python3 -m pip install --user ansible-core"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 46,
+      "line": 71,
       "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 101,
+      "line": 127,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
       "file": ".github/workflows/regression-runner.yml",
-      "line": 38,
+      "line": 44,
       "reference": "regression-image:"
     },
     {
       "file": ".github/workflows/regression-runner.yml",
-      "line": 128,
+      "line": 144,
       "reference": "export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader"
     },
     {
@@ -2447,6 +2461,11 @@
       "reference": "image: ghcr.io/berriai/litellm:v1.84.0"
     },
     {
+      "file": "magic-cluster/apps/ai/private-mesh/publish_acceptance.py",
+      "line": 59,
+      "reference": "'details_url': f\"https://github.com/{REPO}/actions/runs/{run['id']}\","
+    },
+    {
       "file": "magic-cluster/apps/ai/private-mesh/publish_companion.py",
       "line": 169,
       "reference": "f'Permanent client downloads from [{revision[:12]}](https://github.com/{repo}/commit/{revision}) '"
@@ -2459,7 +2478,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-23b332da2cc027209d57931cfbabd7c763b7057c@sha256:08d0aa9bd15843df403b7ea30318759372ae25028f7ddf544cd210f805e21b87"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-88a6ecff69f79b1e812be176ecf3277c89811ea8@sha256:f841ebb110c77b5bbe9eca27ce64aa92fea4e8996f357f58a45e30adc3d81374"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2468,22 +2487,22 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6708,
+      "line": 6769,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6745,
+      "line": 6806,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-23b332da2cc027209d57931cfbabd7c763b7057c@sha256:e6804c56594929107adb396af16d63b10db5b2b6b9784e9b9eb6410c1940ed69"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-88a6ecff69f79b1e812be176ecf3277c89811ea8@sha256:73218dbeec87a6dabce5ab22475cfcde30b9b98f97f2d98789d10b147f0a8007"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
-      "line": 498,
+      "line": 588,
       "reference": "self.objects[CORE + \"/configmaps/magicstick-regression-runtime\"][\"data\"][\"image\"] = \"image:latest\""
     },
     {
@@ -2674,7 +2693,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-23b332da2cc027209d57931cfbabd7c763b7057c@sha256:48b3318fb46497acd696dbce905edbc6c80dd3519c48c1f7dc6eeea2b8938d7a\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-88a6ecff69f79b1e812be176ecf3277c89811ea8@sha256:99158915816da8bd7058f20768b0b68132b4d40386e5ad49b192f7c8e18b3e5a\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -2753,7 +2772,7 @@
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
-      "line": 628,
+      "line": 788,
       "reference": "self.wrapper[\"runtime_version\"] = lambda package, version=version: version"
     },
     {
@@ -2944,7 +2963,7 @@
     {
       "file": "magic-cluster/platform/gateway/envoy-gateway/helmrelease.yaml",
       "line": 23,
-      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"
     },
     {
       "file": "magic-cluster/platform/gateway/envoy-gateway/oci-repository.yaml",
@@ -3069,7 +3088,7 @@
     {
       "file": "magic-cluster/platform/identity/gateway.yaml",
       "line": 18,
-      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"
     },
     {
       "file": "magic-cluster/platform/identity/keycloak.yaml",
@@ -3088,27 +3107,27 @@
     },
     {
       "file": "magic-cluster/platform/identity/setup-app.yaml",
-      "line": 42,
+      "line": 44,
       "reference": "image: python:3.13-alpine"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3357,
+      "line": 3397,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3394,
+      "line": 3434,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4265,
+      "line": 4305,
       "reference": "if not image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/crds/regressionruns.appliance.magicstick.dev.yaml",
-      "line": 65,
+      "line": 69,
       "reference": "image:"
     },
     {

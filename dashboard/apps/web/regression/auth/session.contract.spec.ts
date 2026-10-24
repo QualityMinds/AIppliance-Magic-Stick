@@ -1,5 +1,10 @@
 import {test, expect} from '@playwright/test';
 import {recordedApi} from '../fixtures/api-client.ts';
+import {pythonSuite} from '../components/owning.ts';
+
+test('AUTH-01 [p1:remember-me-policy-contract] owning default/migration counterexamples preserve normal and custom session policies', () => {
+  pythonSuite('../../../magic-cluster/platform/identity/tests', ['test_remember_me.RememberMePolicyTests']);
+});
 
 test('AUTH-02 [p1:anonymous-contract] unauthorized inventory/session does not become an authenticated empty success', async () => {
   for (const status of [401, 403, 503]) {

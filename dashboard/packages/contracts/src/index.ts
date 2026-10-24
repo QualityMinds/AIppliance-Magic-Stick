@@ -17,8 +17,14 @@ export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type RegressionTestMode = 'non-destructive' | 'full';
 export interface RegressionStartRequest {
   requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[]; testMode?: RegressionTestMode;
+  diagnosticSelection?: string;
 }
+export interface RegressionDiagnosticSelection {id:string;title:string;caseIds:string[]}
 export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
+export interface RegressionCleanup {
+  state: 'unknown' | 'required' | 'running' | 'verified' | 'blocked';
+  checkedAt?: string; reason?: string; stage?: string;
+}
 export type RegressionBlockedKind = 'prerequisite' | 'failure' | 'cancelled' | 'unknown';
 export interface RegressionBlockedCounts {prerequisite: number; failure: number; cancelled: number; unknown: number}
 export interface RegressionBlocker {
@@ -30,6 +36,8 @@ export interface RegressionProgress {
   executionBlockedCounts?: RegressionBlockedCounts;
 }
 export interface RegressionResult {
+  diagnosticSelection?: RegressionDiagnosticSelection;
+  cleanup?: RegressionCleanup;
   testMode?: RegressionTestMode; excludedSteps?: string[];
   counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
   blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts;
@@ -42,6 +50,8 @@ export interface RegressionResult {
     phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker}>;
 }
 export interface RegressionRun {
+  diagnosticSelection?: string;
+  cleanup?: RegressionCleanup;
   testMode?: RegressionTestMode;
   id: string; uid: string; createdAt: string; phases: number[]; sourceRevision: string;
   phase: RegressionOutcome | 'Queued' | 'Preparing' | 'Starting' | 'Running' | 'Recovering' | 'Cancelling' | 'Cancelled';
@@ -50,6 +60,7 @@ export interface RegressionRun {
   operation?: 'tests' | 'recover-lock';
 }
 export interface RegressionStatus {
+  diagnosticSelections?: Array<RegressionDiagnosticSelection & {phase:4}>;
   registered: boolean; applianceUid: string; runtimeAvailable: boolean; sourceRevision: string; message: string;
   recoveryAvailable?: boolean;
   cleanup?: {available: boolean; message: string; revision?: string; runId?: string; released?: boolean};
@@ -856,6 +867,15 @@ export interface GpuSharingState {
   memoryIsolation: false;
 }
 
+/** Restore only the representation of previously unset sharing fields. No
+ * arbitrary module parameters are accepted. Requires converged exclusive
+ * device-plugin allocation before the saved sharing intent can be removed. */
+export interface GpuSharingDefaults {
+  parameters: 'absent' | 'present';
+  gpuSharing: 'absent' | 'empty';
+  validationRequest?: 'absent' | 'empty'; // AMD only; never a validation request.
+}
+
 export interface GpuSharingRequest {
   provider: 'amd' | 'nvidia';
   mode: 'exclusive' | 'shared';
@@ -866,6 +886,7 @@ export interface GpuSharingRequest {
   acknowledgeSharing: boolean;
   acknowledgeRestart: boolean;
   allocationBackend?: 'device-plugin' | 'dra';
+  restoreDefaults?: GpuSharingDefaults;
 }
 
 export interface HardwareOperator {

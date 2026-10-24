@@ -258,7 +258,15 @@ The API stores bounded JSON in the selected ModuleActivation's
   `time-slicing`; `allocationBackend=dra` with `exclusive` or `dra-shared`.
 
 Generic module/profile edits preserve this separate setting; the dedicated API
-is the only dashboard write path. `ModelActivation.status.gpuSharing` records
+is the only dashboard write path. Automatic regression cleanup may also send
+`restoreDefaults` through that same administrator-only endpoint to restore a
+previously unset configuration. Its bounded fields describe an absent/present
+parameter map and absent/empty sharing fields, not arbitrary module values.
+The normal exclusive Device-plugin transition must already be Ready, with the
+current node identity and physical extended resources confirmed. Clearing intent
+cannot bypass draining DRA claims or stop an allocator by itself. Cleanup retains
+the original saved configuration if this prerequisite or revision check fails.
+`ModelActivation.status.gpuSharing` records
 allocation mode and node, plus claim/device for DRA. NVIDIA additionally records
 backend, node UID and GPU UUID. `spec.local.gpuDevice` persists the selected
 `nodeName`, `nodeUid` and `uuid`; a replacement node or missing card requires a

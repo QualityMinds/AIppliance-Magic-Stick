@@ -16,6 +16,7 @@ on:
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py
       - magic-cluster/apps/dashboard/dashboard-api.yaml
+      - magic-cluster/platform/identity/**
       - '!dashboard/**/*.md'
       - magic-host/roles/host-management/files/network_contract.py
       - magic-host/roles/host-management/files/updates_contract.py

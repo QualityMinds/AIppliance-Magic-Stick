@@ -99,6 +99,22 @@ class CompanionRustDownloadTests(unittest.TestCase):
 
 
 class RepositoryHygieneTests(unittest.TestCase):
+    def test_companion_public_proof_is_trusted_build_only_and_cannot_publish_client_releases(self):
+        definition = workflow('build-mesh-companion')
+        job = definition['jobs']['acceptance']
+        self.assertEqual(job['needs'], 'build')
+        self.assertIn("github.event_name != 'pull_request'", job['if'])
+        self.assertIn("needs.build.result == 'success'", job['if'])
+        self.assertEqual(job['permissions'], {'contents': 'read', 'actions': 'read', 'checks': 'write'})
+        download = next(step for step in job['steps'] if step.get('uses') == 'actions/download-artifact@v4')
+        self.assertEqual(download['with']['pattern'], 'companion-acceptance-*')
+        publish = next(step for step in job['steps'] if 'python magic-cluster/apps/ai/private-mesh/publish_acceptance.py' in step.get('run', ''))
+        self.assertEqual(publish['env'], {'GH_TOKEN': '${{ github.token }}'})
+        self.assertIn('--run-id "$GITHUB_RUN_ID"', publish['run'])
+        self.assertNotIn('publish_companion.py', publish['run'])
+        self.assertFalse(any('contents: write' in step.get('run', '') for step in job['steps']))
+        self.assertEqual(job['steps'][0]['with']['persist-credentials'], 'false')
+
     def test_real_git_exclusions_cover_current_and_legacy_private_paths(self):
         for name in ('magic-host/inventory/host_vars/example.vault.yml',
                      'magic-host/inventory/host_vars/example.vault.yaml',

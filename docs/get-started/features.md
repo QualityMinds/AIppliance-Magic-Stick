@@ -50,6 +50,9 @@
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
   Run all phases by default or select one or more, such as Phase 3 only; progress
   and reports retain that selection without crediting unselected phases.
+  Phase 4 also offers fixed diagnostic subsets for slot races, reload and exact
+  restoration, individually or together. These retain automatic preparation and
+  cleanup and never certify the whole phase.
   Choose **Non-destructive only** (default) for isolated tests and live read-only
   inventory, or **Include destructive tests** for model/service/configuration
   workflows. The limited mode creates only test infrastructure and a temporary
@@ -58,14 +61,27 @@
   lock is already free; disabled actions explain their blocking condition.
   Distinguish missing prerequisites from checks blocked by an earlier failure,
   with the original blocking check and trace when recorded.
-  Automatic preparation failures show their setup stage and next action; fixture
-  and live evidence counts are displayed separately.
+  Automatic preparation failures show their setup stage and next action.
+  **All checks** includes isolated and live evidence, including runner and cleanup
+  errors; **Executable scenarios** has separate, initially closed details.
+  Live evidence stays separately labelled. Missing final totals are not shown as
+  zero failures; 100% progress means execution finished, not passed.
+  A report-download export failure retains completed results and does not by
+  itself require cleanup or repeating the tests.
   Each full start cleans up the previous run and begins again with a fresh test ID.
   Non-destructive starts require any previous-run cleanup to be completed separately.
   **Clean up previous test run** is also available for diagnosis; cleanup
   verifies the retained resource identities and revisions.
+  Interrupted Kubernetes executions require exact termination evidence as well;
+  ended Linux zombies are distinguished from live workers, and original runner
+  failures remain visible after cleanup.
+  Test completion, verified resource cleanup and test-account removal are shown
+  separately; an old report without cleanup evidence is not labelled clean.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
+- Optionally select **Remember me** on the local login page to stay signed in
+  across browser restarts: seven days idle, thirty days maximum. Unchecked
+  sessions keep the thirty-minute idle limit. [Signing in](../user-guide/dashboard.md#signing-in).
 
 ## What is not automatic
 

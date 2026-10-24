@@ -6,7 +6,7 @@ import {loadLabConfig} from '../core/config.ts';
 import {KubernetesLeaseStore, KubectlObserver} from '../core/observer.ts';
 import {HarnessError, requireSafe} from '../core/errors.ts';
 import {writePrivate} from '../core/private-files.ts';
-import {restoreRevision} from '../core/journal.ts';
+import {restoreRevision,ResourceJournal} from '../core/journal.ts';
 import {LabLease, type Lease} from '../core/lease.ts';
 import {poll, currentReady} from '../core/poll.ts';
 import {typeScriptWorkerArgs} from '../core/node-worker.ts';
@@ -47,7 +47,8 @@ test('HAR-08 [p0:revision-conflict] an intervening real API revision prevents au
   requireSafe(config.lock, 'CONFIG');
   const store = new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name);
   requireSafe(process.env.REGRESSION_RUN_ID,'CONFIG');
-  const owner = new LabLease(store, process.env.REGRESSION_RUN_ID, config.expected.applianceUid, Date.now, 60);
+  const journal=await ResourceJournal.resume(join(process.env.REGRESSION_RUN_DIR!,'journal.json'),config.expected.applianceUid);
+  const owner = new LabLease(store, process.env.REGRESSION_RUN_ID, config.expected.applianceUid, Date.now, 60,{journal});
   await owner.acquire(process.env.REGRESSION_RUN_ID);
   const key = 'regression.magicstick.dev/revision-probe';
   type Annotated = Lease & {metadata: Lease['metadata'] & {annotations?: Record<string, string>}};

@@ -276,12 +276,20 @@ intentional exclusions remain in reports, without full-phase acceptance.
 intent uses `operation: recover-lock`, `phases: []` and an immutable
 `lockRecovery` snapshot of the Lease UID/resource version and original journal
 run ID. It cannot select test phases or bypass journal verification.
+Optional immutable `diagnosticSelection` references the Git-owned Phase 4
+diagnostic catalog. It requires `operation: tests`, `testMode: full`, and
+`phases: [4]`. The API and operator reject unknown or unsupported selections;
+distinct credential readiness and the native diagnostic entrypoint prevent
+older schemas/operators/images from silently executing a whole phase. The Job
+receives only the validated ID; it reuses existing serial scenarios and cleanup.
 The existing Magic Stick Operator creates one non-retrying, deadline-bound Job
 in `magicstick-regression`, with UID labels (no cross-namespace owner reference),
 read-only container root, no GPU/host/Docker mounts, and affinity to the retained
 report store's node. Status records progress, real test outcomes, report
 availability and generated-account cleanup. Reports and private journals are
 separate PVC directories; the report server mounts only the sanitized directory.
+Report-export failures retain completed outcomes with a separate HAR-10 reason.
+They do not turn verified cleanup into credential recovery or change old reports.
 See [the API](dashboard-api.md#regression-runs) and [runner guide](../development/regression-remaining-p0.md#in-the-dashboard).
 
 An interrupted run may reference its original generated account through the

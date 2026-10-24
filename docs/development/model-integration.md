@@ -141,6 +141,12 @@ for this Pod; it also disables vLLM's custom all-reduce, which bypasses NCCL.
 An explicit operator transport setting is preserved. Both probes have deadlines;
 failure stops startup with a communication diagnosis. This qualification checks
 communication, and still requires model readiness and real inference acceptance.
+Failures also retain the last fixed probe milestone for each rank: Python/Torch
+import, assignment, NCCL initialization, all-reduce, point-to-point or cleanup.
+The existing authenticated log capture copies only these bounded fields into
+filtered traces/JUnit before removing the test model. Native output, UUIDs and
+paths remain private. These diagnostics do not skip qualification or extend
+the probe deadline, and missing detail in an older run is not guessed later.
 See [NVIDIA transport troubleshooting](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting/gpu_troubleshooting.html).
 
 ### Ordinary vLLM runtime upgrades
@@ -164,6 +170,23 @@ do not keep testing a fake old import path.
 The native checker receives the operator manifest through `--controller-manifest`
 and extracts its actual KV-cache argument producer, testing both Auto and FP8
 against the installed parser rather than a manually selected flag list.
+
+The reviewed **0.31.0 CPU** wrapper defaults `VLLM_USE_V2_MODEL_RUNNER` to `0`
+before vLLM reads its configuration. The native MRV2 path exceeded the existing
+90-second first-inference deadline on an AVX2 lab host, including with model
+compilation disabled. Selecting MRV1 alone answered the same cold-cache request
+with the same model revision, BF16 weights, eight-core quota and RAM/KV budgets.
+This is a CPU execution-policy default, not a timeout increase, dtype conversion
+or internal `VLLM_CPU_CI_ENV` shortcut. Explicit runner environment policy,
+compiler arguments, other vLLM versions and all GPU targets remain unchanged.
+See the selected upstream's [runner decision](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/config/vllm.py)
+and [CPU implementations](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/v1/worker/cpu_worker.py).
+The native contract also constructs the real CPU engine configuration from the
+wrapper's arguments and checks both the default and an explicit V2 override,
+without loading weights. Phase 2's `engine-create-contract` selects the owning
+counterexamples for version/override isolation, unchanged budgets/arguments and
+GPU non-interference. Native direct probes do not replace the installed
+LIFE-02/ENG-01 routed lifecycle retest.
 
 vLLM 0.28 removed `--calculate-kv-scales`. The controller no longer generates
 that switch for the current 0.31.0 pins. The wrapper still checks package

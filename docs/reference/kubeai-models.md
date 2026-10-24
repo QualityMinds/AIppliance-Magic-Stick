@@ -54,6 +54,13 @@ For vLLM it writes `--max-model-len=<contextWindow>` into the generated KubeAI
 not change the server context size. `spec.local.maxNumSeqs` becomes
 `--max-num-seqs=<maxNumSeqs>` for vLLM and `OLLAMA_NUM_PARALLEL` for Ollama.
 
+For the reviewed vLLM 0.31.0 CPU image, the wrapper defaults the native
+`VLLM_USE_V2_MODEL_RUNNER` environment policy to `0` (MRV1). An explicitly set
+policy is preserved. Other versions, GPU execution, compiler arguments, dtype
+and RAM/KV budgets are unchanged. This changes the runtime default, not saved
+model intent or a readiness/inference deadline; see the
+[native CPU contract](../development/model-integration.md#ordinary-vllm-runtime-upgrades).
+
 For Ollama, the registry source tag and the Kubernetes model name are separate
 identities. Before the generated catalog exposes the Kubernetes name, the
 operator confirms the source tag has finished downloading and ensures the same

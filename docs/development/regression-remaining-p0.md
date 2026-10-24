@@ -39,11 +39,28 @@ ID**, and runs the selected P0 phases from the beginning. All Phase 0–8 tests 
 selected by default. Progress and reports identify the saved selection; other
 phases are not run or counted as passed. Earlier results are never reused.
 Reloading the page does not stop the Kubernetes Job.
+
+After renaming the appliance, native preparation refreshes the dashboard and
+Keycloak origins supplied by that same installation. Its saved registration ID,
+Appliance/Node identities and policy must still match exactly. This does not
+replace registration, discard old journals or bypass previous-run cleanup.
+
+For focused Phase 4 checks, **Test selection** offers **Last GPU slot race**
+(`SLOT-09`), **Sharing persistence after reload** (`SHR-12`), **Exact sharing and
+resource restoration** (`HAR-08`), or their combined profile including `SLOT-03`
+and `SHR-07`. Choosing one sets full mode and only Phase 4. Normal automatic
+preparation, baseline checks and exact cleanup still run. The report retains the
+profile after reload and is not full Phase 4 acceptance. **All tests in selected
+phases** returns to ordinary phase selection. Unsupported installed versions do
+not offer these profiles or silently expand them into a whole phase.
 **Refresh tests** remains available during automatic updates. **Cancel tests**
 requests bounded cleanup.
 
 Experimental **Omni/Realtime tests are temporarily excluded** (`RT-01`–`RT-08`).
-Phase 7 still runs Mesh/companion checks. Setup does not prepare Omni models or
+Phase 7 still runs Mesh/companion checks. Its read-only Mesh navigation proof
+checks complete saved module intent plus UIDs/generations through the existing
+observer, separately from volatile reconciliation status and the no-write fence.
+Setup does not prepare Omni models or
 GPU transitions for these excluded tests; reports list `VLLM-Omni` as excluded,
 not passed or blocked. Ordinary Ollama/vLLM tests and product Omni support stay
 unchanged. Re-enable the retained cases after Realtime is ready for acceptance.
@@ -57,6 +74,10 @@ It runs only the old-run cleanup, not any test phases. Normal Start still cleans
 up automatically when needed. If cleanup is blocked, inspect its reason and
 stage: `recovery-journal`, `recovery-resource`, `recovery-module`,
 `recovery-sharing`, or `gpu-validation` identifies the failed operation.
+`gpu-backend` identifies a wait for the original GPU allocator to become ready.
+The outer cleanup deadline preserves that current step rather than replacing it
+with a generic `cleanup` stage. Keep the journal and resolve the reported backend
+condition; a timeout is never permission to release its lock.
 Retained setup access can need cleanup even when the test lock is already free.
 The button handles that state too. Its adjacent explanation distinguishes
 already clean, active work and missing ownership evidence; disabled never
@@ -70,12 +91,36 @@ or intervening revision requires inspection; the lock cannot be force-released.
 External-run journals must be cleaned up on their original runner. Historical
 failed reports remain unchanged.
 
+`PROCESS_STATE` means the old runner did not prove all its workers stopped; it
+is a harness failure, not a missing prerequisite or proof of another owner.
+The bounded private `process-state.json` records process states and birth
+identities, never command lines or environment. Live or unreadable workers stay
+fenced. Linux zombies are already unable to write and are reaped by the runner's
+init. For an old Kubernetes session, normal cleanup verifies the retained
+account's exact completed run, Job, Pod/container and node identity before
+attesting termination. The original session/report is not changed; resource
+absence, restored settings and Lease release are still checked separately by
+the existing recovery. A missing old Pod or changed identity requires review,
+not a manual lock release.
+
 Service checks borrow an idle standalone service, test enable/disable and restore
 its original state. An empty instance-provider module is not a service fixture.
 Missing optional parameter maps are preserved, not treated as invalid setup.
 Mutation receipts are isolated per worker, including after a failed case restarts
-its browser worker. Each GPU scenario also reserves its own recovery journal,
-even when consecutive successful cases share a worker. Kubernetes-access tests
+its browser worker. Cleanup checks the full resource inventory, then verifies
+each mutated journal scope independently. Adding a later already-cleaned worker
+does not invalidate an unchanged root receipt. Any open resource or changed
+receipt still fences writes; older receipts without sufficient proof require
+the same exact-journal recovery rather than inferred approval.
+Each GPU scenario also reserves its own recovery journal,
+even when consecutive successful cases share a worker. Fresh exclusive GPU
+defaults need no manual sharing setup. Full GPU scenarios borrow that baseline,
+configure the required allocator and restore exclusive device-plugin readiness
+before removing only the settings they introduced. Missing maps, missing fields
+and empty strings are restored distinctly; existing saved sharing settings and
+unrelated parameters are preserved. Custom/inherited sharing is not silently
+adopted. An ambiguous write or foreign revision still blocks cleanup.
+Kubernetes-access tests
 use the pinned plugin's actual local
 OAuth callback flow with verified IdP, client, PKCE and callback state.
 K8S-02–06 run independently: an export failure does not stand in for failed
@@ -135,11 +180,25 @@ live case IDs this way. The same registered-lab, identity, lock and cleanup rule
 apply. This creates a fresh **scoped** report, not a full-phase acceptance result.
 Rebuild the runner after source changes; do not run another test while the lab
 lock is owned by an active run.
+The same Phase 4 catalog is available externally as
+`bash tools/regression.sh phase4-sharing slot-race`, `reload`, `restoration` or
+`remaining`. It uses the existing sequential launcher and per-scenario budgets,
+not a second test engine. Diagnostic discovery requires every selected live
+case/variant/layer tuple, and missing execution evidence remains a harness failure.
 
 The lab lock renews independently of browser/model waits. Independent checks
 continue after failures; unproved cleanup blocks later live writes. A campaign
 may clean up an exact finished child before continuing, retaining its original
 failure. The next invocation still starts tests from the beginning.
+
+Phase 4 runs sharing and multi-GPU scenarios one at a time. Each has its own
+60-minute test budget and ten-minute cleanup budget; earlier scenarios cannot
+use up a later one's test time. No extra configuration is needed.
+The page separates test completion, resource cleanup and account removal.
+Only `verified` resource cleanup proves a clean baseline. For `required` or
+`blocked`, keep the private journal and inspect its reason/stage; use **Clean up
+previous test run**, not a forced unlock. Old missing cleanup fields mean
+not verified. Successful cleanup never turns an old failed test into a pass.
 
 ## Results
 
@@ -150,15 +209,33 @@ failure. The next invocation still starts tests from the beginning.
 - **Blocked by failure:** an earlier step or cleanup failed. The report links
   its original test ID, stage, reason and available filtered trace.
 
-Scenario counts and case/variant/layer evidence counts are separate. Passed
-fixture checks do not prove live acceptance. New reports flag missing required
+**All checks** is the main Dashboard/HTML/text total: case/variant/layer evidence,
+isolated and live together, including runner/cleanup errors without a scenario ID.
+**Executable scenarios** follows separately (closed by default in the Dashboard
+and HTML). Its blocked-cause counts describe scenarios, not all evidence.
+Live evidence and phase results remain separately labelled. Use the report's
+global totals directly; phases can overlap and the displayed failure list can be
+limited. Missing final totals are unavailable, not zero; recorded progress can
+show only explicitly preliminary scenario counts. **100% means execution
+finished, not passed.** JSON and JUnit keep their separate counting units.
+Passed fixture checks do not prove live acceptance. New reports flag missing required
 execution evidence as `HAR-10 / MISSING_EVIDENCE`, rather than guessing a missing
 prerequisite. Older reports keep unknown causes and their original outcomes.
+
+Phase 1's reporter and post-cleanup finalization use the same step-specific
+requirements from `profiles/phase1-p0.ts`. Core CPU/Ollama evidence does not
+include the separate session, browser-fixture or final-preflight checks. The
+complete Phase 1 report still requires all selected variants and layers across
+those steps. A genuine missing selected check still fails `MISSING_EVIDENCE`;
+repairing the scope does not remove failures from historical reports.
 
 The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
 scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
 cause properties. The archive retains every row, even when the Dashboard limits
 its expanded list. Raw credentials, journals and runtime logs stay private.
+`HAR-10 / REPORT_EXPORT` means downloads could not be published: completed counts
+remain visible, and it does not imply a cleanup failure. Inspect report size or
+storage; do not repeat a multi-hour run or force recovery to recreate a download.
 Tests skipped after a failed serial sibling link to that sibling's failure;
 they are not reported as newly missing prerequisites.
 Phase 5 shared application/service setup failures also retain their original
@@ -170,6 +247,17 @@ compatible catalog candidate fits the currently available RAM. API/estimator
 errors remain failures, not missing prerequisites.
 Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
 exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
+MOD-06 waits for the saved ModuleActivation generation and its projected profile
+before reloading Hardware; a stale or missing projection is not a persisted-form
+failure after five seconds. A foreign intent fails immediately, and restoration
+has its own bounded `recovery-module` readback. KEY-04 consumes the existing
+administrator credential response as opaque header material, not a user API token
+with a prescribed prefix. No master credential is copied into reports or URLs.
+An observed HW-06 binding or image mismatch after verification was submitted
+is a failed proof at `gpu-binding`, not evidence that hardware is absent. Its
+private `verification-binding-failure.json` retains only fixed check codes and
+run/request identity; no credentials or raw runtime output are exported. Inspect
+that exact proof before changing allocator settings or repeating the test.
 Functional browser, API, inference and Realtime probes use HTTPS but do not
 validate its certificate. Certificate acceptance belongs to HAR-01 and trusted
 credential setup; Kubernetes access still checks the downloaded CA contract.
@@ -184,8 +272,16 @@ page for the terminal result, without retries or weaker GPU checks.
 GPU startup and first CPU inference retain structured Pod/routing/response
 diagnostics; Realtime readiness also retains bounded private runtime logs before
 cleanup. vLLM collective preflight exports only fixed reason/transport/cleanup
-fields; raw startup output stays private. A failed cleanup journal retains its
-operation and fixed reason/stage for exact-resource diagnosis and safe retry.
+fields and the last fixed milestone per rank (import, assignment, NCCL
+initialization or data exchange) when available. Raw startup output stays
+private; historical traces without milestones stay unchanged. A failed cleanup
+journal retains its operation and fixed reason/stage for exact-resource diagnosis
+and safe retry.
+The native collective probe explicitly uses matching Float32 send/receive
+buffers. Its owning-layer counterexample exercises every directed peer pair
+for two- and four-GPU groups; live MGPU-01 still requires successful native
+qualification and routed inference rather than treating that fixture as hardware
+acceptance.
 Repeated-cycle checks separate model-cache growth from other disk
 growth and verify model, Pod, claim, route and key cleanup. Expected service
 rollouts compare stable workload UIDs and replica counts, not replaceable Pod
@@ -207,6 +303,17 @@ checks before promoting its immutable digest on `main` or `develop`. A source
 push alone does not verify installation. Check both runner and Dashboard image
 revisions before live acceptance. Physical multi-GPU inference still needs real
 hardware; synthetic card fixtures only prove their recorded UI/contracts.
+
+For an explicitly approved feature-branch rollout, manually dispatch **Regression
+runner** on that branch with `publish_candidate: true`. All build and isolated
+checks still run. Only the tested exact-source image is published and verified
+by anonymous pull; the summary records its immutable digest. Manual dispatch
+never promotes `main` or `develop`. Adopt that digest and `sourceRevision` in
+`magic-cluster/apps/regression/runtime.yaml` on the feature branch, refresh
+the generated deployment references and verify the installed revision separately.
+Use the tested-source replacement in `tools/promote_regression_image.py` so its
+`diagnosticSelectionVersion: "1"` capability advances with that exact qualified
+image. Do not add this capability to an older runner pin.
 
 On registered test Appliances, host software convergence defers while a test or
 cleanup run is active. Updates reserve the same lab Lease through Flux rollout;
