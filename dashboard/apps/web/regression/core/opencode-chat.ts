@@ -43,6 +43,7 @@ export class OpenCodeChatEvidence {
   private completed=false;
   private rendered=false;
   private composerReady=false;
+  private promptStatus?:number;
   private failure?:HarnessError;
   readonly origin:string;
   readonly model:string;
@@ -73,6 +74,7 @@ export class OpenCodeChatEvidence {
   }
   acknowledge(address:string,method:string,status:number) {
     if(address!==this.requestUrl||method!=='POST')return;
+    this.promptStatus=status;
     if(status===204)this.acknowledged=true;else this.fail(new HarnessError('API','Failed','model-inference'));
   }
   accepted() {this.check();return this.acknowledged;}
@@ -88,7 +90,8 @@ export class OpenCodeChatEvidence {
   }
   renderedResponse() {this.check();requireProof(this.completed,'API');this.rendered=true;}
   ready() {this.check();this.composerReady=true;}
-  snapshot() {return {composerReady:this.composerReady,submitted:Boolean(this.turn),acknowledged:this.acknowledged,completed:this.completed,rendered:this.rendered,failed:Boolean(this.failure)};}
+  snapshot() {return {composerReady:this.composerReady,submitted:Boolean(this.turn),acknowledged:this.acknowledged,completed:this.completed,rendered:this.rendered,failed:Boolean(this.failure),
+    ...(this.promptStatus===undefined?{}:{promptStatus:this.promptStatus})};}
 }
 
 /** Fence the browser's real native prompt request before it can use another

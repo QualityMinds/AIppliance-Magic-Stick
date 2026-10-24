@@ -144,6 +144,49 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
   await expect(completedValidation(bindingScenario,request)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding'});
   expect(JSON.parse(await readFile(join(directory,'verification-binding-failure.json'),'utf8')))
     .toEqual({version:1,runId,requestId:request.requestId,engine:'OLlama',check:'slice-uuid'});
+  // The pinned Kubernetes claim controller clears an allocation when its last
+  // consumer completes, before the completed Pod disappears. Exercise the real
+  // polling workflow across that transition, not just a static binding helper.
+  const imageId='registry.example.invalid/engine@sha256:'+'a'.repeat(64);
+  const allocated:KubeObject={...claim,metadata:{...claim.metadata,uid:'claim-uid',generation:1},
+    spec:{devices:{requests:[{name:'gpu',exactly:{deviceClassName:'gpu.nvidia.com',count:1}}]}}};
+  const slice:KubeObject={metadata:{uid:'slice-uid'},spec:{driver:'gpu.nvidia.com',nodeName:card.node,
+    pool:{name:card.pool,generation:1,resourceSliceCount:1},devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}};
+  async function lifecycle(damage?:string) {
+    let observation=0;
+    const workflow={config:lab,directory,live:{journal:{runId},guard:async()=>{},observer:{
+      list:async(resource:string,namespace?:string)=>{
+        if(resource==='jobs') {
+          if(namespace!=='ai')return [];
+          observation++;
+          return [{...job,status:observation>1?{conditions:[{type:'Complete',status:'True'}]}:{}}];
+        }
+        if(resource==='pods')return namespace==='ai'?[{...pod,
+          metadata:{...pod.metadata,name:'validation-pod',namespace:'ai',uid:observation>1&&damage==='different-pod'?'replacement-pod':'pod-uid'},
+          status:{phase:damage==='never-observed'||observation>1&&!['live-deallocation','raced-completion'].includes(damage??'')?'Succeeded':'Running',
+            initContainerStatuses:[{name:'engine',imageID:observation>1&&damage==='wrong-image'?'unverified':imageId}]}}]:[];
+        return [slice];
+      },get:async(resource:string)=>{
+        if(resource==='pods')return {...pod,metadata:{...pod.metadata,name:'validation-pod',namespace:'ai'},
+          status:{phase:damage==='raced-completion'?'Succeeded':'Running',initContainerStatuses:[{name:'engine',imageID:imageId}]}};
+        const current=structuredClone(allocated);
+        if(observation>1||damage==='never-observed') {
+          current.status={};
+          if(damage==='replaced-claim')current.metadata.uid='foreign-claim';
+          if(damage==='changed-generation')current.metadata.generation=2;
+          if(damage==='changed-spec')current.spec={devices:{requests:[]}};
+          if(damage==='wrong-allocation')current.status=structuredClone(allocated.status);
+          if(damage==='wrong-allocation')(current.status!.allocation!.devices as any).results[0].device='foreign-card';
+        }
+        return current;
+      }}},state:async()=>({backend:'dra',devices:[card]}),inventory:async()=>({devices:[{...device,
+        validation:{OLlama:{state:observation>1?'passed':'running',validatedAt:new Date().toISOString(),imageId}}}]})} as unknown as GpuScenario;
+    return completedValidation(workflow,request);
+  }
+  await lifecycle();await lifecycle('raced-completion');
+  for(const damage of ['replaced-claim','changed-generation','changed-spec','different-pod','live-deallocation',
+    'never-observed','wrong-allocation','wrong-image'])
+    await expect(lifecycle(damage),damage).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding'});
 });
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
 test.afterEach(async()=>{await rm(directory,{recursive:true,force:true});});

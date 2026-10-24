@@ -63,7 +63,7 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
     const priorGlobalTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     let serviceStatus = 200, inferenceStatus = 200, sessionType = 'session.created',wrongCopy=false;
     let terminal=terminalFixture(()=>wrongCopy);
-    let openCodeFault:'none'|'wrong-model'|'stale'|'wrong-selection'|'never-ready'='none',nativeMessages:unknown[]=[],nativeSubmissions=0;
+    let openCodeFault:'none'|'wrong-model'|'stale'|'wrong-selection'|'never-ready'|'missing-session'='none',nativeMessages:unknown[]=[],nativeSubmissions=0;
     try {
       const key = join(directory, 'key.pem'), cert = join(directory, 'cert.pem');
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
@@ -73,6 +73,7 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
         if(path==='/session/ses_fixture/prompt_async'&&request.method==='POST') {
           nativeSubmissions++;let body='';request.on('data',chunk=>{body+=chunk;});
           request.on('end',()=>{
+            if(openCodeFault==='missing-session'){response.writeHead(404);response.end();return;}
             const value=JSON.parse(body),text=String(value.parts[0].text).replace(/^Reply with exactly /,'');
             nativeMessages=[{info:{id:'msg_response',sessionID:'ses_fixture',parentID:openCodeFault==='stale'?'msg_old':value.messageID,
               role:'assistant',providerID:value.model.providerID,modelID:value.model.modelID,time:{created:1,completed:2},finish:'stop'},
@@ -175,7 +176,7 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
           expect(await chat.evaluate(()=>navigator.clipboard.readText().then(value=>value===''))).toBe(true);
         }finally{await chat.close();}
       }
-      for(openCodeFault of ['none','wrong-model','stale','wrong-selection','never-ready'] as const) {
+      for(openCodeFault of ['none','wrong-model','stale','wrong-selection','never-ready','missing-session'] as const) {
         nativeMessages=[];nativeSubmissions=0;
         const chat=await functional.newPage(),proof=new OpenCodeChatEvidence(origin,'reg-fixture-model');
         await observeOpenCodeChat(chat,proof,async()=>{});
@@ -189,6 +190,10 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
             await expect(result).rejects.toMatchObject({outcome:'Failed',stage:'app-ready'});
             expect(nativeSubmissions).toBe(0);expect(proof.snapshot().submitted).toBe(false);
           }else if(openCodeFault==='stale')await expect(result).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-inference'});
+          else if(openCodeFault==='missing-session') {
+            await expect(result).rejects.toMatchObject({code:'API',outcome:'Failed',stage:'model-inference'});
+            expect(nativeSubmissions).toBe(1);expect(proof.snapshot()).toMatchObject({promptStatus:404,acknowledged:false,failed:true});
+          }
           else {await result;expect(proof.snapshot()).toMatchObject({submitted:true,acknowledged:true,completed:true,rendered:true,failed:false});}
         }finally{await chat.close();}
       }
