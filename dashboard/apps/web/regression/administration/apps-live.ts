@@ -19,6 +19,7 @@ import {preparationApi,estimateInput} from '../core/preparation-api.ts';
 import {regressionContextOptions} from '../core/https-policy.ts';
 import {repositoryAppAdapter} from '../core/application-adapters.ts';
 import {HermesTerminalEvidence,observeHermesTerminal,verifyHermesTerminalChat} from '../core/hermes-terminal.ts';
+import {OpenCodeChatEvidence,observeOpenCodeChat,verifyOpenCodeChat,openCodeChatPath} from '../core/opencode-chat.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
  * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
@@ -60,17 +61,17 @@ export function validateAppFixtures(value:unknown):AppFixture[] {
       Object.keys(item).sort().join(',') === 'originTemplate,promptLabel,responseMarker,responseSelector,sendButton,type') &&
       (repositoryAppAdapter(item) ? ['responseMarker'] : ['promptLabel','responseMarker','responseSelector','sendButton']).every(key=>typeof item[key] === 'string' && item[key].length > 0 && item[key].length < 256) &&
       typeof item.originTemplate === 'string' && item.originTemplate.split('{name}').length === 2,'CONFIG');
-    if(item.adapter==='hermes-terminal-v1')requireSafe(/^[A-Za-z0-9_-]{1,64}$/.test(item.responseMarker),'CONFIG');
+    if(['hermes-terminal-v1','opencode-chat-v1'].includes(item.adapter))requireSafe(/^[A-Za-z0-9_-]{1,64}$/.test(item.responseMarker),'CONFIG');
     const url=new URL(item.originTemplate.replace('{name}','reg-fixture'));
     requireSafe(url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash,'CONFIG');
   }return value;
 }
-async function appPage(context:BrowserContext,origin:string,guard:()=>Promise<void>,options:{path?:string;observe?:(page:Page)=>void}={}) {
+async function appPage(context:BrowserContext,origin:string,guard:()=>Promise<void>,options:{path?:string;observe?:(page:Page)=>void|Promise<void>}={}) {
   const page=await context.newPage();
   // Only the exact run-owned application's origin is admitted. Cross-origin
   // provider/API traffic remains fenced by the existing login context.
   await page.route(origin+'/**',async route=>{requireSafe(new URL(route.request().url()).origin === origin,'MUTATION');await guard();await route.continue();});
-  try {options.observe?.(page);await page.goto(origin+(options.path??'/'),{waitUntil:'domcontentloaded'});return page;}
+  try {await options.observe?.(page);await page.goto(origin+(options.path??'/'),{waitUntil:'domcontentloaded'});return page;}
   catch(error){await page.close();throw error;}
 }
 async function credentials(api:AdministrationApi,page:Page,name:string,supported:boolean) {
@@ -140,13 +141,19 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
         }finally{await anonymous.close();}
         // The actual application UI must invoke the selected local model.
         const terminal=fixture.adapter==='hermes-terminal-v1'?new HermesTerminalEvidence(origin,model.client.name):undefined;
-        const app=await appPage(actors[0]!,origin,live.guard,terminal?{path:'/chat',observe:page=>{observeHermesTerminal(page,terminal);}}:{});
+        const opencode=fixture.adapter==='opencode-chat-v1'?new OpenCodeChatEvidence(origin,model.client.name):undefined;
+        const app=await appPage(actors[0]!,origin,live.guard,terminal?{path:'/chat',observe:page=>{observeHermesTerminal(page,terminal);}}:
+          opencode?{path:openCodeChatPath,observe:page=>observeOpenCodeChat(page,opencode,live.guard)}:{});
         try {
           requireSafe(new URL(app.url()).origin === origin,'AUTH');
           if(terminal) {
             await withCleanup(()=>test.step('Use the native Hermes terminal and copy its fresh assistant response',()=>
               verifyHermesTerminalChat(app,terminal,live.guard,fixture.responseMarker)),
             ()=>writePrivate(journalFile(live.journal,'hermes-chat-proof.json'),{version:1,...terminal.snapshot()}));
+          }else if(opencode) {
+            await withCleanup(()=>test.step('Submit through native OpenCode and verify its owned-model assistant turn',()=>
+              verifyOpenCodeChat(app,opencode,live.guard,fixture.responseMarker,{requestMs:live.config.requestTimeoutMs})),
+            ()=>writePrivate(journalFile(live.journal,'opencode-chat-proof.json'),{version:1,...opencode.snapshot()}));
           }else if(fixture.adapter === 'semantic-chat-v1') {
             // Discover a unique visible semantic chat control, not a manually
             // maintained CSS selector. A wrong built-in adapter is a harness

@@ -26,6 +26,7 @@ import {applicationModel,applicationContexts,applicationEditContext} from '../co
 import {catalogFixture} from '../core/input-preparation.ts';
 import {HarnessError} from '../core/errors.ts';
 import {HermesTerminalEvidence} from '../core/hermes-terminal.ts';
+import {OpenCodeChatEvidence,completedOpenCodeTurn,openCodeChatPath} from '../core/opencode-chat.ts';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -428,6 +429,54 @@ test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application
   expect(()=>validateAppFixtures([{...fixtures[0],originTemplate:'http://{name}.example.invalid'},...fixtures.slice(1)])).toThrow();
   const terminal={type:'hermes',originTemplate:'https://{name}.hermes.example.invalid/',adapter:'hermes-terminal-v1',responseMarker:'REGRESSION'};
   expect(validateAppFixtures([terminal])).toEqual([terminal]);
+  const opencode={type:'kubeopencode',originTemplate:'https://{name}.kubeopencode.example.invalid/',adapter:'opencode-chat-v1',responseMarker:'REGRESSION'};
+  expect(validateAppFixtures([opencode])).toEqual([opencode]);
+  expect(()=>validateAppFixtures([{...opencode,type:'hermes'}])).toThrow('[CONFIG]');
+  expect(openCodeChatPath).toBe('/L3dvcmtzcGFjZQ/session');
+  const requestUrl='https://opencode.example.invalid/session/ses_fixture/prompt_async?directory=%2Fworkspace';
+  const nativeMarker='REGRESSION_fresh',nativePrompt='Reply with exactly '+nativeMarker;
+  const nativeBody={messageID:'msg_prompt',model:{providerID:'litellm',modelID:'reg-model'},parts:[{type:'text',text:nativePrompt}]};
+  const nativeTurn={sessionId:'ses_fixture',messageId:'msg_prompt',model:'reg-model',prompt:nativePrompt,marker:nativeMarker};
+  const nativeReply={info:{id:'msg_response',sessionID:'ses_fixture',parentID:'msg_prompt',role:'assistant',providerID:'litellm',
+    modelID:'reg-model',time:{created:1,completed:2},finish:'stop'},parts:[{type:'text',text:nativeMarker,sessionID:'ses_fixture',messageID:'msg_response'}]};
+  const nativeProof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');
+  expect(nativeProof.begin(nativeMarker)).toBe(nativePrompt);nativeProof.submit(requestUrl,'POST',nativeBody);
+  nativeProof.acknowledge(requestUrl,'POST',204);expect(nativeProof.accepted()).toBe(true);
+  expect(new URL(nativeProof.messageUrl()).pathname).toBe('/session/ses_fixture/message');
+  expect(nativeProof.observe([nativeReply])).toBe(true);nativeProof.renderedResponse();
+  expect(nativeProof.snapshot()).toEqual({submitted:true,acknowledged:true,completed:true,rendered:true,failed:false});
+  const headerProof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');headerProof.begin(nativeMarker);
+  headerProof.submit(requestUrl.split('?')[0]!,'POST',nativeBody,{directory:encodeURIComponent('/workspace'),workspace:'owned-workspace'});
+  headerProof.acknowledge(requestUrl.split('?')[0]!,'POST',204);expect(headerProof.accepted()).toBe(true);
+  expect(new URL(headerProof.messageUrl()).searchParams.get('workspace')).toBe('owned-workspace');
+  for(const scope of [{directory:'/foreign'},{directory:encodeURIComponent('/foreign')},{workspace:'../foreign'}]) {
+    const proof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');proof.begin(nativeMarker);
+    expect(()=>proof.submit(requestUrl,'POST',nativeBody,scope)).toThrow('[MUTATION]');
+  }
+  for(const bad of [{...nativeBody,model:{...nativeBody.model,modelID:'foreign-model'}},
+    {...nativeBody,model:{...nativeBody.model,providerID:'external'}},{...nativeBody,noReply:true},
+    {...nativeBody,messageID:'../foreign'}, {...nativeBody,parts:[{type:'text',text:'other prompt'}]},
+    {...nativeBody,parts:[...nativeBody.parts,{type:'file',url:'https://foreign.invalid'}]}]) {
+    const proof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');proof.begin(nativeMarker);
+    expect(()=>proof.submit(requestUrl,'POST',bad)).toThrow('[MUTATION]');
+  }
+  for(const address of [requestUrl.replace('opencode.example.invalid','foreign.example.invalid'),requestUrl.replace('%2Fworkspace','%2Fforeign'),
+    requestUrl+'&token=synthetic',requestUrl.replace('ses_fixture','..')]) {
+    const proof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');proof.begin(nativeMarker);
+    expect(()=>proof.submit(address,'POST',nativeBody)).toThrow('[MUTATION]');
+  }
+  expect(()=>nativeProof.submit(requestUrl,'POST',nativeBody)).toThrow('[MUTATION]');
+  for(const response of [{...nativeReply,info:{...nativeReply.info,sessionID:'foreign'}},
+    {...nativeReply,info:{...nativeReply.info,modelID:'foreign'}}, {...nativeReply,info:{...nativeReply.info,providerID:'external'}},
+    {...nativeReply,info:{...nativeReply.info,error:{name:'synthetic'}}}, {...nativeReply,info:{...nativeReply.info,finish:'length'}},
+    {...nativeReply,parts:[{...nativeReply.parts[0],text:nativePrompt}]}, {...nativeReply,parts:[{...nativeReply.parts[0],synthetic:true}]},
+    {...nativeReply,parts:[{...nativeReply.parts[0],ignored:true}]}, {...nativeReply,parts:[{...nativeReply.parts[0],messageID:'foreign'}]}])
+    expect(()=>completedOpenCodeTurn([response],nativeTurn)).toThrow();
+  for(const response of [{...nativeReply,info:{...nativeReply.info,parentID:'old-prompt'}},
+    {...nativeReply,info:{...nativeReply.info,role:'user'}}, {...nativeReply,info:{...nativeReply.info,time:{created:1}}},
+    {...nativeReply,info:{...nativeReply.info,finish:'tool-calls'}}])
+    expect(completedOpenCodeTurn([response],nativeTurn)).toBe(false);
+  expect(()=>completedOpenCodeTurn([nativeReply,nativeReply],nativeTurn)).toThrow('[API]');
   expect(()=>validateAppFixtures([{...terminal,type:'openclaw'}])).toThrow('[CONFIG]');
   expect(()=>validateAppFixtures([{...terminal,adapter:'unreviewed'}])).toThrow('[CONFIG]');
   expect(()=>validateAppFixtures([{...terminal,responseMarker:'arbitrary prompt with spaces'}])).toThrow('[CONFIG]');

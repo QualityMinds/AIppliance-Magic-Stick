@@ -12,6 +12,7 @@ import {InferenceProbe} from '../core/inference.ts';
 import {realtimeSession} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {HermesTerminalEvidence,observeHermesTerminal,verifyHermesTerminalChat} from '../core/hermes-terminal.ts';
+import {OpenCodeChatEvidence,observeOpenCodeChat,verifyOpenCodeChat,openCodeChatPath} from '../core/opencode-chat.ts';
 import type {Duplex} from 'node:stream';
 
 /** Tiny native-protocol fixture, not another application or inference backend.
@@ -62,12 +63,37 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
     const priorGlobalTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     let serviceStatus = 200, inferenceStatus = 200, sessionType = 'session.created',wrongCopy=false;
     let terminal=terminalFixture(()=>wrongCopy);
+    let openCodeFault:'none'|'wrong-model'|'stale'='none',nativeMessages:unknown[]=[],nativeSubmissions=0;
     try {
       const key = join(directory, 'key.pem'), cert = join(directory, 'cert.pem');
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
         '-subj', '/CN=not-this-host.invalid', '-days', '1', '-addext', 'subjectAltName=DNS:not-this-host.invalid'], {stdio: 'pipe'});
       server = createServer({key: await readFile(key), cert: await readFile(cert)}, (request, response) => {
-        if(request.url==='/chat') {
+        const path=new URL(request.url??'/','https://fixture.invalid').pathname;
+        if(path==='/session/ses_fixture/prompt_async'&&request.method==='POST') {
+          nativeSubmissions++;let body='';request.on('data',chunk=>{body+=chunk;});
+          request.on('end',()=>{
+            const value=JSON.parse(body),text=String(value.parts[0].text).replace(/^Reply with exactly /,'');
+            nativeMessages=[{info:{id:'msg_response',sessionID:'ses_fixture',parentID:openCodeFault==='stale'?'msg_old':value.messageID,
+              role:'assistant',providerID:value.model.providerID,modelID:value.model.modelID,time:{created:1,completed:2},finish:'stop'},
+              parts:[{type:'text',text,sessionID:'ses_fixture',messageID:'msg_response'}]}];
+            response.writeHead(204);response.end();
+          });
+        }else if(path==='/session/ses_fixture/message') {
+          response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(nativeMessages));
+        }else if(path===openCodeChatPath) {
+          response.writeHead(200,{'Content-Type':'text/html'});
+          response.end(`<!doctype html><div data-component="prompt-input" contenteditable="true" role="textbox"></div>
+            <button data-action="prompt-submit">Send message</button><div data-slot="session-turn-assistant-content" aria-hidden="false"></div><script>
+            document.querySelector('button').onclick=async()=>{try{
+              const parts=[{type:'text',text:document.querySelector('[contenteditable]').innerText}];
+              const result=await fetch('/session/ses_fixture/prompt_async',{method:'POST',
+                headers:{'Content-Type':'application/json','x-opencode-directory':'%2Fworkspace'},body:JSON.stringify({messageID:'msg_prompt',
+                  model:{providerID:'litellm',modelID:${openCodeFault==='wrong-model'?'"foreign-model"':'"reg-fixture-model"'}},parts})});
+              if(!result.ok)return;const messages=await(await fetch('/session/ses_fixture/message?directory=%2Fworkspace')).json();
+              document.querySelector('[data-slot]').textContent=messages[0].parts[0].text;
+            }catch{}};</script>`);
+        }else if(request.url==='/chat') {
           response.writeHead(200,{'Content-Type':'text/html'});
           response.end(`<!doctype html><div class="hermes-chat-xterm-host"><textarea class="xterm-helper-textarea"></textarea></div>
             <button aria-label="Copy last assistant response">Copy</button><script>
@@ -139,6 +165,20 @@ test('HAR-01 HAR-10 functional browser, service, inference and Realtime checks e
           if(wrongCopy)await expect(result).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-inference'});
           else {await result;expect(proof.snapshot()).toMatchObject({submitted:true,started:true,completed:true,copied:true,failed:false});}
           expect(await chat.evaluate(()=>navigator.clipboard.readText().then(value=>value===''))).toBe(true);
+        }finally{await chat.close();}
+      }
+      for(openCodeFault of ['none','wrong-model','stale'] as const) {
+        nativeMessages=[];nativeSubmissions=0;
+        const chat=await functional.newPage(),proof=new OpenCodeChatEvidence(origin,'reg-fixture-model');
+        await observeOpenCodeChat(chat,proof,async()=>{});
+        try {
+          await chat.goto(origin+openCodeChatPath);
+          const result=verifyOpenCodeChat(chat,proof,async()=>{},'REGRESSION',{readyMs:3000,requestMs:1000,inferenceMs:750});
+          if(openCodeFault==='wrong-model') {
+            await expect(result).rejects.toMatchObject({code:'MUTATION',outcome:'Failed',stage:'model-inference'});
+            expect(nativeSubmissions).toBe(0);
+          }else if(openCodeFault==='stale')await expect(result).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-inference'});
+          else {await result;expect(proof.snapshot()).toMatchObject({submitted:true,acknowledged:true,completed:true,rendered:true,failed:false});}
         }finally{await chat.close();}
       }
     } finally {

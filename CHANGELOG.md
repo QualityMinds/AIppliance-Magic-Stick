@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Use the pinned OpenCode application's native workspace/session composer in
+  the existing KubeOpenCode regression workflow. Fence its actual UI submission
+  to the owned local model and verify a fresh completed assistant turn through
+  both native message identity and rendered assistant content. Keep a restarted
+  KEY-04 worker's unmanaged-key receipt beside its own journal, so it cannot
+  invalidate an earlier worker's verified cleanup. No campaign cases were added.
+
 - Use Hermes' native terminal in the existing application regression instead of
   looking for a generic Send button. Verify its same-channel live model/session,
   fresh completed answer and actual UI clipboard export; clear clipboard data

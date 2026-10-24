@@ -139,7 +139,10 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD teleme
   const applications=automaticProfile(observed,{},prepared.parsed).applications;
   expect(applications.fixtures).toContainEqual({type:'hermes',adapter:'hermes-terminal-v1',
     originTemplate:'https://{name}.hermes.dashboard.example.local/',responseMarker:'REGRESSION'});
-  expect(applications.fixtures.filter((item:{type:string})=>item.type!=='hermes').every((item:{adapter:string})=>item.adapter==='semantic-chat-v1')).toBe(true);
+  expect(applications.fixtures).toContainEqual({type:'kubeopencode',adapter:'opencode-chat-v1',
+    originTemplate:'https://{name}.kubeopencode.dashboard.example.local/',responseMarker:'REGRESSION'});
+  expect(applications.fixtures.filter((item:{type:string})=>!['hermes','kubeopencode'].includes(item.type))
+    .every((item:{adapter:string})=>item.adapter==='semantic-chat-v1')).toBe(true);
   observed.readableFiles.push('/inputs/app-cleaner.kubeconfig');
   const appReadiness=inputReadiness(prepared.parsed,{...profile,applications},observed,{...options,phases:[5],automatic:true})[0]!;
   expect(appReadiness.measures.some(item=>String(item.id).startsWith('app-'))).toBe(false);

@@ -593,6 +593,34 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+24 October 2026, existing APP-02/APP-06 KubeOpenCode and KEY-04/HAR-07 follow-up:
+the latest mixed-GPU Phase 5 run passed MOD-06 A/E and KEY-04 A; the actual
+Hermes UI also completed its owned-model turn and native clipboard proof before
+the shared application workflow reached KubeOpenCode. The next failure is the
+generic textbox/Send assumption, not missing application infrastructure.
+Automatic preparation now selects `opencode-chat-v1` for the pinned
+[OpenCode v1.17.11 composer](https://github.com/anomalyco/opencode/blob/v1.17.11/packages/app/src/components/prompt-input.tsx).
+The browser submits through the native workspace/session UI; the request fence
+verifies the exact local model/provider, fresh message and directory binding,
+including the pinned SDK's POST directory header and GET query contract.
+Read-only native history must contain a completed successful assistant turn for
+that same parent/session/model, and its answer must render in assistant content.
+The existing HAR-10 safety and actual Chromium HTTPS fixture reject wrong-model
+submissions before forwarding, stale turns, prompt echoes, partial/tool-only
+answers and foreign/synthetic message content. No new scenario, variant or layer
+was registered. Native OpenCode acceptance remains required.
+
+The same completed run needed successful automatic recovery after its final
+cleanup assessment: KEY-04's restarted worker had written its removed-key
+receipt into the original worker's directory, invalidating the earlier proof.
+The owning workflow now writes beside its exact journal. An added counterproof
+inside the existing HAR-07 worker-receipt test invokes the real KEY-04 workflow,
+verifies the removed-key receipt in the later worker and independently reassesses
+both scopes. It failed before the path correction and passed afterwards.
+Cleanup fingerprints, resource ownership/revisions and recovery gates are not
+weakened. Historical failures stay unchanged; the old run's eventual verified
+cleanup and removed test account do not turn its earlier failure into a pass.
+
 24 October 2026, existing APP-02/APP-06 Hermes adapter follow-up: the application
 workflow formerly treated the native terminal as a missing generic chat form.
 Automatic preparation now selects `hermes-terminal-v1`, following the pinned

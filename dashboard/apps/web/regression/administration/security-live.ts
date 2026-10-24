@@ -2,7 +2,7 @@ import {readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {join,resolve,dirname} from 'node:path';
 import type {LiveFoundation} from '../core/live-foundation.ts';
-import {readPrivate,writePrivate} from '../core/private-files.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
 import {AdministrationApi} from '../core/administration-api.ts';
@@ -114,7 +114,7 @@ export async function unmanagedKeyWorkflow(live:LiveFoundation) {
   const fixtureClient=new UnmanagedKeyFixtureClient(live.context.request,live.config.inferenceUrl,master,live.guard,live.config.requestTimeoutMs);
   const fixture=plan.createDisposableFixture === true ? disposableUnmanagedKey(live.journal.runId,live.config.expected.applianceUid) : undefined;
   const id=fixture?.identity.id ?? plan.id;
-  const receipt=join(process.env.REGRESSION_RUN_DIR!,'unmanaged-key-fixture.json');
+  const receipt=journalFile(live.journal,'unmanaged-key-fixture.json');
   if(fixture)await writePrivate(receipt,{version:1,...fixture.identity,state:'requested'},true);
   try {
     if(fixture) {
