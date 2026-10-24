@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Wait for the exact saved AMD profile generation and controller projection
+  before the regression reload assertion, and verify the restored projection
+  separately. Use the installer's opaque LiteLLM master credential in the
+  disposable unmanaged-key test without assuming a user-token `sk-` prefix;
+  keep header bounds, authentication and exact fixture cleanup unchanged.
+
 - Report a failed physical GPU verification binding as a failed proof at
   `gpu-binding`, not an unavailable hardware prerequisite. Retain a bounded
   private detail code for the failed check without weakening card/claim/image

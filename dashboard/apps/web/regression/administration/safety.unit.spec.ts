@@ -11,7 +11,7 @@ import {inspectOidcConfig} from '../core/oidc-exec.ts';
 import {verifyAppCleanerRules,OwnedAppClient,appReleaseTarget,appReleaseReady} from '../core/owned-app.ts';
 import type {AppInstance} from '@magicstick/dashboard-contracts';
 import type {KubeObject} from '../core/observer.ts';
-import {moduleProfileWorkflow} from './modules-live.ts';
+import {moduleProfileWorkflow,waitModuleProfileReadback} from './modules-live.ts';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
@@ -155,9 +155,34 @@ test('APP-02 observes the current controller-owned HelmRelease in the Appliance 
     .toThrow('[stage:app-ready]');
 });
 
-test('MOD-06 absent AMD hardware blocks profile mutation before reading its module or a stale preparation file',annotation,async()=>{
+test('MOD-06 profile mutation requires physical AMD hardware and bounded exact-revision status readback',annotation,async()=>{
   await expect(moduleProfileWorkflow({config:{gpu:{devices:{nvidia:{id:'node/pci'}}}}} as unknown as LiveFoundation))
     .rejects.toMatchObject({code:'GPU_PROVIDER',outcome:'Blocked',stage:'gpu-backend'});
+  const intent:KubeObject={metadata:{uid:'owned-module',generation:2},spec:{enabled:true,module:'amd-gpu',
+    parameters:{compatibilityProfile:'',allowExperimental:'false',gpuSharing:'unchanged-sharing'}},status:{observedGeneration:2}};
+  const stale={schemaVersion:1,profiles:[],nodes:[],selectedProfile:'strix-halo',allowExperimental:true};
+  const current={...stale,selectedProfile:'',allowExperimental:false};
+  let reads=0;
+  await expect(waitModuleProfileReadback(async()=>({intent,compatibility:++reads===1?stale:current}),intent,{timeoutMs:2000}))
+    .resolves.toEqual({intent,compatibility:current});
+  expect(reads).toBe(2);
+  for(const compatibility of [undefined,stale,{...current,allowExperimental:undefined}])
+    await expect(waitModuleProfileReadback(async()=>({intent,compatibility}),intent,{timeoutMs:5}))
+      .rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'module-ready'});
+  await expect(waitModuleProfileReadback(async()=>({intent:{...intent,status:{observedGeneration:1}},compatibility:current}),intent,{timeoutMs:5}))
+    .rejects.toMatchObject({code:'DEADLINE',stage:'module-ready'});
+  for(const changed of [{...intent,metadata:{...intent.metadata,uid:'foreign'}},
+    {...intent,metadata:{...intent.metadata,generation:3}},
+    {...intent,metadata:{...intent.metadata,deletionTimestamp:'2026-10-24T16:00:00Z'}},
+    {...intent,spec:{...intent.spec,parameters:{compatibilityProfile:'',allowExperimental:'false',gpuSharing:'foreign-sharing'}}}])
+    await expect(waitModuleProfileReadback(async()=>({intent:changed,compatibility:current}),intent))
+      .rejects.toMatchObject({code:'CONFLICT',outcome:'Failed'});
+  reads=0;
+  await expect(waitModuleProfileReadback(async()=>{reads++;throw new HarnessError('API','Failed');},intent))
+    .rejects.toMatchObject({code:'API',outcome:'Failed'});
+  expect(reads).toBe(1);
+  await expect(waitModuleProfileReadback(async()=>({intent,compatibility:stale}),intent,{timeoutMs:5,stage:'recovery-module'}))
+    .rejects.toMatchObject({code:'DEADLINE',stage:'recovery-module'});
 });
 test('HAR-10 license UI protection allows bodyless polling but rejects unrelated and stale writes',annotation,()=>{
   const document='synthetic-license',revision='synthetic-revision',origin='https://dashboard.example.local';
