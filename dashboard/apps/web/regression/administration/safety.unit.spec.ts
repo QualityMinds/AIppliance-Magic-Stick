@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect,type Browser} from '@playwright/test';
 import type {ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
@@ -13,7 +13,7 @@ import type {AppInstance} from '@magicstick/dashboard-contracts';
 import type {KubeObject} from '../core/observer.ts';
 import {moduleProfileWorkflow,waitModuleProfileReadback} from './modules-live.ts';
 import type {LiveFoundation} from '../core/live-foundation.ts';
-import {validateAppFixtures,catalogContext} from './apps-live.ts';
+import {applicationsWorkflow,validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {licenseUiPermits} from './license-live.ts';
@@ -461,15 +461,33 @@ test('HAR-10 kubeconfig permits only typed PKCE exec metadata and verified clust
   expect(()=>inspectOidcConfig({...config,clusters:[{name:'fixture',cluster:{...config.clusters[0]!.cluster,'insecure-skip-tls-verify':true}}]},'https://identity.example.invalid')).toThrow();
 });
 
-test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application or URL inventory',annotation,()=>{
+test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application or URL inventory',annotation,async()=>{
   const fixtures=['openclaw','hermes','paperclip','kubeopencode','odysseus'].map(type=>({type,originTemplate:'https://{name}.'+type+'.example.invalid',
     promptLabel:'Prompt',sendButton:'Send',responseSelector:'[data-role=response]',responseMarker:'REGRESSION'}));
-  expect(validateAppFixtures(fixtures)).toHaveLength(5);
+  expect(validateAppFixtures(fixtures).map(item=>item.type)).toEqual(['openclaw','paperclip','kubeopencode','odysseus']);
+  expect(validateAppFixtures(fixtures.filter(item=>item.type!=='hermes'))).toHaveLength(4);
+  expect(fixtures).toHaveLength(5);
   expect(()=>validateAppFixtures(fixtures.slice(1))).toThrow();
   expect(()=>validateAppFixtures([...fixtures.slice(1),fixtures[1]])).toThrow();
   expect(()=>validateAppFixtures([{...fixtures[0],originTemplate:'http://{name}.example.invalid'},...fixtures.slice(1)])).toThrow();
   const terminal={type:'hermes',originTemplate:'https://{name}.hermes.example.invalid/',adapter:'hermes-terminal-v1',responseMarker:'REGRESSION'};
-  expect(validateAppFixtures([terminal])).toEqual([terminal]);
+  expect(validateAppFixtures([terminal])).toEqual([]);
+  const deferredDirectory=await mkdtemp(join(tmpdir(),'magicstick-hermes-deferred-'));
+  const previousProfile=process.env.REGRESSION_REMAINING_PROFILE;
+  try {
+    const filename=join(deferredDirectory,'profile.json');
+    await writePrivate(filename,{identity:{approveDisposableUsers:true},applications:{
+      cleanerKubeconfig:join(deferredDirectory,'unused-cleaner.yaml'),fixtures:[terminal]}});
+    process.env.REGRESSION_REMAINING_PROFILE=filename;
+    const live=new Proxy({config:{requestTimeoutMs:100}}, {get(target,key){
+      if(key==='config')return target.config;
+      throw new Error('Deferred Hermes workflow must not reach live preparation or mutations');
+    }}) as unknown as LiveFoundation;
+    await expect(applicationsWorkflow(live,{} as Browser)).rejects.toMatchObject({code:'PREREQUISITE'});
+  }finally {
+    if(previousProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=previousProfile;
+    await rm(deferredDirectory,{recursive:true,force:true});
+  }
   const opencode={type:'kubeopencode',originTemplate:'https://{name}.kubeopencode.example.invalid/',adapter:'opencode-chat-v1',responseMarker:'REGRESSION'};
   expect(validateAppFixtures([opencode])).toEqual([opencode]);
   expect(()=>validateAppFixtures([{...opencode,type:'hermes'}])).toThrow('[CONFIG]');

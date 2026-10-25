@@ -59,7 +59,7 @@ class RegressionRunsTests(unittest.TestCase):
         self.run["spec"].update(phases=[4], testMode="full", diagnosticSelection="remaining")
         self.run["metadata"]["annotations"] = {"regression.magicstick.dev/diagnostic-credentials-ready": UID}
         base = "/api/v1/namespaces/" + NS + "/configmaps/"
-        self.objects[base + "magicstick-regression-runtime"] = {"data": {"diagnosticSelectionVersion": "1",
+        self.objects[base + "magicstick-regression-runtime"] = {"data": {"diagnosticSelectionVersion": "2",
             "image": self.run["spec"]["image"], "sourceRevision": self.run["spec"]["sourceRevision"]}}
         self.objects[base + "magicstick-regression-diagnostics"] = {"data": {"diagnostics.json":
             (ROOT.parents[2] / "magic-cluster/apps/regression/diagnostics.json").read_text()}}
@@ -74,6 +74,13 @@ class RegressionRunsTests(unittest.TestCase):
         self.assertEqual(env["REGRESSION_PHASES"], "4")
         self.assertNotIn("REGRESSION_GPU_CASE", env)
         self.assertNotIn("privileged", json.dumps(container))
+        for selection, phase in (("external-route", 2), ("gpu-validation-single", 3), ("ollama-four-card-split", 4)):
+            self.setUp();self.diagnostic()
+            self.run["spec"].update(phases=[phase], diagnosticSelection=selection)
+            self.assertTrue(self.controller.reconcile(self.run))
+            env = {e["name"]: e["value"] for e in self.writes[0][2]["spec"]["template"]["spec"]["containers"][0]["env"]}
+            self.assertEqual(env["REGRESSION_DIAGNOSTIC_SELECTION"], selection)
+            self.assertEqual(env["REGRESSION_PHASES"], str(phase))
 
     def test_diagnostic_rechecks_capability_and_pins_before_start_but_never_interrupts_existing_job(self):
         self.diagnostic()
@@ -92,7 +99,7 @@ class RegressionRunsTests(unittest.TestCase):
         self.assertEqual(len(self.writes), 1)
 
     def test_invalid_diagnostic_cannot_fall_back_to_full_or_recovery(self):
-        for changes in ({"diagnosticSelection": "unknown"}, {"diagnosticSelection": None}, {"phases": [3, 4]},
+        for changes in ({"diagnosticSelection": "unknown"}, {"diagnosticSelection": None}, {"phases": [3]}, {"phases": [3, 4]},
                         {"testMode": "non-destructive"}, {"operation": "recover-lock"}):
             with self.subTest(changes=changes):
                 self.setUp()
@@ -101,13 +108,13 @@ class RegressionRunsTests(unittest.TestCase):
                 self.assertFalse(self.controller.reconcile(self.run))
                 self.assertEqual(self.writes, [])
 
-    def test_diagnostic_schema_is_optional_bounded_immutable_and_full_phase_four_only(self):
+    def test_diagnostic_schema_is_optional_bounded_immutable_and_only_full_catalog_phases(self):
         schema = yaml.safe_load((ROOT / "crds/regressionruns.appliance.magicstick.dev.yaml").read_text())["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
         self.assertNotIn("diagnosticSelection", schema["required"])
         self.assertEqual(schema["properties"]["diagnosticSelection"]["maxLength"], 40)
         rules = [rule["rule"] for rule in schema["x-kubernetes-validations"] if "diagnosticSelection" in rule["rule"]]
         self.assertTrue(any("oldSelf.diagnosticSelection" in rule for rule in rules))
-        self.assertTrue(any('self.testMode == "full"' in rule and 'self.phases[0] == 4' in rule and 'self.operation == "tests"' in rule for rule in rules))
+        self.assertTrue(any('self.testMode == "full"' in rule and 'self.phases[0] in [2, 3, 4]' in rule and 'self.operation == "tests"' in rule for rule in rules))
 
     def test_exact_job_uses_existing_runner_no_gpu_host_docker_or_sa(self):
         self.assertTrue(self.controller.reconcile(self.run))

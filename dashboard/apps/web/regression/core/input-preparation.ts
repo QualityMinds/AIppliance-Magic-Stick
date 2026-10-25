@@ -4,7 +4,7 @@ import {parseLabConfig, type LabConfig, type RuntimeModelFixture} from './config
 import type {KubeObject} from './observer.ts';
 import {requireSafe} from './errors.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle} from './preflight.ts';
-import {engineRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
+import {applicationRegressionEnabled,engineRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
@@ -155,6 +155,7 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
   const apps=profile.applications;
   add('applications','app-cleaner',[[file(apps?.cleanerKubeconfig,snapshot),'The separate app-intent cleaner is missing, unsafe or unreadable.']]);
   for(const type of ['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const) {
+    if(!applicationRegressionEnabled(type))continue;
     const fixture=apps?.fixtures?.find((item:Json)=>item.type === type);
     add('applications',`app-${type}`,[[snapshot.modules.catalogJson?.applications?.[type],'The application is not advertised in the current catalog.'],
       [fixture && (repositoryAppAdapter(fixture) ? ['originTemplate','responseMarker'] :
@@ -271,6 +272,8 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
   profile.version=1;
   profile.identity ??= {approveDisposableUsers:false};
   profile.applications ??= {cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:[]};
+  if(Array.isArray(profile.applications.fixtures))profile.applications.fixtures=
+    profile.applications.fixtures.filter((fixture:Json)=>applicationRegressionEnabled(fixture?.type));
   profile.kubernetes ??= {approveAdminGrant:false,plugin:{filename:'/inputs/kubectl-oidc_login',sha256:''}};
   profile.license ??= {approveLicenseReplacement:false,allowFirstActivation:false,validFile:'/inputs/license-valid.license',
     invalidFiles:['/inputs/license-expired.license','/inputs/license-wrong-installation.license','/inputs/license-tampered.license'],

@@ -8,4 +8,4 @@ data:
   # isolated suites passed. An unpublished source change is not a usable image.
   image: "ghcr.io/qualityminds/magicstick-regression:sha-5b4be45c6a111872278221d633ddd25f8751c146@sha256:e032c66c0bfa6f2eafb03dbf4949d4ae5a6fc6af4b76e46e13aed9dadb7b2083"
   sourceRevision: "5b4be45c6a111872278221d633ddd25f8751c146"
-  diagnosticSelectionVersion: "1"
+  diagnosticSelectionVersion: "2"

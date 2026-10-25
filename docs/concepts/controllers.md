@@ -287,6 +287,16 @@ removing borrowed configuration alone does not. Hardware inventory counts physic
 synthetic sharing slots; legacy NVIDIA pools are displayed once, while DRA
 counts slots on each physical card.
 
+For changed single/split NVIDIA DRA runtime settings, the operator first retires
+the owned KubeAI Model through the normal UID/resource-version-bound foreground
+deletion path. `Starting` / `ReplacingGpuRuntime` remains visible until every
+old Model Pod is gone, including terminal or terminating Pods. Only then is the
+new runtime applied. A foreign identity blocks replacement; claims, downloaded
+weights and the saved activation are not deleted. Unchanged runtime intent is
+not retired for server-defaulted or autoscaler-only fields. This serializes
+KubeAI v0.23.2's otherwise overlapping Pod exchange without forcing cleanup or
+silently upgrading Kubernetes.
+
 If an instance requires a module that is disabled, the MVP contract
 does not override the disabled module. The instance remains in
 `WaitingForModules` until the module is enabled again. If a required CRD is not

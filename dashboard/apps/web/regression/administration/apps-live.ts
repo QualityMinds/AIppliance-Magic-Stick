@@ -20,6 +20,7 @@ import {regressionContextOptions} from '../core/https-policy.ts';
 import {repositoryAppAdapter} from '../core/application-adapters.ts';
 import {HermesTerminalEvidence,observeHermesTerminal,verifyHermesTerminalChat} from '../core/hermes-terminal.ts';
 import {OpenCodeChatEvidence,observeOpenCodeChat,verifyOpenCodeChat,openCodeChatPath} from '../core/opencode-chat.ts';
+import {applicationRegressionEnabled} from '../core/engine-policy.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
  * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
@@ -53,7 +54,9 @@ async function prepareApplications(live:LiveFoundation,api:AdministrationApi,fix
 
 export function validateAppFixtures(value:unknown):AppFixture[] {
   const automatic=Array.isArray(value) && value.length > 0 && value.every(item=>item&&repositoryAppAdapter(item));
-  requireSafe(Array.isArray(value) && (automatic ? value.length <= appTypes.length : value.length === appTypes.length) &&
+  const required=appTypes.filter(applicationRegressionEnabled);
+  requireSafe(Array.isArray(value) && value.length > 0 && value.length <= appTypes.length &&
+    (automatic || required.every(type=>value.some(item=>item?.type===type))) &&
     new Set(value.map(item=>item.type)).size === value.length,'CONFIG');
   for(const item of value) {
     requireSafe(appTypes.includes(item.type) && (repositoryAppAdapter(item) ?
@@ -64,7 +67,7 @@ export function validateAppFixtures(value:unknown):AppFixture[] {
     if(['hermes-terminal-v1','opencode-chat-v1'].includes(item.adapter))requireSafe(/^[A-Za-z0-9_-]{1,64}$/.test(item.responseMarker),'CONFIG');
     const url=new URL(item.originTemplate.replace('{name}','reg-fixture'));
     requireSafe(url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash,'CONFIG');
-  }return value;
+  }return value.filter(item=>applicationRegressionEnabled(item.type));
 }
 async function appPage(context:BrowserContext,origin:string,guard:()=>Promise<void>,options:{path?:string;observe?:(page:Page)=>void|Promise<void>}={}) {
   const page=await context.newPage();
@@ -106,6 +109,7 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
   const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!));
   requireSafe(profile.identity?.approveDisposableUsers === true && profile.applications?.cleanerKubeconfig,'PREREQUISITE');
   const fixtures=validateAppFixtures(profile.applications.fixtures),cleaner=new AppCleaner(profile.applications.cleanerKubeconfig,live.config.requestTimeoutMs);
+  requireSafe(fixtures.length>0,'PREREQUISITE');
   await cleaner.verifyConfiguration();const apps=new OwnedAppClient(live,cleaner),users=new OwnedIdentityClient(live);
   const gateway=await gatewaySnapshot(live.observer),actors:BrowserContext[]=[];
   const checkGateway=()=>test.step('Verify gateway process stability',async()=>assertGatewayStable(gateway,await gatewaySnapshot(live.observer)));

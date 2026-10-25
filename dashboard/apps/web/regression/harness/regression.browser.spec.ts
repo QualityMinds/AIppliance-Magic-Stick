@@ -63,17 +63,17 @@ test(`HAR-10 UX-02 ${viewport} missing final totals show only explicitly prelimi
 });
 
 for(const viewport of ['desktop','mobile'] as const)for(const profile of diagnosticSelections)
-test(`HAR-02 HAR-10 UX-02 ${viewport} starts ${profile.id} as a diagnostic, never the whole Phase 4`,async({page},info)=>{
+test(`HAR-02 HAR-10 UX-02 ${viewport} starts ${profile.id} as a diagnostic, never the whole phase`,async({page},info)=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   let id='';const writes:unknown[]=[];
-  const run=()=>({id,uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),phases:[4],testMode:'full',
+  const run=()=>({id,uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),phases:[profile.phase],testMode:'full',
     diagnosticSelection:profile.id,phase:'Running',message:'Running the selected diagnostic.',credentialsCleaned:false,reportAvailable:false,progress:{percent:0}});
   const status=()=>({registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
-    diagnosticSelections:diagnosticSelections.map(p=>({id:p.id,title:p.title,caseIds:p.caseIds,phase:4})),
+    diagnosticSelections:diagnosticSelections.map(p=>({id:p.id,title:p.title,caseIds:p.caseIds,phase:p.phase})),
     executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:id?[run()]:[]});
   await fixturePage(page,{'/api/regression':status,'/api/regression/runs':(request:Request)=>{
     const body=request.postDataJSON();expect(body).toEqual({requestId:expect.stringMatching(/^[a-f0-9]{32}$/),
-      acknowledgeDisruption:true,phases:[4],testMode:'full',diagnosticSelection:profile.id});
+      acknowledgeDisruption:true,phases:[profile.phase],testMode:'full',diagnosticSelection:profile.id});
     writes.push(body);id='regression-'+body.requestId;return run();
   }});
   await page.goto(origin+'/#/system/status/regression');
@@ -82,7 +82,7 @@ test(`HAR-02 HAR-10 UX-02 ${viewport} starts ${profile.id} as a diagnostic, neve
   await selection.selectOption(profile.id);
   await expect(dialog.getByRole('radio',{name:'Include destructive tests'})).toBeChecked();
   await expect(dialog.getByRole('checkbox',{checked:true})).toHaveCount(1);
-  await expect(dialog.getByRole('checkbox',{name:/^Phase 4/})).toBeChecked();
+  await expect(dialog.getByRole('checkbox',{name:new RegExp('^Phase '+profile.phase)})).toBeChecked();
   for(const checkbox of await dialog.getByRole('checkbox').all())await expect(checkbox).toBeDisabled();
   await expect(dialog.getByText(/not full-phase acceptance/)).toBeVisible();
   expect(writes).toEqual([]);expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
@@ -90,7 +90,7 @@ test(`HAR-02 HAR-10 UX-02 ${viewport} starts ${profile.id} as a diagnostic, neve
   await dialog.getByRole('button',{name:'Start tests',exact:true}).click();
   await expect(page.getByLabel('Diagnostic selection')).toContainText(profile.id);
   await page.reload();await expect(page.getByLabel('Diagnostic selection')).toContainText('Full-phase acceptance is not assessed');
-  await expect(page.getByLabel('Selected test phases')).toHaveText('Selected phases: 4.');
+  await expect(page.getByLabel('Selected test phases')).toHaveText(`Selected phases: ${profile.phase}.`);
   expect(writes).toHaveLength(1);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 

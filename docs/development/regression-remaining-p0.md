@@ -45,12 +45,15 @@ Keycloak origins supplied by that same installation. Its saved registration ID,
 Appliance/Node identities and policy must still match exactly. This does not
 replace registration, discard old journals or bypass previous-run cleanup.
 
-For focused Phase 4 checks, **Test selection** offers **Last GPU slot race**
-(`SLOT-09`), **Sharing persistence after reload** (`SHR-12`), **Exact sharing and
-resource restoration** (`HAR-08`), or their combined profile including `SLOT-03`
-and `SHR-07`. Choosing one sets full mode and only Phase 4. Normal automatic
+For focused checks, **Test selection** offers fixed subsets of existing cases:
+the Phase 2 controlled external provider (`ROUTE-05`); Phase 3 single-GPU or
+all-GPU verification (`HW-06`, each including Ollama and vLLM); and Phase 4
+slot consumers (`SLOT-03`), four-card shared split Ollama (`MGPU-01`), **Last GPU
+slot race** (`SLOT-09`), **Sharing persistence after reload** (`SHR-12`), **Exact
+sharing and resource restoration** (`HAR-08`), or the combined remaining-sharing
+profile including `SHR-07`. Choosing one sets full mode and only its advertised phase. Normal automatic
 preparation, baseline checks and exact cleanup still run. The report retains the
-profile after reload and is not full Phase 4 acceptance. **All tests in selected
+profile after reload and is not full-phase acceptance. **All tests in selected
 phases** returns to ordinary phase selection. Unsupported installed versions do
 not offer these profiles or silently expand them into a whole phase.
 **Refresh tests** remains available during automatic updates. **Cancel tests**
@@ -64,6 +67,18 @@ Setup does not prepare Omni models or
 GPU transitions for these excluded tests; reports list `VLLM-Omni` as excluded,
 not passed or blocked. Ordinary Ollama/vLLM tests and product Omni support stay
 unchanged. Re-enable the retained cases after Realtime is ready for acceptance.
+
+Native **Hermes application workflows are deferred to a separate regression
+suite**. Standard Phase 5 runs do not prepare or create Hermes instances, open
+its terminal, or perform its application ACL/model-edit/removal workflow. Other
+applications still use the shared APP/ACL cases. Automatic setup, terminal setup
+and retained profiles use the same exclusion; old recovery journals are still
+cleaned normally. The existing `excludedSteps` report metadata names
+`phase5/hermes-live (deferred to separate regression)` in the Dashboard, JSON,
+HTML, text and a separate not-selected JUnit suite. It does not add Passed or
+Blocked evidence, rewrite historical failures, disable Hermes in the product,
+or claim full Phase 5 application acceptance. Isolated Hermes adapter checks
+remain selected. The separate native suite has not yet been implemented.
 
 <a id="if-cleanup-is-blocked"></a>
 

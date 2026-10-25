@@ -29,7 +29,8 @@ import {testMode,requireSafeStep,selectedSteps} from './core/test-mode.ts';
 import {executionBudget} from './core/execution-budget.ts';
 import {supervisedProcess} from './core/process-supervisor.ts';
 import {assessRunCleanup} from './core/cleanup-state.ts';
-import {phase4Scenarios,scenarioGrep} from './core/scenario-selection.ts';
+import {phase4Scenarios,diagnosticScenarios,registeredScenarioSource,scenarioGrep} from './core/scenario-selection.ts';
+import {diagnosticForMode} from './core/diagnostic-selection.ts';
 import {interruptedEvidence} from './core/interrupted-evidence.ts';
 import {executionIdentity} from './core/shared-workflow.ts';
 import {saveExecutionTrace} from './core/execution-trace.ts';
@@ -45,6 +46,7 @@ const selectedModelCase = modelCase && Object.hasOwn(phase2ModelCases, modelCase
 const gpuCase = ['phase3-gpu','phase4-sharing'].includes(mode) ? process.argv[3] : undefined;
 const gpuCases=mode === 'phase3-gpu' ? phase3RuntimeCases : phase4SharingCases;
 const selectedGpuCase = gpuCase && Object.hasOwn(gpuCases,gpuCase) ? gpuCases[gpuCase] : undefined;
+const selectedDiagnostic=diagnosticForMode(mode,process.env.REGRESSION_DIAGNOSTIC_SELECTION??(mode==='phase4-sharing'?gpuCase:undefined));
 const hostCase = mode === 'phase6-drill' ? process.argv[3] : undefined;
 const liveCase=/^phase[5-8]-live$/.test(mode)?process.argv[3]:undefined;
 const recoveryRunId=mode==='campaign-recover'?process.argv[3]:undefined;
@@ -53,7 +55,7 @@ const directory = join(output, runId);
 const playwrightCli = resolve('node_modules/@playwright/test/cli.js');
 const typeScriptCli = resolve('node_modules/typescript/bin/tsc');
 // Invalid drill arguments are handled by the redacted reporting path below.
-const requiredBase = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? phase1StepIds(mode) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
+const requiredBase = selectedDiagnostic?.caseIds ?? (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : liveCase?[liveCase]:remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? phase1StepIds(mode) ?? (mode==='campaign-recover'?['HAR-07']:mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
   mode === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] : mode === 'phase2-readonly' ? ['DISC-03'] :
   mode === 'phase2-models' ? selectedModelCase?.ids ?? phase2ModelIds :
   mode === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
@@ -98,7 +100,7 @@ try {
   campaignDeadline=Number(process.env.REGRESSION_CAMPAIGN_DEADLINE??Date.now()+executionBudget.campaignMs-executionBudget.finalReserveMs);
   requireSafe(Number.isSafeInteger(campaignDeadline)&&campaignDeadline>0&&campaignDeadline<=Date.now()+executionBudget.campaignMs,'CONFIG');
   process.env.REGRESSION_CAMPAIGN_DEADLINE=String(campaignDeadline);
-  requireSafe(!scenarioId||mode==='phase4-sharing'&&/^[a-zA-Z0-9_-]{1,200}$/.test(scenarioId)&&
+  requireSafe(!scenarioId||(mode==='phase4-sharing'||selectedDiagnostic)&&/^[a-zA-Z0-9_-]{1,200}$/.test(scenarioId)&&
     required.length>0&&required.every(id=>/^[A-Z][A-Z0-9]+-\d{2}$/.test(id)),'CONFIG');
   requireSafe([...['5','6','7','8'].flatMap(phase=>[`phase${phase}`,`phase${phase}-fast`,`phase${phase}-fixtures`,`phase${phase}-live`]),'all','selftest', 'phase0', 'phase1', 'phase2','phase3','phase4','phase3-fast','phase4-fast','phase3-fixtures','phase4-fixtures','phase3-gpu','phase3-validation','phase4-sharing', 'phase2-fast', 'phase2-fixtures', 'phase2-readonly',
     'phase2-models', 'phase2-faults', 'smoke-fast', 'smoke-fixtures', 'session-smoke', 'core-smoke', 'foundations',
@@ -109,6 +111,7 @@ try {
   // Report generation runs in this parent as well as in Playwright children.
   // Keep the same validated diagnostic scope in both processes.
   if(selectedGpuCase)process.env.REGRESSION_GPU_CASE=gpuCase;
+  if(selectedDiagnostic)process.env.REGRESSION_DIAGNOSTIC_SELECTION=selectedDiagnostic.id;
   requireSafe(mode !== 'phase6-drill' || hostDrillIds.includes(hostCase),'CONFIG');
   requireSafe(!process.env.REGRESSION_REMAINING_CASE || mode === 'phase6-drill' || liveCase===process.env.REGRESSION_REMAINING_CASE,'CONFIG');
   if(liveCase)requireSafe(remainingIds(mode,liveCase)?.includes(liveCase),'CONFIG');
@@ -124,7 +127,7 @@ try {
   if(recoveryRunId)environment.REGRESSION_RECOVERY_RUN_ID=recoveryRunId;
   home = await mkdtemp(join(tmpdir(), 'magicstick-browser-'));
   if (process.platform === 'linux') environment.HOME = home;
-  const aggregate=mode === 'all' || Object.hasOwn(phaseSteps,mode)||mode==='phase4-sharing'&&!scenarioId;
+  const aggregate=mode === 'all' || Object.hasOwn(phaseSteps,mode)||(mode==='phase4-sharing'||selectedDiagnostic)&&!scenarioId;
   const children=[];
   const recordChild=async(result,step,fixture)=>{
     if(!children.some(c=>c.runId===result.runId))children.push({runId:result.runId,mode:step,fixture});
@@ -222,24 +225,25 @@ try {
       }
     }
   }
-  if(mode==='phase4-sharing'&&!scenarioId) {
+  if((mode==='phase4-sharing'||selectedDiagnostic)&&!scenarioId) {
     const discovery=supervisedProcess(process.execPath,[playwrightCli,'test','--config','regression/playwright.config.ts','--list',
-      ...(selectedGpuCase?['--grep',selectedGpuCase.grep]:[])],{stdio:'inherit',env:{...environment,REGRESSION_DISCOVER_ONLY:'1'}},
+      ...(selectedDiagnostic?['--grep',selectedDiagnostic.grep]:selectedGpuCase?['--grep',selectedGpuCase.grep]:[])],{stdio:'inherit',env:{...environment,REGRESSION_DISCOVER_ONLY:'1'}},
       {timeoutMs:executionBudget.preparationMs});
     child=discovery.child;supervisors.set(child,discovery);requireSafe(await waitChild(child)===0,'CONFIG');
-    const scenarios=phase4Scenarios(JSON.parse(await readPrivate(join(directory,'scenario-selection.json'))),!selectedGpuCase,selectedGpuCase?.ids);
+    const manifest=JSON.parse(await readPrivate(join(directory,'scenario-selection.json')));
+    const scenarios=selectedDiagnostic?diagnosticScenarios(manifest,selectedDiagnostic):phase4Scenarios(manifest,!selectedGpuCase,selectedGpuCase?.ids);
     const collected=[],recoveryAttempts=[],executed=new Set();
     for(const scenario of scenarios) {
       if(stopped()){deadlineReached||=Date.now()>=campaignDeadline;break;}
       const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
-      progressEvent({event:'step-start',step:'phase4-sharing',index:scenarios.indexOf(scenario)+1,total:scenarios.length});
+      progressEvent({event:'step-start',step:mode,index:scenarios.indexOf(scenario)+1,total:scenarios.length});
       const ids=[...new Set(scenario.evidence.map(e=>e.id))];
       const priorFence=Boolean(environment.REGRESSION_RECOVERY_FENCE);
-      child=await spawnStep('phase4-sharing',gpuCase?[gpuCase]:[],{REGRESSION_CAMPAIGN_RESULT:receipt,REGRESSION_SCENARIO_ID:scenario.id,
+      child=await spawnStep(mode,gpuCase?[gpuCase]:[],{REGRESSION_CAMPAIGN_RESULT:receipt,REGRESSION_SCENARIO_ID:scenario.id,
         REGRESSION_SCENARIO_REQUIRED:ids.join(','),REGRESSION_SCENARIO_SOURCE:scenario.source.file,REGRESSION_SCENARIO_TITLE:scenario.title});
-      const exit=await waitChild(child),value=await childEvidence({output,receipt,mode:'phase4-sharing',required:ids,fixture:false,
+      const exit=await waitChild(child),value=await childEvidence({output,receipt,mode,required:ids,fixture:false,
         expectedRunId:allocatedRuns.get(child),sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
-      await recordChild(value.result,'phase4-sharing',false);
+      await recordChild(value.result,mode,false);
       executed.add(scenario.id);
       collected.push(...stepCases(value.report.cases,exit,value.report.acceptable,false));
       inheritRecoveryCause(environment,value.report.cases,value.recoveryFence);
@@ -398,7 +402,7 @@ try {
       [playwrightCli, 'test', '--config', 'regression/playwright.config.ts',
         ...(selectedModelCase ? ['--grep', selectedModelCase.grep] : selectedGpuCase ? ['--grep',selectedGpuCase.grep] : [])];
     if(scenarioId) {
-      requireSafe(/^regression\/hardware\/(?:sharing|multi-gpu)\.e2e\.spec\.ts$/.test(process.env.REGRESSION_SCENARIO_SOURCE??'')&&
+      requireSafe(registeredScenarioSource(selectedDiagnostic?.phase??4,process.env.REGRESSION_SCENARIO_SOURCE??'')&&
         typeof process.env.REGRESSION_SCENARIO_TITLE==='string','CONFIG');
       arguments_.push(process.env.REGRESSION_SCENARIO_SOURCE,'--grep',scenarioGrep(process.env.REGRESSION_SCENARIO_TITLE));
     }

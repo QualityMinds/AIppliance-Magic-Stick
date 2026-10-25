@@ -35,7 +35,7 @@ def replacement(text, source, digest):
         raise ValueError("Expected exactly one runner pin and source revision.")
     updated = re.sub(r'^  sourceRevision:.*$', '  sourceRevision: "' + source + '"',
         re.sub(r'^  image:.*$', '  image: "' + image + '"', text, flags=re.M), flags=re.M)
-    capability = '  diagnosticSelectionVersion: "1"'
+    capability = '  diagnosticSelectionVersion: "2"'
     if re.search(r'^  diagnosticSelectionVersion:', updated, re.M):
         return re.sub(r'^  diagnosticSelectionVersion:.*$', capability, updated, flags=re.M)
     return updated.rstrip() + '\n' + capability + '\n'

@@ -116,24 +116,28 @@ class RegressionApi:
 
     def diagnostics(self):
         runtime = self.get(CORE + "/configmaps/magicstick-regression-runtime") or {}
-        if runtime.get("data", {}).get("diagnosticSelectionVersion") != "1":
+        if runtime.get("data", {}).get("diagnosticSelectionVersion") != "2":
             return []
         try:
             catalog = json.loads((self.get(CORE + "/configmaps/magicstick-regression-diagnostics") or {}).get("data", {})["diagnostics.json"])
             profiles = catalog["profiles"]
-            if not (catalog["version"] == 1 and isinstance(profiles, list) and 0 < len(profiles) <= 16):
+            if not (catalog["version"] == 2 and isinstance(profiles, list) and 0 < len(profiles) <= 16):
                 raise ValueError("Invalid diagnostic catalog")
-            valid = all(isinstance(p, dict) and set(p) == {"id", "title", "caseIds", "grep"}
+            valid = all(isinstance(p, dict) and {"id", "title", "caseIds", "grep", "phase"} <= set(p) <= {"id", "title", "caseIds", "grep", "phase", "variants"}
+                       and type(p["phase"]) is int and p["phase"] in (2, 3, 4)
                        and isinstance(p["id"], str) and re.fullmatch(r"[a-z][a-z0-9-]{0,39}", p["id"])
                        and isinstance(p["title"], str) and 0 < len(p["title"]) <= 160
                        and isinstance(p["caseIds"], list) and 0 < len(p["caseIds"]) <= 32
                        and all(isinstance(case, str) and re.fullmatch(r"[A-Z][A-Z0-9]+-[0-9]{2}", case) for case in p["caseIds"])
-                       and p["grep"] == "|".join(p["caseIds"]) for p in profiles)
+                       and p["grep"] == "|".join(p["caseIds"])
+                       and ("variants" not in p or isinstance(p["variants"], list) and 0 < len(p["variants"]) <= 32
+                            and all(isinstance(v, str) and re.fullmatch(r"(?:p[234]-[a-z0-9-]+|external-route)", v) for v in p["variants"])
+                            and len(set(p["variants"])) == len(p["variants"])) for p in profiles)
             if not valid or len({p["id"] for p in profiles}) != len(profiles):
                 raise ValueError("Invalid diagnostic profiles")
         except (KeyError, ValueError, TypeError):
             self.error(503, "The installed diagnostic selection catalog is unavailable. Update the runner before retrying.")
-        return [{"id": p["id"], "title": p["title"], "caseIds": p["caseIds"], "phase": 4} for p in profiles]
+        return [{"id": p["id"], "title": p["title"], "caseIds": p["caseIds"], "phase": p["phase"]} for p in profiles]
 
     def view(self, run):
         meta, spec, status = run.get("metadata", {}), run.get("spec", {}), run.get("status", {})
@@ -322,10 +326,13 @@ class RegressionApi:
             self.error(400, "Select non-destructive or full tests.")
         if "diagnosticSelection" in payload:
             selection = payload["diagnosticSelection"]
-            if not isinstance(selection, str) or phases != [4] or test_mode != "full":
-                self.error(400, "A diagnostic selection requires full mode and only Phase 4.")
-            if selection not in {p["id"] for p in self.diagnostics()}:
+            if not isinstance(selection, str) or len(phases) != 1 or test_mode != "full":
+                self.error(400, "A diagnostic selection requires full mode and exactly its advertised phase.")
+            selected = next((p for p in self.diagnostics() if p["id"] == selection), None)
+            if not selected:
                 self.error(409, "This diagnostic selection is not supported by the installed runner. Update before retrying.")
+            if phases != [selected["phase"]]:
+                self.error(400, "Select only the phase advertised for this diagnostic selection.")
         return self.enqueue(principal, {**payload, "phases": sorted(phases), "testMode": test_mode}, "tests")
 
     def recover_lock(self, principal, payload):

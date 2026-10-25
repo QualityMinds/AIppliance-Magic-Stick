@@ -56,6 +56,11 @@ class ModelLifecycleTests(unittest.TestCase):
                     "get_resource": Mock(return_value=self.model(labels=labels)), "delete_json": delete}):
                 with self.assertRaisesRegex(ValueError, "foreign|identity"):
                     self.controller["delete_local_runtime"]("example-model", "ai", "VLLM", "activation-uid")
+                with self.assertRaisesRegex(ValueError, "foreign|identity"):
+                    self.controller["replace_nvidia_model_before_update"](
+                        {"metadata": {"name": "example-model", "uid": "activation-uid"}},
+                        {"metadata": {"name": "example-model", "namespace": "ai"}, "spec": {"env": {"CONTEXT": "4096"}}},
+                        {"computeTarget": "nvidia-gpu", "engine": "VLLM", "gpuSharing": {"backend": "dra"}})
             delete.assert_not_called()
 
     def test_stop_does_not_turn_a_delete_conflict_into_a_successful_drain(self):
@@ -103,6 +108,11 @@ class ModelLifecycleTests(unittest.TestCase):
             with self.subTest(field=field), patch.dict(self.controller, {"get_resource": Mock(return_value=model), "delete_json": Mock()}):
                 with self.assertRaisesRegex(ValueError, "identity"):
                     self.controller["delete_local_runtime"]("example-model", "ai", "OLlama", "activation-uid")
+                with self.assertRaisesRegex(ValueError, "identity"):
+                    self.controller["replace_nvidia_model_before_update"](
+                        {"metadata": {"name": "example-model", "uid": "activation-uid"}},
+                        {"metadata": {"name": "example-model", "namespace": "ai"}, "spec": {"env": {"CONTEXT": "4096"}}},
+                        {"computeTarget": "nvidia-gpu", "engine": "OLlama", "gpuSharing": {"backend": "dra"}})
 
     def test_disabled_status_and_activation_finalizer_wait_for_pods_to_disappear(self):
         for deleting in (False, True):
