@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "cd69f9a50cf39489f54bc32c5d7be9a56289319b4d768ad0119f70a4daa5756e",
+  "deploymentReferencesSha256": "4e2286274cd71a5ab11b8b0264a32d0dd775f9c2cc682058146c0dfd9a041d0c",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2478,7 +2478,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-5b4be45c6a111872278221d633ddd25f8751c146@sha256:dae539abbc311714026cc555c0cc6defdc864da08fde70962f057ac42bd4ddeb"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-aabb3b4121e453e87dff8d284586e4540676bffc@sha256:01489c9c2bcdd431dbc51a9081e050fe2ffc21381dda1a9b757bbeac855c9406"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2498,11 +2498,11 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-5b4be45c6a111872278221d633ddd25f8751c146@sha256:19b5093de0fa5aec5b0715063286eba98da89ece4eff89908dab0e5c23cc930b"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-aabb3b4121e453e87dff8d284586e4540676bffc@sha256:1e09838d41759a36d8b4c89c623076bb128c52a7035d1a89297849aa3bc0eb1a"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
-      "line": 588,
+      "line": 601,
       "reference": "self.objects[CORE + \"/configmaps/magicstick-regression-runtime\"][\"data\"][\"image\"] = \"image:latest\""
     },
     {
@@ -2693,7 +2693,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-5b4be45c6a111872278221d633ddd25f8751c146@sha256:e032c66c0bfa6f2eafb03dbf4949d4ae5a6fc6af4b76e46e13aed9dadb7b2083\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-aabb3b4121e453e87dff8d284586e4540676bffc@sha256:fdf2a93ba408e0576b2c6a8bb50bd049bd69d9d53f6b5c40b6d587466fba16ee\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
