@@ -277,10 +277,11 @@ test('HAR-07 HAR-10 scenario hard limit cannot be extended by another graceful-s
 
 test('HAR-07 a real worker cannot write after its process group has been verified stopped',async()=>fixture(async output=>{
   const {directory}=await run(output);
-  const marker=join(directory,'late.json'),fs=JSON.stringify(marker);
-  const worker=`setTimeout(()=>require('node:fs').writeFileSync(${fs},'late'),500);setInterval(()=>{},50)`;
-  const coordinator=`require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:'ignore'});setInterval(()=>{},50)`;
-  const child=supervisedProcess(process.execPath,['-e',coordinator],{stdio:'ignore'},{hardTimeoutMs:150,drainMs:300});
+  const marker=join(directory,'late.json');
+  const coordinator=String.raw`require('node:child_process').spawn(process.execPath,['-e',
+    "setTimeout(()=>require('node:fs').writeFileSync(process.argv[1],'late'),500);setInterval(()=>{},50)",
+    process.argv[1]],{stdio:'ignore'});setInterval(()=>{},50)`;
+  const child=supervisedProcess(process.execPath,['-e',coordinator,marker],{stdio:'ignore'},{hardTimeoutMs:150,drainMs:300});
   const result=await child.finished;expect(result.forced).toBe(true);
   await new Promise(resolve=>setTimeout(resolve,550));
   await expect(lstat(marker)).rejects.toMatchObject({code:'ENOENT'});
@@ -290,9 +291,11 @@ test('HAR-07 a real worker cannot write after its process group has been verifie
 
 test('HAR-07 HAR-10 coordinator exit does not shorten a still-running worker cleanup window',async()=>fixture(async directory=>{
   const marker=join(directory,'worker-cleanup.json');
-  const worker=`process.on('SIGINT',()=>setTimeout(()=>{require('node:fs').writeFileSync(${JSON.stringify(marker)},'verified',{mode:0o600});process.exit(0)},300));process.stdout.write('READY\\n');setInterval(()=>{},50)`;
-  const coordinator=`const worker=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:['ignore','inherit','ignore']});process.on('SIGINT',()=>{worker.kill('SIGINT');process.exit(0)});setInterval(()=>{},50)`;
-  const child=supervisedProcess(process.execPath,['-e',coordinator],{stdio:['ignore','pipe','ignore']},{hardTimeoutMs:5000,graceMs:1000,drainMs:100});
+  // The marker path is data, never generated JavaScript source in either child.
+  const coordinator=String.raw`const worker=require('node:child_process').spawn(process.execPath,['-e',
+    "process.on('SIGINT',()=>setTimeout(()=>{require('node:fs').writeFileSync(process.argv[1],'verified',{mode:0o600});process.exit(0)},300));process.stdout.write('READY\\n');setInterval(()=>{},50)",
+    process.argv[1]],{stdio:['ignore','inherit','ignore']});process.on('SIGINT',()=>{worker.kill('SIGINT');process.exit(0)});setInterval(()=>{},50)`;
+  const child=supervisedProcess(process.execPath,['-e',coordinator,marker],{stdio:['ignore','pipe','ignore']},{hardTimeoutMs:5000,graceMs:1000,drainMs:100});
   await fixtureReady(child);child.stop('SIGINT');
   const result=await child.finished;
   expect(await readPrivate(marker)).toBe('verified');expect(result.interrupted).toBe(true);
