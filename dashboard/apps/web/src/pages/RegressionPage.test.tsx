@@ -94,18 +94,23 @@ describe('In-Appliance regression tests', () => {
     expect(within(screen.getByLabelText('All checks')).getAllByText('0',{selector:'strong'})).toHaveLength(3);
     expect(screen.queryByLabelText('All checks availability')).toBeNull();
   });
-  it('selects a server-advertised diagnostic with full Phase 4, locks phase edits and sends only its ID',async()=>{
-    data.diagnosticSelections=[{id:'slot-race',title:'Last GPU slot race',caseIds:['SLOT-09'],phase:4}];
+  it('selects only the server-advertised diagnostic phase, locks phase edits and sends only its ID',async()=>{
+    data.diagnosticSelections=[{id:'slot-race',title:'Last GPU slot race',caseIds:['SLOT-09'],phase:4},
+      {id:'external-route',title:'External provider',caseIds:['ROUTE-05'],phase:2},
+      {id:'gpu-validation-single',title:'GPU verification',caseIds:['HW-06'],phase:3}];
     mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
     const dialog=screen.getByRole('dialog');
-    await userEvent.selectOptions(within(dialog).getByRole('combobox',{name:'Test selection'}),'slot-race');
-    expect(within(dialog).getByRole('radio',{name:'Include destructive tests'})).toBeChecked();
-    expect(within(dialog).getByRole('checkbox',{name:/^Phase 4/})).toBeChecked();
-    for(const checkbox of within(dialog).getAllByRole('checkbox'))expect(checkbox).toBeDisabled();
-    expect(within(dialog).getByText(/Only this Phase 4 diagnostic subset/)).toBeVisible();
+    for(const profile of data.diagnosticSelections) {
+      await userEvent.selectOptions(within(dialog).getByRole('combobox',{name:'Test selection'}),profile.id);
+      expect(within(dialog).getByRole('radio',{name:'Include destructive tests'})).toBeChecked();
+      for(const checkbox of within(dialog).getAllByRole('checkbox'))expect(checkbox).toBeDisabled();
+      for(let phase=0;phase<=8;phase++)expect(within(dialog).getByRole('checkbox',{name:new RegExp('^Phase '+phase)}))
+        .toHaveProperty('checked',phase===profile.phase);
+      expect(within(dialog).getByText(new RegExp('Only this Phase '+profile.phase+' diagnostic subset'))).toBeVisible();
+    }
     expect(api.startRegression).not.toHaveBeenCalled();
     await userEvent.click(within(dialog).getByRole('button',{name:'Start tests'}));
-    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[4],'full','slot-race'));
+    await waitFor(()=>expect(api.startRegression).toHaveBeenCalledWith(expect.any(String),[3],'full','gpu-validation-single'));
   });
   it('returning to safe mode clears the diagnostic and old installations do not offer unsupported selections',async()=>{
     data.diagnosticSelections=[{id:'reload',title:'Reload',caseIds:['SHR-12'],phase:4}];

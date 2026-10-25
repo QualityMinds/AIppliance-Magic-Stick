@@ -4736,6 +4736,41 @@ data:
         return delete_resource("kubeai.org", "v1", "models", namespace, name)
 
 
+    def replace_nvidia_model_before_update(activation, resource, runtime):
+        """Do not let a KubeAI rollout race the last DRA consumer's cleanup.
+
+        KubeAI v0.23.2 deletes and creates Pods in one plan. Kubernetes 1.36
+        can lose a shared claim's kubelet cache entry when Prepare overlaps
+        Unprepare. Reuse the normal foreground, UID/RV-bound retirement path
+        before changing a single/split model's actual runtime configuration.
+        Never remove the shared claims, caches or the saved activation.
+        """
+        if (runtime.get("computeTarget") != "nvidia-gpu"
+                or (runtime.get("gpuSharing") or {}).get("backend") != "dra"):
+            return False
+        meta = activation.get("metadata") or {}
+        name, namespace = resource["metadata"]["name"], resource["metadata"]["namespace"]
+        if not meta.get("uid"):
+            raise ValueError("Cannot replace a DRA runtime without its saved activation identity")
+        current = get_resource("kubeai.org", "v1", "models", namespace, name)
+        if current:
+            labels = (current.get("metadata") or {}).get("labels") or {}
+            if (labels.get("app.kubernetes.io/managed-by") != FIELD_MANAGER
+                    or labels.get("appliance.magicstick.dev/modelactivation") != name
+                    or labels.get("appliance.magicstick.dev/activation-uid") not in (None, meta["uid"])):
+                raise ValueError("A foreign runtime occupies this model name; its identity was not changed")
+            # Admission/defaulting and the autoscaler may add unrelated fields
+            # such as replicas. Compare the fields actually generated here,
+            # including exact env/args/profile, not the whole server object.
+            current_spec = current.get("spec") or {}
+            if (not (current.get("metadata") or {}).get("deletionTimestamp")
+                    and all(current_spec.get(key) == value for key, value in resource["spec"].items())):
+                return False
+        # Even after the Model vanishes, an old terminal/terminating Pod must
+        # fence creation until normal kubelet/GC cleanup has actually finished.
+        return delete_local_runtime(name, namespace, runtime["engine"], meta["uid"])
+
+
     def model_cache_cleanup_active():
         terminal = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted", "RolledBack"}
         operations = list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/hostoperations")
@@ -5209,6 +5244,15 @@ data:
             previous_engine = str((activation.get("status") or {}).get("engine") or "").strip()
             if previous_engine == "FreeToken":
                 delete_freetoken_runtime(name, namespace)
+            try:
+                if replace_nvidia_model_before_update(activation, resource, runtime):
+                    message = "Stopping the previous NVIDIA DRA runtime and waiting for all its Pods before applying changed settings."
+                    patch_status("Starting", "ReplacingGpuRuntime", message, name)
+                    return "Starting", status_payload("Starting", message, name)
+            except ValueError as error:
+                message = str(error)
+                patch_status("Degraded", "ModelReplacementBlocked", message, name)
+                return "Degraded", status_payload("Degraded", message, name)
             applied_model = apply_resource(resource)
             kubeai_model = get_resource("kubeai.org", "v1", "models", namespace, name) or applied_model
             ready_replicas, expected_replicas = kubeai_model_replica_counts(kubeai_model)

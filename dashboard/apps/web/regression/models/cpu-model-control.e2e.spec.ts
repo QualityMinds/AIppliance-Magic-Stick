@@ -13,7 +13,7 @@ import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
 import {evidenceAnnotations,evidenceStep, type Evidence} from '../core/evidence.ts';
 import {readPrivate} from '../core/private-files.ts';
 import {browserMutation,MutationNotSubmitted} from '../core/browser-action.ts';
-import {modelActionButton,modelLifecycleReceipt,modelCard} from '../core/model-ui.ts';
+import {modelActionButton,modelLifecycleReceipt,modelLifecycleMutation,modelCard} from '../core/model-ui.ts';
 import {withCleanup} from '../core/run-lifecycle.ts';
 import {proveRoutedInference,preserveRuntimeFailure} from '../core/runtime-evidence.ts';
 
@@ -483,11 +483,12 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await item.modelGeneration(name, created.uid, generation, Number(edited.metadata.generation)); generation = Number(edited.metadata.generation); allowed = [];
       const stopBody = {expectedRevision: editRevision(edited)};
       allowed = [{method: 'POST', path: `/api/models/${name}/stop`, body: stopBody}];
-      const stopResponse=await test.step('Stop the controlled external model',()=>browserRequest(page,'POST',`/api/models/${name}/stop`,stopBody,
-        ()=>page.getByRole('button',{name:`Stop ${name}`}).click(),'external-stopped'));
+      const stopResponse=await test.step('Stop the controlled external model',()=>modelLifecycleMutation(page,{
+        origin:config.dashboardUrl,before:edited,action:'stop',timeoutMs:config.requestTimeoutMs,guard:live!.guard,stage:'external-stopped',
+        acknowledge:async receipt=>{await item.modelGeneration(name,receipt.uid,generation,receipt.generation);generation=receipt.generation;}}));
       const stopped = responseActivation(await stopResponse.json());
-      requireSafe(stopped.metadata?.uid === created.uid && stopped.spec?.enabled === false && Number(stopped.metadata.generation) > generation, 'API');
-      await item.modelGeneration(name, created.uid, generation, Number(stopped.metadata.generation)); generation = Number(stopped.metadata.generation); allowed = [];
+      requireSafe(stopped.metadata?.uid === created.uid && stopped.spec?.enabled === false && Number(stopped.metadata.generation) === generation, 'API');
+      allowed = [];
       await poll(() => inference.advertised(name), value => value === false,
         {timeoutMs: 120_000, intervalMs: 1000, stage: 'external-stopped'});
       await inference.refusesStopped(name);
@@ -498,11 +499,12 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       const startBody = {expectedRevision: editRevision(stopped)};
       allowed = [{method: 'POST', path: `/api/models/${name}/start`, body: startBody}];
       await page.reload({waitUntil: 'domcontentloaded'});
-      const startResponse=await test.step('Start the controlled external model',()=>browserRequest(page,'POST',`/api/models/${name}/start`,startBody,
-        ()=>page.getByRole('button',{name:`Start ${name}`}).click(),'external-ready'));
+      const startResponse=await test.step('Start the controlled external model',()=>modelLifecycleMutation(page,{
+        origin:config.dashboardUrl,before:stopped,action:'start',timeoutMs:config.requestTimeoutMs,guard:live!.guard,stage:'external-ready',
+        acknowledge:async receipt=>{await item.modelGeneration(name,receipt.uid,generation,receipt.generation);generation=receipt.generation;}}));
       const started = responseActivation(await startResponse.json());
-      requireSafe(started.metadata?.uid === created.uid && started.spec?.enabled === true && Number(started.metadata.generation) > generation, 'API');
-      await item.modelGeneration(name, created.uid, generation, Number(started.metadata.generation)); allowed = [];
+      requireSafe(started.metadata?.uid === created.uid && started.spec?.enabled === true && Number(started.metadata.generation) === generation, 'API');
+      allowed = [];
       await poll(() => inference.advertised(name), value => value === true,
         {timeoutMs: 300_000, intervalMs: 1000, stage: 'external-ready'}); await inference.chat(name, provider?.client.name);
     } finally {

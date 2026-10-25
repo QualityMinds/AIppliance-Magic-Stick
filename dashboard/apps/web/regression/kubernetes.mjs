@@ -33,7 +33,7 @@ const nonDestructive=testMode==='non-destructive';
 const phases=recovery?[]:(process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number);
 if((!recovery&&!phases.length)||new Set(phases).size!==phases.length||phases.some(n=>!Number.isInteger(n)||n<0||n>8))throw new Error('Invalid phase selection.');
 const selectedDiagnostic=diagnosticSelection(process.env.REGRESSION_DIAGNOSTIC_SELECTION,phases,testMode,operation);
-if(selectedDiagnostic)process.env.REGRESSION_GPU_CASE=selectedDiagnostic.id;
+if(selectedDiagnostic?.phase===4)process.env.REGRESSION_GPU_CASE=selectedDiagnostic.id;
 const privateRoot=nonDestructive?'/tmp/non-destructive-'+uid:'/private';
 const input=nonDestructive?join(privateRoot,'inputs'):'/inputs',output=join(privateRoot,'runs'),published=join('/state/reports',uid),progress=new KubernetesProgress(phases,process.env.REGRESSION_APPLIANCE_UID);
 const environment={...process.env,REGRESSION_EXECUTION:'kubernetes',REGRESSION_INPUT_DIR:input,REGRESSION_CONFIG:input+'/lab.json',
@@ -156,12 +156,12 @@ try {
   if(interrupted)throw new Error('Cancelled before test execution.');
   let directory,summary,campaign,exit;
   if(selectedDiagnostic) {
-    progress.consume({version:1,event:'phase-start',phase:4});await save();
-    const diagnostic=await runDiagnosticSelection({selection:selectedDiagnostic.id,output,uid,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,
+    progress.consume({version:1,event:'phase-start',phase:selectedDiagnostic.phase});await save();
+    const diagnostic=await runDiagnosticSelection({selection:selectedDiagnostic.id,phases,output,uid,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,
       execute:(args,extra)=>execute(process.execPath,[fileURLToPath(new URL('./launch.mjs',import.meta.url)),...args],{...environment,...extra}),
       cancelled:()=>interrupted});
     ({directory,summary,campaign,exit}=diagnostic);
-    progress.consume({version:1,event:'phase-end',phase:4,outcome:diagnostic.state});
+    progress.consume({version:1,event:'phase-end',phase:selectedDiagnostic.phase,outcome:diagnostic.state});
     progress.consume({version:1,event:'campaign-end',runId:diagnostic.runId});
   } else {
   exit=await execute(process.execPath,[fileURLToPath(new URL('./launch.mjs',import.meta.url)),'all','--phases',phases.join(',')]);

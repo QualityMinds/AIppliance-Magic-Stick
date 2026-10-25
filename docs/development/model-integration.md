@@ -76,6 +76,17 @@ without a primary-card dropdown or automatic count. Missing saved identities sta
 visible until explicitly removed. Preserve individual-card validation and
 existing saved definitions.
 
+Single/split NVIDIA DRA runtime changes use the existing foreground retirement
+path before the new KubeAI Model is applied. The old Model must match managed
+labels and the saved activation UID (with the documented legacy compatibility),
+and deletion is bound to its current UID/resource version. All remaining old
+Pods, including completed/terminating Pods, fence replacement. Shared claims,
+download caches, saved activation identity and settings remain unchanged. This
+avoids overlapping KubeAI Pod replacement with the last DRA consumer's cleanup;
+it does not claim that Kubernetes 1.36's upstream DRA race has been patched.
+Unchanged desired runtime fields do not trigger retirement merely because the
+server added defaults or an autoscaler updated `replicas`.
+
 The estimator keeps checkpoint size separate from engine/rank planning.
 vLLM GPU KV uses local TP heads (at least one head per rank; MLA remains
 replicated) or local PP layers, plus separately itemized recurrent and QSA

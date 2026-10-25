@@ -22,6 +22,20 @@ function bindingProof(condition:unknown,check:ValidationBindingCheck):asserts co
   if(!condition)throw new ValidationBindingError(check);
 }
 
+/** References are already checkable before the scheduler's allocation becomes
+ * visible. This is not allocation or physical-device acceptance. */
+function nvidiaValidationClaimReference(pod:KubeObject,device:HardwareGpuDevice,sharing:GpuSharingState,claim?:KubeObject) {
+  const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;resources?:{
+    limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
+  const engine=spec.initContainers?.find(c=>c.name==='engine');
+  bindingProof(engine && (!spec.nodeName||spec.nodeName===device.node),'engine-node');
+  const card=sharing.devices?.find(d=>d.nodeUid===device.nodeUid&&d.node===device.node&&d.pciAddress===device.pciAddress);
+  bindingProof(card&&spec.resourceClaims?.length===1&&spec.resourceClaims[0]?.resourceClaimName===card.claimName&&
+    engine.resources?.claims?.length===1&&engine.resources.claims[0]?.name===spec.resourceClaims[0].name&&
+    !engine.resources.limits?.['nvidia.com/gpu']&&claim?.metadata.name===card.claimName&&claim.metadata.namespace==='ai','pod-claim');
+  return card;
+}
+
 /** A DRA validation must consume the exact inventoried physical card, not a
  * node-wide extended-resource token. Check both the Pod reference and the
  * independently observed allocation; sharing does not relax UUID identity. */
@@ -34,11 +48,8 @@ export function nvidiaValidationBinding(pod:KubeObject,device:HardwareGpuDevice,
   if(sharing.backend!=='dra') {
     bindingProof(physicalCount===1 && Number(engine.resources?.limits?.['nvidia.com/gpu'])===1&&!spec.resourceClaims?.length,'legacy-resource');return;
   }
-  const card=sharing.devices?.find(d=>d.nodeUid===device.nodeUid&&d.node===device.node&&d.pciAddress===device.pciAddress);
-  bindingProof(card&&spec.resourceClaims?.length===1&&spec.resourceClaims[0]?.resourceClaimName===card.claimName&&
-    engine.resources?.claims?.length===1&&engine.resources.claims[0]?.name===spec.resourceClaims[0].name&&
-    !engine.resources.limits?.['nvidia.com/gpu']&&claim?.metadata.name===card.claimName&&claim.metadata.namespace==='ai','pod-claim');
-  const results=(claim.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
+  const card=nvidiaValidationClaimReference(pod,device,sharing,claim);
+  const results=(claim?.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
   bindingProof(results?.length===1&&results[0]!.driver==='gpu.nvidia.com'&&results[0]!.pool===card.pool&&results[0]!.device===card.name,'claim-allocation');
   const pool=slices.map(slice=>slice.spec as {driver?:string;nodeName?:string;
     pool?:{name?:string;generation?:number;resourceSliceCount?:number};
@@ -125,6 +136,9 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
   const captured=new Map<string,KubeObject>();
   const bindings=new Map<string,{deviceId:string;podUid:string;imageId:string}>();
   const allocatedClaims=new Map<string,KubeObject>();
+  const pendingAllocations=new Map<string,{since:number;claim:KubeObject}>();
+  let lastAllocation:{podPhase?:string;engineStarted:boolean;claimAllocationPresent:boolean;previousAllocationObserved:boolean;
+    allocationResultCount:number|null;allocationMatchesRequestedCard:boolean}|undefined;
   const result=await poll(async ()=>{
     await s.live.guard();const jobs=await validationJobs(s);
     for (const job of jobs.filter(j=>j.metadata.annotations?.['appliance.magicstick.dev/validation-request'] === request.requestId)) {
@@ -149,6 +163,32 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
           if(sharing.backend==='dra'&&!spec.nodeName)continue;
           const claim=sharing.backend==='dra'&&card?
             await s.live.observer.get('resourceclaims.resource.k8s.io','ai',card.claimName):undefined;
+          const engineStatus=pod.status?.initContainerStatuses?.find(c=>c.name==='engine');
+          const engineStarted=Boolean(engineStatus?.containerID||engineStatus?.state?.running||engineStatus?.state?.terminated||
+            engineStatus?.lastState?.terminated||(engineStatus?.restartCount??0)>0);
+          const allocationResults=(claim?.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>}|undefined)?.results;
+          lastAllocation={podPhase:['Pending','Running','Succeeded','Failed','Unknown'].includes(pod.status?.phase??'')?pod.status!.phase:undefined,
+            engineStarted,claimAllocationPresent:claim?.status?.allocation!==undefined,previousAllocationObserved:allocatedClaims.has(pod.metadata.uid??''),
+            allocationResultCount:Array.isArray(allocationResults)?allocationResults.length:null,
+            allocationMatchesRequestedCard:allocationResults?.length===1&&allocationResults[0]?.driver==='gpu.nvidia.com'&&
+              allocationResults[0]?.pool===card?.pool&&allocationResults[0]?.device===card?.name};
+          const pending=pendingAllocations.get(pod.metadata.uid??'');
+          if(pending)bindingProof(claim?.metadata.uid===pending.claim.metadata.uid&&claim?.metadata.generation===pending.claim.metadata.generation&&
+            canonical(claim?.spec)===canonical(pending.claim.spec)&&!claim?.metadata.deletionTimestamp,'claim-allocation');
+          if(sharing.backend==='dra'&&claim&&claim.status?.allocation===undefined&&pod.status?.phase==='Pending'&&
+            !engineStarted&&!allocatedClaims.has(pod.metadata.uid??'')) {
+            nvidiaValidationClaimReference(pod,device,sharing,claim);
+            bindingProof(pod.metadata.uid&&claim.metadata.uid&&Number.isSafeInteger(claim.metadata.generation)&&
+              claim.metadata.generation!>0&&claim.spec&&!claim.metadata.deletionTimestamp&&!pod.metadata.deletionTimestamp,'claim-allocation');
+            const since=pending?.since??Date.now();
+            if(!pending)pendingAllocations.set(pod.metadata.uid,{since,claim:structuredClone(claim)});
+            // A scheduled but not started Pod is not proof of a bad device.
+            // Wait only for this bounded allocation window; no binding is
+            // credited and an already running/deallocated engine still fails.
+            bindingProof(Date.now()-since<60_000,'claim-allocation');
+            continue;
+          }
+          if(pod.metadata.uid&&claim?.status?.allocation!==undefined)pendingAllocations.delete(pod.metadata.uid);
           let proof=claim;
           if(sharing.backend==='dra'&&claim&&claim.status?.allocation===undefined&&
             allocatedClaims.has(pod.metadata.uid??'')&&pod.status?.phase!=='Succeeded') {
@@ -213,6 +253,7 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
       // output. Preserve the original failed proof if diagnostic storage fails.
       await writePrivate(join(s.directory,'verification-binding-failure.json'),{
         version:1,runId:s.live.journal.runId,requestId:request.requestId,engine:request.engine,check:error.check,
+        ...(error.check==='claim-allocation'&&lastAllocation?{allocationObservation:lastAllocation}:{}),
       }).catch(()=>{});
     }
     throw error;

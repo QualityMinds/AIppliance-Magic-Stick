@@ -5,6 +5,7 @@ import type {TraceArtifact} from './report-artifacts.ts';
 import {blockerDescription} from './blocker-description.ts';
 import {regressionBlockedLabel} from '../../../../packages/core/src/regression-blocking.ts';
 import type {RegressionCleanup,RegressionDiagnosticSelection} from '@magicstick/dashboard-contracts';
+import {deferredApplicationStep} from './engine-policy.ts';
 
 const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]!));
 type Entry={name:string;classname:string;outcome:string;durationMs:number;detail:string;properties:Record<string,string>;
@@ -70,8 +71,12 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
     }
   }
   const excluded:Entry[]=(selection?.excludedSteps??[]).map(step=>({name:step,classname:'selection',outcome:'Skipped',durationMs:0,
-    detail:'Not selected: non-destructive mode. No destructive or preparation-dependent live step was executed.',properties:{testMode:selection!.testMode,outcome:'Not selected',reason:'TEST_MODE'}}));
+    detail:deferredApplicationStep(step)?'Not selected: native application workflows are deferred to a separate regression. No live application acceptance is credited.':
+      'Not selected: non-destructive mode. No destructive or preparation-dependent live step was executed.',
+    properties:{testMode:selection!.testMode,outcome:'Not selected',reason:deferredApplicationStep(step)?'SEPARATE_REGRESSION':'TEST_MODE'}}));
+  const modeExcluded=excluded.filter(item=>item.properties.reason==='TEST_MODE'),deferred=excluded.filter(item=>item.properties.reason==='SEPARATE_REGRESSION');
   return '<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>\n'+suite('magicstick-selected-regression',evidence,excludedEngines)+'\n'+
-    (excluded.length?suite('magicstick-not-selected-by-test-mode',excluded)+'\n':'')+
+    (modeExcluded.length?suite('magicstick-not-selected-by-test-mode',modeExcluded)+'\n':'')+
+    (deferred.length?suite('magicstick-deferred-to-separate-regression',deferred)+'\n':'')+
     suite('magicstick-executable-scenarios',scenarios)+'\n'+suite('magicstick-test-steps',steps)+'\n</testsuites>\n';
 }

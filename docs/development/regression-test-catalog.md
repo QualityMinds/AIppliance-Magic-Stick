@@ -129,6 +129,15 @@ Paperclip, KubeOpenCode and Odysseus. AnythingLLM has a module/service probe,
 not an invented `AppInstance` type. Every catalog addition needs a reviewed
 adapter/functional probe before it can count as covered.
 
+Current selection exception (25 October 2026): native **Hermes** workflows in
+the shared APP/ACL cases are deferred to a separate regression suite. Standard
+preparation and execution exclude Hermes, including retained fixtures, while
+other applications and isolated Hermes adapter checks remain selected. Reports
+explicitly list the exclusion without synthetic Passed/Blocked rows; a reduced
+Phase 5 run does not certify Hermes or full application coverage. Existing
+Hermes failures and exact old-run cleanup remain unchanged. The separate native
+suite is planned, not yet implemented.
+
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
 | APP-01 | Open global Create Instance and each parent's New Instance. Show catalog types/dependency reasons and only the selected application's fields; cancellation creates nothing. | U+C+B+E | P1 · functional |
@@ -592,6 +601,65 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+25 October 2026, existing ROUTE-05, HW-06/SLOT-03 and MGPU-01 repair follow-up
+(local implementation; installed repeat pending): the later complete runs
+recorded HW-06/SLOT-03 allocation failures while their native validation Jobs
+were still active. Their old private binding diagnostic did not retain enough
+Pod/allocation detail to equate these failures with post-completion release.
+The existing polling counterexample now covers scheduled-but-not-started
+allocation, exact pending Claim UID/generation/spec, later completion and
+rejection of running deallocation, foreign identity or wrong physical binding.
+Only a bounded pre-start allocation window is tolerated; no binding is credited
+without the observed claim/slice/image proof. Fixed private diagnostic fields
+separate absent allocation from a different allocated device on the next repeat.
+
+Single/split NVIDIA DRA changes now reuse the existing UID/resource-version-bound
+foreground Model retirement and full Pod-drain barrier before applying the new
+runtime. This avoids KubeAI's overlapping replacement path without deleting
+shared claims/caches or upgrading Kubernetes. The owning reconciliation
+counterexample exercises both engines with one, two and four cards, refuses
+foreign/missing identities, waits for terminal/terminating old Pods and retains
+server defaults without repeatedly draining unchanged intent. Disabling the
+barrier makes all six engine/card combinations fail that counterexample.
+
+ROUTE-05 now uses the existing polled lifecycle readiness before starting its
+request deadline, with strict acknowledged receipt journaling. The extended
+Chromium counterexample fails without that wait, then succeeds despite UI
+readiness taking longer than the unchanged HTTP deadline. The existing API,
+controller and HAR-10/UX-02 selection guards expose fixed diagnostic subsets for
+ROUTE-05, HW-06 single/all, SLOT-03 and shared four-card split Ollama. Discovery
+selects exact existing variants and serial scenario IDs; no new functional case
+ID is registered. Versioned capability 2 prevents old runners/operators from
+expanding a subset into a complete phase. Local checks do not replace matching
+published images or native GPU/inference acceptance. Historical failed reports
+and the separate Hermes/services work remain unchanged.
+
+The existing HAR-07/HAR-10 process fixtures now wait for the synthetic child's
+explicit ready signal before cancelling it; host startup delay no longer
+consumes the short cleanup assertion. Production termination budgets and
+post-exit worker checks are unchanged. Combined local selftests passed 362
+scenarios with zero failures; two real Linux process scenarios are Blocked on
+macOS and remain required in the published Linux runner's CI.
+The host-only Phase 4 fast invocation passed 89 scenarios, blocked the same two
+Linux process scenarios and failed BOOT-04/05 because the packaged Linux
+`amd-recovery.test` executable is absent on macOS. Those missing-binary results
+are not local acceptance; the built-image Phase 4 suite must pass before pins
+are promoted. No local Docker build or substituted recovery executable was used.
+
+25 October 2026, Hermes native regression selection follow-up: at the user's
+request, the existing regression policy defers Hermes application execution to
+a separate suite. Automatic/terminal preparation, retained profiles and the
+shared APP/ACL workflow omit Hermes without disabling its product module or
+dropping old recovery journals. Existing HAR-10 preparation/reporting and
+application-fixture counterexamples cover the reduced selection, retained input
+compatibility, unchanged other applications and named JSON/HTML/text/JUnit
+exclusions. No campaign case, variant or layer was registered. The separate
+native suite and a matching published/installed runner remain pending. Local
+validation passed regression typecheck, 71 Phase 5 fast checks, 25 Chromium
+fixtures, 45 documentation/website checks and the strict docs build. Harness
+selftests passed 357 scenarios with zero failures; two Linux-only process
+scenarios remain Blocked on macOS, not accepted as native Linux evidence.
 
 25 October 2026, existing HW-06 and APP-02 native lifecycle follow-up: the latest
 four-card Phase 3 run passed every two-/four-GPU split and replica scenario, but

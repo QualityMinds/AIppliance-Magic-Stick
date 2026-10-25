@@ -5,7 +5,7 @@ import {labPolicy} from './lab-policy.ts';
 import type {HostDrillRecipes} from './host-drill-recipes.ts';
 import {requireSafe} from './errors.ts';
 import {moduleResourceLinks} from '@magicstick/dashboard-core';
-import {realtimeRegressionEnabled} from './engine-policy.ts';
+import {applicationRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 import {applicationAdapter} from './application-adapters.ts';
 
 /** Choose test fixtures from the deployed product catalog, including its small
@@ -70,7 +70,7 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   // The operator never has to invent CSS selectors for every run.
   const suffix=new URL(lab.dashboardUrl).hostname;
   profile.applications={cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:
-    Object.keys(snapshot.modules.catalogJson?.applications ?? {}).filter(type=>['openclaw','hermes','paperclip','kubeopencode','odysseus'].includes(type))
+    Object.keys(snapshot.modules.catalogJson?.applications ?? {}).filter(type=>['openclaw','hermes','paperclip','kubeopencode','odysseus'].includes(type) && applicationRegressionEnabled(type))
       .map(type=>({type,originTemplate:`https://{name}.${type}.${suffix}/`,adapter:applicationAdapter(type),responseMarker:'REGRESSION'}))};
   profile.kubernetes.plugin={filename:'/inputs/kubectl-oidc_login',sha256:previous.kubernetes?.plugin?.sha256 ?? ''};
   if(previous.federation?.upstream && previous.federation?.brokerCleaner)profile.federation={...previous.federation,approveDisposableProviders:true};

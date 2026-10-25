@@ -57,6 +57,10 @@
   inventory, or **Include destructive tests** for model/service/configuration
   workflows. The limited mode creates only test infrastructure and a temporary
   viewer account; excluded live steps are named, not counted as passed.
+  Native Hermes application workflows are currently deferred to a separate
+  regression suite; reports name that exclusion without claiming Hermes acceptance.
+  Fixed diagnostic selections can repeat existing external-provider, GPU-verification
+  and sharing scenarios without claiming that the complete phase was tested.
   Clean up the previous run separately, including retained setup access when its
   lock is already free; disabled actions explain their blocking condition.
   Distinguish missing prerequisites from checks blocked by an earlier failure,

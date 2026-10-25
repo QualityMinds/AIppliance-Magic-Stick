@@ -31,6 +31,20 @@ async function run(root:string) {
   await writePrivate(join(directory,'runner-session.json'),{version:1,runId:id,targetUid:identity.applianceUid,state:'finished',processesStopped:true});
   return {id,directory,journal};
 }
+/** A short synthetic cleanup deadline must start after the child installed its
+ * signal handlers, not after an assumed Node startup delay on a busy host. */
+async function fixtureReady(process_:ReturnType<typeof supervisedProcess>) {
+  let text='',resolveReady:()=>void=()=>{},rejectReady:(error:Error)=>void=()=>{};
+  const ready=new Promise<void>((resolve,reject)=>{resolveReady=resolve;rejectReady=reject;});
+  const output=process_.child.stdout;
+  if(!output)throw new HarnessError('UNEXPECTED','Failed','runner-execution');
+  const receive=(chunk:Buffer)=>{text+=chunk.toString();if(text.includes('READY\n'))resolveReady();};
+  output.on('data',receive);
+  const timer=setTimeout(()=>rejectReady(new HarnessError('DEADLINE','Failed','runner-execution')),5000);
+  try {await Promise.race([ready,process_.finished.then(()=>{throw new HarnessError('UNEXPECTED','Failed','runner-execution');})]);}
+  catch(error){process_.stop();await process_.finished;throw error;}
+  finally{clearTimeout(timer);output.removeListener('data',receive);}
+}
 
 test('HAR-07 HAR-10 an open worker overrides an empty root and false report fence',async()=>fixture(async output=>{
   const {id,directory,journal}=await run(output),worker=await ResourceJournal.create(join(directory,'worker-14/journal.json'),newRunId(),identity.applianceUid);
@@ -196,9 +210,9 @@ test('HAR-07 HAR-10 a real unresponsive child is killed only after its cleanup g
 });
 
 test('HAR-07 HAR-10 duplicate forwarded signals cannot skip the cleanup window',async()=>{
-  const child=supervisedProcess(process.execPath,['-e',"process.on('SIGINT',()=>{});setInterval(()=>{},50)"],
-    {stdio:'ignore'},{hardTimeoutMs:5000,graceMs:150,drainMs:300});
-  await new Promise(resolve=>setTimeout(resolve,150));
+  const child=supervisedProcess(process.execPath,['-e',"process.on('SIGINT',()=>{});process.stdout.write('READY\\n');setInterval(()=>{},50)"],
+    {stdio:['ignore','pipe','ignore']},{hardTimeoutMs:5000,graceMs:150,drainMs:300});
+  await fixtureReady(child);
   const start=Date.now();child.stop('SIGINT');child.stop('SIGINT');
   expect(await child.finished).toMatchObject({forced:true,processesStopped:true});
   expect(Date.now()-start).toBeGreaterThanOrEqual(130);
@@ -276,11 +290,12 @@ test('HAR-07 a real worker cannot write after its process group has been verifie
 
 test('HAR-07 HAR-10 coordinator exit does not shorten a still-running worker cleanup window',async()=>fixture(async directory=>{
   const marker=join(directory,'worker-cleanup.json');
-  const worker=`setTimeout(()=>{require('node:fs').writeFileSync(${JSON.stringify(marker)},'verified',{mode:0o600});process.exit(0)},300)`;
-  const coordinator=`process.on('SIGINT',()=>process.exit(0));require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:'ignore'});setInterval(()=>{},50)`;
-  const child=supervisedProcess(process.execPath,['-e',coordinator],{stdio:'ignore'},{timeoutMs:150,graceMs:1000,drainMs:10});
+  const worker=`process.on('SIGINT',()=>setTimeout(()=>{require('node:fs').writeFileSync(${JSON.stringify(marker)},'verified',{mode:0o600});process.exit(0)},300));process.stdout.write('READY\\n');setInterval(()=>{},50)`;
+  const coordinator=`const worker=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:['ignore','inherit','ignore']});process.on('SIGINT',()=>{worker.kill('SIGINT');process.exit(0)});setInterval(()=>{},50)`;
+  const child=supervisedProcess(process.execPath,['-e',coordinator],{stdio:['ignore','pipe','ignore']},{hardTimeoutMs:5000,graceMs:1000,drainMs:100});
+  await fixtureReady(child);child.stop('SIGINT');
   const result=await child.finished;
-  expect(await readPrivate(marker)).toBe('verified');expect(result.timedOut).toBe(true);
+  expect(await readPrivate(marker)).toBe('verified');expect(result.interrupted).toBe(true);
   expect(result.processesStopped).toBe(true);expect(result.forced).toBe(false);
 }));
 

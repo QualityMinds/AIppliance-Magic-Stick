@@ -83,7 +83,7 @@ class RegressionRuns:
         if (spec.get("operation", "tests") not in {"tests", "recover-lock"}
                 or spec.get("testMode", "full") not in ("full", "non-destructive")
                 or "diagnosticSelection" in spec and (not isinstance(diagnostic, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", diagnostic)
-                    or recovery or non_destructive or spec.get("phases") != [4])
+                    or recovery or non_destructive or spec.get("phases") not in ([2], [3], [4]))
                 or non_destructive and (recovery or "accountRunName" in spec or "accountRunUid" in spec)
                 or recovery and (spec.get("phases") != [] or not isinstance(lock, dict) or set(lock) not in ({"uid", "resourceVersion", "runId"}, {"uid", "resourceVersion", "runId", "released"})
                     or "released" in lock and lock["released"] is not True
@@ -153,10 +153,12 @@ class RegressionRuns:
                 runtime = (self.get("/api/v1/namespaces/" + NS + "/configmaps/magicstick-regression-runtime") or {}).get("data", {})
                 try:
                     catalog = json.loads((self.get("/api/v1/namespaces/" + NS + "/configmaps/magicstick-regression-diagnostics") or {}).get("data", {})["diagnostics.json"])
-                    supported = catalog["version"] == 1 and any(p["id"] == diagnostic for p in catalog["profiles"])
+                    supported = catalog["version"] == 2 and any(p["id"] == diagnostic and
+                        type(p.get("phase")) is int and spec.get("phases") == [p["phase"]] and
+                        p["phase"] in (2, 3, 4) and p.get("grep") == "|".join(p["caseIds"]) for p in catalog["profiles"])
                 except (KeyError, ValueError, TypeError):
                     supported = False
-                if (not supported or runtime.get("diagnosticSelectionVersion") != "1"
+                if (not supported or runtime.get("diagnosticSelectionVersion") != "2"
                         or runtime.get("image") != spec.get("image") or runtime.get("sourceRevision") != spec.get("sourceRevision")):
                     self.status(run, phase="Blocked", message="The pinned runner does not support this diagnostic selection; no Job was started.")
                     return False

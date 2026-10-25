@@ -8,6 +8,25 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Add fixed Kubernetes diagnostic selections for the existing external-provider
+  lifecycle, single/all-GPU verification, slot-consumer and four-card Ollama
+  split scenarios. Preparation, exact cleanup and scoped reports remain required;
+  mixed older runners cannot expand a diagnostic into a full phase.
+- Separate external-model UI readiness from its request deadline and journal the
+  exact acknowledged lifecycle generation before later browser failure. GPU
+  verification allows a bounded, not-yet-started allocation window without
+  accepting changed Claim identities or losing physical-device checks.
+- Drain single/split NVIDIA DRA runtimes through regular foreground retirement
+  before applying changed Pod settings. Wait for all old Pods, preserve shared
+  claims, caches and saved models, and refuse foreign runtime identities.
+
+- Defer native Hermes application workflows to a separate regression suite.
+  Standard runs no longer prepare or execute Hermes instances, including from
+  retained input profiles. Reports name the exclusion without passing or blocking
+  Hermes checks; historical failures, cleanup and the Hermes product remain
+  unchanged. Other application workflows and isolated Hermes adapter checks stay
+  selected; reduced Phase 5 coverage is not full application acceptance.
+
 - Preserve the exact NVIDIA validation allocation observed while its Job runs;
   Kubernetes may release that allocation before removing the successful Pod.
   A completed verification still needs the same Pod/Claim identities, unchanged

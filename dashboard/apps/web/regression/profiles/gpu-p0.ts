@@ -105,7 +105,7 @@ export const phase3RuntimeCases={
 } as const;
 /** Fixed diagnostic subset only; canonical phase4 never selects this case. */
 export const phase4SharingCases:Record<string,{ids:string[];grep:string;title:string}>=Object.fromEntries(
-  diagnosticSelections.map(profile=>[profile.id,{ids:profile.caseIds,grep:profile.grep,title:profile.title}]));
+  diagnosticSelections.filter(profile=>profile.phase===4).map(profile=>[profile.id,{ids:profile.caseIds,grep:profile.grep,title:profile.title}]));
 export const gpuModePhase = (mode?:string):3|4|undefined => /^phase[34](?:-|$)/.test(mode ?? '') ? Number(mode![5]) as 3|4 : undefined;
 export function gpuModeIds(mode?:string,gpuCase?:string) {
   if(gpuCase) {

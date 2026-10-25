@@ -17,7 +17,7 @@ class RegressionImagePromotionTests(unittest.TestCase):
         changed = replacement(source, "a"*40, "sha256:" + "b"*64)
         self.assertIn('  other: keep\n', changed)
         self.assertIn('  sourceRevision: "' + "a"*40 + '"', changed)
-        self.assertEqual(changed.count('  diagnosticSelectionVersion: "1"'), 1)
+        self.assertEqual(changed.count('  diagnosticSelectionVersion: "2"'), 1)
         self.assertEqual(replacement(changed, "a"*40, "sha256:" + "b"*64), changed)
         with self.assertRaises(ValueError):
             replacement(source + '  image: duplicate\n', "a"*40, "sha256:" + "b"*64)

@@ -137,8 +137,15 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD teleme
   observed.modules.catalogJson??={};observed.modules.catalogJson.applications??={};
   for(const type of ['hermes','openclaw','paperclip','kubeopencode','odysseus'])observed.modules.catalogJson!.applications[type]={};
   const applications=automaticProfile(observed,{},prepared.parsed).applications;
-  expect(applications.fixtures).toContainEqual({type:'hermes',adapter:'hermes-terminal-v1',
-    originTemplate:'https://{name}.hermes.dashboard.example.local/',responseMarker:'REGRESSION'});
+  expect(applications.fixtures.some((item:{type:string})=>item.type==='hermes')).toBe(false);
+  const previous={applications:{cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:[
+    {type:'hermes',adapter:'hermes-terminal-v1',originTemplate:'https://{name}.hermes.example.local/',responseMarker:'REGRESSION'},
+    applications.fixtures.find((item:{type:string})=>item.type==='kubeopencode')]}};
+  const refreshed=preparedProfile(previous,observed,options);
+  expect(refreshed.applications.fixtures.map((item:{type:string})=>item.type)).toEqual(['kubeopencode']);
+  expect(previous.applications.fixtures[0]!.type).toBe('hermes');
+  expect(suiteInventory(observed.models,observed.modules,observed.status,observed.hosts).applications).not.toContain('hermes');
+  expect(observed.modules.catalogJson!.applications).toHaveProperty('hermes');
   expect(applications.fixtures).toContainEqual({type:'kubeopencode',adapter:'opencode-chat-v1',
     originTemplate:'https://{name}.kubeopencode.dashboard.example.local/',responseMarker:'REGRESSION'});
   expect(applications.fixtures.filter((item:{type:string})=>!['hermes','kubeopencode'].includes(item.type))
@@ -146,6 +153,7 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD teleme
   observed.readableFiles.push('/inputs/app-cleaner.kubeconfig');
   const appReadiness=inputReadiness(prepared.parsed,{...profile,applications},observed,{...options,phases:[5],automatic:true})[0]!;
   expect(appReadiness.measures.some(item=>String(item.id).startsWith('app-'))).toBe(false);
+  expect(appReadiness.measures.some(item=>item.id==='app-hermes')).toBe(false);
   const report=inputReadiness(prepared.parsed,profile,observed,{...options,automatic:true,approve:[...labPolicy.scopes] as any});
   const guidance=readinessLines(report).join('\n');
   expect(guidance).not.toMatch(/--approve|ACCEPT|answer .*questions|accept .*proposal/i);

@@ -149,8 +149,9 @@ export const RegressionPage = () => {
     if (action === 'start') {
       if (!selectedPhases.length) throw new Error('Select at least one test phase.');
       if (testMode === 'non-destructive' && (cleanupPending || (data?.lock && data.lock.state !== 'free'))) throw new Error('Clean up the previous run separately before non-destructive tests.');
-      if(diagnostic&&!data?.diagnosticSelections?.some(p=>p.id===diagnostic))throw new Error('This diagnostic selection is no longer available. Refresh before starting.');
-      return diagnostic?api.startRegression(crypto.randomUUID().replaceAll('-', ''),[4],'full',diagnostic):
+      const profile=data?.diagnosticSelections?.find(p=>p.id===diagnostic);
+      if(diagnostic&&!profile)throw new Error('This diagnostic selection is no longer available. Refresh before starting.');
+      return diagnostic?api.startRegression(crypto.randomUUID().replaceAll('-', ''),[profile!.phase],'full',diagnostic):
         api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases, testMode);
     }
     if (action === 'recover') {
@@ -218,12 +219,14 @@ export const RegressionPage = () => {
         </fieldset>
         {!!data?.diagnosticSelections?.length&&<Field label="Test selection">
           <select aria-label="Test selection" value={diagnostic} disabled={mutation.isPending} onChange={event=>{
-            setDiagnostic(event.target.value);if(event.target.value){setTestMode('full');setSelectedPhases([4]);}
+            setDiagnostic(event.target.value);
+            const profile=data.diagnosticSelections?.find(p=>p.id===event.target.value);
+            if(profile){setTestMode('full');setSelectedPhases([profile.phase]);}
           }}><option value="">All tests in selected phases</option>
-            {data.diagnosticSelections.map(profile=><option key={profile.id} value={profile.id}>{profile.title} ({profile.caseIds.join(', ')})</option>)}
+            {data.diagnosticSelections.map(profile=><option key={profile.id} value={profile.id}>{profile.title} (Phase {profile.phase} · {profile.caseIds.join(', ')})</option>)}
           </select>
         </Field>}
-        {diagnostic&&<p role="status">Only this Phase 4 diagnostic subset will run. Preparation and cleanup remain required; this is not full-phase acceptance.</p>}
+        {diagnostic&&<p role="status">Only this Phase {selectedPhases[0]} diagnostic subset will run. Preparation and cleanup remain required; this is not full-phase acceptance.</p>}
         {nonDestructiveBlocked && <p role="alert">Clean up the previous run separately before non-destructive tests. This mode never restores old test resources or clears their lock.</p>}
         <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending||Boolean(diagnostic)} aria-describedby="regression-phase-hint">
           <legend>Test phases</legend>

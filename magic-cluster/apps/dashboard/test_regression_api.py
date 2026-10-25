@@ -128,7 +128,7 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(self.writes, [])
 
     def diagnostic(self):
-        self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]["diagnosticSelectionVersion"] = "1"
+        self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]["diagnosticSelectionVersion"] = "2"
         self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"] = {"data": {"diagnostics.json":
             (Path(__file__).resolve().parents[3] / "magic-cluster/apps/regression/diagnostics.json").read_text()}}
         return {"requestId": "1"*32, "acknowledgeDisruption": True, "phases": [4], "testMode": "full", "diagnosticSelection": "remaining"}
@@ -136,7 +136,8 @@ class RegressionApiTests(unittest.TestCase):
     def test_diagnostic_selection_is_catalog_owned_immutable_and_distinct_from_a_full_phase(self):
         payload = self.diagnostic()
         offered = self.service.list()["diagnosticSelections"]
-        self.assertEqual({p["id"] for p in offered}, {"remaining", "slot-race", "reload", "restoration"})
+        catalog = json.loads(self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"]["data"]["diagnostics.json"])
+        self.assertEqual({p["id"]: p["phase"] for p in offered}, {p["id"]: p["phase"] for p in catalog["profiles"]})
         self.assertNotIn("grep", json.dumps(offered))
         run = self.service.start(ACTOR, payload)
         self.assertEqual(run["phases"], [4])
@@ -150,6 +151,13 @@ class RegressionApiTests(unittest.TestCase):
             with self.assertRaisesRegex(RequestError, "different diagnostic tests"):
                 self.service.start(ACTOR, changed)
         self.assertEqual(self.writes, [])
+        for index, selection in enumerate(("external-route", "gpu-validation-single", "ollama-four-card-split"), 2):
+            self.setUp()
+            self.diagnostic()
+            profile = next(p for p in offered if p["id"] == selection)
+            result = self.service.start(ACTOR, {**payload, "requestId": str(index)*32, "phases": [profile["phase"]], "diagnosticSelection": selection})
+            self.assertEqual(result["phases"], [profile["phase"]])
+            self.assertEqual(result["diagnosticSelection"], selection)
 
     def test_invalid_or_unsupported_diagnostics_never_create_identity_or_intent(self):
         payload = self.diagnostic()
@@ -160,10 +168,15 @@ class RegressionApiTests(unittest.TestCase):
                 self.service.start(ACTOR, {**payload, **changes})
             self.assertEqual(self.writes, [])
             self.assertEqual(self.users, {})
-        self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"].pop("diagnosticSelectionVersion")
-        self.assertEqual(self.service.list()["diagnosticSelections"], [])
-        with self.assertRaises(RequestError):
-            self.service.start(ACTOR, payload)
+        runtime = self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]
+        for version in ("1", None):
+            if version is None:
+                runtime.pop("diagnosticSelectionVersion")
+            else:
+                runtime["diagnosticSelectionVersion"] = version
+            self.assertEqual(self.service.list()["diagnosticSelections"], [])
+            with self.assertRaises(RequestError):
+                self.service.start(ACTOR, payload)
         self.assertEqual(self.writes, [])
 
     def test_old_schema_cannot_silently_expand_diagnostic_to_whole_phase(self):

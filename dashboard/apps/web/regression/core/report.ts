@@ -9,7 +9,7 @@ import {writePrivate} from './private-files.ts';
 import {join} from 'node:path';
 import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from './evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
-import {disabledExperimentalEngines} from './engine-policy.ts';
+import {deferredApplicationSteps,disabledExperimentalEngines} from './engine-policy.ts';
 import {preparationDiagnostic, preparationDescription, parsePreparationDiagnostic, type PreparationDiagnostic} from './preparation-diagnostic.ts';
 import {collectReportArtifacts,archiveReport} from './report-artifacts.ts';
 import {junitReport} from './junit.ts';
@@ -20,7 +20,8 @@ import {regressionBlockedKind,regressionBlockedLabel, regressionBlockedSummary} 
 import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses,recoveryCause} from './blocking.ts';
 import {testMode,excludedSteps,isolatedStep} from './test-mode.ts';
 import {nonDestructiveVariants} from './non-destructive.ts';
-import {diagnosticSelection,diagnosticMetadata} from './diagnostic-selection.ts';
+import {diagnosticForMode,diagnosticMetadata} from './diagnostic-selection.ts';
+import {diagnosticRequirements} from './scenario-selection.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
@@ -82,10 +83,9 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
     return {reason,blockedBy:cause};
   };
   const limited=testMode(process.env.REGRESSION_TEST_MODE??'full')==='non-destructive';
-  const diagnostic=mode==='phase4-sharing'&&process.env.REGRESSION_GPU_CASE?
-    diagnosticSelection(process.env.REGRESSION_GPU_CASE,[4],'full'):undefined;
+  const diagnostic=diagnosticForMode(mode);
   const matrix=limited?[]:mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
-    diagnostic&&!process.env.REGRESSION_SCENARIO_ID?gpuRequirements(4).filter(r=>r.environment==='live'&&diagnostic.caseIds.includes(r.id)):
+    diagnostic&&!process.env.REGRESSION_SCENARIO_ID?diagnosticRequirements(diagnostic):
     mode === 'phase3' || mode === 'phase4' ? gpuRequirements(Number(mode[5]) as 3|4) :
     mode && remainingPhase(mode) ? remainingRequirements(mode) ?? [] : [];
   for(const item of matrix)if(!result.some(proof=>proof.id === item.id && proof.variant === item.variant &&
@@ -191,9 +191,9 @@ export function liveReportScope(mode?: string) {
     return 'Phase 3 diagnostic subset: AMD/NVIDIA vLLM inference, logs, browser Stop/Start and exact restoration; not complete installed Phase 3 acceptance';
   if(mode === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'nvidia-lifecycle')
     return 'Phase 3 diagnostic subset: three independent NVIDIA Ollama and vLLM inference/logs/Stop/Start cycles each; AMD sharing unchanged; not complete installed Phase 3 acceptance';
-  if(mode === 'phase4-sharing' && process.env.REGRESSION_GPU_CASE) {
-    const profile=diagnosticSelection(process.env.REGRESSION_GPU_CASE,[4],'full')!;
-    return `Phase 4 diagnostic subset: ${profile.title} (${profile.caseIds.join(', ')}); normal identity, lock and cleanup rules; not complete installed Phase 4 acceptance`;
+  const diagnostic=diagnosticForMode(mode);
+  if(diagnostic) {
+    return `Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}); normal identity, lock and cleanup rules; not complete installed Phase ${diagnostic.phase} acceptance`;
   }
   if(mode === 'gpu-recover') return 'explicit recovery of one reviewed GPU journal; same node/boot/source/image pins; no Lease takeover, resource adoption or new inference workloads';
   if (mode?.startsWith('phase3')) return 'Phase 3 P0 installed AMD/NVIDIA Ollama/vLLM exclusive runtimes, physical inventory, memory, logs and scoped validation; borrowed sharing restored; Intel and reboot acceptance separate';
@@ -220,13 +220,14 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),limited=runTestMode==='non-destructive';
-  const diagnostic=mode==='phase4-sharing'&&process.env.REGRESSION_GPU_CASE?
-    diagnosticSelection(process.env.REGRESSION_GPU_CASE,[4],runTestMode):undefined;
-  const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='all'?
+  const diagnostic=diagnosticForMode(mode);
+  const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='phase5-live'?[5]:mode==='all'?
     (process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number):[];
   const omittedSteps=excludedSteps(runTestMode,selectionPhases);
-  const selectionText=diagnostic?`Phase 4 diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.';
-  const portableArchive=mode==='all'||mode==='selftest'||mode==='recover'||mode==='phase4-sharing'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
+  const deferredApplications=deferredApplicationSteps(selectionPhases);
+  const deferredText=deferredApplications.length?' Native application workflows deferred to separate regression: '+deferredApplications.join(', ')+'. Full Phase 5 application acceptance is not assessed.':'';
+  const selectionText=(diagnostic?`Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.')+deferredText;
+  const portableArchive=Boolean(diagnostic)||mode==='all'||mode==='selftest'||mode==='recover'||mode==='phase4-sharing'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
   const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
@@ -276,7 +277,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     (limited || mode !== 'phase3' || phase3Coverage.complete) && (limited || mode !== 'phase4' || phase4Coverage.complete) &&
     (!laterCoverage || laterCoverage.complete)};
   const revision = /^[0-9a-f]{40,64}$/.test(sourceRevision) ? sourceRevision : 'unknown';
-  const liveScope = liveReportScope(mode);
+  const liveScope = liveReportScope(mode)+deferredText;
   const fullPhase0Accepted = !limited && mode === 'phase0' && summary.acceptable && coverage.complete;
   const fullPhase1Accepted = !limited && mode === 'phase1' && summary.acceptable && smokeCoverage.complete;
   const fullPhase2Accepted = !limited && mode === 'phase2' && summary.acceptable && controlCoverage.complete;
@@ -285,8 +286,11 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   // The installed profile never performs a host reboot. Keep historic CDI
   // maintenance gates visible rather than silently calling all Phase 4 P0 done.
   const fullPhase4Accepted = false;
+  const remainingAcceptance=Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,
+    !limited && mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true && !(phase===5&&deferredApplications.length)]));
   const openGates = limited?[]:laterCoverage ? [...new Set(laterCoverage.missingLayers.map(item=>`${item.id}/${item.layer}: ${item.gate ?? item.group} evidence required`))] : mode?.startsWith('phase4') ? ['BOOT-04: separately authorized live driver restart/CDI recovery'] :
     mode?.startsWith('phase3') ? ['Intel: unavailable lab hardware'] : [];
+  openGates.push(...deferredApplications);
   await writePrivate(join(directory, 'summary.json'), {version: 2, runId, sourceRevision: revision,testMode:runTestMode,excludedSteps:omittedSteps,
     ...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{}),
     ...(prepared ? {automaticPreparation: prepared} : {}),
@@ -295,7 +299,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     fullPhase1Accepted,
     fullPhase2Accepted,
     fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,openGates,
-    ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,!limited && mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true])),
+    ...remainingAcceptance,
     ...(laterCoverage ? {[`phase${laterPhase}Coverage`]:laterCoverage} : {}),
     ...(mode === 'phase0' ? {phase0Coverage: coverage} : {}),
     ...(mode === 'phase1' ? {phase1Coverage: smokeCoverage} : {}),
@@ -349,7 +353,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `Full Phase 2 P0 gate: ${!limited && mode === 'phase2' ? fullPhase2Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Installed Phase 3 P0 gate: ${!limited && mode === 'phase3' ? fullPhase3Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Installed Phase 4 P0 gate: ${!limited && mode === 'phase4' ? installedPhase4Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
-    [5,6,7,8].map(phase=>`Full Phase ${phase} P0 gate: ${!limited && mode === `phase${phase}` ? summary.acceptable ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n`).join('') +
+    [5,6,7,8].map(phase=>`Full Phase ${phase} P0 gate: ${!limited && mode === `phase${phase}` && !(phase===5&&deferredApplications.length) ? remainingAcceptance[`fullPhase${phase}Accepted`] ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n`).join('') +
     (openGates.length ? `Separate open gates: ${openGates.join('; ')}\n` : '') +
     `Scope: ${safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning layers only'}\n` +
     'Catalogue goals describe case families; Passed applies only to the recorded variant, layer and environment.\n' +
@@ -363,7 +367,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n');
   await archiveReport(directory,runId,artifacts,portableArchive);
   return {...summary, executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,...(cleanup?{cleanup}:{}), fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
-    ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};
+    ...remainingAcceptance};
 }
 
 /** Defense in depth for explicitly reviewed text; reports use allowlisting instead. */

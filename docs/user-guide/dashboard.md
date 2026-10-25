@@ -66,6 +66,14 @@ settings, licenses and caches unchanged; they create a temporary viewer account,
 runner Job and reports, run isolated checks and read the selected phase's live
 inventory. Model lifecycle, inference, sharing, recovery and other mutating live
 checks are not run. Excluded steps are listed separately, not passed or blocked.
+Native Hermes application workflows are currently excluded from standard runs
+and marked **deferred to separate regression** in the report. Other applications
+remain selected; this is not full Hermes/application acceptance and does not
+disable Hermes in the product. Existing failed reports are unchanged.
+For a focused repeat, **Test selection** offers fixed external-provider, GPU
+verification and sharing scenarios. Choosing one selects its advertised phase
+and destructive mode; automatic preparation and cleanup still apply. A passing
+diagnostic is not full-phase acceptance.
 All phases are selected by default. To run only GPU
 tests, choose **Clear selection**, check **Phase 3**, then **Start tests**. You
 can also select several phases. The saved selection appears beside progress

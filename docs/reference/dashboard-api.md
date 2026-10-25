@@ -94,7 +94,7 @@ lock check; an unexpected permission error remains an error, not an empty lab.
 | --- | --- |
 | `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results, lock state and external-runner limitations. Read-only. |
 | `POST /api/regression/register` | Exact `confirmation: "DISPOSABLE TEST SERVER"`, `acknowledgeDisruption: true`; immutable Appliance/Node-bound test marker, no production fallback. |
-| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`, optional `phases` array of distinct integers 0–8 (1–9 entries; default all), optional `testMode: non-destructive\|full` (legacy default full), optional advertised `diagnosticSelection` ID (requires full mode and `[4]`). Idempotent `RegressionRun` intent and generated private test account; no UI Job writes. |
+| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`, optional `phases` array of distinct integers 0–8 (1–9 entries; default all), optional `testMode: non-destructive\|full` (legacy default full), optional advertised `diagnosticSelection` ID (requires full mode and exactly that profile's phase). Idempotent `RegressionRun` intent and generated private test account; no UI Job writes. |
 | `POST /api/regression/recover-lock` | 32-lowercase-hex `requestId`, reviewed `expectedLockRevision: "<Lease UID>:<resource version>"`, `acknowledgeCleanup: true`; idempotent recovery-only intent. No test phases or forced Lease deletion. |
 | `GET /api/regression/runs/<id>` | Durable run status. |
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
@@ -107,18 +107,21 @@ same automatic previous-run cleanup and baseline checks. Unselected phases are
 not executed or credited as passed. The saved `phases` and selected-phase
 progress/results remain available after reload.
 
-Optional `diagnosticSelections` in status lists fixed `{id,title,caseIds,phase:4}`
+Optional `diagnosticSelections` in status lists fixed `{id,title,caseIds,phase}`
 profiles from the Git-owned regression catalog. It is empty on unsupported
 runner versions. `diagnosticSelection` in a start request and saved run is an
 immutable ID, not a command, regular expression or arbitrary case list. Current
-profiles are `slot-race`, `reload`, `restoration` and `remaining`; the last also
-includes slot-consumer and provider-independence checks. Only `testMode: full`
-with `phases: [4]` is accepted. A changed selection for the same request ID returns
+profiles include `external-route` in Phase 2, `gpu-validation-single` and
+`gpu-validation-all` in Phase 3, and `slot-race`, `reload`, `restoration`,
+`remaining`, `slot-consumers` and `ollama-four-card-split` in Phase 4. The Git-owned
+catalog may further restrict existing variants; a request cannot supply variants,
+grep expressions or commands. Only `testMode: full` with exactly the advertised
+phase (`[2]`, `[3]` or `[4]`) is accepted. A changed selection for the same request ID returns
 409, and unsupported images or schema pruning stop before account provisioning.
 The operator independently checks the pinned runner's versioned capability,
 catalog and exact image/source before scheduling. Mixed older operators/images
 cannot interpret this intent as a full run. Results and JSON/HTML/text/JUnit
-retain the bounded diagnostic scope and never certify full Phase 4 acceptance.
+retain the bounded diagnostic scope and never certify full-phase acceptance.
 
 `testMode` is also immutable and included in run responses. Reusing a request ID
 with a different mode returns 409 before provisioning. Unknown/coerced modes are

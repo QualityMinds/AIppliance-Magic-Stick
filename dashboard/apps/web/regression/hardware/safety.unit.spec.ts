@@ -154,23 +154,29 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
     pool:{name:card.pool,generation:1,resourceSliceCount:1},devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}};
   async function lifecycle(damage?:string) {
     let observation=0;
+    const delayedAllocation=['pending-allocation','pending-replaced-claim','pending-changed-generation'].includes(damage??'');
+    const completion=delayedAllocation?2:1;
     const workflow={config:lab,directory,live:{journal:{runId},guard:async()=>{},observer:{
       list:async(resource:string,namespace?:string)=>{
         if(resource==='jobs') {
           if(namespace!=='ai')return [];
           observation++;
-          return [{...job,status:observation>1?{conditions:[{type:'Complete',status:'True'}]}:{}}];
+          return [{...job,status:observation>completion?{conditions:[{type:'Complete',status:'True'}]}:{}}];
         }
         if(resource==='pods')return namespace==='ai'?[{...pod,
           metadata:{...pod.metadata,name:'validation-pod',namespace:'ai',uid:observation>1&&damage==='different-pod'?'replacement-pod':'pod-uid'},
-          status:{phase:damage==='never-observed'||observation>1&&!['live-deallocation','raced-completion'].includes(damage??'')?'Succeeded':'Running',
-            initContainerStatuses:[{name:'engine',imageID:observation>1&&damage==='wrong-image'?'unverified':imageId}]}}]:[];
+          ...(damage==='pending-wrong-claim'?{spec:{...pod.spec,resourceClaims:[{name:'gpu',resourceClaimName:'foreign-claim'}]}}:{}),
+          status:{phase:observation===1&&(delayedAllocation||['pending-started','pending-wrong-claim'].includes(damage??''))?'Pending':
+            damage==='never-observed'||observation>completion&&!['live-deallocation','raced-completion'].includes(damage??'')?'Succeeded':'Running',
+            initContainerStatuses:[{name:'engine',imageID:observation===1&&delayedAllocation?'':observation>1&&damage==='wrong-image'?'unverified':imageId,
+              state:observation===1&&(delayedAllocation||damage==='pending-wrong-claim')?
+                {waiting:{reason:'PodInitializing'}}:{running:{startedAt:new Date().toISOString()}}}]}}]:[];
         return [slice];
       },get:async(resource:string)=>{
         if(resource==='pods')return {...pod,metadata:{...pod.metadata,name:'validation-pod',namespace:'ai'},
           status:{phase:damage==='raced-completion'?'Succeeded':'Running',initContainerStatuses:[{name:'engine',imageID:imageId}]}};
         const current=structuredClone(allocated);
-        if(observation>1||damage==='never-observed') {
+        if(observation>completion||damage==='never-observed'||observation===1&&(delayedAllocation||['pending-started','pending-wrong-claim'].includes(damage??''))) {
           current.status={};
           if(damage==='replaced-claim')current.metadata.uid='foreign-claim';
           if(damage==='changed-generation')current.metadata.generation=2;
@@ -178,14 +184,16 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
           if(damage==='wrong-allocation')current.status=structuredClone(allocated.status);
           if(damage==='wrong-allocation')(current.status!.allocation!.devices as any).results[0].device='foreign-card';
         }
+        if(observation>1&&damage==='pending-replaced-claim')current.metadata.uid='replaced-pending-claim';
+        if(observation>1&&damage==='pending-changed-generation')current.metadata.generation=2;
         return current;
       }}},state:async()=>({backend:'dra',devices:[card]}),inventory:async()=>({devices:[{...device,
         validation:{OLlama:{state:observation>1?'passed':'running',validatedAt:new Date().toISOString(),imageId}}}]})} as unknown as GpuScenario;
     return completedValidation(workflow,request);
   }
-  await lifecycle();await lifecycle('raced-completion');
+  await lifecycle();await lifecycle('raced-completion');await lifecycle('pending-allocation');
   for(const damage of ['replaced-claim','changed-generation','changed-spec','different-pod','live-deallocation',
-    'never-observed','wrong-allocation','wrong-image'])
+    'never-observed','wrong-allocation','wrong-image','pending-started','pending-wrong-claim','pending-replaced-claim','pending-changed-generation'])
     await expect(lifecycle(damage),damage).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding'});
 });
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});

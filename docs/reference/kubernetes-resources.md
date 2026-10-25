@@ -158,6 +158,13 @@ finalizer. Legacy Models without an activation-UID label retain their managed
 name-label compatibility; conflicting UID labels are refused. An orphan Pod from
 older background deletion fences completion without being adopted or force-deleted.
 
+Changed single/split NVIDIA DRA runtime settings use this same retirement and
+Pod-drain barrier before creating the replacement KubeAI Model. During the
+transition the activation reports `Starting` with reason `ReplacingGpuRuntime`;
+foreign runtime identity reports `ModelReplacementBlocked`. The saved activation,
+shared claims and download caches are retained. Unchanged generated runtime
+fields, server defaults and autoscaling-only fields do not cause another drain.
+
 The operator owns one internal `msr-<hash>` KubeAI Model per parent UID/GPU UUID.
 Labels bind it to the parent name and UID (`appliance.magicstick.dev/modelactivation`,
 `activation-uid`, `model-replica` under the same prefix); annotations bind the
