@@ -47,7 +47,8 @@ replace registration, discard old journals or bypass previous-run cleanup.
 
 For focused checks, **Test selection** offers fixed subsets of existing cases:
 the Phase 2 controlled external provider (`ROUTE-05`); Phase 3 single-GPU or
-all-GPU verification (`HW-06`, each including Ollama and vLLM); and Phase 4
+all-GPU verification (`HW-06`, each including Ollama and vLLM), or the existing
+two-card independent-copy Ollama lifecycle (`MGPU-02`); and Phase 4
 slot consumers (`SLOT-03`), four-card shared split Ollama (`MGPU-01`), **Last GPU
 slot race** (`SLOT-09`), **Sharing persistence after reload** (`SHR-12`), **Exact
 sharing and resource restoration** (`HAR-08`), or the combined remaining-sharing
@@ -56,6 +57,12 @@ preparation, baseline checks and exact cleanup still run. The report retains the
 profile after reload and is not full-phase acceptance. **All tests in selected
 phases** returns to ordinary phase selection. Unsupported installed versions do
 not offer these profiles or silently expand them into a whole phase.
+Before a live scenario acquires the test Lease, a readiness-only miss refreshes
+the complete baseline for at most 90 seconds. The source and image pins remain
+exact; changed identities, different pins and read failures stop immediately.
+The worker's private `preflight-pins.json` names the fixed failing component
+index and condition without credentials, raw responses or workload names. A
+failed check keeps `REVISION` and its stage rather than becoming a generic timeout.
 **Refresh tests** remains available during automatic updates. **Cancel tests**
 requests bounded cleanup.
 
@@ -370,7 +377,7 @@ never promotes `main` or `develop`. Adopt that digest and `sourceRevision` in
 `magic-cluster/apps/regression/runtime.yaml` on the feature branch, refresh
 the generated deployment references and verify the installed revision separately.
 Use the tested-source replacement in `tools/promote_regression_image.py` so its
-`diagnosticSelectionVersion: "1"` capability advances with that exact qualified
+`diagnosticSelectionVersion: "2"` capability advances with that exact qualified
 image. Do not add this capability to an older runner pin.
 
 On registered test Appliances, host software convergence defers while a test or

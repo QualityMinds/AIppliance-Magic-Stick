@@ -621,6 +621,24 @@ and unseen/wrong device or image evidence still fail. Fixed private diagnostics
 also record identity-field presence. No campaign IDs, variants, layers or timeouts
 were added; native GPU and Stop acceptance remains separate from these checks.
 
+27 October 2026, existing HAR-02/MGPU-02 preflight follow-up (native retest
+pending): the failed two-card independent-copy Ollama scenario stopped in its
+setup fixture before creating a model. Its historical trace records `REVISION`
+but not which pin/readiness predicate failed; it is not evidence of an Ollama
+inference failure. HAR-02's counterexample reproduces the old one-shot failure
+on a same-source Flux reconciliation and on a temporarily unready pinned Pod.
+The baseline now refreshes all API/identity/Pod/Flux observations within a
+90-second bound, before any Lease or resource write. Wrong sources/images,
+changed Deployment/Flux identities or generations and observer/identity errors
+remain failures. Exhaustion retains the concrete pin diagnostic, not a generic
+deadline. Fixed private observations retain component ordinal/condition only.
+The reviewed diagnostic catalog selects exactly the existing
+`MGPU-02 / p3-replicated-ollama-2` scenario with A/E/O evidence; real Playwright
+discovery proves it cannot expand into the other card/engine variants or a
+whole phase. Existing API/operator and desktop/mobile selection checks exercise
+that same catalog. No campaign case ID or historical result is added or changed;
+local checks and publication are not physical inference/cleanup acceptance.
+
 25 October 2026, existing ROUTE-05, HW-06/SLOT-03 and MGPU-01 repair follow-up
 (local implementation; installed repeat pending): the later complete runs
 recorded HW-06/SLOT-03 allocation failures while their native validation Jobs

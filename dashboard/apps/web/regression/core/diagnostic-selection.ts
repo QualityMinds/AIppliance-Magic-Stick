@@ -17,7 +17,8 @@ export function diagnosticSelection(value:unknown,phases:number[],mode:string,op
   requireSafe(selected&&operation==='tests'&&mode==='full'&&phases.length===1&&phases[0]===selected.phase,'CONFIG');
   return selected;
 }
-export const diagnosticMode=(selected:DiagnosticSelection)=>selected.phase===2?'phase2-models':selected.phase===3?'phase3-validation':'phase4-sharing';
+export const diagnosticMode=(selected:DiagnosticSelection)=>selected.phase===2?'phase2-models':selected.phase===3?
+  selected.caseIds.every(id=>id==='HW-06')?'phase3-validation':'phase3-gpu':'phase4-sharing';
 /** Preparation and recovery inherit the selection, but are never filtered by it. */
 export function diagnosticForMode(mode?:string,value:unknown=process.env.REGRESSION_DIAGNOSTIC_SELECTION??
   (mode==='phase4-sharing'?process.env.REGRESSION_GPU_CASE||undefined:undefined)) {

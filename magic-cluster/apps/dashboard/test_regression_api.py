@@ -151,7 +151,7 @@ class RegressionApiTests(unittest.TestCase):
             with self.assertRaisesRegex(RequestError, "different diagnostic tests"):
                 self.service.start(ACTOR, changed)
         self.assertEqual(self.writes, [])
-        for index, selection in enumerate(("external-route", "gpu-validation-single", "ollama-four-card-split"), 2):
+        for index, selection in enumerate(("external-route", "gpu-validation-single", "ollama-four-card-split", "ollama-two-card-copies"), 2):
             self.setUp()
             self.diagnostic()
             profile = next(p for p in offered if p["id"] == selection)

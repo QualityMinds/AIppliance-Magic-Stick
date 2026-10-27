@@ -71,7 +71,7 @@ and marked **deferred to separate regression** in the report. Other applications
 remain selected; this is not full Hermes/application acceptance and does not
 disable Hermes in the product. Existing failed reports are unchanged.
 For a focused repeat, **Test selection** offers fixed external-provider, GPU
-verification and sharing scenarios. Choosing one selects its advertised phase
+verification, two-card independent-copy Ollama and sharing scenarios. Choosing one selects its advertised phase
 and destructive mode; automatic preparation and cleanup still apply. A passing
 diagnostic is not full-phase acceptance.
 All phases are selected by default. To run only GPU

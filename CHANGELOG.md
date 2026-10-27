@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Refresh the complete preflight snapshot for up to 90 seconds when pinned
+  deployments or Flux are temporarily unready. Wrong sources/images, changed
+  identities and observation errors still fail without retry. Retain fixed
+  private pin-check diagnostics and offer the existing two-card independent-copy
+  Ollama scenario (`MGPU-02`) as an exact diagnostic, without adding campaign cases.
+
 - Keep unchanged NVIDIA Ollama runtimes running when KubeAI omits an empty
   argument list. Withdraw stopped/deleting local models from routing even while
   old KubeAI readiness remains visible. GPU-verification evidence uses native

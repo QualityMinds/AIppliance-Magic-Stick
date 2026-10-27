@@ -8,6 +8,7 @@
     {"id": "external-route", "phase": 2, "title": "Controlled external provider lifecycle", "caseIds": ["ROUTE-05"], "variants": ["external-route"], "grep": "ROUTE-05"},
     {"id": "gpu-validation-single", "phase": 3, "title": "Single physical GPU engine verification", "caseIds": ["HW-06"], "variants": ["p3-validation-single"], "grep": "HW-06"},
     {"id": "gpu-validation-all", "phase": 3, "title": "All physical GPUs engine verification", "caseIds": ["HW-06"], "variants": ["p3-validation-all"], "grep": "HW-06"},
+    {"id": "ollama-two-card-copies", "phase": 3, "title": "Ollama two-card independent copies lifecycle", "caseIds": ["MGPU-02"], "variants": ["p3-replicated-ollama-2"], "grep": "MGPU-02"},
     {"id": "slot-consumers", "phase": 4, "title": "External and diagnostic GPU slot consumers", "caseIds": ["SLOT-03"], "grep": "SLOT-03"},
     {"id": "ollama-four-card-split", "phase": 4, "title": "Ollama four-card shared split lifecycle", "caseIds": ["MGPU-01"], "variants": ["p4-multigpu-ollama-4"], "grep": "MGPU-01"}
   ]

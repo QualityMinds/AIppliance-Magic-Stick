@@ -46,6 +46,11 @@ test('HAR-10 real Playwright discovery selects exactly the registered diagnostic
       expect(scenarios.length).toBeGreaterThan(0);
       expect(scenarios.every(s=>registeredScenarioSource(profile.phase,s.source.file))).toBe(true);
       if(profile.variants)expect(scenarios.every(s=>s.evidence.every(e=>profile.variants!.includes(e.variant!)))).toBe(true);
+      if(profile.id==='ollama-two-card-copies') {
+        expect(scenarios).toHaveLength(1);
+        expect(scenarios[0]!.source.file).toBe('regression/hardware/multi-gpu.e2e.spec.ts');
+        expect(scenarios[0]!.evidence).toEqual(['A','E','O'].map(layer=>({id:'MGPU-02',variant:'p3-replicated-ollama-2',layer})));
+      }
     }
   }finally{await rm(output,{recursive:true,force:true});}
 });
@@ -53,7 +58,7 @@ test('HAR-10 real Playwright discovery selects exactly the registered diagnostic
 for(const profile of diagnosticSelections)test(`HAR-10 ${profile.id} discovery requires every selected live tuple, not merely one case family`,()=>{
   const required=diagnosticRequirements(profile),mode=diagnosticMode(profile);
   const file=profile.phase===2?'regression/models/cpu-model-control.e2e.spec.ts':profile.phase===3?
-    'regression/hardware/validation.e2e.spec.ts':'regression/hardware/sharing.e2e.spec.ts';
+    `regression/hardware/${mode==='phase3-validation'?'validation':'multi-gpu'}.e2e.spec.ts`:'regression/hardware/sharing.e2e.spec.ts';
   const manifest={version:1,scenarios:required.map((e,index)=>({id:'selected-'+index,title:profile.title+' '+index,
     source:{file,line:1},evidence:[e]}))};
   expect(diagnosticScenarios(manifest,profile)).toHaveLength(required.length);

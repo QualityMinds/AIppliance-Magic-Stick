@@ -5,6 +5,22 @@ import type {LabConfig} from './config.ts';
 import type {KubeObject, KubectlObserver} from './observer.ts';
 import {HarnessError, requireSafe} from './errors.ts';
 import {engineRegressionEnabled} from './engine-policy.ts';
+import {poll} from './poll.ts';
+
+export interface PinCheck {
+  component:'flux'|'deployment';index:number;
+  condition:'ready'|'missing'|'identity'|'revision'|'generation'|'replicas'|'containers'|'image'|'readiness';
+}
+/** Only readiness may converge. A different source/image is never retried. */
+export class DeploymentPinError extends HarnessError {
+  readonly checks:PinCheck[];
+  readonly retryable:boolean;
+  constructor(checks:PinCheck[],retryable:boolean) {
+    const failure=checks.find(c=>['identity','revision','image','missing'].includes(c.condition))??checks.find(c=>c.condition!=='ready');
+    super('REVISION','Failed',failure?.component==='flux'?'flux-ready':'preflight');
+    this.checks=checks;this.retryable=retryable;
+  }
+}
 
 export async function verifiedEndpoint(url: string, timeoutMs: number, ca?: string): Promise<void> {
   requireSafe(new URL(url).protocol === 'https:', 'TLS');
@@ -59,24 +75,69 @@ export function verifyIdle(hosts: ManagedHost[], models: ModelsPayload, config: 
 }
 
 export async function verifyDeploymentPins(config: LabConfig, observer: Pick<KubectlObserver, 'get' | 'list'>,
-  pods: KubeObject[], flux: KubeObject[]) {
+  pods: KubeObject[], flux: KubeObject[],identities?:Map<string,string>) {
+  const checks:PinCheck[]=[];
+  const sameIdentity=(key:string,item:KubeObject)=>{
+    const value=JSON.stringify([item.metadata.uid,item.metadata.generation]);
+    const previous=identities?.get(key);identities?.set(key,previous??value);
+    return previous===undefined||previous===value;
+  };
   if (config.expected.flux) {
     const expected = config.expected.flux;
     const item = flux.find(entry => entry.metadata.name === expected.name && entry.metadata.namespace === expected.namespace);
-    requireSafe(item?.status?.lastAppliedRevision === expected.revision && item.status.conditions?.some(condition =>
+    checks.push({component:'flux',index:0,condition:!item?'missing':!sameIdentity('flux',item)?'identity':
+      item.status?.lastAppliedRevision!==expected.revision?'revision':
+      item.status?.conditions?.some(condition =>
       condition.type === 'Ready' && condition.status === 'True' &&
-      (condition.observedGeneration ?? item.status?.observedGeneration) === item.metadata.generation), 'REVISION');
+      (condition.observedGeneration ?? item.status?.observedGeneration) === item.metadata.generation)?'ready':'readiness'});
   }
-  for (const expected of config.expected.images) {
+  for (const [index,expected] of config.expected.images.entries()) {
     const deployment = await observer.get('deployments.apps', expected.namespace, expected.deployment);
     const replicasets = await observer.list('replicasets.apps', expected.namespace);
     const owners = new Set(replicasets.filter(item => item.metadata.ownerReferences?.some(owner => owner.uid === deployment.metadata.uid))
       .map(item => item.metadata.uid));
     const containers = pods.filter(item => item.metadata.namespace === expected.namespace && item.metadata.ownerReferences?.some(owner => owners.has(owner.uid)))
       .flatMap(item => item.status?.containerStatuses ?? []).filter(item => item.name === expected.container);
-    requireSafe(deployment.metadata.generation === deployment.status?.observedGeneration &&
-      Number(deployment.status?.readyReplicas) > 0 && containers.length > 0 &&
-      containers.every(item => item.ready && item.imageID?.endsWith(expected.digest)), 'REVISION');
+    checks.push({component:'deployment',index,condition:
+      !sameIdentity('deployment-'+index,deployment)?'identity':
+      containers.some(item=>item.imageID&&!item.imageID.endsWith(expected.digest))?'image':
+      deployment.metadata.generation!==deployment.status?.observedGeneration?'generation':
+      !(Number(deployment.status?.readyReplicas)>0)?'replicas':!containers.length?'containers':
+      !containers.every(item=>item.ready&&item.imageID?.endsWith(expected.digest))?'readiness':'ready'});
+  }
+  if(checks.some(c=>c.condition!=='ready'))throw new DeploymentPinError(checks,
+    !checks.some(c=>['identity','revision','image','missing'].includes(c.condition)));
+  return checks;
+}
+
+/** A baseline is not an atomic cluster snapshot. Refresh all observations after
+ * a readiness-only miss, before acquiring a Lease or creating any test object.
+ * Reads/auth/identity errors and different pins remain immediate failures. */
+export async function waitForDeploymentPins<T extends {pods:KubeObject[];flux:KubeObject[]}>(config:LabConfig,
+  observer:Pick<KubectlObserver,'get'|'list'>,read:()=>Promise<T>,options:{timeoutMs:number;
+    now?:()=>number;wait?:(ms:number)=>Promise<void>;
+    diagnostic?:(value:{version:1;attempt:number;checks:PinCheck[]})=>Promise<void>}):Promise<T> {
+  let last:DeploymentPinError|undefined,attempt=0;
+  const identities=new Map<string,string>();
+  try {
+    const accepted=await poll(async()=>{
+      const value=await read();attempt++;
+      try {
+        const checks=await verifyDeploymentPins(config,observer,value.pods,value.flux,identities);
+        await options.diagnostic?.({version:1,attempt,checks});
+        return {value,ready:true};
+      }catch(error) {
+        if(!(error instanceof DeploymentPinError))throw error;
+        await options.diagnostic?.({version:1,attempt,checks:error.checks});
+        if(!error.retryable)throw error;
+        last=error;return {value,ready:false};
+      }
+    },value=>value.ready,{timeoutMs:options.timeoutMs,intervalMs:500,now:options.now,wait:options.wait,stage:'preflight'});
+    return accepted.value;
+  }catch(error) {
+    // Preserve the specific failed pin check, not a generic polling deadline.
+    if(error instanceof HarnessError&&error.code==='DEADLINE'&&last)throw last;
+    throw error;
   }
 }
 

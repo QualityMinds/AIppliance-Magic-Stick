@@ -15,7 +15,7 @@ import {LabLease, leaseHolderReason, type LeaseStore, type Lease} from '../core/
 import {readPrivate, writePrivate} from '../core/private-files.ts';
 import {poll, currentReady} from '../core/poll.ts';
 import {summarize, saveReport, liveReportScope, redact, stepCases, type CaseResult} from '../core/report.ts';
-import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
+import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle, verifyDeploymentPins, waitForDeploymentPins, DeploymentPinError} from '../core/preflight.ts';
 import {allowedExactDashboardRequest, allowedOwnedContextEdit, allowedOwnedEstimate, allowedOwnedStart, allowedOwnedStop, allowedOwnedKeyChange, realLogin,openInferenceSession} from '../core/auth.ts';
 import {failureOutcome} from '../reporter.ts';
 import {readOnlyApi, readOnlyFetch} from '../core/transport.ts';
@@ -109,6 +109,59 @@ function node(): KubeObject {
   return {metadata: {name: 'fixture-node', uid: 'node-uid'}, status: {nodeInfo: {bootID: 'boot-uid', kernelVersion: '7.0.0-test'}, conditions: [{type: 'Ready', status: 'True'}]}};
 }
 function models(): ModelsPayload { return {activations: [], presets: {}, computeTargets: {targets: [{id: 'cpu', available: true, engines: ['OLlama', 'VLLM']}]}}; }
+
+test('HAR-02 MGPU-02 baseline refreshes readiness-only pin misses, never wrong pins or identities',async()=>{
+  const lab=phase2Config();lab.expected.images=lab.expected.images.slice(0,1);
+  const digest=lab.expected.images[0]!.digest;
+  const deployment=():KubeObject=>({metadata:{uid:'deployment-uid',generation:2},status:{observedGeneration:2,readyReplicas:1}});
+  const replicaSet:KubeObject={metadata:{uid:'rs-uid',ownerReferences:[{uid:'deployment-uid',kind:'Deployment'}]}};
+  const snapshot=(ready=true)=>({
+    pods:[{metadata:{namespace:'fixture',uid:'pod-uid',ownerReferences:[{uid:'rs-uid',kind:'ReplicaSet'}]},
+      status:{containerStatuses:[{name:'web',ready:true,imageID:'containerd://'+digest}]}}] as KubeObject[],
+    flux:[{metadata:{namespace:'flux-system',name:'flux-system',uid:'flux-uid',generation:1},
+      status:{lastAppliedRevision:lab.expected.flux!.revision,conditions:[{type:'Ready',status:ready?'True':'Unknown',observedGeneration:1}]}}] as KubeObject[],
+  });
+  let observed=deployment(),reads=0,time=0;
+  const observer={get:async()=>observed,list:async()=>[replicaSet]};
+  const diagnostics:unknown[]=[];
+  const options=()=>({timeoutMs:2000,now:()=>time,wait:async(ms:number)=>{time+=ms;},
+    diagnostic:async(value:unknown)=>{diagnostics.push(value);}});
+  // The former single sample rejects this ordinary same-revision reconcile.
+  await expect(verifyDeploymentPins(lab,observer,snapshot(false).pods,snapshot(false).flux)).rejects.toMatchObject({code:'REVISION'});
+  const fresh=await waitForDeploymentPins(lab,observer,async()=>{reads++;return {...snapshot(reads>1),sample:reads};},options());
+  expect(fresh.sample).toBe(2);expect(reads).toBe(2);
+  expect(diagnostics).toEqual([
+    {version:1,attempt:1,checks:[{component:'flux',index:0,condition:'readiness'},{component:'deployment',index:0,condition:'ready'}]},
+    {version:1,attempt:2,checks:[{component:'flux',index:0,condition:'ready'},{component:'deployment',index:0,condition:'ready'}]},
+  ]);
+  // A temporarily unready pinned Pod also needs a fresh read, not reuse of
+  // the frozen Pod array from before Deployment/ReplicaSet observation.
+  reads=0;time=0;
+  await waitForDeploymentPins(lab,observer,async()=>{
+    reads++;const value=snapshot();value.pods[0]!.status!.containerStatuses![0]!.ready=reads>1;return value;
+  },options());
+  expect(reads).toBe(2);
+  for(const mismatch of ['source','image','identity','generation','observer','node-identity','permanent'] as const) {
+    reads=0;time=0;observed=deployment();
+    const task=waitForDeploymentPins(lab,{...observer,get:async()=>{
+      if(mismatch==='observer')throw new HarnessError('OBSERVER');return observed;
+    }},async()=>{
+      reads++;const value=snapshot(mismatch==='source'||mismatch==='image');
+      if(mismatch==='source')value.flux[0]!.status!.lastAppliedRevision='sha1:'+'f'.repeat(40);
+      if(mismatch==='image')value.pods[0]!.status!.containerStatuses![0]!.imageID='containerd://sha256:'+'f'.repeat(64);
+      if(mismatch==='identity'&&reads>1)observed.metadata.uid='foreign-deployment';
+      if(mismatch==='generation'&&reads>1)observed.metadata.generation=3;
+      if(mismatch==='node-identity')throw new HarnessError('IDENTITY');
+      return value;
+    },options());
+    if(mismatch==='observer'||mismatch==='node-identity')await expect(task).rejects.toMatchObject({code:mismatch==='observer'?'OBSERVER':'IDENTITY'});
+    else {
+      await expect(task).rejects.toBeInstanceOf(DeploymentPinError);
+      await expect(task).rejects.toMatchObject({code:'REVISION',stage:mismatch==='permanent'||mismatch==='source'?'flux-ready':'preflight'});
+    }
+    expect(reads).toBe(mismatch==='permanent'?3:['identity','generation'].includes(mismatch)?2:1);
+  }
+});
 // Exercise the real create orchestration with inert adapters, without opening a
 // browser session or granting any cluster credentials to an isolated test.
 function creationFoundation(request: APIRequestContext, journal: ResourceJournal,
