@@ -4762,7 +4762,13 @@ data:
             # Admission/defaulting and the autoscaler may add unrelated fields
             # such as replicas. Compare the fields actually generated here,
             # including exact env/args/profile, not the whole server object.
-            current_spec = current.get("spec") or {}
+            current_spec = dict(current.get("spec") or {})
+            # KubeAI v0.23.2 uses json:"args,omitempty" in its typed
+            # Model writes. Missing args and the generated empty Ollama list
+            # have identical runtime meaning; treating them as an edit
+            # continuously retires an otherwise unchanged starting model.
+            if current_spec.get("args") is None and resource["spec"].get("args") == []:
+                current_spec["args"] = []
             if (not (current.get("metadata") or {}).get("deletionTimestamp")
                     and all(current_spec.get(key) == value for key, value in resource["spec"].items())):
                 return False

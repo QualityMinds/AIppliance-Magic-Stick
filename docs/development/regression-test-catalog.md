@@ -602,6 +602,25 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+27 October 2026, existing MGPU-01, HW-06, SLOT-03 and LIFE-03 follow-up
+(local correction; native repeat pending): the latest Aimonster runs repeatedly
+created fresh Ollama Pods without reaching readiness. The runtime comparison now
+treats KubeAI's omitted empty `args` as unchanged rather than retiring the Model
+again. The existing one-/two-/four-card, both-engine reconciliation counterexample
+models that typed round trip and still rejects a real nonempty argument change.
+Strix's Stop diagnostic independently confirmed disabled intent and zero Pods,
+but a retained catalog route. Catalog reconciliation now rejects disabled or
+deleting activations and deleting KubeAI Models despite stale ready-replica counts;
+owning tests retain publication after Start and ordinary standalone models.
+HW-06's failed physical-card observation already contained the correct allocated
+device. Its immutable native ResourceClaim need not have a positive CRD generation:
+the existing polling counterexample now covers absent/zero generation, observed
+UID/resource-version, status-only resource-version advancement and unchanged spec.
+Replaced identities, changed intent, missing resource versions, live deallocation
+and unseen/wrong device or image evidence still fail. Fixed private diagnostics
+also record identity-field presence. No campaign IDs, variants, layers or timeouts
+were added; native GPU and Stop acceptance remains separate from these checks.
+
 25 October 2026, existing ROUTE-05, HW-06/SLOT-03 and MGPU-01 repair follow-up
 (local implementation; installed repeat pending): the later complete runs
 recorded HW-06/SLOT-03 allocation failures while their native validation Jobs

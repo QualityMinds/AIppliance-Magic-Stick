@@ -553,6 +553,14 @@ def desired_deployments():
     parents = {a.get("metadata", {}).get("name"): a for a in activations}
     for model in list_kubeai_models():
         name = ((model.get("metadata") or {}).get("name") or "").strip()
+        parent = parents.get(name) or {}
+        # Foreground deletion can retain stale ready-replica counts after
+        # the last Pod is gone. Saved Stop intent withdraws routing at once;
+        # neither those old counts nor a terminating Model may republish it.
+        if (model.get("metadata", {}).get("deletionTimestamp")
+                or parent.get("metadata", {}).get("deletionTimestamp")
+                or parent.get("spec", {}).get("enabled", True) is False):
+            continue
         if model.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/model-replica") == "true":
             deployment = replicated_deployment(model, parents)
             if deployment:

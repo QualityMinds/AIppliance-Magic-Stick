@@ -168,9 +168,19 @@ class ModelReplicationTests(unittest.TestCase):
                     # unchanged desired intent into another replacement.
                     self.models["public-model"]["spec"]["replicas"] = 1
                     self.models["public-model"]["spec"]["loadBalancing"] = {"strategy": "LeastLoad"}
+                    # KubeAI's typed Model update serializes Args with
+                    # omitempty. An unchanged Ollama runtime therefore loses
+                    # its explicit empty list on the first controller write.
+                    if engine == "OLlama":
+                        self.models["public-model"]["spec"].pop("args")
                     self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)
                     self.assertEqual(len(self.deletes), 1)
                     self.assertEqual(self.parent["spec"], saved)
+                    # A real argument change must still use exact retirement;
+                    # omitted/empty equivalence must never hide nonempty args.
+                    self.models["public-model"]["spec"]["args"] = ["--unexpected-runtime-argument"]
+                    self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)
+                    self.assertEqual(len(self.deletes), 2)
 
     def test_removal_waits_for_owned_terminating_pods_and_preserves_foreign_resources(self):
         self.reconcile(); self.ready_pods()

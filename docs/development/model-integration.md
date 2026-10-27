@@ -86,6 +86,15 @@ avoids overlapping KubeAI Pod replacement with the last DRA consumer's cleanup;
 it does not claim that Kubernetes 1.36's upstream DRA race has been patched.
 Unchanged desired runtime fields do not trigger retirement merely because the
 server added defaults or an autoscaler updated `replicas`.
+KubeAI's typed updates omit an empty `args` list. Treat absent and empty arguments
+as the same unchanged runtime, while nonempty arguments still require retirement.
+Otherwise repeated reconciliation can replace Ollama before startup completes.
+This matches the pinned [KubeAI ModelSpec serialization](https://github.com/kubeai-project/kubeai/blob/v0.23.2/api/k8s/v1/model_types.go).
+
+The generated catalog withdraws a local route as soon as its saved activation is
+disabled or deleting, or its KubeAI Model is deleting. Stale ready-replica counts
+during foreground garbage collection cannot republish that route. Standalone
+nonterminating KubeAI models retain their existing catalog behavior.
 
 The estimator keeps checkpoint size separate from engine/rank planning.
 vLLM GPU KV uses local TP heads (at least one head per rank; MLA remains

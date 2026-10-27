@@ -148,7 +148,7 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
   // consumer completes, before the completed Pod disappears. Exercise the real
   // polling workflow across that transition, not just a static binding helper.
   const imageId='registry.example.invalid/engine@sha256:'+'a'.repeat(64);
-  const allocated:KubeObject={...claim,metadata:{...claim.metadata,uid:'claim-uid',generation:1},
+  const allocated:KubeObject={...claim,metadata:{...claim.metadata,uid:'claim-uid',resourceVersion:'100',generation:1},
     spec:{devices:{requests:[{name:'gpu',exactly:{deviceClassName:'gpu.nvidia.com',count:1}}]}}};
   const slice:KubeObject={metadata:{uid:'slice-uid'},spec:{driver:'gpu.nvidia.com',nodeName:card.node,
     pool:{name:card.pool,generation:1,resourceSliceCount:1},devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}};
@@ -176,6 +176,12 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
         if(resource==='pods')return {...pod,metadata:{...pod.metadata,name:'validation-pod',namespace:'ai'},
           status:{phase:damage==='raced-completion'?'Succeeded':'Running',initContainerStatuses:[{name:'engine',imageID:imageId}]}};
         const current=structuredClone(allocated);
+        // ResourceClaim strategy does not maintain metadata.generation. Native
+        // observations carry UID/RV and immutable spec, not a CRD generation.
+        if(damage==='native-claim')delete current.metadata.generation;
+        if(damage==='zero-generation')current.metadata.generation=0;
+        if(damage==='missing-resource-version')delete current.metadata.resourceVersion;
+        if(observation>1)current.metadata.resourceVersion='101';
         if(observation>completion||damage==='never-observed'||observation===1&&(delayedAllocation||['pending-started','pending-wrong-claim'].includes(damage??''))) {
           current.status={};
           if(damage==='replaced-claim')current.metadata.uid='foreign-claim';
@@ -192,8 +198,10 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
     return completedValidation(workflow,request);
   }
   await lifecycle();await lifecycle('raced-completion');await lifecycle('pending-allocation');
+  await lifecycle('native-claim');await lifecycle('zero-generation');
   for(const damage of ['replaced-claim','changed-generation','changed-spec','different-pod','live-deallocation',
-    'never-observed','wrong-allocation','wrong-image','pending-started','pending-wrong-claim','pending-replaced-claim','pending-changed-generation'])
+    'never-observed','wrong-allocation','wrong-image','pending-started','pending-wrong-claim','pending-replaced-claim','pending-changed-generation',
+    'missing-resource-version'])
     await expect(lifecycle(damage),damage).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding'});
 });
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
