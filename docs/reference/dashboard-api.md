@@ -99,6 +99,27 @@ lock check; an unexpected permission error remains an error, not an empty lab.
 | `GET /api/regression/runs/<id>` | Durable run status. |
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
 | `GET /api/regression/runs/<id>/archive`, `/html`, `/junit` | Allowlisted completed report attachment, at most 64 MiB; never private input/journal/log download. |
+| `GET /api/regression/preflight-logs` | Private runner-only bounded diagnostic read; additional exact active-run/generated-account and workload-identity guards below. Never a report download or general administrator log endpoint. |
+
+The optional private diagnostic read requires exactly `runUid`, `namespace`,
+`deployment`, `container`, `deploymentUid`, `generation` and `podUid`, each once.
+Only Dashboard web/API and the Flux kustomize-controller are server-allowlisted;
+arbitrary targets, paths or log options are rejected. The registered Appliance
+and Node identities, Running full-test intent, installed runner image/source,
+run-owned retained Secret and generated user ID must match. A human administrator,
+different test identity, cancelled/terminal run or non-destructive/recovery run
+cannot use this route. No license is required and no new RBAC is granted.
+
+Both sides of the log read independently verify the exact Deployment UID and
+generation and Pod UID through its controlling ReplicaSet. Changed identity
+returns 409 with no logs. At most 80 lines / 16 KiB from the last 120 seconds are
+read from current and, after a restart, previous container output; each read has
+a two-second timeout. Responses are `no-store` and use the private
+`RegressionPreflightLogs` contract. The runner additionally bounds requests and
+responses, captures only on its first failed baseline, and stores raw text solely
+in its private directory. Older/unavailable endpoints yield an explicit diagnostic
+gap, not a permission fallback or a different test outcome. Normal status and
+report exports never include these raw logs.
 
 Phase selections are sorted and immutable. Repeating a request ID with a
 different selection returns 409; empty, duplicate or invalid phases return 400
@@ -114,7 +135,8 @@ immutable ID, not a command, regular expression or arbitrary case list. Current
 profiles include `external-route` in Phase 2, `gpu-validation-single` and
 `gpu-validation-all` and `ollama-two-card-copies` (only `MGPU-02 /
 p3-replicated-ollama-2`) in Phase 3, and `slot-race`, `reload`, `restoration`,
-`remaining`, `slot-consumers` and `ollama-four-card-split` in Phase 4. The Git-owned
+`remaining`, `slot-consumers`, `ollama-two-card-split` (only `MGPU-01 /
+p4-multigpu-ollama-2`) and `ollama-four-card-split` in Phase 4. The Git-owned
 catalog may further restrict existing variants; a request cannot supply variants,
 grep expressions or commands. Only `testMode: full` with exactly the advertised
 phase (`[2]`, `[3]` or `[4]`) is accepted. A changed selection for the same request ID returns
@@ -123,6 +145,16 @@ The operator independently checks the pinned runner's versioned capability,
 catalog and exact image/source before scheduling. Mixed older operators/images
 cannot interpret this intent as a full run. Results and JSON/HTML/text/JUnit
 retain the bounded diagnostic scope and never certify full-phase acceptance.
+
+New Phase 5 reports record product-service/application live exclusions in the
+existing `excludedSteps`: `phase5/applications-live (deferred to separate regression)`,
+`phase5/services-live (deferred to separate regression)` and
+`phase5/service-credentials-live (deferred to separate regression)`. Only live
+service/app tuples are excluded, not their isolated contracts or core users,
+authentication, keys, licenses, Kubernetes, model/GPU checks and exact cleanup.
+No synthetic Passed/Blocked results are created for exclusions. Older reports
+retain their recorded Hermes-only exclusion and all original failures; missing
+historical metadata does not acquire today's exclusions.
 
 `testMode` is also immutable and included in run responses. Reusing a request ID
 with a different mode returns 409 before provisioning. Unknown/coerced modes are

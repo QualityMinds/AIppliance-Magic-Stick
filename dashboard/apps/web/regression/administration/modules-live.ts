@@ -15,6 +15,7 @@ import {requireGpuProvider} from '../hardware/prerequisites.ts';
 import {gatewaySnapshot,assertGatewayStable} from '../core/gateway-stability.ts';
 import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
 import {moduleProbeLinks,probeModuleServices} from '../core/service-probes.ts';
+import {liveWorkflowEnabled} from '../core/engine-policy.ts';
 const moduleSettings=(value:{enabled?:boolean;parameters?:unknown}|undefined)=>canonical({enabled:value?.enabled,parameters:value?.parameters??{}});
 const sharingSettings=(value:{providers:Array<{provider:string;mode:string;maxModels:number;backend:string;nodeUid:string}>})=>
   canonical(value.providers.map(({provider,mode,maxModels,backend,nodeUid})=>({provider,mode,maxModels,backend,nodeUid})).sort((a,b)=>a.provider.localeCompare(b.provider)));
@@ -22,6 +23,7 @@ const sharingSettings=(value:{providers:Array<{provider:string;mode:string;maxMo
 /** An idle optional catalog-owned service is borrowed and restored exactly.
  * Never disable identity/dashboard/runtime/GPU or a module used by an app. */
 export async function modulesWorkflow(live:LiveFoundation) {
+  requireSafe(liveWorkflowEnabled('modules'),'CONFIG');
   const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!)),fixture=profile.modules;
   requireSafe(fixture?.approveOptionalModule === true && /^[a-z0-9-]{1,63}$/.test(fixture.id) && fixture.parameters && typeof fixture.parameters === 'object','PREREQUISITE');
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);

@@ -602,6 +602,49 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+### 2026-10-27 — defer product-service/application live workflows
+
+The current source policy excludes only the live A/E/O/N layers of
+`MOD-03/04/10`, `APP-02/05/06/07/09/10`, `ACL-01/02/04/06` from standard runs.
+These product-service, app, credential and app-access workflows will receive
+separate regression acceptance; that separate suite is not implemented yet.
+Their canonical IDs/layers and isolated U/C/B checks remain. New setup does not
+prepare their fixtures, including from saved profiles. Old exact-journal cleanup
+and original failed reports are not disabled or reinterpreted.
+
+`MOD-06` GPU-profile readiness is now independent of application prerequisites.
+Core user/authentication/key/license/Kubernetes/model/GPU checks remain selected.
+Dashboard, JSON, HTML, text and JUnit name the reduced live scope without adding
+passing or blocked evidence for exclusions or claiming full Phase 5 acceptance.
+Existing HAR-10/MOD-03 counterexamples cover effective selection, saved-profile
+preparation, no live dispatch and old report compatibility; isolated app schema
+and adapter checks are retained.
+
+The fixed `ollama-two-card-split` Kubernetes diagnostic selects the existing
+Phase 4 `MGPU-01 / p4-multigpu-ollama-2` A/E/O scenario exactly once, not its
+four-card sibling or Phase 3 independent copies. Existing HAR-10/UX-02 discovery,
+API and desktop/mobile fixture checks cover its bounded scope and reload.
+No new functional case or hardware variant is registered. Local checks are not
+new image qualification, rollout or native Phase 4 acceptance. After separately
+approved publication/idle rollout, qualify `SLOT-03`, two-card split, then
+four-card split on the matching source/image; use fresh diagnostic evidence to
+decide remaining repairs, not historical failures alone.
+
+Local verification for this source change: harness selftests completed with
+368 passed scenarios and two Linux-only process scenarios blocked on macOS
+(479 passed evidence tuples, zero failures, four prerequisite-blocked tuples).
+Phase-5-fast passed 71/71 scenarios; Phase-4 and Phase-5 browser fixtures passed
+97/97 and 25/25 respectively, including desktop/mobile diagnostic selection and
+reload. The scoped macOS Phase-4-fast selection passed 91 scenarios, with two
+Linux-process scenarios skipped and the two Linux-only AMD package scenarios
+explicitly unselected, not credited as passed. Web/CLI component suites passed 420/96 tests; Dashboard Python contracts
+507, regression-controller contracts 29, input-wizard contracts 49 and docs tests
+45 passed. Regression/Web/CLI typechecks, client builds, strict docs build,
+Kustomize renders and scoped secret scans passed. The Linux-only AMD package
+checks and native GPU runs still require the matching qualified Linux runner;
+no commit, image publication, rollout or native repeat is credited by these local
+results.
+
 27 October 2026, existing MGPU-01, HW-06, SLOT-03 and LIFE-03 follow-up
 (local correction; native repeat pending): the latest Aimonster runs repeatedly
 created fresh Ollama Pods without reaching readiness. The runtime comparison now
@@ -620,6 +663,22 @@ Replaced identities, changed intent, missing resource versions, live deallocatio
 and unseen/wrong device or image evidence still fail. Fixed private diagnostics
 also record identity-field presence. No campaign IDs, variants, layers or timeouts
 were added; native GPU and Stop acceptance remains separate from these checks.
+
+27 October 2026, existing HAR-02/HAR-10/HAR-11/UX-02 trace follow-up (local
+implementation, no rollout): retain the first failed pinned-baseline sample,
+object read windows and bounded state transitions across later convergence.
+Safe diagnostic exports retain object/revision fingerprints, generation and
+replica predicates, image/source matches, terminating Pods, init/workload
+restart and current/previous exits, plus recent exact-UID events. Short raw
+controller logs use only the exact active registered full run's generated
+identity through an allowlisted read; observer permissions are unchanged.
+Existing safety, runtime-diagnostic, reporter and portable-archive counterexamples
+cover history/size bounds, wrong owners and sources, unavailable collection,
+unchanged primary failures, private-data rejection, legacy imports and consistent
+HTML/text/JSON/JUnit output. Existing Dashboard API tests cover authorization,
+inactive/foreign runs, exact owner chains, bounded reads and changed identity
+after collection. No registered scenario, variant, layer or live acceptance is
+added; source-host checks do not certify a new native image or installed run.
 
 27 October 2026, existing HAR-02/MGPU-02 preflight follow-up (native retest
 pending): the failed two-card independent-copy Ollama scenario stopped in its

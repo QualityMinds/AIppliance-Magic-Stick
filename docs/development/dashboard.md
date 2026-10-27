@@ -137,6 +137,14 @@ mixed-version upgrades. The native runner discovers exact registered scenario
 IDs and reuses the serial launcher for `phase2-models`, `phase3-validation` or
 `phase4-sharing`, not an arbitrary script or an all-phase fallback. Reports retain the diagnostic
 scope and do not grant full-phase acceptance.
+The fixed `ollama-two-card-split` profile selects only the existing Phase 4
+`MGPU-01 / p4-multigpu-ollama-2` A/E/O evidence, distinct from four-card split or
+independent copies. Product-service/application live workflows are currently
+deferred to separate regression, including service credentials and app ACLs.
+The shared source policy governs selected live layers, input preparation and
+workflow dispatch; isolated contracts and core user/license/Kubernetes/model/GPU
+checks stay selected. `MOD-06` uses its own GPU-profile prerequisite. Reports
+record the exclusion without rewriting older results or skipping old cleanup.
 The dialog also selects `testMode`: non-destructive by default, or full including
 destructive scenarios. The API stores the immutable choice. Non-destructive Jobs
 receive only a fresh viewer account and report-store mount; no old private inputs

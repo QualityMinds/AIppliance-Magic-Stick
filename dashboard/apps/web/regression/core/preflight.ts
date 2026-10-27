@@ -6,11 +6,10 @@ import type {KubeObject, KubectlObserver} from './observer.ts';
 import {HarnessError, requireSafe} from './errors.ts';
 import {engineRegressionEnabled} from './engine-policy.ts';
 import {poll} from './poll.ts';
+import {newPreflightDiagnostic,pinIdentity,pinPod,recordPinObservation,safePinReason,
+  type PinCheck,type PinObservation,type PinReference,type ObservationWindow,type PreflightDiagnostic} from './preflight-diagnostic.ts';
 
-export interface PinCheck {
-  component:'flux'|'deployment';index:number;
-  condition:'ready'|'missing'|'identity'|'revision'|'generation'|'replicas'|'containers'|'image'|'readiness';
-}
+export type {PinCheck} from './preflight-diagnostic.ts';
 /** Only readiness may converge. A different source/image is never retried. */
 export class DeploymentPinError extends HarnessError {
   readonly checks:PinCheck[];
@@ -75,8 +74,15 @@ export function verifyIdle(hosts: ManagedHost[], models: ModelsPayload, config: 
 }
 
 export async function verifyDeploymentPins(config: LabConfig, observer: Pick<KubectlObserver, 'get' | 'list'>,
-  pods: KubeObject[], flux: KubeObject[],identities?:Map<string,string>) {
+  pods: KubeObject[], flux: KubeObject[],identities?:Map<string,string>,sampling?:{
+    podsObserved?:ObservationWindow;fluxObserved?:ObservationWindow;
+    capture:(checks:PinObservation['checks'],references:PinReference[])=>void}) {
   const checks:PinCheck[]=[];
+  const details:PinObservation['checks']=[],references:PinReference[]=[];
+  const reference=(item:KubeObject,component:PinCheck['component'],index:number,kind:PinReference['kind'])=>{
+    if(item.metadata.namespace&&item.metadata.name&&item.metadata.uid)references.push({component,index,kind,
+      namespace:item.metadata.namespace,name:item.metadata.name,uid:item.metadata.uid,...(item.metadata.generation!==undefined?{generation:item.metadata.generation}:{})});
+  };
   const sameIdentity=(key:string,item:KubeObject)=>{
     const value=JSON.stringify([item.metadata.uid,item.metadata.generation]);
     const previous=identities?.get(key);identities?.set(key,previous??value);
@@ -90,13 +96,24 @@ export async function verifyDeploymentPins(config: LabConfig, observer: Pick<Kub
       item.status?.conditions?.some(condition =>
       condition.type === 'Ready' && condition.status === 'True' &&
       (condition.observedGeneration ?? item.status?.observedGeneration) === item.metadata.generation)?'ready':'readiness'});
+    const ready=item?.status?.conditions?.find(c=>c.type==='Ready');
+    if(item)reference(item,'flux',0,'flux');
+    // Missing timing is unknown, not a fabricated atomic cluster snapshot.
+    details.push({...checks.at(-1)!,...(item?pinIdentity(item):{}),...(sampling?.fluxObserved?{observed:sampling.fluxObserved}:{}),
+      ...(typeof item?.status?.lastAppliedRevision==='string'?{sourceMatches:item.status.lastAppliedRevision===expected.revision}:{}),
+      ...(ready?{readyCondition:{status:['True','False'].includes(ready.status)?ready.status as 'True'|'False':'Unknown',reason:safePinReason(ready.reason),
+        ...(Number.isSafeInteger(ready.observedGeneration)?{observedGeneration:ready.observedGeneration}:{})}}:{})});
   }
+  sampling?.capture(details,references);
   for (const [index,expected] of config.expected.images.entries()) {
+    const startedAt=new Date().toISOString();
     const deployment = await observer.get('deployments.apps', expected.namespace, expected.deployment);
+    const finishedAt=new Date().toISOString();
     const replicasets = await observer.list('replicasets.apps', expected.namespace);
-    const owners = new Set(replicasets.filter(item => item.metadata.ownerReferences?.some(owner => owner.uid === deployment.metadata.uid))
-      .map(item => item.metadata.uid));
-    const containers = pods.filter(item => item.metadata.namespace === expected.namespace && item.metadata.ownerReferences?.some(owner => owners.has(owner.uid)))
+    const ownedSets=replicasets.filter(item => item.metadata.ownerReferences?.some(owner => owner.uid === deployment.metadata.uid));
+    const owners = new Set(ownedSets.map(item => item.metadata.uid));
+    const ownedPods=pods.filter(item => item.metadata.namespace === expected.namespace && item.metadata.ownerReferences?.some(owner => owners.has(owner.uid)));
+    const containers = ownedPods
       .flatMap(item => item.status?.containerStatuses ?? []).filter(item => item.name === expected.container);
     checks.push({component:'deployment',index,condition:
       !sameIdentity('deployment-'+index,deployment)?'identity':
@@ -104,7 +121,17 @@ export async function verifyDeploymentPins(config: LabConfig, observer: Pick<Kub
       deployment.metadata.generation!==deployment.status?.observedGeneration?'generation':
       !(Number(deployment.status?.readyReplicas)>0)?'replicas':!containers.length?'containers':
       !containers.every(item=>item.ready&&item.imageID?.endsWith(expected.digest))?'readiness':'ready'});
+    reference(deployment,'deployment',index,'deployment');
+    for(const set of ownedSets)reference(set,'deployment',index,'replicaset');
+    for(const pod of ownedPods)reference(pod,'deployment',index,'pod');
+    details.push({...checks.at(-1)!,...pinIdentity(deployment),observed:{startedAt,finishedAt},
+      ...(sampling?.podsObserved?{podsObserved:sampling.podsObserved}:{}),
+      ...(Number.isSafeInteger(deployment.spec?.replicas)&&Number(deployment.spec?.replicas)>=0?{desiredReplicas:Number(deployment.spec!.replicas)}:{}),
+      ...(Number.isSafeInteger(deployment.status?.readyReplicas)&&Number(deployment.status?.readyReplicas)>=0?{readyReplicas:deployment.status!.readyReplicas}:{}),
+      pods:ownedPods.slice(0,12).map(p=>pinPod(p,expected.container,expected.digest)),omittedPods:Math.max(0,ownedPods.length-12)});
+    sampling?.capture(details,references);
   }
+  sampling?.capture(details,references);
   if(checks.some(c=>c.condition!=='ready'))throw new DeploymentPinError(checks,
     !checks.some(c=>['identity','revision','image','missing'].includes(c.condition)));
   return checks;
@@ -113,28 +140,59 @@ export async function verifyDeploymentPins(config: LabConfig, observer: Pick<Kub
 /** A baseline is not an atomic cluster snapshot. Refresh all observations after
  * a readiness-only miss, before acquiring a Lease or creating any test object.
  * Reads/auth/identity errors and different pins remain immediate failures. */
-export async function waitForDeploymentPins<T extends {pods:KubeObject[];flux:KubeObject[]}>(config:LabConfig,
+export async function waitForDeploymentPins<T extends {pods:KubeObject[];flux:KubeObject[];pinReadWindows?:{pods:ObservationWindow;flux:ObservationWindow}}>(config:LabConfig,
   observer:Pick<KubectlObserver,'get'|'list'>,read:()=>Promise<T>,options:{timeoutMs:number;
     now?:()=>number;wait?:(ms:number)=>Promise<void>;
-    diagnostic?:(value:{version:1;attempt:number;checks:PinCheck[]})=>Promise<void>}):Promise<T> {
+    diagnostic?:(value:PreflightDiagnostic)=>Promise<void>;
+    firstFailure?:(value:PinObservation,references:PinReference[])=>Promise<Pick<PreflightDiagnostic,'events'|'logs'>>}):Promise<T> {
   let last:DeploymentPinError|undefined,attempt=0;
   const identities=new Map<string,string>();
+  const diagnostic=newPreflightDiagnostic();let collected=false,active=true;
+  // A missing diagnostic must never replace the original observation failure.
+  const save=async()=>{try{await options.diagnostic?.(structuredClone(diagnostic));}catch{/* optional diagnostic sink */}};
   try {
-    const accepted=await poll(async()=>{
-      const value=await read();attempt++;
+    const accepted=await poll(async signal=>{
+      attempt++;const startedAt=new Date().toISOString();let details:PinObservation['checks']=[],references:PinReference[]=[];
+      const sample=()=>({attempt,startedAt,finishedAt:new Date().toISOString(),
+        checks:[...details.filter(c=>c.condition!=='ready'),...details.filter(c=>c.condition==='ready')].slice(0,16),
+        ...(details.length>16?{omittedChecks:details.length-16}:{})});
       try {
-        const checks=await verifyDeploymentPins(config,observer,value.pods,value.flux,identities);
-        await options.diagnostic?.({version:1,attempt,checks});
+        const value=await read();
+        signal.throwIfAborted();
+        await verifyDeploymentPins(config,observer,value.pods,value.flux,identities,{podsObserved:value.pinReadWindows?.pods,
+          fluxObserved:value.pinReadWindows?.flux,capture:(checks,refs)=>{details=checks;references=refs;}});
+        signal.throwIfAborted();
+        recordPinObservation(diagnostic,sample());
+        diagnostic.state='converged';await save();
         return {value,ready:true};
       }catch(error) {
+        if(!active)throw error;
+        if(error instanceof DeploymentPinError)last=error;
+        const code=error instanceof HarnessError?error.code:'UNEXPECTED';
+        recordPinObservation(diagnostic,{...sample(),
+          ...(!(error instanceof DeploymentPinError)?{readFailure:(['API','AUTH','OBSERVER','IDENTITY','HOST','CAPABILITY','LAB'].includes(code)?code:'UNEXPECTED') as NonNullable<PinObservation['readFailure']>}:{} )});
+        if(!collected&&options.firstFailure){diagnostic.events.state='pending';diagnostic.logs={state:'pending',streams:0};}
+        await save(); // Persist the first failure before slow diagnostic reads.
+        if(!collected&&diagnostic.firstFailure){
+          collected=true;
+          if(options.firstFailure){
+            try{const extra=await options.firstFailure(diagnostic.firstFailure,references);if(active)Object.assign(diagnostic,extra);}
+            catch{diagnostic.events.state='unavailable';diagnostic.logs={state:'unavailable',streams:0,reason:'collection-failed'};}
+            if(!active)throw error;
+            await save();
+          }
+        }
         if(!(error instanceof DeploymentPinError))throw error;
-        await options.diagnostic?.({version:1,attempt,checks:error.checks});
         if(!error.retryable)throw error;
-        last=error;return {value,ready:false};
+        return {value:undefined,ready:false};
       }
     },value=>value.ready,{timeoutMs:options.timeoutMs,intervalMs:500,now:options.now,wait:options.wait,stage:'preflight'});
-    return accepted.value;
+    active=false;return accepted.value!;
   }catch(error) {
+    active=false;
+    if(diagnostic.events.state==='pending')diagnostic.events.state='unavailable';
+    if(diagnostic.logs.state==='pending')diagnostic.logs={state:'unavailable',streams:0,reason:'collection-failed'};
+    diagnostic.state='failed';await save();
     // Preserve the specific failed pin check, not a generic polling deadline.
     if(error instanceof HarnessError&&error.code==='DEADLINE'&&last)throw last;
     throw error;

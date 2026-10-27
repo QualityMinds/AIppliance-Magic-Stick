@@ -97,6 +97,8 @@ describe('In-Appliance regression tests', () => {
   it('selects only the server-advertised diagnostic phase, locks phase edits and sends only its ID',async()=>{
     data.diagnosticSelections=[{id:'slot-race',title:'Last GPU slot race',caseIds:['SLOT-09'],phase:4},
       {id:'external-route',title:'External provider',caseIds:['ROUTE-05'],phase:2},
+      {id:'ollama-two-card-split',title:'Ollama two-card shared split lifecycle',caseIds:['MGPU-01'],phase:4},
+      {id:'ollama-four-card-split',title:'Ollama four-card shared split lifecycle',caseIds:['MGPU-01'],phase:4},
       {id:'gpu-validation-single',title:'GPU verification',caseIds:['HW-06'],phase:3}];
     mount();await userEvent.click(await screen.findByRole('button',{name:'Start regression tests'}));
     const dialog=screen.getByRole('dialog');

@@ -48,9 +48,12 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
         cases:[...new Set(rows.map(item=>item.id))].join(', '),traceFormat:'filtered-call-trace',trace:artifact.path,
         traceComplete:String(!trace.omittedSteps),...(trace.omittedSteps?{omittedSteps:String(trace.omittedSteps)}:{}),
         ...(trace.runtimeDiagnostics?.length?{runtimeDiagnosticCount:String(trace.runtimeDiagnostics.length)}:{}),
+        ...(trace.preflightDiagnostics?.length?{preflightDiagnosticCount:String(trace.preflightDiagnostics.length)}:{}),
+        ...(trace.omittedPreflightDiagnostics?{omittedPreflightDiagnostics:String(trace.omittedPreflightDiagnostics)}:{}),
         ...(artifact.componentPath?{componentDiagnostic:artifact.componentPath}:{}),...(trace.recoveryRequired?{recoveryRequired:'true'}:{} )},
       output:JSON.stringify({outcome:trace.outcome,steps:trace.steps.length,omittedSteps:trace.omittedSteps??0,trace:artifact.path,
-        ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics}:{} )})+'\n'+
+        ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics}:{} ),
+        ...(trace.preflightDiagnostics?.length?{preflightDiagnostics:trace.preflightDiagnostics}:{} )})+'\n'+
         attachments.map(path=>`[[ATTACHMENT|${path}]]`).join('\n')};
   });
   const steps:Entry[]=artifacts.flatMap(({trace,path})=>trace.steps.map(step=>({name:`${step.index}: ${step.title}`,
@@ -71,7 +74,7 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
     }
   }
   const excluded:Entry[]=(selection?.excludedSteps??[]).map(step=>({name:step,classname:'selection',outcome:'Skipped',durationMs:0,
-    detail:deferredApplicationStep(step)?'Not selected: native application workflows are deferred to a separate regression. No live application acceptance is credited.':
+    detail:deferredApplicationStep(step)?'Not selected: product-service/application live workflows are deferred to a separate regression. No live service/application acceptance is credited.':
       'Not selected: non-destructive mode. No destructive or preparation-dependent live step was executed.',
     properties:{testMode:selection!.testMode,outcome:'Not selected',reason:deferredApplicationStep(step)?'SEPARATE_REGRESSION':'TEST_MODE'}}));
   const modeExcluded=excluded.filter(item=>item.properties.reason==='TEST_MODE'),deferred=excluded.filter(item=>item.properties.reason==='SEPARATE_REGRESSION');

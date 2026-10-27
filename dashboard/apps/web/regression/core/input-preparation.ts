@@ -4,7 +4,7 @@ import {parseLabConfig, type LabConfig, type RuntimeModelFixture} from './config
 import type {KubeObject} from './observer.ts';
 import {requireSafe} from './errors.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle} from './preflight.ts';
-import {applicationRegressionEnabled,engineRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
+import {applicationRegressionEnabled,engineRegressionEnabled,liveWorkflowEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
@@ -170,7 +170,7 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
   const amdProfileChange=typeof requestedAmdProfile==='string' && typeof profile.moduleProfile?.allowExperimental==='boolean' &&
     (!currentAmdProfile || amdProfiles.some(item=>item.id===currentAmdProfile)) && requestedAmdProfile!==currentAmdProfile &&
     (!requestedAmdProfile || amdProfiles.some(item=>item.id===requestedAmdProfile));
-  add('applications','amd-profile',[[amdProfileChange,'No different advertised AMD profile or upstream-rules choice was selected.'],
+  add('gpu-profile','amd-profile',[[amdProfileChange,'No different advertised AMD profile or upstream-rules choice was selected.'],
     [approved(profile.moduleProfile,'approveTemporaryProfile'),'The temporary AMD profile change has not been approved.']],!approved(profile.moduleProfile,'approveTemporaryProfile'));
   add('kubernetes','oidc-plugin',[[file(profile.kubernetes?.plugin?.filename,snapshot) && /^[a-f0-9]{64}$/.test(profile.kubernetes?.plugin?.sha256 ?? ''),
     'The executable Linux OIDC plugin and its verified SHA-256 are missing or unreadable.']]);
@@ -230,7 +230,9 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
       approvalNeeded:snapshot.gpuIssues?.includes('sharing-approval') ?? !(lab.gpu?.acknowledgeSharingTransitions || options.approve.includes('gpu'))} :
       {id:'cpu-profile',missing:['The complete CPU fixture, Inference endpoint, current boot and web/API/source pins are required.']});}
     const issues=[...shared];
-    const requirements=phase >= 5 ? remainingRequirements(`phase${phase}`) ?? [] : [];
+    // Isolated contracts need no live fixtures. A deferred live tuple must not
+    // reappear as an app-cleaner/optional-module prerequisite through its U/C/B evidence.
+    const requirements=phase >= 5 ? (remainingRequirements(`phase${phase}`) ?? []).filter(item=>item.environment==='live') : [];
     const cases=[...new Map(requirements.map(item=>[item.variant,item])).values()].map(item=>{
       const needed=[...(item.gate ? gates[item.gate] ?? [] : [])];
       if(item.gate && physicalGates.includes(item.gate) && hostDrillIds.includes(item.id) && recipes && !recipes.cases[item.id])needed.push({id:'physical-drill',
@@ -296,6 +298,8 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
   // Old accepted inputs must not resurrect a temporarily excluded scenario.
   // Existing recovery journals remain intact and are still cleaned normally.
   if(!realtimeRegressionEnabled())delete profile.realtime;
+  if(!liveWorkflowEnabled('applications'))delete profile.applications;
+  if(!liveWorkflowEnabled('modules'))delete profile.modules;
   return profile;
 }
 

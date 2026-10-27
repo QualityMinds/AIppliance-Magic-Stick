@@ -794,9 +794,10 @@ def suite_consent(facts, previous=None):
         ('unmanaged-key', [5, 8], 'Create a one-hour disposable unmanaged LiteLLM key for the denied-delete probe, then remove ONLY that fixture; master key stays in memory'),
         ('host-drills', [6], 'DESTRUCTIVE host drills: reboots, GPU memory, network rollback, updates, channel changes and model-cache deletion'),
     ]
-    # The Node inventory applies the repository's experimental-engine policy.
-    # Do not ask for or reuse permission for an excluded/unavailable Omni fixture.
-    descriptions = [row for row in descriptions if row[0] != 'realtime' or inventory.get('realtime')]
+    # Node inventory applies the shared engine/service test-selection policy.
+    # Do not ask for or reuse permission for excluded/unavailable live fixtures.
+    descriptions = [row for row in descriptions if (row[0] != 'realtime' or inventory.get('realtime'))
+                    and (row[0] != 'modules' or inventory.get('optionalModules'))]
     scopes = []
     old_scopes = previous.get('scopes', []) if matching else []
     reuse = matching and yes_no('Reuse previously reviewed per-scope answers for this unchanged installation?', True)
@@ -1139,8 +1140,12 @@ def complete_fixtures(directory, seed, facts, consent):
                 reset(item)
     reset(profile)
     if 5 in phases:
-        print('Application tests need the actual controls shipped by each application; selectors are never guessed.')
-        if yes_no('Configure/reuse the five application UI adapters now?', True):
+        if not inventory['applications']:
+            profile.pop('applications', None)
+        if not inventory['optionalModules']:
+            profile.pop('modules', None)
+        print('Application fixtures selected by the runner need their actual shipped controls; unselected adapters are not prepared.')
+        if inventory['applications'] and yes_no('Configure/reuse the selected application UI adapters now?', True):
             old = {item['type']: item for item in profile.get('applications', {}).get('fixtures', [])}
             fixtures = []
             for kind in ['openclaw', 'hermes', 'paperclip', 'kubeopencode', 'odysseus']:
@@ -1177,7 +1182,7 @@ def complete_fixtures(directory, seed, facts, consent):
                     sha = oidc_plugin(source, directory / 'kubectl-oidc_login')
                     plugin = {'filename': '/inputs/kubectl-oidc_login', 'sha256': sha}
             profile['kubernetes'] = {'approveAdminGrant': False, 'plugin': plugin}
-        if 'modules' in scopes:
+        if 'modules' in scopes and inventory['optionalModules']:
             choices = [item['id'] for item in inventory['optionalModules'] if item['disabled']]
             print('Advertised non-critical disabled modules: ' + (', '.join(choices) or 'none'))
             identifier = question('Optional module fixture ID', profile.get('modules', {}).get('id', choices[0] if len(choices) == 1 else ''), optional=True)

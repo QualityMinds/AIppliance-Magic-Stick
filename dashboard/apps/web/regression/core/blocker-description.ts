@@ -3,6 +3,7 @@ import {remainingVariants,type LiveGate} from '../profiles/remaining-p0.ts';
 
 const prerequisites:Record<LiveGate,string>={
   applications:'This live check requires an installed service, a disposable application fixture and its supported UI adapter.',
+  'gpu-profile':'This live GPU-profile check requires an eligible physical AMD device and a supported, restorable compatibility profile; no application fixture is required.',
   identity:'This live check requires a disposable test identity and verified Kubernetes/identity access.',
   license:'This live check requires installation-bound, signed valid/expired/wrong-installation/tampered test licenses.',
   federation:'This live check requires a controlled external OIDC/SAML identity provider and cleanable broker-user fixtures.',

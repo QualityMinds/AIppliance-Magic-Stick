@@ -5,9 +5,9 @@ import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {loadLabConfig} from '../core/config.ts';
 import {realLogin} from '../core/auth.ts';
-import {readOnlyApi} from '../core/transport.ts';
 import {KubectlObserver, KubernetesLeaseStore, type KubeObject} from '../core/observer.ts';
-import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle, verifyDeploymentPins} from '../core/preflight.ts';
+import {safeBaseline, verifiedEndpoint, verifyIdle} from '../core/preflight.ts';
+import {LiveFoundation} from '../core/live-foundation.ts';
 import {HarnessError, requireSafe} from '../core/errors.ts';
 import {writePrivate} from '../core/private-files.ts';
 
@@ -32,19 +32,10 @@ test('HAR-01 [p0:verified-login] verified endpoints and real administrator login
 
 test('HAR-02 [p0:pinned-baseline] [layer:A] independent lab identity, capabilities and requested deployment pins', async () => {
     requireSafe(context && observer && config, 'CONFIG');
-    await observer.verifyConfiguration();
-    const api = readOnlyApi(context.request, config.dashboardUrl, config.requestTimeoutMs);
-    const [appliance, hostsPayload, models, observedAppliance, nodes, pods, flux] = await Promise.all([
-      api.appliance(), api.hostManagement(), api.models(),
-      observer.get('appliances.appliance.magicstick.dev', config.expected.applianceNamespace, config.expected.applianceName),
-      observer.list('nodes'), observer.list('pods'), observer.list('kustomizations.kustomize.toolkit.fluxcd.io', 'flux-system'),
-    ]);
-    requireSafe(Array.isArray(hostsPayload.nodes), 'API');
-    verifyIdentity(config, appliance, observedAppliance, nodes, hostsPayload.nodes);
-    verifyCapabilities(config, models);
-    await verifyDeploymentPins(config, observer, pods, flux);
-    baseline = {hosts: hostsPayload.nodes, models, nodes, pods, flux};
     requireSafe(process.env.REGRESSION_RUN_DIR, 'CONFIG');
+    const snapshot=await LiveFoundation.snapshot(context,config,process.env.REGRESSION_RUN_DIR);
+    const {models,nodes,pods,flux}=snapshot;
+    baseline = {hosts: snapshot.hosts.nodes, models, nodes, pods, flux};
     await writePrivate(join(process.env.REGRESSION_RUN_DIR, 'baseline.json'), safeBaseline(config, nodes, pods, models, flux));
 });
 

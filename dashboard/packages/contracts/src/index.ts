@@ -15,6 +15,11 @@ export type Session = z.infer<typeof sessionSchema>;
 export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
 export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type RegressionTestMode = 'non-destructive' | 'full';
+/** Private, bounded runner diagnostics; never part of status or report exports. */
+export interface RegressionPreflightLogTarget {
+  namespace:string;deployment:string;container:string;deploymentUid:string;generation:number;podUid:string;
+}
+export interface RegressionPreflightLogs {version:1;streams:Array<{previous:boolean;text:string}>}
 export interface RegressionStartRequest {
   requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[]; testMode?: RegressionTestMode;
   diagnosticSelection?: string;

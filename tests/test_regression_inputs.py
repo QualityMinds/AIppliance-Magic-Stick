@@ -343,6 +343,27 @@ class RegressionInputTests(unittest.TestCase):
         self.assertEqual(consent['scopes'], ['gpu', 'mesh'])
         self.assertNotIn('realtime', consent['reviewedScopes'])
         self.assertNotIn('Omni', output.getvalue())
+        # Effective Node inventory also excludes deferred service/app live
+        # fixtures. Old approvals and input files must not reintroduce questions
+        # or disabled-module setup writes; AMD-profile/core scopes are separate.
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            facts['inventory'].update(applications=[], optionalModules=[])
+            saved.update(phases=[5], scopes=['modules'], reviewedScopes=['modules'])
+            with patch('builtins.input', side_effect=answer), patch('sys.stdout', io.StringIO()):
+                consent = setup.suite_consent(facts, saved)
+            self.assertNotIn('modules', consent['scopes'])
+            self.assertNotIn('modules', consent['reviewedScopes'])
+            setup.private_write(directory / 'remaining-p0.json', {'version': 1,
+                'applications': {'fixtures': [{'type': 'hermes'}, {'type': 'openclaw'}]},
+                'modules': {'id': 'optional', 'approveOptionalModule': True},
+                'identity': {'approveDisposableUsers': True}})
+            with patch('builtins.input', side_effect=AssertionError('Deferred fixture asked a question')), \
+                    patch('sys.stdout', io.StringIO()):
+                profile = setup.complete_fixtures(directory, {}, facts, {'phases': [5], 'scopes': ['modules']})
+            self.assertNotIn('applications', profile)
+            self.assertNotIn('modules', profile)
+            self.assertFalse(profile['identity']['approveDisposableUsers'])
 
     def test_complete_setup_runs_all_forms_reviewed_bootstrap_and_final_acceptance_without_pre_activation(self):
         facts, args = self.auto_inputs()

@@ -11,7 +11,7 @@ import {inspectOidcConfig} from '../core/oidc-exec.ts';
 import {verifyAppCleanerRules,OwnedAppClient,appReleaseTarget,appReleaseReady} from '../core/owned-app.ts';
 import type {AppInstance} from '@magicstick/dashboard-contracts';
 import type {KubeObject} from '../core/observer.ts';
-import {moduleProfileWorkflow,waitModuleProfileReadback} from './modules-live.ts';
+import {modulesWorkflow,moduleProfileWorkflow,waitModuleProfileReadback} from './modules-live.ts';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {applicationsWorkflow,validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
@@ -483,7 +483,14 @@ test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application
       if(key==='config')return target.config;
       throw new Error('Deferred Hermes workflow must not reach live preparation or mutations');
     }}) as unknown as LiveFoundation;
-    await expect(applicationsWorkflow(live,{} as Browser)).rejects.toMatchObject({code:'PREREQUISITE'});
+    await expect(applicationsWorkflow(live,{} as Browser)).rejects.toMatchObject({code:'CONFIG'});
+    await expect(modulesWorkflow(live)).rejects.toMatchObject({code:'CONFIG'});
+    // Neither complete legacy fixtures nor a malformed saved profile may
+    // resurrect deferred live services or even read their live dependencies.
+    const untouched=new Proxy({}, {get(){throw new Error('Deferred workflow accessed the appliance');}}) as LiveFoundation;
+    await writePrivate(filename,{modules:{approveOptionalModule:true,id:'openclaw'},applications:{fixtures}});
+    await expect(applicationsWorkflow(untouched,{} as Browser)).rejects.toMatchObject({code:'CONFIG'});
+    await expect(modulesWorkflow(untouched)).rejects.toMatchObject({code:'CONFIG'});
   }finally {
     if(previousProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=previousProfile;
     await rm(deferredDirectory,{recursive:true,force:true});

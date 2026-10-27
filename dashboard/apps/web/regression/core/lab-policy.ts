@@ -11,6 +11,9 @@ export const labPolicy = Object.freeze({version:1,phases:Object.freeze([0,1,2,3,
   // Native Hermes application acceptance moves to a separate regression suite.
   // This changes test selection only, never the installed product or recovery.
   deferredApplicationTests:Object.freeze(['hermes'] as string[]),
+  // Product-service/application live acceptance is a separate regression scope.
+  // Keep isolated checks, core modules and exact old-resource recovery active.
+  deferredLiveWorkflows:Object.freeze(['applications','modules','credentials'] as string[]),
   scopes:Object.freeze(['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile',
     'federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills']),
   credentialSeconds:86_400,namespace:'magicstick-regression',marker:'registered-lab'});

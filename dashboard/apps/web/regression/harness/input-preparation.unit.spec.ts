@@ -31,12 +31,12 @@ function snapshot():PreparationSnapshot {
     readableFiles:['/inputs/username.txt','/inputs/password.txt','/inputs/observer.yaml','/inputs/locker.yaml','/inputs/model-cleaner.yaml']};
 }
 
-test('MOD-03 automatic optional-module fixture is a real service, never an operator or empty instance-provider base',()=>{
+test('MOD-03 deferred optional-service fixtures are never prepared, including retained profiles and enabled services',()=>{
   const observed=snapshot();
   observed.modules={modules:{'agent-sandbox':{enabled:false},service:{enabled:false}},catalogJson:{modules:{
     'agent-sandbox':{group:'operators',activationMode:'moduleactivation'},service:{group:'apps',activationMode:'moduleactivation'}}}};
   const lab=prepareInputs(source(),observed,options,{}).parsed;
-  expect(automaticProfile(observed,{},lab).modules?.id).toBe('service');
+  expect(automaticProfile(observed,{},lab)).not.toHaveProperty('modules');
   observed.modules.modules.service!.enabled=true;
   expect(automaticProfile(observed,{},lab).modules?.id).toBeUndefined();
   observed.modules.catalogJson!.modules!.provider={group:'apps',activationMode:'moduleactivation'};
@@ -45,7 +45,11 @@ test('MOD-03 automatic optional-module fixture is a real service, never an opera
   expect(automaticProfile(observed,{},lab).modules?.id).toBeUndefined();
   observed.status.httpRoutes=[{name:'service',accepted:true,hostnames:['service.example.local']}];
   observed.modules.modules.service!.parameters={workspace:'existing-value'};
-  expect(automaticProfile(observed,{},lab).modules).toEqual({approveOptionalModule:true,id:'service',parameters:{workspace:'existing-value'}});
+  const previous={modules:{approveOptionalModule:true,id:'service',parameters:{workspace:'existing-value'}}};
+  const original=structuredClone(observed.modules);
+  expect(automaticProfile(observed,previous,lab)).not.toHaveProperty('modules');
+  expect(preparedProfile(previous,observed,{...options,approve:['modules']})).not.toHaveProperty('modules');
+  expect(observed.modules).toEqual(original);expect(previous.modules.id).toBe('service');
 });
 
 test('K8S-05 export readiness is independent of exec-plugin and cluster-admin prerequisites',()=>{
@@ -136,24 +140,27 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD teleme
   expect(profile.unmanagedKey.createDisposableFixture).toBe(true);
   observed.modules.catalogJson??={};observed.modules.catalogJson.applications??={};
   for(const type of ['hermes','openclaw','paperclip','kubeopencode','odysseus'])observed.modules.catalogJson!.applications[type]={};
-  const applications=automaticProfile(observed,{},prepared.parsed).applications;
-  expect(applications.fixtures.some((item:{type:string})=>item.type==='hermes')).toBe(false);
+  expect(automaticProfile(observed,{},prepared.parsed)).not.toHaveProperty('applications');
   const previous={applications:{cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:[
     {type:'hermes',adapter:'hermes-terminal-v1',originTemplate:'https://{name}.hermes.example.local/',responseMarker:'REGRESSION'},
-    applications.fixtures.find((item:{type:string})=>item.type==='kubeopencode')]}};
+    {type:'kubeopencode',adapter:'opencode-chat-v1',originTemplate:'https://{name}.kubeopencode.example.local/',responseMarker:'REGRESSION'}]}};
   const refreshed=preparedProfile(previous,observed,options);
-  expect(refreshed.applications.fixtures.map((item:{type:string})=>item.type)).toEqual(['kubeopencode']);
+  expect(refreshed).not.toHaveProperty('applications');
   expect(previous.applications.fixtures[0]!.type).toBe('hermes');
-  expect(suiteInventory(observed.models,observed.modules,observed.status,observed.hosts).applications).not.toContain('hermes');
+  expect(suiteInventory(observed.models,observed.modules,observed.status,observed.hosts).applications).toEqual([]);
   expect(observed.modules.catalogJson!.applications).toHaveProperty('hermes');
-  expect(applications.fixtures).toContainEqual({type:'kubeopencode',adapter:'opencode-chat-v1',
-    originTemplate:'https://{name}.kubeopencode.dashboard.example.local/',responseMarker:'REGRESSION'});
-  expect(applications.fixtures.filter((item:{type:string})=>!['hermes','kubeopencode'].includes(item.type))
-    .every((item:{adapter:string})=>item.adapter==='semantic-chat-v1')).toBe(true);
   observed.readableFiles.push('/inputs/app-cleaner.kubeconfig');
-  const appReadiness=inputReadiness(prepared.parsed,{...profile,applications},observed,{...options,phases:[5],automatic:true})[0]!;
+  const appReadiness=inputReadiness(prepared.parsed,{...profile,...previous},observed,{...options,phases:[5],automatic:true})[0]!;
   expect(appReadiness.measures.some(item=>String(item.id).startsWith('app-'))).toBe(false);
   expect(appReadiness.measures.some(item=>item.id==='app-hermes')).toBe(false);
+  expect(appReadiness.measures.some(item=>item.id==='optional-module')).toBe(false);
+  for(const id of ['APP-02','MOD-03','MOD-04','MOD-10','ACL-01','ACL-02','ACL-04','ACL-06'])
+    expect(appReadiness.cases!.some(item=>item.id===id),id).toBe(false);
+  expect(appReadiness.cases!.find(item=>item.id==='MOD-06')!.state).toBe('Blocked');
+  const gpuReady=inputReadiness(prepared.parsed,{...profile,moduleProfile:{profileId:'strix-halo',allowExperimental:true,approveTemporaryProfile:true}},
+    observed,{...options,phases:[5],automatic:true})[0]!;
+  expect(gpuReady.cases!.find(item=>item.id==='MOD-06')!.state).toBe('InputsReady');
+  expect(gpuReady.cases!.find(item=>item.id==='USER-02')!.state).toBe('InputsReady');
   const report=inputReadiness(prepared.parsed,profile,observed,{...options,automatic:true,approve:[...labPolicy.scopes] as any});
   const guidance=readinessLines(report).join('\n');
   expect(guidance).not.toMatch(/--approve|ACCEPT|answer .*questions|accept .*proposal/i);
@@ -280,7 +287,8 @@ test('HAR-10 repeated prepare preserves reviewed models, endpoints, budgets and 
   const previous={version:1,applications:{fixtures:[{type:'openclaw',promptLabel:'Reviewed prompt'}]},
     identity:{approveDisposableUsers:false},repeat:{cycles:5,maximumMemoryGrowthMi:512,maximumNonCacheDiskGrowthBytes:1234}};
   const profile=preparedProfile(previous,observed,options);
-  expect(profile.applications.fixtures).toEqual(previous.applications.fixtures);
+  expect(profile).not.toHaveProperty('applications');
+  expect(previous.applications.fixtures[0]!.promptLabel).toBe('Reviewed prompt');
   expect(profile.repeat.cycles).toBe(5);expect(profile.identity.approveDisposableUsers).toBe(false);
   expect(profile.license.approveLicenseReplacement).toBe(false);expect(profile.kubernetes.approveAdminGrant).toBe(false);
   expect(profile.cache).toEqual({});

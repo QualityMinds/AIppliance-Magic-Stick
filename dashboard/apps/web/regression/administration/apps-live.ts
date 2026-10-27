@@ -20,7 +20,7 @@ import {regressionContextOptions} from '../core/https-policy.ts';
 import {repositoryAppAdapter} from '../core/application-adapters.ts';
 import {HermesTerminalEvidence,observeHermesTerminal,verifyHermesTerminalChat} from '../core/hermes-terminal.ts';
 import {OpenCodeChatEvidence,observeOpenCodeChat,verifyOpenCodeChat,openCodeChatPath} from '../core/opencode-chat.ts';
-import {applicationRegressionEnabled} from '../core/engine-policy.ts';
+import {applicationFixtureEnabled,liveWorkflowEnabled} from '../core/engine-policy.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
  * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
@@ -54,7 +54,7 @@ async function prepareApplications(live:LiveFoundation,api:AdministrationApi,fix
 
 export function validateAppFixtures(value:unknown):AppFixture[] {
   const automatic=Array.isArray(value) && value.length > 0 && value.every(item=>item&&repositoryAppAdapter(item));
-  const required=appTypes.filter(applicationRegressionEnabled);
+  const required=appTypes.filter(applicationFixtureEnabled);
   requireSafe(Array.isArray(value) && value.length > 0 && value.length <= appTypes.length &&
     (automatic || required.every(type=>value.some(item=>item?.type===type))) &&
     new Set(value.map(item=>item.type)).size === value.length,'CONFIG');
@@ -67,7 +67,7 @@ export function validateAppFixtures(value:unknown):AppFixture[] {
     if(['hermes-terminal-v1','opencode-chat-v1'].includes(item.adapter))requireSafe(/^[A-Za-z0-9_-]{1,64}$/.test(item.responseMarker),'CONFIG');
     const url=new URL(item.originTemplate.replace('{name}','reg-fixture'));
     requireSafe(url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash,'CONFIG');
-  }return value.filter(item=>applicationRegressionEnabled(item.type));
+  }return value.filter(item=>applicationFixtureEnabled(item.type));
 }
 async function appPage(context:BrowserContext,origin:string,guard:()=>Promise<void>,options:{path?:string;observe?:(page:Page)=>void|Promise<void>}={}) {
   const page=await context.newPage();
@@ -106,6 +106,7 @@ export function catalogContext(data:Record<string,string>,name:string,context:nu
 }
 
 export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) {
+  requireSafe(liveWorkflowEnabled('applications'),'CONFIG');
   const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!));
   requireSafe(profile.identity?.approveDisposableUsers === true && profile.applications?.cleanerKubeconfig,'PREREQUISITE');
   const fixtures=validateAppFixtures(profile.applications.fixtures),cleaner=new AppCleaner(profile.applications.cleanerKubeconfig,live.config.requestTimeoutMs);

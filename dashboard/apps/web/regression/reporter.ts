@@ -16,6 +16,7 @@ import {checkedBlocker} from './core/blocking.ts';
 import {regressionBlockedKind} from '../../../packages/core/src/regression-blocking.ts';
 import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './core/runtime-diagnostic.ts';
 import {writePrivate} from './core/private-files.ts';
+import {parsePreflightDiagnostic,type PreflightDiagnostic} from './core/preflight-diagnostic.ts';
 import {isolatedStep} from './core/test-mode.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
@@ -184,16 +185,30 @@ export default class SafeReporter implements Reporter {
     });
     const omittedSteps=this.omittedSteps.get(test);
     const runtimeDiagnostics:RuntimeDiagnostic[]=[];
+    const preflight=new Map<string,PreflightDiagnostic>(),preflightScopes=new Set<string>();
     for(const attachment of result.attachments??[]) {
-      if(runtimeDiagnostics.length>=4)break;
-      if(attachment.name==='magicstick-runtime-diagnostic' && attachment.contentType==='application/json' &&
+      if(attachment.name==='magicstick-preflight-diagnostic'&&attachment.contentType==='application/json'&&attachment.body&&attachment.body.length<=256*1024)try{
+        const value=JSON.parse(attachment.body.toString('utf8'));
+        if(typeof value.scope==='string'&&/^[a-f0-9]{16}$/.test(value.scope)){
+          const diagnostic=parsePreflightDiagnostic(value.diagnostic);
+          preflightScopes.add(value.scope);preflight.set(value.scope,diagnostic);
+          if(preflight.size>4){
+            const firstFailure=[...preflight].find(([,d])=>d.firstFailure)?.[0];
+            const discard=[...preflight.keys()].find(key=>key!==firstFailure&&key!==value.scope)!;
+            preflight.delete(discard);
+          }
+        }
+      }catch{/* No raw/malformed diagnostic attachment may be exported. */}
+      if(runtimeDiagnostics.length<4&&attachment.name==='magicstick-runtime-diagnostic' && attachment.contentType==='application/json' &&
         attachment.body && attachment.body.length<=32*1024)try {
         runtimeDiagnostics.push(parseRuntimeDiagnostic(JSON.parse(attachment.body.toString('utf8'))));
       }catch{/* No arbitrary/malformed attachment is exported. */}
     }
     if(traceRunId)this.traces.push({version:1,runId:traceRunId,executionId,outcome,durationMs:Math.max(0,result.duration),steps,
       ...(omittedSteps?{omittedSteps}:{}),...(source?{source}:{}),...(scenario?{scenario}:{}),
-      ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} )});
+      ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} ),
+      ...(preflight.size?{preflightDiagnostics:[...preflight.values()]}:{}),
+      ...(preflightScopes.size>preflight.size?{omittedPreflightDiagnostics:preflightScopes.size-preflight.size}:{})});
     this.steps.delete(test);this.omittedSteps.delete(test);
     const root=evidence.find(item=>progressed.get(key(item))?.state==='failed');
     const untrackedFailure=outcome==='Failed' && stepAnnotations.length>0 && !root;

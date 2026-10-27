@@ -8,6 +8,23 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Defer all product-service/application live workflows to separate regression,
+  including service credentials and app ACLs. Keep isolated checks, core
+  identity/license/Kubernetes/model/GPU coverage and exact old-resource cleanup.
+  Saved profiles cannot reactivate excluded live work; reports name the reduced
+  scope without changing historical failures. GPU-profile checks have independent
+  readiness rather than depending on application fixtures.
+- Offer the existing Phase 4 two-card Ollama split as a fixed Kubernetes
+  diagnostic selection, separate from four-card split and independent copies.
+  No new campaign cases, relaxed identity checks or longer deadlines are added.
+
+- Preserve the first failed pinned-baseline observation and a bounded transition
+  history in filtered regression traces and HTML/text/JUnit diagnostics. Include
+  observation windows, anonymized object revisions, replica/image/Ready checks,
+  container restarts and current/previous exits, and exact-object events. Optional
+  bounded controller logs remain private and require the generated identity of
+  the exact active registered full run; observer permissions are unchanged.
+
 - Refresh the complete preflight snapshot for up to 90 seconds when pinned
   deployments or Flux are temporarily unready. Wrong sources/images, changed
   identities and observation errors still fail without retry. Retain fixed

@@ -51,6 +51,12 @@ test('HAR-10 real Playwright discovery selects exactly the registered diagnostic
         expect(scenarios[0]!.source.file).toBe('regression/hardware/multi-gpu.e2e.spec.ts');
         expect(scenarios[0]!.evidence).toEqual(['A','E','O'].map(layer=>({id:'MGPU-02',variant:'p3-replicated-ollama-2',layer})));
       }
+      if(['ollama-two-card-split','ollama-four-card-split'].includes(profile.id)) {
+        const count=profile.id==='ollama-two-card-split'?2:4;
+        expect(profile.phase).toBe(4);expect(scenarios).toHaveLength(1);
+        expect(scenarios[0]!.source.file).toBe('regression/hardware/multi-gpu.e2e.spec.ts');
+        expect(scenarios[0]!.evidence).toEqual(['A','E','O'].map(layer=>({id:'MGPU-01',variant:`p4-multigpu-ollama-${count}`,layer})));
+      }
     }
   }finally{await rm(output,{recursive:true,force:true});}
 });

@@ -15,6 +15,7 @@ import {privateDirectory,writePrivate} from '../core/private-files.ts';
 import {saveReport,type CaseResult} from '../core/report.ts';
 import {staticDiagnosticTitles} from '../core/case-descriptions.ts';
 import {junitReport} from '../core/junit.ts';
+import {newPreflightDiagnostic,recordPinObservation} from '../core/preflight-diagnostic.ts';
 
 const source={file:'regression/harness/artifacts.unit.spec.ts',line:1};
 const secret='synthetic-credential-never-archive';
@@ -29,6 +30,11 @@ function trace(runId=newRunId()):ExecutionTrace {
       {index:2,parentIndex:1,category:'pw:api',title:'locator.waitForResponse('+secret+')',durationMs:100,
         outcome:'Failed',reason:'DEADLINE',stage:'model-estimate',source},
       {index:3,category:'hook',title:secret,durationMs:0,outcome:'Blocked',source}]};
+}
+function preflight() {
+  const d=newPreflightDiagnostic(),at={startedAt:'2026-10-27T12:00:00.000Z',finishedAt:'2026-10-27T12:00:00.100Z'};
+  recordPinObservation(d,{...at,attempt:1,checks:[{component:'deployment',index:0,condition:'generation',observed:at,generation:2,observedGeneration:1}]});
+  d.state='failed';d.logs={state:'captured',streams:2};return d;
 }
 
 test('HAR-10 full-size JUnit keeps every step once without duplicating its JSON payload',()=>{
@@ -88,11 +94,12 @@ test('HAR-10 HAR-11 component diagnostics preserve the original assertion index 
   expect(()=>safeComponentDiagnostic({...diagnostic,suite:'src/../private.test.tsx'})).toThrow('[CONFIG]');
 });
 
-test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with portable sanitized trace attachments',async()=>isolated(async directory=>{
+test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with portable sanitized trace attachments',async({browser})=>isolated(async directory=>{
   const output=join(directory,'runs'),leafId=newRunId(),rootId=newRunId(),leaf=join(output,leafId),root=join(output,rootId);
   await privateDirectory(leaf);await privateDirectory(root);
-  const recorded=trace(leafId);await saveExecutionTrace(leaf,recorded);
+  const recorded={...trace(leafId),preflightDiagnostics:[preflight()]};await saveExecutionTrace(leaf,recorded);
   await writePrivate(join(leaf,'journal.json'),{password:secret});
+  await writePrivate(join(leaf,'preflight-pins','private','preflight-private-logs.json'),{text:secret});
   await writePrivate(join(leaf,'browser-temp','error-context.json'),{cookie:secret});
   await writePrivate(join(leaf,'component-failure.json'),{version:2,suite:'src/LicensePage.test.tsx',status:1,raw:secret,
     failedAssertions:[{index:4,status:'failed',title:componentTitle,category:'assertion',failureMessages:[secret]}]});
@@ -109,6 +116,7 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
     expect(xml).toContain('name="stage" value="model-estimate"');
     expect(xml).toContain('name="parentStep" value="1"');
     expect(xml).toContain('time="1.337"');
+    expect(xml).toContain('preflightDiagnosticCount');expect(xml).toContain('&quot;generation&quot;');
     expect(xml).toContain('[[ATTACHMENT|report-artifacts/'+leafId+'/traces/'+recorded.executionId+'.json]]');
     const archive=join(root,'report-artifacts.tar.gz');expect((await lstat(archive)).mode&0o077).toBe(0);
     const members=execFileSync('tar',['-tzf',archive],{encoding:'utf8'}).trim().split('\n');
@@ -123,6 +131,24 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
     expect(manifest).toMatchObject({traceFormat:'filtered-call-trace',rawPlaywrightTrace:false});
     const html=await readFile(join(root,'summary.html'),'utf8');
     expect(html).toContain('Verify archive attachment portability');expect(html).toContain('report-artifacts.tar.gz');
+    expect(html).toContain('First failed observation');expect(html).toContain('generation 2/1');expect(html).toContain('private logs: captured');
+    expect(await readFile(join(root,'summary.txt'),'utf8')).toContain('generation 2/1');
+    const exported=JSON.parse(await readFile(join(root,'report-artifacts',leafId,'traces',recorded.executionId+'.json'),'utf8'));
+    expect(exported.preflightDiagnostics).toEqual([preflight()]);
+    const page=await browser.newPage();
+    try{
+      await page.route('https://report.example/**',route=>route.fulfill({status:200,contentType:'text/html',body:html}));
+      for(const width of [1280,390]){
+        await page.setViewportSize({width,height:844});await page.goto('https://report.example/');
+        await page.locator('summary').filter({hasText:recorded.executionId}).click();
+        await page.getByText('Preflight observations — failed',{exact:true}).click();
+        await expect(page.getByText('First failed observation',{exact:false})).toBeVisible();
+        expect(await page.locator('body').innerText()).not.toContain(secret);
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+        await page.reload();await expect(page.getByRole('heading',{name:'All checks',exact:true})).toBeVisible();
+        await expect(page.getByText('Preflight observations — failed',{exact:true})).not.toBeVisible();
+      }
+    }finally{await page.close();}
     expect(cases.map(item=>item.outcome)).toEqual(['Passed','Failed']);
   });
 }));
@@ -161,7 +187,9 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
   try {
     const reporter=new SafeReporter(),selected={title:'HAR-10 reporter records handled negative steps truncation and secondary cleanup failures separately',
       annotations:[],location:{file:fileURLToPath(import.meta.url),line:1,column:1}} as unknown as TestCase;
-    const passed={status:'passed',retry:0,duration:4321,errors:[]} as unknown as TestResult;
+    const pending=preflight(),finished=preflight();pending.state='observing';finished.state='converged';finished.attempts=2;
+    const body=(diagnostic:unknown)=>({name:'magicstick-preflight-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({scope:'a'.repeat(16),diagnostic}))});
+    const passed={status:'passed',retry:0,duration:4321,errors:[],attachments:[body(pending),body({...finished,rawLogs:secret}),body({version:1,rawLogs:secret})]} as unknown as TestResult;
     const failedSelected={...selected,id:'fixture-failed'},blockedSelected={...selected,id:'fixture-blocked'};
     reporter.onBegin({} as FullConfig,{allTests:()=>[selected,failedSelected,blockedSelected]} as Suite);reporter.onTestBegin(selected);
     for(let index=0;index<2003;index++) {
@@ -172,10 +200,17 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     const recorded=(reporter as unknown as {traces:ExecutionTrace[]}).traces[0]!;
     expect(recorded.steps).toHaveLength(2000);expect(recorded.omittedSteps).toBe(3);expect(recorded.durationMs).toBe(4321);
     expect(recorded.steps[0]).toMatchObject({outcome:'Passed',handledError:true});expect(JSON.stringify(recorded)).not.toContain(secret);
+    expect(recorded.preflightDiagnostics).toEqual([finished]); // Latest same-scope observation replaces only its pending attachment.
     const failed={...passed,status:'failed',errors:[{message:'Raw timeout '+secret},{message:new HarnessError('CLEANUP','Failed','cleanup').message}]} as TestResult;
+    failed.attachments=[...passed.attachments,...Array.from({length:5},(_,i)=>({name:'magicstick-preflight-diagnostic',contentType:'application/json',
+      body:Buffer.from(JSON.stringify({scope:i.toString(16).padStart(16,'0'),diagnostic:{...newPreflightDiagnostic(),state:'converged'}}))})),
+      {name:'magicstick-preflight-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({scope:'f'.repeat(16),diagnostic:preflight()}))}];
     reporter.onTestBegin(failedSelected);reporter.onTestEnd(failedSelected,failed);
     const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
     expect(rows.at(-1)).toMatchObject({outcome:'Failed',reason:'UNEXPECTED',recoveryRequired:true,executionOutcome:'Failed'});
+    const bounded=(reporter as unknown as {traces:ExecutionTrace[]}).traces.at(-1)!;
+    expect(bounded.preflightDiagnostics).toHaveLength(4);expect(bounded.omittedPreflightDiagnostics).toBe(3);
+    expect(bounded.preflightDiagnostics?.[0]).toEqual(finished);expect(bounded.preflightDiagnostics?.at(-1)).toEqual(preflight());
     expect(JSON.stringify(rows)).not.toContain(secret);
     const blocked={...passed,status:'failed',errors:[{message:new HarnessError('PREREQUISITE').message}]} as TestResult,
       prerequisite={category:'test.step',title:secret,duration:1,error:blocked.errors[0]} as TestStep;

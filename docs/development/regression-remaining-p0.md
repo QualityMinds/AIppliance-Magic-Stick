@@ -49,7 +49,7 @@ For focused checks, **Test selection** offers fixed subsets of existing cases:
 the Phase 2 controlled external provider (`ROUTE-05`); Phase 3 single-GPU or
 all-GPU verification (`HW-06`, each including Ollama and vLLM), or the existing
 two-card independent-copy Ollama lifecycle (`MGPU-02`); and Phase 4
-slot consumers (`SLOT-03`), four-card shared split Ollama (`MGPU-01`), **Last GPU
+slot consumers (`SLOT-03`), two- or four-card shared split Ollama (`MGPU-01`), **Last GPU
 slot race** (`SLOT-09`), **Sharing persistence after reload** (`SHR-12`), **Exact
 sharing and resource restoration** (`HAR-08`), or the combined remaining-sharing
 profile including `SHR-07`. Choosing one sets full mode and only its advertised phase. Normal automatic
@@ -60,8 +60,9 @@ not offer these profiles or silently expand them into a whole phase.
 Before a live scenario acquires the test Lease, a readiness-only miss refreshes
 the complete baseline for at most 90 seconds. The source and image pins remain
 exact; changed identities, different pins and read failures stop immediately.
-The worker's private `preflight-pins.json` names the fixed failing component
-index and condition without credentials, raw responses or workload names. A
+The worker's private `preflight-pins/<scope>.json` names the fixed failing component
+index and condition, first failure and bounded transitions without credentials,
+raw responses or workload names. A
 failed check keeps `REVISION` and its stage rather than becoming a generic timeout.
 **Refresh tests** remains available during automatic updates. **Cancel tests**
 requests bounded cleanup.
@@ -75,17 +76,26 @@ GPU transitions for these excluded tests; reports list `VLLM-Omni` as excluded,
 not passed or blocked. Ordinary Ollama/vLLM tests and product Omni support stay
 unchanged. Re-enable the retained cases after Realtime is ready for acceptance.
 
-Native **Hermes application workflows are deferred to a separate regression
-suite**. Standard Phase 5 runs do not prepare or create Hermes instances, open
-its terminal, or perform its application ACL/model-edit/removal workflow. Other
-applications still use the shared APP/ACL cases. Automatic setup, terminal setup
-and retained profiles use the same exclusion; old recovery journals are still
-cleaned normally. The existing `excludedSteps` report metadata names
-`phase5/hermes-live (deferred to separate regression)` in the Dashboard, JSON,
-HTML, text and a separate not-selected JUnit suite. It does not add Passed or
-Blocked evidence, rewrite historical failures, disable Hermes in the product,
-or claim full Phase 5 application acceptance. Isolated Hermes adapter checks
-remain selected. The separate native suite has not yet been implemented.
+All **product-service/application live workflows are deferred to separate
+regression**, not only Hermes. Standard Phase 5 excludes live `MOD-03`, `MOD-04`,
+`MOD-10`, `APP-02/05/06/07/09/10` and `ACL-01/02/04/06`: no service fixture
+enable/disable, credential reveal, instance creation, app inference or app ACL
+workflow is prepared or executed. Automatic/terminal setup and retained input
+profiles use the same exclusion. Existing resource cleanup remains available,
+with unchanged ownership checks. Unverifiable old receipts remain blocked.
+The existing `excludedSteps` metadata records these fixed labels in the Dashboard,
+JSON, HTML, text and the separate not-selected JUnit suite:
+
+- `phase5/applications-live (deferred to separate regression)`
+- `phase5/services-live (deferred to separate regression)`
+- `phase5/service-credentials-live (deferred to separate regression)`
+
+Isolated U/C/B contracts remain selected. Core user/authentication/key/license/
+Kubernetes/model/GPU checks remain active; `MOD-06` checks AMD profile readiness
+independently of application fixtures. Exclusions add no Passed or Blocked rows,
+do not disable product services, and do not grant full Phase 5 service/application
+acceptance. Historical failures and recorded Hermes-only exclusions remain
+unchanged. The separate native suite has not yet been implemented.
 
 <a id="if-cleanup-is-blocked"></a>
 
@@ -262,9 +272,18 @@ its expanded list. Raw credentials, journals and runtime logs stay private.
 `HAR-10 / REPORT_EXPORT` means downloads could not be published: completed counts
 remain visible, and it does not imply a cleanup failure. Inspect report size or
 storage; do not repeat a multi-hour run or force recovery to recreate a download.
+For a pinned-baseline failure, inspect **Preflight observations** in the HTML or
+text report, or the filtered trace JSON: the first failed predicate, observation
+windows, resource fingerprints and bounded transition history remain visible
+even if the baseline later converges. Exact-object events and fixed container
+restart/exit reasons help distinguish rollout, stale generation and crashes.
+Short native controller logs, when authorized and available, stay private.
+Unavailable diagnostics are explicitly labelled, not treated as an empty history
+or proof of a cause. No log permission is added to the read-only observer.
 Tests skipped after a failed serial sibling link to that sibling's failure;
 they are not reported as newly missing prerequisites.
-Phase 5 shared application/service setup failures also retain their original
+The retained, separately deferred Phase 5 application/service adapters preserve
+their original diagnostics for future separate acceptance. Their setup failures retain the original
 case and trace after browser-worker replacement, instead of repeating the same
 failed setup. Application tests automatically choose and size a small model with
 verified native context for all selected applications and their context edits;

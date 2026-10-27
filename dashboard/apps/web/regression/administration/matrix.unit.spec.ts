@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {remainingCoverage,remainingIds,remainingPhases,remainingRequirements,remainingVariants,remainingVariantEnabled,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
+import {remainingCoverage,remainingIds,remainingPhases,remainingRequirements,remainingVariants,remainingLayers,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
 import {evidenceAnnotations,fileLayer} from '../core/evidence.ts';
 import {readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
@@ -17,12 +17,31 @@ test('HAR-10 remaining P0 selections are finite, unique and require their exact 
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Blocked'}]).complete).toBe(false);
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Skipped'}]).complete).toBe(false);
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Flaky'}]).complete).toBe(false);
-    expect(remainingIds(mode)?.length).toBe(new Set(Object.values(remainingVariants).filter(item=>remainingVariantEnabled(item) && item.phase === phase).map(item=>item.id)).size+1);
+    expect(remainingIds(mode)?.length).toBe(new Set(Object.values(remainingVariants).filter(item=>remainingLayers(item).length && item.phase === phase).map(item=>item.id)).size+1);
     expect(remainingCoverage(mode,passed.filter(item=>item.variant !== 'final-idle')).complete).toBe(false);
     const fast=remainingRequirements(mode+'-fast')!;
     expect(fast.every(item=>['U','C'].includes(item.layer) && item.environment === 'fixture')).toBe(true);
     expect(remainingCoverage(mode,fast.map(item=>({...item,outcome:'Passed'}))).complete).toBe(false);
   }
+  const deferred=['MOD-03','MOD-04','MOD-10','APP-02','APP-05','APP-06','APP-07','APP-09','APP-10','ACL-01','ACL-02','ACL-04','ACL-06'];
+  const live=remainingRequirements('phase5-live')!,full=remainingRequirements('phase5')!;
+  for(const id of deferred) {
+    expect(live.some(item=>item.id===id),id).toBe(false);
+    expect(()=>remainingRequirements('phase5-live',id),id).toThrow('[CONFIG]');
+    const isolated=Object.values(remainingVariants).filter(item=>item.id===id).flatMap(item=>item.layers).filter(layer=>'UCB'.includes(layer));
+    expect(full.filter(item=>item.id===id).map(item=>item.layer)).toEqual(isolated);
+  }
+  for(const id of ['MOD-06','USER-02','AUTH-03','KEY-02','LIC-04','K8S-05'])expect(live.some(item=>item.id===id),id).toBe(true);
+  expect(live.find(item=>item.id==='MOD-06')?.gate).toBe('gpu-profile');
+  const discovered=JSON.parse(execFileSync(process.execPath,['node_modules/@playwright/test/cli.js','test',
+    '--config','regression/playwright.config.ts','--list','--reporter=json'],{
+    env:{...process.env,REGRESSION_MODE:'phase5-live',REGRESSION_REMAINING_CASE:''},encoding:'utf8',timeout:30_000,maxBuffer:2*1024*1024,
+  }));
+  const titles:string[]=[];
+  const visit=(suite:{suites?:any[];specs?:Array<{title:string}>})=>{titles.push(...(suite.specs??[]).map(spec=>spec.title));for(const child of suite.suites??[])visit(child);};
+  visit(discovered);
+  for(const id of deferred)expect(titles.some(title=>title.startsWith(id+' ')),id).toBe(false);
+  for(const id of ['MOD-06','USER-02','LIC-04','K8S-05'])expect(titles.some(title=>title.startsWith(id+' ')),id).toBe(true);
 });
 
 test('HAR-10 every remaining variant retains its stable P0 catalogue ID and exact declared layers',evidenceAnnotations({id:'HAR-10',layer:'U'}),async()=>{
