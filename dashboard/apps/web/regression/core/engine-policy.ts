@@ -7,9 +7,20 @@ export const engineRegressionEnabled=(engine:string)=>!disabledExperimentalEngin
  * vLLM along with the experimental Omni/Realtime acceptance cases. */
 export const realtimeRegressionEnabled=()=>engineRegressionEnabled('VLLM-Omni');
 
-/** Shared APP/ACL cases still run for other applications. Keep the native
- * Hermes adapter and its isolated checks for the later, separate regression. */
-export const applicationRegressionEnabled=(application:string)=>!labPolicy.deferredApplicationTests.includes(application);
-export const deferredApplicationSteps=(phases:readonly number[])=>phases.includes(5)?
-  labPolicy.deferredApplicationTests.map(application=>`phase5/${application}-live (deferred to separate regression)`):[];
-export const deferredApplicationStep=(step:string)=>deferredApplicationSteps([5]).includes(step);
+export type ProductLiveWorkflow='applications'|'modules'|'credentials';
+export const liveWorkflowEnabled=(workflow:ProductLiveWorkflow)=>!labPolicy.deferredLiveWorkflows.includes(workflow);
+/** Test selection only: never disable product apps or their retained cleanup. */
+export const applicationFixtureEnabled=(application:string)=>!labPolicy.deferredApplicationTests.includes(application);
+export const applicationRegressionEnabled=(application:string)=>liveWorkflowEnabled('applications')&&applicationFixtureEnabled(application);
+const workflowLabels:Record<ProductLiveWorkflow,string>={
+  applications:'phase5/applications-live (deferred to separate regression)',
+  modules:'phase5/services-live (deferred to separate regression)',
+  credentials:'phase5/service-credentials-live (deferred to separate regression)',
+};
+const legacyApplicationSteps=()=>labPolicy.deferredApplicationTests.map(application=>`phase5/${application}-live (deferred to separate regression)`);
+export const deferredApplicationSteps=(phases:readonly number[])=>!phases.includes(5)?[]:[
+  ...Object.entries(workflowLabels).filter(([workflow])=>!liveWorkflowEnabled(workflow as ProductLiveWorkflow)).map(([,label])=>label),
+  ...(liveWorkflowEnabled('applications')?legacyApplicationSteps():[]),
+];
+/** Recognize recorded legacy labels independently of today's active policy. */
+export const deferredApplicationStep=(step:string)=>Object.values(workflowLabels).includes(step)||legacyApplicationSteps().includes(step);

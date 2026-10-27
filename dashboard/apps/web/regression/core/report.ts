@@ -6,6 +6,7 @@ import {phase2Coverage, phase2Variants, phase2Requirements, type Phase2Variant} 
 import {gpuCoverage,gpuRequirements,phase3Variants,phase4Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
 import {remainingCoverage,remainingRequirements,remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
 import {writePrivate} from './private-files.ts';
+import {preflightDiagnosticText} from './preflight-diagnostic.ts';
 import {join} from 'node:path';
 import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from './evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
@@ -225,7 +226,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     (process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number):[];
   const omittedSteps=excludedSteps(runTestMode,selectionPhases);
   const deferredApplications=deferredApplicationSteps(selectionPhases);
-  const deferredText=deferredApplications.length?' Native application workflows deferred to separate regression: '+deferredApplications.join(', ')+'. Full Phase 5 application acceptance is not assessed.':'';
+  const deferredText=deferredApplications.length?' Product-service/application live workflows deferred to separate regression: '+deferredApplications.join(', ')+'. Full Phase 5 service/application acceptance is not assessed.':'';
   const selectionText=(diagnostic?`Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.')+deferredText;
   const portableArchive=Boolean(diagnostic)||mode==='all'||mode==='selftest'||mode==='recover'||mode==='phase4-sharing'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
@@ -308,8 +309,8 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,
     ...(cleanup?{cleanup}:{}),excludedEngineTests:disabledExperimentalEngines, cases: safe});
   await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps,cleanup,...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{})}));
-  await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
-    '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
+  await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+    '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem;overflow-wrap:anywhere}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
     '.Passed{color:#087343}.Failed{color:#b42030}.Blocked{color:#906100}</style><h1>Regression results</h1>'+
     `<p>${xml(selectionText)}</p>`+(omittedSteps.length?`<details><summary>Not selected in this mode (${omittedSteps.length} steps)</summary><ul>${omittedSteps.map(step=>`<li>${xml(step)}</li>`).join('')}</ul></details>`:'')+
@@ -337,7 +338,9 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       trace.steps.map(step=>`<li class="${step.outcome}">${xml(step.title)} — ${step.outcome} · ${durationDescription(step.durationMs)}`+
         (step.reason?` · ${step.reason}`:'')+(step.stage?` · ${step.stage}`:'')+
         (step.source?` · ${xml(step.source.file)}:${step.source.line}`:'')+'</li>').join('')+'</ol>'+
-      (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+'</details>').join('')+'</html>');
+      (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+
+      (trace.preflightDiagnostics??[]).map(d=>'<details><summary>Preflight observations — '+d.state+'</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(preflightDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
+      (trace.omittedPreflightDiagnostics?`<p>${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.</p>`:'')+'</details>').join('')+'</html>');
   await writePrivate(join(directory, 'summary.txt'), `Magic Stick selected regression cases: ${summary.acceptable ? 'PASSED' : 'NOT ACCEPTED'}\n` +
     selectionText+'\n'+(omittedSteps.length?'Not selected in this mode: '+omittedSteps.join(', ')+'\n':'')+
     (prepared ? preparationDescription(prepared)+'\n' : '')+
@@ -364,7 +367,9 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.blockedBy ? regressionBlockedLabel(item.blockedBy.kind) : item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
       `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${blockerDescription(item.reason,item.id,item.variant,item.layer)}` : ''}`+
       (item.blockedBy?.caseId ? `\n  Blocking check: ${item.blockedBy.caseId}${item.blockedBy.reason ? ` (${item.blockedBy.reason})` : ''}${item.blockedBy.stage ? ` [${item.blockedBy.stage}]` : ''}` : '')+
-      (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n');
+      (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n'+
+    artifacts.flatMap(({trace})=>[...(trace.preflightDiagnostics??[]).map(d=>`\nPreflight / ${trace.executionId}\n${preflightDiagnosticText(d).join('\n')}\n`),
+      ...(trace.omittedPreflightDiagnostics?[`${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.\n`]:[])]).join(''));
   await archiveReport(directory,runId,artifacts,portableArchive);
   return {...summary, executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,...(cleanup?{cleanup}:{}), fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
     ...remainingAcceptance};

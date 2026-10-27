@@ -85,8 +85,11 @@ export function publicResult(summary:Record<string,any>,campaign:Record<string,a
     diagnosticSelection(summary.diagnosticSelection?.id,phases.map(p=>p.phase),runTestMode);
   // Never retroactively declare a historical application failure unselected.
   // Only fixed policy labels actually recorded by that report are admitted.
-  const exclusions=excludedSteps(runTestMode,phases.map(p=>p.phase)).filter(step=>!deferredApplicationStep(step)||
-    Array.isArray(summary.excludedSteps)&&summary.excludedSteps.includes(step));
+  const exclusions=[...new Set([
+    ...excludedSteps(runTestMode,phases.map(p=>p.phase)).filter(step=>!deferredApplicationStep(step)),
+    ...(phases.some(p=>p.phase===5)&&Array.isArray(summary.excludedSteps)?
+      summary.excludedSteps.filter((step:unknown):step is string=>typeof step==='string'&&deferredApplicationStep(step)):[]),
+  ])];
   return {testMode:runTestMode,excludedSteps:exclusions,counts:counts(summary.counts),executionCounts:counts(summary.executionCounts),
     ...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{}),
     blockedCounts:publicBlockedCounts(blockedCounts(rows),count(summary.counts?.Blocked)),

@@ -13,6 +13,7 @@ import {disposableUnmanagedKey,UnmanagedKeyFixtureClient,verifyUnmanagedKey} fro
 import {licenseDocumentPatch} from '../core/license-baseline.ts';
 import {browserDnsArguments} from '../core/browser-dns.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
+import {fixtureModuleIds} from '../core/application-modules.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
 const uid='appliance-fixture',nodeUid='node-fixture',installation='11111111-2222-4333-8444-555555555555';
@@ -51,7 +52,11 @@ test('HAR-10 suite discovery allowlists actual optional modules and never export
     'nvidia-gpu':{activationMode:'moduleactivation'},identity:{activationMode:'moduleactivation'},regression:{activationMode:'moduleactivation'},
     unrelated:{activationMode:'appinstance'}},applications:{openclaw:{},unknown:{}}}} as unknown as ModulesPayload;
   const result=suiteInventory(models,modules,{} as SystemStatusPayload,[]);
-  expect(result.optionalModules.map(item=>item.id)).toEqual(['optional']);expect(result.applications).toEqual(['openclaw']);
+  expect(result.optionalModules).toEqual([]);expect(result.applications).toEqual([]);
+  const legacy={modules:{id:'optional'},applications:{fixtures:[{type:'openclaw'},{type:'hermes'}]}};
+  const untouched=new Proxy({}, {get(){throw new Error('Deferred fixture resolved a catalog dependency');}}) as ModulesPayload;
+  expect(fixtureModuleIds(untouched,legacy)).toEqual([]);
+  expect(legacy.modules.id).toBe('optional');expect(modules.catalogJson!.applications).toHaveProperty('openclaw');
   expect(result.activeModels[0]?.uid).toBe('model-uid');expect(JSON.stringify(result)).not.toContain('DO-NOT-EXPORT');
 });
 

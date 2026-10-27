@@ -4,7 +4,7 @@ import {editRevision} from './owned-model.ts';
 import {approvals,type Approval,type PreparationOptions,type PreparationSnapshot} from './input-preparation.ts';
 import {canonicalInput} from './input-preparation.ts';
 import type {LabConfig} from './config.ts';
-import {applicationRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
+import {applicationRegressionEnabled,liveWorkflowEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 
 /** Owner consent is data, not an administrator credential or a preflight bypass.
  * Boots may change during a reviewed drill; physical installation IDs may not. */
@@ -64,7 +64,7 @@ export function suiteInventory(models:ModelsPayload,modules:ModulesPayload,statu
     activeModels:models.activations.filter(item=>item.spec?.type === 'local' && item.spec.enabled !== false).map(item=>({
       name:item.metadata!.name,uid:item.metadata!.uid,generation:item.metadata!.generation,revision:editRevision(item)})),
     applications:Object.keys(modules.catalogJson?.applications ?? {}).filter(type=>['openclaw','hermes','paperclip','kubeopencode','odysseus'].includes(type) && applicationRegressionEnabled(type)),
-    optionalModules,amdProfiles:(amd?.profiles ?? []).filter(profile=>profile.id !== amd?.selectedProfile).map(profile=>({id:profile.id,experimental:profile.experimental})),
+    optionalModules:liveWorkflowEnabled('modules')?optionalModules:[],amdProfiles:(amd?.profiles ?? []).filter(profile=>profile.id !== amd?.selectedProfile).map(profile=>({id:profile.id,experimental:profile.experimental})),
     realtime,hosts:hosts.map(host=>({name:host.name,nodeUid:host.nodeUid,bootId:host.bootId,kernel:host.kernel,available:host.available,
       plan:host.plan,gpuMemory:host.gpuMemory,network:host.network,updates:host.updates ? {id:host.updates.id,policy:host.updates.policy,rebootRequired:host.updates.rebootRequired} : null,
       modelCache:host.modelCache,software:host.software ? {id:host.software.id,channel:host.software.channel,hostCommit:host.software.hostCommit,preview:host.software.preview} : null}))};

@@ -1,4 +1,5 @@
-import type {Browser, BrowserContext} from '@playwright/test';
+import {test,type Browser,type BrowserContext} from '@playwright/test';
+import {randomBytes} from 'node:crypto';
 import type {LabConfig, RuntimeModelFixture} from './config.ts';
 import {ensureDashboardSession, realLogin, type RealLoginOptions} from './auth.ts';
 import {readOnlyApi} from './transport.ts';
@@ -20,6 +21,8 @@ import {assertLicenseReceiptsRestored} from './license-transaction.ts';
 import {attestCleanup,verifyReservationReleased} from './cleanup-state.ts';
 import {recoveryInventory} from './recovery-inventory.ts';
 import {progressEvent} from './progress.ts';
+import {collectPreflightFailure,privatePreflightLogReader} from './preflight-capture.ts';
+import {newPreflightDiagnostic,parsePreflightDiagnostic,recordPinObservation,type ObservationWindow,type PreflightDiagnostic} from './preflight-diagnostic.ts';
 
 /** Shared foundation adapter: no GPU, host-maintenance or product-setting writes. */
 export class LiveFoundation {
@@ -67,19 +70,43 @@ export class LiveFoundation {
 
   static async snapshot(context: BrowserContext, config: LabConfig, diagnosticDirectory?:string) {
     const observer = new KubectlObserver(config.observerKubeconfig, config.requestTimeoutMs);
-    await observer.verifyConfiguration();
     const api = readOnlyApi(context.request, config.dashboardUrl, config.requestTimeoutMs);
+    const scope=randomBytes(8).toString('hex');let attachedState='';
+    const diagnosticSink=async(value:PreflightDiagnostic)=>{
+      if(!diagnosticDirectory)return;
+      const diagnostic=parsePreflightDiagnostic(value);
+      await writePrivate(join(diagnosticDirectory,'preflight-pins',scope+'.json'),diagnostic);
+      const state=JSON.stringify([diagnostic.state,diagnostic.events.state,diagnostic.logs.state]);
+      if(state!==attachedState&&(diagnostic.firstFailure||diagnostic.state!=='observing')){
+        attachedState=state;
+        try{await test.info().attach('magicstick-preflight-diagnostic',{contentType:'application/json',body:Buffer.from(JSON.stringify({scope,diagnostic}))});}
+        catch{/* CLI preparation can run outside Playwright; its private file remains. */}
+      }
+    };
+    const verificationStarted=new Date().toISOString();
+    try{await observer.verifyConfiguration();}catch(error){
+      const d=newPreflightDiagnostic();recordPinObservation(d,{attempt:1,startedAt:verificationStarted,finishedAt:new Date().toISOString(),checks:[],readFailure:'OBSERVER'});d.state='failed';
+      try{await diagnosticSink(d);}catch{/* Preserve the original permission/identity error. */}
+      throw error;
+    }
+    const timed=async<T>(read:()=>Promise<T>):Promise<{value:T;observed:ObservationWindow}>=>{
+      const startedAt=new Date().toISOString();const value=await read();return {value,observed:{startedAt,finishedAt:new Date().toISOString()}};
+    };
     return waitForDeploymentPins(config,observer,async()=>{
       const [appliance, hosts, models, observed, nodes, pods, flux] = await Promise.all([
         api.appliance(), api.hostManagement(), api.models(),
         observer.get('appliances.appliance.magicstick.dev', config.expected.applianceNamespace, config.expected.applianceName),
-        observer.list('nodes'), observer.list('pods'), observer.list('kustomizations.kustomize.toolkit.fluxcd.io', 'flux-system'),
+        observer.list('nodes'), timed(()=>observer.list('pods')), timed(()=>observer.list('kustomizations.kustomize.toolkit.fluxcd.io', 'flux-system')),
       ]);
       verifyIdentity(config, appliance, observed, nodes, hosts.nodes);
       await registeredLab(config,observer);
       verifyCapabilities(config, models);
-      return {observer, api, appliance, hosts, models, observed, nodes, pods, flux};
-    },{timeoutMs:90_000,...(diagnosticDirectory?{diagnostic:value=>writePrivate(join(diagnosticDirectory,'preflight-pins.json'),value)}:{})});
+      return {observer, api, appliance, hosts, models, observed, nodes,pods:pods.value,flux:flux.value,pinReadWindows:{pods:pods.observed,flux:flux.observed}};
+    },{timeoutMs:90_000,...(diagnosticDirectory?{
+      diagnostic:diagnosticSink,
+      firstFailure:(sample,references)=>collectPreflightFailure(new KubectlObserver(config.observerKubeconfig,2000),config,sample,references,
+        join(diagnosticDirectory,'preflight-pins',scope),privatePreflightLogReader(context.request,config.dashboardUrl)),
+    }:{})});
   }
 
   static async open(browser: Browser, config: LabConfig, journal: ResourceJournal, loginOptions: RealLoginOptions = {}) {

@@ -74,7 +74,7 @@ class RegressionRunsTests(unittest.TestCase):
         self.assertEqual(env["REGRESSION_PHASES"], "4")
         self.assertNotIn("REGRESSION_GPU_CASE", env)
         self.assertNotIn("privileged", json.dumps(container))
-        for selection, phase in (("external-route", 2), ("gpu-validation-single", 3), ("ollama-four-card-split", 4), ("ollama-two-card-copies", 3)):
+        for selection, phase in (("external-route", 2), ("gpu-validation-single", 3), ("ollama-two-card-split", 4), ("ollama-four-card-split", 4), ("ollama-two-card-copies", 3)):
             self.setUp();self.diagnostic()
             self.run["spec"].update(phases=[phase], diagnosticSelection=selection)
             self.assertTrue(self.controller.reconcile(self.run))

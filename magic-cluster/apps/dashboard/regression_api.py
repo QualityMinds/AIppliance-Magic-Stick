@@ -2,6 +2,8 @@
 
 Workloads belong to the operator. No user-supplied image, command, URL, Secret
 name or Kubernetes manifest crosses this API. Private inputs never leave it.
+The generated active-run identity alone can read bounded, exact-owner preflight
+log excerpts into its private directory; these are never report attachments.
 The runner lifecycle is a core function: never gate it on license status or
 activate a license here. Individual suite cases verify their own prerequisites.
 """
@@ -26,6 +28,11 @@ CLEANUP_STAGES = {"cleanup", "recovery-barrier", "recovery-journal", "recovery-r
 ARTIFACTS = {"archive": ("report-artifacts.tar.gz", "application/gzip"),
              "html": ("summary.html", "text/html; charset=utf-8"),
              "junit": ("junit.xml", "application/xml")}
+# Security allowlist, not a second module/capability catalog. No arbitrary
+# namespace, workload, container, log URL or Kubernetes subresource is accepted.
+PREFLIGHT_LOG_TARGETS = {("dashboard", "ai-appliance-dashboard", "web"),
+                         ("identity-system", "ai-appliance-dashboard-api", "api"),
+                         ("flux-system", "kustomize-controller", "manager")}
 LEASE = "/apis/coordination.k8s.io/v1/namespaces/" + NAMESPACE + "/leases/lab-lock"
 
 
@@ -309,6 +316,83 @@ class RegressionApi:
         if not run:
             self.error(404, "Regression run not found.")
         return run
+
+    def preflight_logs(self, principal, query):
+        keys = {"runUid", "namespace", "deployment", "container", "deploymentUid", "generation", "podUid"}
+        if set(query) != keys or any(not isinstance(v, list) or len(v) != 1 or not isinstance(v[0], str) for v in query.values()):
+            self.error(400, "Invalid private preflight diagnostic request.")
+        p = {k: v[0] for k, v in query.items()}
+        uuid = r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
+        if (any(not re.fullmatch(uuid, p[k]) for k in ("runUid", "deploymentUid", "podUid"))
+                or not re.fullmatch(r"[1-9][0-9]{0,8}", p["generation"])
+                or (p["namespace"], p["deployment"], p["container"]) not in PREFLIGHT_LOG_TARGETS):
+            self.error(400, "Invalid private preflight diagnostic target.")
+        registration = self.registration()
+        matches = [r for r in self.f["list_resource"](RUNS) if r.get("metadata", {}).get("uid") == p["runUid"]]
+        if not registration or len(matches) != 1:
+            self.error(403, "Private diagnostics require the exact registered active test run.")
+        run = matches[0]
+        spec, status = run.get("spec", {}), run.get("status", {})
+        if (status.get("phase") != "Running" or status.get("credentialsCleaned") is True or spec.get("cancelRequested")
+                or run["metadata"].get("deletionTimestamp") or spec.get("operation", "tests") != "tests"
+                or spec.get("testMode", "full") != "full" or spec.get("applianceUid") != registration["applianceUid"]
+                or sorted(spec.get("nodeUids", [])) != registration["nodeUids"]):
+            self.error(403, "Private diagnostics require the exact registered active test run.")
+        runtime = (self.get(CORE + "/configmaps/magicstick-regression-runtime") or {}).get("data", {})
+        if (not re.fullmatch(r"[a-f0-9]{40}", str(runtime.get("sourceRevision", "")))
+                or not re.fullmatch(r"ghcr.io/qualityminds/magicstick-regression:[a-z0-9-]+@sha256:[a-f0-9]{64}", str(runtime.get("image", "")))
+                or spec.get("image") != runtime.get("image") or spec.get("sourceRevision") != runtime.get("sourceRevision")):
+            self.error(409, "The active diagnostic source changed.")
+        _, account = self.owned_account(run)
+        if not account or not account.get("userId") or principal.get("subject") != account["userId"]:
+            self.error(403, "Only this run's generated test identity can read private diagnostics.")
+        self.owned_user(account, credential_owner(run)[1], required=True)
+        ns = urllib.parse.quote(p["namespace"], safe="")
+        deployment_path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + p["deployment"]
+
+        def exact_target():
+            deployment = self.get(deployment_path) or {}
+            meta = deployment.get("metadata", {})
+            if meta.get("uid") != p["deploymentUid"] or meta.get("generation") != int(p["generation"]):
+                self.error(409, "The diagnostic workload identity changed.")
+            sets = self.f["list_resource"]("/apis/apps/v1/namespaces/" + ns + "/replicasets")
+            owned_sets = {s.get("metadata", {}).get("uid") for s in sets
+                          if s.get("metadata", {}).get("uid") and any(o.get("uid") == p["deploymentUid"] and o.get("controller") is True and o.get("kind") == "Deployment"
+                                 for o in s.get("metadata", {}).get("ownerReferences", []))}
+            pods = self.f["list_resource"]("/api/v1/namespaces/" + ns + "/pods")
+            pods = [pod for pod in pods if pod.get("metadata", {}).get("uid") == p["podUid"]
+                    and any(o.get("uid") in owned_sets and o.get("controller") is True and o.get("kind") == "ReplicaSet"
+                            for o in pod.get("metadata", {}).get("ownerReferences", []))
+                    and any(c.get("name") == p["container"] for c in pod.get("spec", {}).get("containers", []))]
+            if len(pods) != 1 or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,252}", pods[0].get("metadata", {}).get("name", "")):
+                self.error(409, "The diagnostic Pod identity changed.")
+            return pods[0]
+
+        pod = exact_target()
+        streams = []
+        statuses = pod.get("status", {}).get("containerStatuses", [])
+        previous = any(c.get("name") == p["container"] and c.get("restartCount", 0) > 0 for c in statuses)
+        for old in ([False, True] if previous else [False]):
+            params = {"container": p["container"], "tailLines": "80", "timestamps": "true", "limitBytes": "16384", "sinceSeconds": "120"}
+            if old:
+                params["previous"] = "true"
+            path = "/api/v1/namespaces/" + ns + "/pods/" + urllib.parse.quote(pod["metadata"]["name"], safe="") + "/log?" + urllib.parse.urlencode(params)
+            try:
+                text = self.f["request_text"]("GET", path, max_bytes=16384, timeout=2)
+                streams.append({"previous": old, "text": text.encode("utf-8")[:16384].decode("utf-8", errors="ignore")})
+            except Exception:
+                # Log availability is not the primary REVISION failure. Never
+                # return Kubernetes errors, tokens or a different Pod's output.
+                continue
+        current = exact_target()
+        current_run = self.get(RUNS + "/" + run["metadata"]["name"]) or {}
+        if (current.get("metadata", {}).get("name") != pod["metadata"]["name"]
+                or current_run.get("metadata", {}).get("uid") != p["runUid"]
+                or current_run.get("status", {}).get("phase") != "Running" or current_run.get("spec", {}).get("cancelRequested")):
+            self.error(409, "The active diagnostic identity changed during collection.")
+        if not streams:
+            self.error(503, "Bounded private diagnostic logs are unavailable.")
+        return {"version": 1, "streams": streams}
 
     def start(self, principal, payload):
         self.f["live_admin_actor"](principal)

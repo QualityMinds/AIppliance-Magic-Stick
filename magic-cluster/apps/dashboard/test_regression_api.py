@@ -108,6 +108,109 @@ class RegressionApiTests(unittest.TestCase):
     def start(self, request="1"*32):
         return self.service.start(ACTOR, {"requestId": request, "acknowledgeDisruption": True})
 
+    def preflight_fixture(self):
+        started = self.start()
+        run = self.objects[RUNS + "/" + started["id"]]
+        run["status"] = {"phase": "Running"}
+        ns, deployment, container = "identity-system", "ai-appliance-dashboard-api", "api"
+        pod_uid = "22222222-2222-3333-4444-555555555555"
+        rs_uid = "33333333-2222-3333-4444-555555555555"
+        deployment_path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + deployment
+        self.objects[deployment_path] = {"metadata": {"uid": UID, "generation": 2}}
+        self.pods = [{"metadata": {"name": "fixture-pod", "uid": pod_uid, "ownerReferences": [{"uid": rs_uid, "kind": "ReplicaSet", "controller": True}]},
+                      "spec": {"containers": [{"name": container}]}, "status": {"containerStatuses": [{"name": container, "restartCount": 2}]}}]
+        rs = {"metadata": {"uid": rs_uid, "ownerReferences": [{"uid": UID, "kind": "Deployment", "controller": True}]}}
+        self.functions["list_resource"] = lambda path: [copy.deepcopy(rs)] if path.endswith("/replicasets") else self.list(path)
+        self.functions["request_text"] = Mock(return_value="synthetic-private-native-log")
+        self.writes.clear()
+        query = {k: [str(v)] for k, v in {"runUid": UID, "namespace": ns, "deployment": deployment, "container": container,
+                                       "deploymentUid": UID, "generation": 2, "podUid": pod_uid}.items()}
+        return query, run, deployment_path
+
+    def test_preflight_logs_are_exact_owner_bounded_generated_identity_only_without_new_permissions_or_mutations(self):
+        query, run, _ = self.preflight_fixture()
+        result = self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.assertEqual(result, {"version": 1, "streams": [{"previous": False, "text": "synthetic-private-native-log"},
+                                                             {"previous": True, "text": "synthetic-private-native-log"}]})
+        for call in self.functions["request_text"].call_args_list:
+            self.assertEqual(call.args[0], "GET")
+            self.assertTrue(call.args[1].startswith("/api/v1/namespaces/identity-system/pods/fixture-pod/log?"))
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(call.args[1]).query)
+            self.assertEqual(params["limitBytes"], ["16384"])
+            self.assertEqual(params["tailLines"], ["80"])
+            self.assertEqual(params["sinceSeconds"], ["120"])
+            self.assertEqual(call.kwargs, {"max_bytes": 16384, "timeout": 2})
+        self.assertEqual(len(self.functions["request_text"].call_args_list), 2)
+        self.assertNotIn("synthetic-private-native-log", json.dumps(self.service.view(run)))
+        self.assertEqual(self.writes, [])
+        for subject in ("fixture-admin", "other-run", ""):
+            with self.assertRaisesRegex(RequestError, "generated test identity"):
+                self.service.preflight_logs({"subject": subject}, query)
+
+    def test_preflight_logs_reject_invalid_queries_inactive_runs_mixed_source_and_foreign_owners(self):
+        query, run, path = self.preflight_fixture()
+        for changes in ({"extra": ["anything"]}, {"container": ["foreign"]}, {"namespace": ["ai"]}, {"generation": ["0"]},
+                        {"deploymentUid": ["../private"]}, {"podUid": [UID, UID]}, {"runUid": ["-"]}, {"generation": ["2", "2"]}):
+            with self.assertRaises(RequestError):
+                self.service.preflight_logs({"subject": "fixture-user"}, {**query, **changes})
+        self.functions["request_text"].assert_not_called()
+        for key, value in (("phase", "Failed"), ("phase", "Cancelled"), ("credentialsCleaned", True)):
+            previous = copy.deepcopy(run["status"])
+            run["status"][key] = value
+            with self.assertRaisesRegex(RequestError, "active test run"):
+                self.service.preflight_logs({"subject": "fixture-user"}, query)
+            run["status"] = previous
+        for key, value in (("testMode", "non-destructive"), ("cancelRequested", True), ("operation", "recover-lock"), ("applianceUid", "foreign"), ("nodeUids", ["foreign"])):
+            previous = copy.deepcopy(run["spec"])
+            run["spec"][key] = value
+            with self.assertRaisesRegex(RequestError, "active test run"):
+                self.service.preflight_logs({"subject": "fixture-user"}, query)
+            run["spec"] = previous
+        original = run["spec"]["sourceRevision"]
+        run["spec"]["sourceRevision"] = "f"*40
+        with self.assertRaisesRegex(RequestError, "source changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        run["spec"]["sourceRevision"] = original
+        self.objects[path]["metadata"]["generation"] = 3
+        with self.assertRaisesRegex(RequestError, "workload identity changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.objects[path]["metadata"]["generation"] = 2
+        self.pods[0]["metadata"]["ownerReferences"][0]["uid"] = "foreign"
+        with self.assertRaisesRegex(RequestError, "Pod identity changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.functions["request_text"].assert_not_called()
+        self.assertEqual(self.writes, [])
+
+    def test_preflight_logs_recheck_identity_after_read_and_never_reflect_private_collection_errors(self):
+        query, _, path = self.preflight_fixture()
+        def replaced(*args, **kwargs):
+            self.objects[path]["metadata"]["uid"] = "foreign"
+            return "synthetic-private-native-log"
+        self.functions["request_text"] = replaced
+        with self.assertRaisesRegex(RequestError, "workload identity changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.objects[path]["metadata"]["uid"] = UID
+        self.functions["request_text"] = Mock(side_effect=RuntimeError("synthetic-private-native-error"))
+        with self.assertRaisesRegex(RequestError, "Bounded private diagnostic logs are unavailable") as error:
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.assertNotIn("synthetic-private", str(error.exception))
+        self.assertEqual(self.writes, [])
+
+    def test_http_preflight_logs_keep_admin_gate_and_are_separate_from_report_downloads(self):
+        server = load_server()
+        handler = server["Handler"].__new__(server["Handler"])
+        handler.path = "/api/regression/preflight-logs?runUid=" + UID
+        handler.route = lambda: "/api/regression/preflight-logs"
+        handler.require_access = Mock(return_value=ACTOR)
+        handler.send_json, handler.send_error_json = Mock(), Mock()
+        with patch("regression_api.RegressionApi") as service:
+            service.return_value.preflight_logs.return_value = {"version": 1, "streams": []}
+            handler.handle_regression()
+            service.return_value.preflight_logs.assert_called_once_with(ACTOR, {"runUid": [UID]})
+            service.return_value.artifact.assert_not_called()
+            handler.send_json.assert_called_once_with({"version": 1, "streams": []})
+        handler.require_access.assert_called_once_with("admin")
+
     def test_view_preserves_all_check_and_scenario_totals_without_recounting_cases_or_phases(self):
         counts = {"Passed": 441, "Failed": 3, "Blocked": 18}
         scenarios = {"Passed": 345, "Failed": 0, "Blocked": 1}
@@ -151,7 +254,7 @@ class RegressionApiTests(unittest.TestCase):
             with self.assertRaisesRegex(RequestError, "different diagnostic tests"):
                 self.service.start(ACTOR, changed)
         self.assertEqual(self.writes, [])
-        for index, selection in enumerate(("external-route", "gpu-validation-single", "ollama-four-card-split", "ollama-two-card-copies"), 2):
+        for index, selection in enumerate(("external-route", "gpu-validation-single", "ollama-two-card-split", "ollama-four-card-split", "ollama-two-card-copies"), 2):
             self.setUp()
             self.diagnostic()
             profile = next(p for p in offered if p["id"] == selection)

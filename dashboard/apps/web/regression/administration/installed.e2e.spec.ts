@@ -12,7 +12,8 @@ import {realLogin,openInferenceSession} from '../core/auth.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
-import {remainingPhase,remainingVariants,remainingVariantEnabled,type P0Definition} from '../profiles/remaining-p0.ts';
+import {remainingPhase,remainingVariants,remainingVariantEnabled,remainingLayers,type P0Definition} from '../profiles/remaining-p0.ts';
+import {liveWorkflowEnabled} from '../core/engine-policy.ts';
 import {runHostDrill} from '../core/host-drill.ts';
 import {realtimeWorkflow} from './realtime-live.ts';
 import {gpuMemoryDraft,settingsDrafts,meshDraft,gpuSharingDrafts} from './form-checks.ts';
@@ -193,6 +194,7 @@ async function oneWorkflow(name:string,execute:()=>Promise<Set<string>>,id:strin
   requireSafe((await running).has(id),'PREREQUISITE');
 }
 async function credentialWorkflow(browser:Browser) {
+  requireSafe(liveWorkflowEnabled('credentials'),'CONFIG');
   requireSafe((await privateProfile()).identity?.approveDisposableUsers === true,'PREREQUISITE');
   const modules=await client.api.modules();
   const eligible=Object.keys(modules.modules).find(id=>modules.modules[id]?.enabled && modules.catalogJson?.modules?.[id]?.credentials?.provider);
@@ -227,16 +229,19 @@ async function credentialWorkflow(browser:Browser) {
 }
 async function runCase(definition:P0Definition,browser:Browser) {
   const id=definition.id;
+  if(definition.workflow){
+    requireSafe(liveWorkflowEnabled(definition.workflow),'CONFIG');
+    if(definition.workflow==='credentials')return oneWorkflow('credentials',()=>credentialWorkflow(browser),id);
+    if(definition.workflow==='applications')return oneWorkflow('applications',()=>applicationsWorkflow(live!,browser),id);
+    return oneWorkflow('modules',()=>modulesWorkflow(live!),id);
+  }
   if(['USER-02','USER-03','USER-04','USER-05','AUTH-04','AUTH-08','LOG-03'].includes(id))
     return oneWorkflow('identity',()=>identityWorkflow(browser),id);
-  if(id === 'MOD-10') return oneWorkflow('credentials',()=>credentialWorkflow(browser),id);
   if(id === 'K8S-02') return test.step('Verify Viewer OIDC and read-only Kubernetes RBAC',()=>kubernetesWorkflow(live!,browser,id));
   if(id === 'K8S-03') return test.step('Verify Operator Kubernetes RBAC and disabled intent CRUD',()=>kubernetesWorkflow(live!,browser,id));
   if(id === 'K8S-04') return test.step('Verify and immediately revoke the isolated Kubernetes administrator grant',()=>kubernetesWorkflow(live!,browser,id));
   if(id === 'K8S-05') return test.step('Verify real kubeconfig clipboard and private download exports',()=>kubernetesWorkflow(live!,browser,id));
   if(id === 'K8S-06') return test.step('Verify Kubernetes access switching and fresh-login revocation',()=>kubernetesWorkflow(live!,browser,id));
-  if(id.startsWith('APP-') || id.startsWith('ACL-')) return oneWorkflow('applications',()=>applicationsWorkflow(live!,browser),id);
-  if(['MOD-03','MOD-04'].includes(id)) return oneWorkflow('modules',()=>modulesWorkflow(live!),id);
   if(id === 'MOD-06')return moduleProfileWorkflow(live!);
   if(id==='LIC-02'||id==='LIC-03'||id==='LIC-04')return licensingWorkflow(live!,id);
   if(['SSO-02','SSO-04','SSO-05'].includes(id)) return oneWorkflow('federation',()=>federationWorkflow(live!,browser),id);
@@ -361,7 +366,7 @@ test.afterAll(async()=>{for(const context of contexts.splice(0)) await context.c
 for(const [variant,definition] of Object.entries(remainingVariants).filter(([,item])=>remainingVariantEnabled(item) && item.phase === phase &&
   (!process.env.REGRESSION_REMAINING_CASE || item.id === process.env.REGRESSION_REMAINING_CASE))
   .sort(([,a],[,b])=>Number(!['LIC-01','SSO-01'].includes(a.id))-Number(!['LIC-01','SSO-01'].includes(b.id)))) {
-  const layers=definition.layers.filter(layer=>['A','E','O','N'].includes(layer));
+  const layers=remainingLayers(definition).filter(layer=>['A','E','O','N'].includes(layer));
   if(layers.length) test(`${definition.id} installed ${definition.group} acceptance`,
     evidenceAnnotations(...layers.map(layer=>({id:definition.id,variant,layer}))),({browser})=>runCase(definition,browser));
 }

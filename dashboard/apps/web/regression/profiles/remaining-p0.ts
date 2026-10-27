@@ -1,23 +1,23 @@
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
-import {realtimeRegressionEnabled} from '../core/engine-policy.ts';
+import {liveWorkflowEnabled,realtimeRegressionEnabled,type ProductLiveWorkflow} from '../core/engine-policy.ts';
 
 export type RemainingPhase = 5 | 6 | 7 | 8;
-export type LiveGate = 'applications' | 'identity' | 'license' | 'federation' | 'maintenance' | 'network' | 'channel' | 'cache' | 'reboot' | 'mesh' | 'companion' | 'realtime' | 'repeat' | 'supply-chain';
-export interface P0Definition {id:string; phase:RemainingPhase; layers:TestLayer[]; group:string; gate?:LiveGate; variantSuffix?:string}
-const row = (phase:RemainingPhase,id:string,layers:string,group:string,gate?:LiveGate):P0Definition =>
-  ({phase,id,layers:layers.split('') as TestLayer[],group,...(gate ? {gate} : {})});
+export type LiveGate = 'applications' | 'gpu-profile' | 'identity' | 'license' | 'federation' | 'maintenance' | 'network' | 'channel' | 'cache' | 'reboot' | 'mesh' | 'companion' | 'realtime' | 'repeat' | 'supply-chain';
+export interface P0Definition {id:string; phase:RemainingPhase; layers:TestLayer[]; group:string; gate?:LiveGate; variantSuffix?:string;workflow?:ProductLiveWorkflow}
+const row = (phase:RemainingPhase,id:string,layers:string,group:string,gate?:LiveGate,workflow?:ProductLiveWorkflow):P0Definition =>
+  ({phase,id,layers:layers.split('') as TestLayer[],group,...(gate ? {gate} : {}),...(workflow?{workflow}:{})});
 
 /** Finite P0 catalogue, not a list of passing test titles. Live evidence always
  * remains separate from isolated API/worker/component tests. */
 const definitions:P0Definition[] = [
-  row(5,'MOD-03','AE','modules','applications'), row(5,'MOD-04','AE','modules','applications'),
-  row(5,'MOD-06','UCBAE','modules','applications'), row(5,'MOD-09','UCB','modules'), row(5,'MOD-10','UCAE','credentials','identity'),
-  row(5,'APP-02','AE','apps','applications'), row(5,'APP-05','CAE','apps','applications'),
-  row(5,'APP-06','AE','apps','applications'), row(5,'APP-07','UCAE','credentials','applications'),
-  row(5,'APP-09','UCA','apps','applications'), row(5,'APP-10','UAE','apps','applications'),
-  row(5,'ACL-01','CAE','access','identity'), row(5,'ACL-02','UCAE','access','identity'),
-  row(5,'ACL-04','UCAE','access','applications'), row(5,'ACL-06','UCA','access','identity'),
+  row(5,'MOD-03','AE','modules','applications','modules'), row(5,'MOD-04','AE','modules','applications','modules'),
+  row(5,'MOD-06','UCBAE','modules','gpu-profile'), row(5,'MOD-09','UCB','modules'), row(5,'MOD-10','UCAE','credentials','identity','credentials'),
+  row(5,'APP-02','AE','apps','applications','applications'), row(5,'APP-05','CAE','apps','applications','applications'),
+  row(5,'APP-06','AE','apps','applications','applications'), row(5,'APP-07','UCAE','credentials','applications','applications'),
+  row(5,'APP-09','UCA','apps','applications','applications'), row(5,'APP-10','UAE','apps','applications','applications'),
+  row(5,'ACL-01','CAE','access','identity','applications'), row(5,'ACL-02','UCAE','access','identity','applications'),
+  row(5,'ACL-04','UCAE','access','applications','applications'), row(5,'ACL-06','UCA','access','identity','applications'),
   row(5,'USER-02','UCAE','users','identity'), row(5,'USER-03','UCAE','users','identity'),
   row(5,'USER-04','UCA','users','identity'), row(5,'USER-05','UCAE','users','identity'),
   row(5,'K8S-02','CAE','kubernetes','identity'), row(5,'K8S-03','CA','kubernetes','identity'),
@@ -62,6 +62,10 @@ export const remainingVariants:Record<string,P0Definition> = Object.fromEntries(
  * without executing them or synthesizing missing-evidence/Blocked rows. */
 export const remainingVariantEnabled=(definition:P0Definition)=>definitions.includes(definition) &&
   (definition.gate!=='realtime' || realtimeRegressionEnabled());
+/** Keep the canonical catalogue/layers for old reports and isolated tests. Only
+ * selected live tuples are deferred; never credit them as Passed or Blocked. */
+export const remainingLayers=(definition:P0Definition)=>!remainingVariantEnabled(definition)?[]:
+  definition.layers.filter(layer=>!definition.workflow||liveWorkflowEnabled(definition.workflow)||!['A','E','O','N'].includes(layer));
 export const remainingPhases = [5,6,7,8] as const;
 export function remainingPhase(mode?:string):RemainingPhase|undefined {
   return /^phase[5-8](?:-fast|-fixtures|-live)?$/.test(mode ?? '') || mode === 'phase6-drill' ? Number(mode![5]) as RemainingPhase : undefined;
@@ -70,11 +74,11 @@ export const hostDrillIds=definitions.filter(item=>item.phase === 6 && item.gate
 export function remainingRequirements(mode:string,selectedId=mode === 'phase6-drill'||/^phase[5-8]-live$/.test(mode) ? process.env.REGRESSION_REMAINING_CASE : undefined) {
   const phase = remainingPhase(mode); if (!phase) return undefined;
   if(mode === 'phase6-drill')requireSafe(selectedId && hostDrillIds.includes(selectedId),'CONFIG');
-  if(selectedId)requireSafe((mode==='phase6-drill'||/^phase[5-8]-live$/.test(mode))&&definitions.some(item=>remainingVariantEnabled(item)&&item.phase===phase&&item.id===selectedId&&item.layers.some(layer=>'AEON'.includes(layer))),'CONFIG');
+  if(selectedId)requireSafe((mode==='phase6-drill'||/^phase[5-8]-live$/.test(mode))&&definitions.some(item=>item.phase===phase&&item.id===selectedId&&remainingLayers(item).some(layer=>'AEON'.includes(layer))),'CONFIG');
   const layers = mode.endsWith('-fast') ? ['U','C'] : mode.endsWith('-fixtures') ? ['B'] :
     mode.endsWith('-live') || mode === 'phase6-drill' ? ['A','E','O','N'] : undefined;
   const required=Object.entries(remainingVariants).filter(([,definition]) => remainingVariantEnabled(definition) && definition.phase === phase && (!selectedId || definition.id === selectedId))
-    .flatMap(([variant,definition]) => definition.layers.filter(layer => !layers || layers.includes(layer))
+    .flatMap(([variant,definition]) => remainingLayers(definition).filter(layer => !layers || layers.includes(layer))
       .map(layer => ({id:definition.id,variant,layer,environment:environmentFor(layer),phase,priority:'P0' as const,
         group:definition.group,...(definition.gate ? {gate:definition.gate} : {})})));
   if(mode === `phase${phase}`)required.push({id:'HAR-03',variant:'final-idle',layer:'A',environment:'live',phase,priority:'P0',group:'final-baseline'});

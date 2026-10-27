@@ -125,6 +125,37 @@ any excess is explicitly counted as `omittedSteps`, never advertised as complete
 Component failures retain the source-literal assertion name, original index,
 category and source line when available, not the expected/received values.
 
+Pinned-baseline observations have an optional `preflightDiagnostics` field. The
+first failed observation is retained even after convergence; up to 12 state
+transitions and the total observation/omission counts describe the bounded
+history. Object read windows are separate, not an atomic cluster snapshot.
+Deployment/Flux UID and resource-version fingerprints, generation/observed
+generation, desired/ready replicas, source/image matches and Ready predicates
+identify the failed check. Pod state includes terminating old Pods, workload/init
+restarts and current/previous exit codes and fixed reasons. Unknown fields remain
+unknown; arbitrary Kubernetes reasons/messages cannot become public labels.
+
+On the first failure only, collect recent events for the exact observed object
+UIDs (at most 32) and, where available, short current/previous controller log
+excerpts. Event/log reads cannot retry mutations or replace the primary error.
+The read-only Kubernetes observer still cannot read Secrets or any subresource.
+Native runs can use the separately guarded
+[private diagnostic read](../reference/dashboard-api.md#regression-runs) through
+the API's existing permissions, not an administrator fallback. An external runner,
+older endpoint or unavailable permission records that diagnostic gap explicitly.
+No setup steps, API-key privileges or runtime wait limits are added.
+
+Each baseline pass writes a separate `preflight-pins/<scope>.json` beside its
+worker journal; bounded event messages and log excerpts are in that scope's
+private subdirectory. First-failure and final attachments with the same scope are
+merged into one filtered trace diagnostic, including setup-hook failures. HTML
+and text show that safe history; JSON traces and scenario JUnit retain its
+structured fields. A trace retains at most four baseline scopes, preserving its
+first failure and recent scopes; `omittedPreflightDiagnostics` counts additional
+scopes explicitly. Per-sample component and Pod limits also report omissions.
+These diagnostics do not change test outcomes, counting units,
+cleanup proof or old reports. Raw logs and event messages never enter the archive.
+
 Raw Playwright tracing, video and screenshots remain off. These JSON traces do
 **not** work in the native Playwright trace viewer. Selectors, input values,
 URLs, headers, response bodies, auth storage, journals, backups and browser-temp
@@ -635,15 +666,27 @@ reads, workload creation or cluster-admin authority are required by observers.
 
 ### Phase 5 prerequisites
 
+Product-service/application **live** workflows are currently deferred to a
+separate suite: `MOD-03/04/10`, `APP-02/05/06/07/09/10`, `ACL-01/02/04/06`.
+Their U/C/B contracts stay selected. Setup discards retained service/app fixture
+choices for new runs rather than letting them reactivate deferred writes. Old
+resource journals retain exact cleanup and ownership checks; an unverified old
+receipt is not silently cleared. The application/service prerequisites below
+document retained adapters for future separate acceptance, not current standard
+run requirements. User, key, license, Kubernetes and GPU-profile prerequisites
+still apply; `MOD-06` is independent of app fixtures. Reports use three fixed
+`phase5/*-live (deferred to separate regression)` labels and never credit excluded
+live evidence. Historical reports keep their original scope and failures.
+
 - `identity.approveDisposableUsers`: creates only run-prefixed actors. Real
   sessions check user/viewer/operator/admin, reset/disable/enable, old-session
   demotion and self-disable protection. The recovery/last admin is never demoted.
-- `applications`: all five advertised app types must install. Review each HTTPS
+- `applications` (**deferred live adapter**): review the selected advertised app types. Review each HTTPS
   hostname template, accessible prompt/send controls and response selector for
   its shipped UI. Supply the narrow app cleaner. Tests create owned apps and a
   small CPU model, invoke the actual app UI, inspect catalog/context propagation,
   test selected-user and explicitly public access, then remove owned instances.
-- `modules`: select a non-critical optional module with a pre-created **disabled**
+- `modules` (**deferred live adapter**): select a non-critical optional module with a pre-created **disabled**
   intent and exact parameters. UI enable/Ready/API disable restores that intent;
   dashboard, identity, inference, GPU and Mesh are never optional fixtures.
   `moduleProfile` separately permits an advertised alternate AMD runtime profile

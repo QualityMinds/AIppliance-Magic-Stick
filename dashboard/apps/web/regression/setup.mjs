@@ -24,7 +24,8 @@ import {parseRegistration} from './core/lab-policy.ts';
 import {AutomaticRecovery} from './core/automatic-recovery.ts';
 import {recoveryAdapters} from './core/recovery-adapters.ts';
 import {parseRecoveryLock} from './core/lock-recovery.ts';
-import {applicationModuleIds,protectedModule} from './core/application-modules.ts';
+import {applicationModuleIds,fixtureModuleIds,protectedModule} from './core/application-modules.ts';
+import {liveWorkflowEnabled} from './core/engine-policy.ts';
 import {reconcileKubernetesSession} from './core/kubernetes-termination.ts';
 
 process.umask(0o077);
@@ -143,6 +144,8 @@ async function recoverReviewedActions() {
   if(await exists(join(directory,'.setup-module-fixture.json')))await prepareModuleFixture();
 }
 async function prepareModuleFixture() {
+  const marker=join(directory,'.setup-module-fixture.json');
+  if(!liveWorkflowEnabled('modules')&&!liveWorkflowEnabled('applications')&&!await exists(marker))return;
   requireSafe(request.approveModuleFixture === true,'PREREQUISITE');
   const reservation=await recordedLeaseSession(new KubernetesLeaseStore(join(directory,'locker.yaml'),'magicstick-regression','lab-lock'),
     resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs'),facts.applianceUid);
@@ -150,11 +153,14 @@ async function prepareModuleFixture() {
   try {
   const profile=JSON.parse(await readPrivate(join(directory,'remaining-p0.json')));
   const snapshot=await client.api.modules();
-  const candidates=new Set([profile.modules?.id,...applicationModuleIds(snapshot,(profile.applications?.fixtures??[]).map(f=>f.type))]);
-  const marker=join(directory,'.setup-module-fixture.json');
+  const candidates=new Set(fixtureModuleIds(snapshot,profile));
   if(await exists(marker)) {
     const pending=JSON.parse(await readPrivate(marker));
-    requireSafe(candidates.has(pending.id)&&!protectedModule(pending.id),'CONFLICT');
+    const retainedCandidates=new Set([profile.modules?.id,...applicationModuleIds(snapshot,(profile.applications?.fixtures??[]).map(f=>f.type))]);
+    requireSafe(retainedCandidates.has(pending.id)&&!protectedModule(pending.id),'CONFLICT');
+    // The unchanged receipt path verifies target/hash and the already-created
+    // disabled intent. It cannot create/enable a deferred service: a missing or
+    // changed object fails before its ordinary new-fixture write branch.
     await prepareOneModuleFixture(pending.id,pending.id===profile.modules?.id?profile.modules.parameters??{}:snapshot.modules[pending.id]?.parameters??{},reservation);
   }
   for(const id of candidates) {
@@ -179,7 +185,7 @@ async function prepareOneModuleFixture(id,parameters,reservation) {
   const marker=join(directory,'.setup-module-fixture.json');
   if(await exists(marker)) {
     const pending=JSON.parse(await readPrivate(marker));
-    requireSafe(pending.applianceUid === facts.applianceUid && pending.id === id && documentHash(JSON.stringify(parameters)) === pending.parametersHash &&
+    requireSafe(pending.version === 1 && pending.state === 'requested' && pending.applianceUid === facts.applianceUid && pending.id === id && documentHash(JSON.stringify(parameters)) === pending.parametersHash &&
       matches.length === 1 && matches[0].spec?.enabled === false && JSON.stringify(matches[0].spec.parameters ?? {}) === JSON.stringify(parameters),'CONFLICT');
     await writePrivate(join(directory,'setup-module-fixture.json'),{version:1,applianceUid:facts.applianceUid,id,uid:matches[0].metadata.uid,state:'verified-disabled'});await rm(marker);return;
   }

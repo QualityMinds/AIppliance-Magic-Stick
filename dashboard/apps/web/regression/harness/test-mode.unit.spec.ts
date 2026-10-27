@@ -11,15 +11,18 @@ import {readPrivate} from '../core/private-files.ts';
 import {publicResult} from '../core/kubernetes-progress.ts';
 import {remainingRequirements,remainingIds} from '../profiles/remaining-p0.ts';
 import type {CaseResult} from '../core/report.ts';
+import {deferredApplicationSteps} from '../core/engine-policy.ts';
 
 test('HAR-10 test modes preserve legacy full selection and reject unknown or coerced values',()=>{
   expect(testMode()).toBe('full');expect(testMode('non-destructive')).toBe('non-destructive');
   for(const value of [null,true,false,{},[],'readonly',''])expect(()=>testMode(value)).toThrow('[CONFIG]');
   for(let phase=0;phase<=8;phase++)expect(selectedSteps(phase,'full')).toEqual(phaseSteps[`phase${phase}` as keyof typeof phaseSteps]);
-  const deferred='phase5/hermes-live (deferred to separate regression)';
-  expect(excludedSteps('full',[5])).toEqual([deferred]);
-  expect(excludedSteps('full',[2,3,4])).not.toContain(deferred);
-  expect(excludedSteps('non-destructive',[5])).toContain(deferred);
+  const deferred=deferredApplicationSteps([5]);
+  expect(deferred).toEqual(['phase5/applications-live (deferred to separate regression)',
+    'phase5/services-live (deferred to separate regression)','phase5/service-credentials-live (deferred to separate regression)']);
+  expect(excludedSteps('full',[5])).toEqual(deferred);
+  expect(excludedSteps('full',[2,3,4])).toEqual([]);
+  expect(excludedSteps('non-destructive',[5])).toEqual(expect.arrayContaining(deferred));
 });
 test('HAR-04 HAR-10 non-destructive phases never select setup, recovery or mutable installed workflows',()=>{
   for(let phase=0;phase<=8;phase++) {
@@ -84,15 +87,23 @@ test('HAR-10 restricted reports name exclusions in JSON HTML text JUnit and neve
     expect(complete.acceptable).toBe(true);
     const reduced=JSON.parse(await readPrivate(join(directory,'summary.json')));
     expect(reduced.fullPhase5Accepted).toBe(false);
-    const deferred='phase5/hermes-live (deferred to separate regression)';
-    expect(reduced.excludedSteps).toContain(deferred);
+    const deferred=deferredApplicationSteps([5]);
+    expect(reduced.excludedSteps).toEqual(deferred);
     expect(reduced.counts).toMatchObject({Passed:proofs.length,Failed:0,Blocked:0,Skipped:0});
-    for(const filename of ['summary.html','summary.txt','junit.xml'])
-      expect(await readPrivate(join(directory,filename))).toContain(deferred);
+    for(const filename of ['summary.html','summary.txt','junit.xml'])for(const label of deferred)
+      expect(await readPrivate(join(directory,filename))).toContain(label);
     const deferredJunit=await readPrivate(join(directory,'junit.xml'));
     expect(deferredJunit).toContain('name="reason" value="SEPARATE_REGRESSION"');
     const campaign={phases:[{phase:5,state:'Passed',counts:reduced.counts}]};
-    expect(publicResult(reduced,campaign).excludedSteps).toContain(deferred);
-    expect(publicResult({...reduced,excludedSteps:undefined},campaign).excludedSteps).not.toContain(deferred);
+    expect(publicResult(reduced,campaign).excludedSteps).toEqual(deferred);
+    expect(publicResult({...reduced,excludedSteps:undefined},campaign).excludedSteps).toEqual([]);
+    const legacy='phase5/hermes-live (deferred to separate regression)';
+    const historic={...reduced,counts:{Passed:8,Failed:2,Blocked:4},excludedSteps:[legacy,'synthetic-secret'],
+      cases:[{id:'APP-02',outcome:'Failed',reason:'DEADLINE',layer:'A',environment:'live',durationMs:1}]};
+    const publicHistoric=publicResult(historic,campaign);
+    expect(publicHistoric.counts).toMatchObject({Failed:2,Blocked:4});
+    expect(publicHistoric.excludedSteps).toEqual([legacy]);
+    expect(publicHistoric.cases).toEqual(expect.arrayContaining([expect.objectContaining({id:'APP-02',outcome:'Failed'})]));
+    expect(historic.excludedSteps).toEqual([legacy,'synthetic-secret']);
   }finally{if(previous===undefined)delete process.env.REGRESSION_TEST_MODE;else process.env.REGRESSION_TEST_MODE=previous;await rm(directory,{recursive:true,force:true});}
 });

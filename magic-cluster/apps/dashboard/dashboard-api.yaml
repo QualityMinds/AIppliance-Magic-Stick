@@ -309,7 +309,7 @@ data:
             return json.loads(payload) if payload else {}
 
 
-    def request_text(method, path, accept="text/plain"):
+    def request_text(method, path, accept="text/plain", max_bytes=None, timeout=20):
         request = urllib.request.Request(
             KUBE_API + path,
             headers={
@@ -318,8 +318,8 @@ data:
             },
             method=method,
         )
-        with urllib.request.urlopen(request, timeout=20, context=SSL_CONTEXT) as response:
-            return response.read().decode("utf-8", errors="replace")
+        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
+            return response.read(max_bytes).decode("utf-8", errors="replace") if max_bytes is not None else response.read().decode("utf-8", errors="replace")
 
 
     def delete_json(path):
@@ -9337,6 +9337,8 @@ data:
                         self.send_error_json(404, "not found")
                 elif parts == ["api", "regression"]:
                     self.send_json(service.list())
+                elif parts == ["api", "regression", "preflight-logs"]:
+                    self.send_json(service.preflight_logs(principal, urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)))
                 elif len(parts) == 4 and parts[:3] == ["api", "regression", "runs"]:
                     self.send_json(service.view(service.run(parts[3])))
                 elif len(parts) == 5 and parts[:3] == ["api", "regression", "runs"]:

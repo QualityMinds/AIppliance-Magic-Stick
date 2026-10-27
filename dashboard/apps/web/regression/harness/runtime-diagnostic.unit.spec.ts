@@ -9,6 +9,86 @@ import {HarnessError} from '../core/errors.ts';
 import {readPrivate} from '../core/private-files.ts';
 import {parseExecutionTrace} from '../core/execution-trace.ts';
 import {junitReport} from '../core/junit.ts';
+import {newPreflightDiagnostic,recordPinObservation,parsePreflightDiagnostic,pinFingerprint,pinPod,type PinObservation} from '../core/preflight-diagnostic.ts';
+import {collectPreflightFailure,privatePreflightLogReader} from '../core/preflight-capture.ts';
+import type {KubeObject} from '../core/observer.ts';
+import type {APIRequestContext} from '@playwright/test';
+import type {LabConfig} from '../core/config.ts';
+
+const observed={startedAt:'2026-10-27T12:00:00.000Z',finishedAt:'2026-10-27T12:00:00.100Z'};
+function pinSample(attempt=1):PinObservation {
+  return {...observed,attempt,checks:[{component:'deployment',index:0,condition:'readiness',observed,
+    generation:2,observedGeneration:2,desiredReplicas:1,readyReplicas:0,uidFingerprint:pinFingerprint('synthetic-private'),
+    pods:[pinPod({metadata:{uid:'synthetic-private',resourceVersion:'42',deletionTimestamp:observed.startedAt},status:{phase:'Running',
+      containerStatuses:[{name:'api',ready:false,restartCount:3,imageID:'containerd://sha256:'+'a'.repeat(64),state:{waiting:{reason:'CrashLoopBackOff',message:'synthetic-private'}},
+        lastState:{terminated:{exitCode:1,reason:'Error',message:'synthetic-private'}}}]}},'api','sha256:'+'a'.repeat(64))]}]};
+}
+
+test('HAR-02 HAR-10 HAR-11 preflight retains the first failed observation and bounded transitions without rewriting recovery',()=>{
+  const diagnostic=newPreflightDiagnostic();recordPinObservation(diagnostic,pinSample());
+  for(let attempt=2;attempt<=40;attempt++){
+    const sample=pinSample(attempt);sample.checks[0]!.readyReplicas=attempt;recordPinObservation(diagnostic,sample);
+  }
+  const recovered=pinSample(41);recovered.checks[0]!.condition='ready';recordPinObservation(diagnostic,recovered);diagnostic.state='converged';
+  expect(diagnostic.firstFailure).toMatchObject({attempt:1,checks:[{condition:'readiness',readyReplicas:0,pods:[{terminating:true,containers:[{restartCount:3,state:'waiting',reason:'CrashLoopBackOff',previousExitCode:1}]}]}]});
+  expect(diagnostic.history).toHaveLength(12);expect(diagnostic.history[0]!.attempt).toBe(1);expect(diagnostic.history.at(-1)!.attempt).toBe(41);
+  expect(diagnostic.omittedObservations).toBe(29);
+  expect(parsePreflightDiagnostic({...diagnostic,url:'https://synthetic-private',rawLogs:'synthetic-private'})).toEqual(diagnostic);
+  expect(JSON.stringify(diagnostic)).not.toContain('synthetic-private');
+  const unchanged=newPreflightDiagnostic();for(let attempt=1;attempt<=3;attempt++)recordPinObservation(unchanged,pinSample(attempt));
+  expect(unchanged.history.map(s=>s.attempt)).toEqual([1,3]);expect(unchanged.attempts).toBe(3);expect(unchanged.omittedObservations).toBe(1);
+  expect(()=>parsePreflightDiagnostic({...diagnostic,history:Array(13).fill(pinSample())})).toThrow('[CONFIG]');
+  expect(()=>parsePreflightDiagnostic({...diagnostic,history:[{...pinSample(),startedAt:'synthetic-private'}]})).toThrow('[CONFIG]');
+  const unknown=pinSample();unknown.checks[0]!.pods![0]!.containers[0]!.reason='synthetic-private';
+  expect(parsePreflightDiagnostic({...diagnostic,history:[unknown]}).history[0]!.checks[0]!.pods![0]!.containers[0]!.reason).toBe('Unknown');
+  const historical={version:1,runId:'reg-11111111-1111-1111-1111-111111111111',executionId:'a'.repeat(24),outcome:'Failed',durationMs:1,steps:[]};
+  expect(parseExecutionTrace(historical)).toEqual(historical);
+});
+
+test('HAR-02 HAR-11 preflight events and private current/previous logs bind exact observed owners and do not escape into traces',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'preflight-diagnostic-'));
+  try{
+    const ns='identity-system',uid='11111111-2222-3333-4444-555555555555',podUid='22222222-2222-3333-4444-555555555555';
+    const deployment:KubeObject={metadata:{namespace:ns,name:'ai-appliance-dashboard-api',uid,generation:2}};
+    const rs:KubeObject={metadata:{uid:'rs',ownerReferences:[{uid,kind:'Deployment',controller:true}]}};
+    const pod:KubeObject={metadata:{uid:podUid,name:'synthetic-private',ownerReferences:[{uid:'rs',kind:'ReplicaSet',controller:true}]}};
+    const event=(owner=uid,time=new Date().toISOString())=>({metadata:{},involvedObject:{uid:owner},lastTimestamp:time,type:'Warning',reason:'BackOff',message:'synthetic-private',count:3});
+    const now=new Date().toISOString(),sample={...pinSample(),startedAt:now,finishedAt:now};
+    const config={expected:{images:[{namespace:ns,deployment:deployment.metadata.name!,container:'api'}]}} as LabConfig;
+    const observer={get:async()=>deployment,list:async(resource:string)=>resource==='events'?[event(),event('foreign'),event(uid,'2000-01-01T00:00:00Z')]:resource==='pods'?[pod]:[rs]};
+    const references=[{component:'deployment' as const,index:0,kind:'deployment' as const,namespace:ns,name:deployment.metadata.name!,uid,generation:2}];
+    let reads=0;
+    const captured=await collectPreflightFailure(observer,config,sample,references,directory,async target=>{
+      reads++;expect(target).toMatchObject({deploymentUid:uid,podUid,generation:2});
+      return {version:1,streams:[{previous:false,text:'synthetic-private-current'},{previous:true,text:'synthetic-private-previous'}]};
+    });
+    expect(reads).toBe(1);expect(captured).toMatchObject({events:{state:'collected',omitted:0,items:[{reason:'BackOff',count:3}]},logs:{state:'captured',streams:2}});
+    expect(captured.events.items).toHaveLength(1);expect(JSON.stringify(captured)).not.toContain(uid);expect(JSON.stringify(captured)).not.toContain('synthetic-private');
+    expect(await readPrivate(join(directory,'preflight-events.json'))).toContain('synthetic-private');
+    expect(await readPrivate(join(directory,'preflight-private-logs.json'))).toContain('synthetic-private-previous');
+    const unavailable=await collectPreflightFailure({...observer,list:async()=>{throw new Error('synthetic-private');}},config,sample,references,directory);
+    expect(unavailable).toMatchObject({events:{state:'unavailable'},logs:{state:'unavailable',reason:'not-native'}});
+    const changed=await collectPreflightFailure({...observer,get:async()=>({...deployment,metadata:{...deployment.metadata,uid:'foreign'}})},config,sample,references,directory,async()=>{throw new Error('must-not-read');});
+    expect(changed.logs).toMatchObject({state:'unavailable',reason:'identity-changed',streams:0});
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-11 private preflight transport is native-run-only bounded and cannot return arbitrary response fields',async()=>{
+  const uid='11111111-2222-3333-4444-555555555555',target={namespace:'identity-system',deployment:'ai-appliance-dashboard-api',container:'api',deploymentUid:uid,generation:2,podUid:uid};
+  expect(privatePreflightLogReader({} as APIRequestContext,'https://example.local','')).toBeUndefined();
+  for(const mode of ['ok','forbidden','redirect','oversize','schema']as const){
+    let disposed=false;
+    const read=privatePreflightLogReader({fetch:async(url:string,options:Record<string,unknown>)=>{
+      expect(String(url)).toContain('/api/regression/preflight-logs?');expect(new URL(String(url)).searchParams.get('runUid')).toBe(uid);
+      expect(options).toMatchObject({method:'GET',timeout:5000,maxRedirects:0});
+      return {status:()=>mode==='forbidden'?403:mode==='redirect'?302:200,headers:()=>({'content-type':'application/json'}),dispose:async()=>{disposed=true;},
+        body:async()=>Buffer.from(mode==='oversize'?'x'.repeat(81*1024):JSON.stringify({version:1,password:'synthetic-private',streams:mode==='schema'?[{previous:false,text:1}]:[{previous:false,text:'private-log'}]}))};
+    }} as unknown as Pick<APIRequestContext,'fetch'>,'https://example.local',uid)!;
+    if(mode==='ok')expect(await read(target)).toEqual({version:1,streams:[{previous:false,text:'private-log'}]});
+    else await expect(read(target)).rejects.toThrow(mode==='forbidden'?'not-authorized':mode==='redirect'?'endpoint-unavailable':'collection-failed');
+    expect(disposed).toBe(true);
+  }
+});
 
 const prefix='[magicstick-vllm-wrapper] MAGICSTICK_STARTUP_DIAGNOSTIC=';
 const record=()=>({version:1,stage:'collective-preflight',reason:'COLLECTIVE_PROBE_TIMEOUT',transport:'configured',exitCode:null,cleanupConfirmed:true});

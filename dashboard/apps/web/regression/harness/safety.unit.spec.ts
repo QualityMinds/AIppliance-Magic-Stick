@@ -16,6 +16,7 @@ import {readPrivate, writePrivate} from '../core/private-files.ts';
 import {poll, currentReady} from '../core/poll.ts';
 import {summarize, saveReport, liveReportScope, redact, stepCases, type CaseResult} from '../core/report.ts';
 import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle, verifyDeploymentPins, waitForDeploymentPins, DeploymentPinError} from '../core/preflight.ts';
+import type {PreflightDiagnostic} from '../core/preflight-diagnostic.ts';
 import {allowedExactDashboardRequest, allowedOwnedContextEdit, allowedOwnedEstimate, allowedOwnedStart, allowedOwnedStop, allowedOwnedKeyChange, realLogin,openInferenceSession} from '../core/auth.ts';
 import {failureOutcome} from '../reporter.ts';
 import {readOnlyApi, readOnlyFetch} from '../core/transport.ts';
@@ -123,17 +124,22 @@ test('HAR-02 MGPU-02 baseline refreshes readiness-only pin misses, never wrong p
   });
   let observed=deployment(),reads=0,time=0;
   const observer={get:async()=>observed,list:async()=>[replicaSet]};
-  const diagnostics:unknown[]=[];
+  const diagnostics:PreflightDiagnostic[]=[];
   const options=()=>({timeoutMs:2000,now:()=>time,wait:async(ms:number)=>{time+=ms;},
-    diagnostic:async(value:unknown)=>{diagnostics.push(value);}});
+    diagnostic:async(value:PreflightDiagnostic)=>{diagnostics.push(value);}});
   // The former single sample rejects this ordinary same-revision reconcile.
   await expect(verifyDeploymentPins(lab,observer,snapshot(false).pods,snapshot(false).flux)).rejects.toMatchObject({code:'REVISION'});
   const fresh=await waitForDeploymentPins(lab,observer,async()=>{reads++;return {...snapshot(reads>1),sample:reads};},options());
   expect(fresh.sample).toBe(2);expect(reads).toBe(2);
-  expect(diagnostics).toEqual([
-    {version:1,attempt:1,checks:[{component:'flux',index:0,condition:'readiness'},{component:'deployment',index:0,condition:'ready'}]},
-    {version:1,attempt:2,checks:[{component:'flux',index:0,condition:'ready'},{component:'deployment',index:0,condition:'ready'}]},
+  expect(diagnostics.map(d=>({attempt:d.attempts,checks:d.history.at(-1)!.checks.map(({component,index,condition})=>({component,index,condition}))}))).toEqual([
+    {attempt:1,checks:[{component:'flux',index:0,condition:'readiness'},{component:'deployment',index:0,condition:'ready'}]},
+    {attempt:2,checks:[{component:'flux',index:0,condition:'ready'},{component:'deployment',index:0,condition:'ready'}]},
   ]);
+  expect(diagnostics.at(-1)).toMatchObject({state:'converged',attempts:2,firstFailure:{attempt:1}});
+  reads=0;time=0;
+  await waitForDeploymentPins(lab,observer,async()=>{reads++;return snapshot(reads>1);},{...options(),
+    diagnostic:async()=>{throw new Error('unavailable-private-storage');},firstFailure:async()=>{throw new Error('unavailable-diagnostics');}});
+  expect(reads).toBe(2); // Diagnostics cannot turn a recovered baseline into an API/configuration failure.
   // A temporarily unready pinned Pod also needs a fresh read, not reuse of
   // the frozen Pod array from before Deployment/ReplicaSet observation.
   reads=0;time=0;

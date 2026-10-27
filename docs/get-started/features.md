@@ -48,6 +48,9 @@
 - Run the existing P0 suite from **System → System Status → Regression tests** on a dedicated,
   registered test Appliance **without a license**; see progress, Passed/Failed/Blocked results and
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
+  Filtered diagnostics retain the first failed baseline check and its observation
+  history, including safe Kubernetes events and container restart/exit states;
+  raw event messages and optional bounded controller logs remain private.
   Run all phases by default or select one or more, such as Phase 3 only; progress
   and reports retain that selection without crediting unselected phases.
   Phase 4 also offers fixed diagnostic subsets for slot races, reload and exact
@@ -57,10 +60,12 @@
   inventory, or **Include destructive tests** for model/service/configuration
   workflows. The limited mode creates only test infrastructure and a temporary
   viewer account; excluded live steps are named, not counted as passed.
-  Native Hermes application workflows are currently deferred to a separate
-  regression suite; reports name that exclusion without claiming Hermes acceptance.
+  Product-service/application live workflows, including Hermes, service
+  credentials and app access, are currently deferred to separate regression.
+  Isolated checks and core identity/license/Kubernetes/model/GPU coverage stay
+  active; reports name exclusions without claiming service/application acceptance.
   Fixed diagnostic selections can repeat existing external-provider, GPU-verification,
-  two-card independent-copy Ollama and sharing scenarios without claiming that
+  two-card independent-copy Ollama, two-/four-card shared split and sharing scenarios without claiming that
   the complete phase was tested.
   Clean up the previous run separately, including retained setup access when its
   lock is already free; disabled actions explain their blocking condition.
