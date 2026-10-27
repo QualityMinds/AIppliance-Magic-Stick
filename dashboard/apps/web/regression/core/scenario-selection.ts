@@ -10,7 +10,7 @@ export const diagnosticRequirements=(selection:DiagnosticSelection)=>(selection.
   selection.phase===3?phase3Requirements:phase4Requirements).filter(r=>r.environment==='live'&&selection.caseIds.includes(r.id)&&
     (!selection.variants||selection.variants.includes(r.variant)));
 export const registeredScenarioSource=(phase:2|3|4,file:string)=>(phase===2?/^regression\/models\/cpu-model-control\.e2e\.spec\.ts$/:
-  phase===3?/^regression\/hardware\/validation\.e2e\.spec\.ts$/:/^regression\/hardware\/(?:sharing|multi-gpu)\.e2e\.spec\.ts$/).test(file);
+  phase===3?/^regression\/hardware\/(?:validation|multi-gpu)\.e2e\.spec\.ts$/:/^regression\/hardware\/(?:sharing|multi-gpu)\.e2e\.spec\.ts$/).test(file);
 
 /** Discover first, then select exact registered variants. The public selection
  * cannot pass a grep/script or accidentally execute another case's live work. */

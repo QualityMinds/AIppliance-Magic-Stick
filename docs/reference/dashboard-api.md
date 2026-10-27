@@ -112,7 +112,8 @@ profiles from the Git-owned regression catalog. It is empty on unsupported
 runner versions. `diagnosticSelection` in a start request and saved run is an
 immutable ID, not a command, regular expression or arbitrary case list. Current
 profiles include `external-route` in Phase 2, `gpu-validation-single` and
-`gpu-validation-all` in Phase 3, and `slot-race`, `reload`, `restoration`,
+`gpu-validation-all` and `ollama-two-card-copies` (only `MGPU-02 /
+p3-replicated-ollama-2`) in Phase 3, and `slot-race`, `reload`, `restoration`,
 `remaining`, `slot-consumers` and `ollama-four-card-split` in Phase 4. The Git-owned
 catalog may further restrict existing variants; a request cannot supply variants,
 grep expressions or commands. Only `testMode: full` with exactly the advertised
