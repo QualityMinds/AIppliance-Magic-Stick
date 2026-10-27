@@ -22,7 +22,8 @@ if (phase === 3) {
   test('ENG-01 retired engine rejects writes and cannot create or export a runtime',proof(['p3-engine-selection'],'C'),() => {
     pythonSuite(api,['test_model_lifecycle_api.ModelLifecycleApiTests']);
     pythonSuite(operator,['test_model_lifecycle.ModelLifecycleTests']);
-    pythonSuite('../../../magic-cluster/apps/ai/model-catalog',['test_controller.DirectRuntimeCatalogTests']);
+    pythonSuite('../../../magic-cluster/apps/ai/model-catalog',[
+      'test_controller.DirectRuntimeCatalogTests','test_controller.KubeAIReadinessTests']);
     pythonSuite('../../../magic-cluster/apps/ai/private-mesh',['test_inventory']);
   });
 }

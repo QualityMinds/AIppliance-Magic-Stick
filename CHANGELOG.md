@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep unchanged NVIDIA Ollama runtimes running when KubeAI omits an empty
+  argument list. Withdraw stopped/deleting local models from routing even while
+  old KubeAI readiness remains visible. GPU-verification evidence uses native
+  ResourceClaim UID/resource-version and immutable-spec identity rather than
+  requiring a CRD-style generation field. Existing lifecycle and GPU cases
+  cover these corrections; no campaign cases or longer deadlines are added.
+
 - Add fixed Kubernetes diagnostic selections for the existing external-provider
   lifecycle, single/all-GPU verification, slot-consumer and four-card Ollama
   split scenarios. Preparation, exact cleanup and scoped reports remain required;

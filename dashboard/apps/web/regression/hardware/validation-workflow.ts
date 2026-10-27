@@ -22,6 +22,16 @@ function bindingProof(condition:unknown,check:ValidationBindingCheck):asserts co
   if(!condition)throw new ValidationBindingError(check);
 }
 
+/** ResourceClaim is a native resource with immutable spec. Unlike our CRDs,
+ * Kubernetes does not maintain its metadata.generation. Require an observed
+ * UID/resourceVersion and preserve the exact spec plus any supplied generation;
+ * status changes may legitimately advance resourceVersion during deallocation. */
+function identifiedValidationClaim(claim:KubeObject) {
+  const {uid,resourceVersion,generation,deletionTimestamp}=claim.metadata;
+  return Boolean(typeof uid==='string'&&uid.length>0&&typeof resourceVersion==='string'&&resourceVersion.length>0&&
+    claim.spec&&!deletionTimestamp&&(generation===undefined||Number.isSafeInteger(generation)&&generation>=0));
+}
+
 /** References are already checkable before the scheduler's allocation becomes
  * visible. This is not allocation or physical-device acceptance. */
 function nvidiaValidationClaimReference(pod:KubeObject,device:HardwareGpuDevice,sharing:GpuSharingState,claim?:KubeObject) {
@@ -138,7 +148,8 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
   const allocatedClaims=new Map<string,KubeObject>();
   const pendingAllocations=new Map<string,{since:number;claim:KubeObject}>();
   let lastAllocation:{podPhase?:string;engineStarted:boolean;claimAllocationPresent:boolean;previousAllocationObserved:boolean;
-    allocationResultCount:number|null;allocationMatchesRequestedCard:boolean}|undefined;
+    allocationResultCount:number|null;allocationMatchesRequestedCard:boolean;claimUidPresent:boolean;
+    claimResourceVersionPresent:boolean;claimGeneration:number|null;claimSpecPresent:boolean}|undefined;
   const result=await poll(async ()=>{
     await s.live.guard();const jobs=await validationJobs(s);
     for (const job of jobs.filter(j=>j.metadata.annotations?.['appliance.magicstick.dev/validation-request'] === request.requestId)) {
@@ -171,15 +182,17 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
             engineStarted,claimAllocationPresent:claim?.status?.allocation!==undefined,previousAllocationObserved:allocatedClaims.has(pod.metadata.uid??''),
             allocationResultCount:Array.isArray(allocationResults)?allocationResults.length:null,
             allocationMatchesRequestedCard:allocationResults?.length===1&&allocationResults[0]?.driver==='gpu.nvidia.com'&&
-              allocationResults[0]?.pool===card?.pool&&allocationResults[0]?.device===card?.name};
+              allocationResults[0]?.pool===card?.pool&&allocationResults[0]?.device===card?.name,
+            claimUidPresent:Boolean(claim?.metadata.uid),claimResourceVersionPresent:Boolean(claim?.metadata.resourceVersion),
+            claimGeneration:Number.isSafeInteger(claim?.metadata.generation)?claim!.metadata.generation!:null,
+            claimSpecPresent:Boolean(claim?.spec)};
           const pending=pendingAllocations.get(pod.metadata.uid??'');
           if(pending)bindingProof(claim?.metadata.uid===pending.claim.metadata.uid&&claim?.metadata.generation===pending.claim.metadata.generation&&
             canonical(claim?.spec)===canonical(pending.claim.spec)&&!claim?.metadata.deletionTimestamp,'claim-allocation');
           if(sharing.backend==='dra'&&claim&&claim.status?.allocation===undefined&&pod.status?.phase==='Pending'&&
             !engineStarted&&!allocatedClaims.has(pod.metadata.uid??'')) {
             nvidiaValidationClaimReference(pod,device,sharing,claim);
-            bindingProof(pod.metadata.uid&&claim.metadata.uid&&Number.isSafeInteger(claim.metadata.generation)&&
-              claim.metadata.generation!>0&&claim.spec&&!claim.metadata.deletionTimestamp&&!pod.metadata.deletionTimestamp,'claim-allocation');
+            bindingProof(pod.metadata.uid&&identifiedValidationClaim(claim)&&!pod.metadata.deletionTimestamp,'claim-allocation');
             const since=pending?.since??Date.now();
             if(!pending)pendingAllocations.set(pod.metadata.uid,{since,claim:structuredClone(claim)});
             // A scheduled but not started Pod is not proof of a bad device.
@@ -209,7 +222,7 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
             // cannot invent the earlier physical-device proof.
             const previous=allocatedClaims.get(pod.metadata.uid??'');
             const reserved=(claim.status as {reservedFor?:unknown}|undefined)?.reservedFor;
-            bindingProof(previous&&claim.metadata.uid===previous.metadata.uid&&
+            bindingProof(previous&&identifiedValidationClaim(claim)&&claim.metadata.uid===previous.metadata.uid&&
               claim.metadata.generation===previous.metadata.generation&&!claim.metadata.deletionTimestamp&&
               !pod.metadata.deletionTimestamp&&canonical(claim.spec)===canonical(previous.spec)&&
               (reserved===undefined||Array.isArray(reserved)&&reserved.length===0),'claim-allocation');
@@ -219,8 +232,7 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
             sharing.backend==='dra'?await s.live.observer.list('resourceslices.resource.k8s.io'):[],
             inventory.devices.filter(candidate=>candidate.vendor==='nvidia' && candidate.nodeUid===device.nodeUid).length);
           if(sharing.backend==='dra'&&pod.status?.phase!=='Succeeded') {
-            bindingProof(pod.metadata.uid&&claim?.metadata.uid&&Number.isSafeInteger(claim.metadata.generation)&&
-              claim.metadata.generation!>0&&claim.spec&&!claim.metadata.deletionTimestamp&&!pod.metadata.deletionTimestamp,'claim-allocation');
+            bindingProof(pod.metadata.uid&&claim&&identifiedValidationClaim(claim)&&!pod.metadata.deletionTimestamp,'claim-allocation');
             const previous=allocatedClaims.get(pod.metadata.uid);
             bindingProof(!previous||claim.metadata.uid===previous.metadata.uid&&
               claim.metadata.generation===previous.metadata.generation&&canonical(claim.spec)===canonical(previous.spec),'claim-allocation');

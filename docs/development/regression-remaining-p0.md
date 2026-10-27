@@ -309,6 +309,13 @@ is deleted. Only an allocation already verified for that same Pod and unchanged
 Claim UID/generation/spec may then prove the completed diagnostic. A raced Pod
 read is refreshed by exact UID; an unseen, replaced, changed, still-running or
 wrong-card allocation is not accepted as successful verification.
+Native Kubernetes ResourceClaims have immutable specs and do not maintain a
+CRD-style positive `metadata.generation`. Verification requires an observed UID
+and resource version, retains the exact spec and any supplied generation, and
+permits status-only resource-version advancement during allocation/release.
+Missing identity, changed intent and unobserved physical binding still fail.
+This follows Kubernetes' [native ResourceClaim strategy](https://github.com/kubernetes/kubernetes/blob/v1.36.4/pkg/registry/resource/resourceclaim/strategy.go),
+not the generation contract of Magic Stick's editable CRDs.
 Functional browser, API, inference and Realtime probes use HTTPS but do not
 validate its certificate. Certificate acceptance belongs to HAR-01 and trusted
 credential setup; Kubernetes access still checks the downloaded CA contract.
