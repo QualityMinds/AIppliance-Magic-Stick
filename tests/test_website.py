@@ -150,6 +150,61 @@ class WebsiteTests(unittest.TestCase):
                 self.assertNotIn('hidden', navigation)
                 self.assertNotIn('data-collapsed', navigation)
 
+    def header_links(self, page):
+        """Links of the main navigation in document order, up to the call-to-action button."""
+        elements = page.elements
+        start = next(i for i, (t, a) in enumerate(elements) if t == 'nav' and a.get('id') == 'main-navigation')
+        links = []
+        for tag, attrs in elements[start + 1:]:
+            if tag == 'a':
+                links.append(attrs)
+                if 'button' in attrs.get('class', ''):
+                    break
+        return links
+
+    def test_header_lists_licensing_before_docs(self):
+        for name, (language, _, _) in self.pages.items():
+            with self.subTest(page=name):
+                hrefs = [a['href'] for a in self.header_links(self.markup(name))]
+                licensing = 'editions.html' if language == 'en' else 'editionen.html'
+                self.assertLess(hrefs.index(licensing), hrefs.index('README.md'))
+
+    def test_handbook_pages_carry_the_website_header_and_one_footer(self):
+        config = yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())
+        overrides = docs.ROOT / config['theme']['custom_dir']
+        header = (overrides / 'main.html').read_text()
+        self.assertIn('{% extends "base.html" %}', header)
+        self.assertIn('{% block header %}', header)
+        self.assertIn('{{ super() }}', header)
+        # The Material row says only "Documentation"; browser titles keep the brand.
+        self.assertEqual(config['site_name'], 'Documentation')
+        self.assertIn('{% block htmltitle %}', header)
+        self.assertIn('- Magic Stick Documentation</title>', header)
+        page = Markup(header)
+        self.assertTrue(page.matching('header', **{'class': 'site-header'}))
+        menu = page.matching('button', **{'class': 'menu-toggle'})[0]
+        self.assertIn('hidden', menu)
+        hrefs = [a['href'] for a in self.header_links(page)]
+        site = "{{ base_url.rstrip('/') }}/.."
+        # Same entries and order as the English landing page; the handbook is current.
+        self.assertEqual(hrefs[:5], [f'{site}/index.html#{f}' for f in ('produkt', 'requirements', 'teams', 'faq')] + [f'{site}/editions.html'])
+        self.assertEqual(hrefs[5], '{{ base_url }}/')
+        self.assertTrue(page.matching('a', href='{{ base_url }}/', **{'aria-current': 'page'}))
+        self.assertEqual(hrefs[-1], f'{site}/index.html#starten')
+        self.assertTrue(page.matching('a', lang='de', href=f'{site}/de.html'))
+        self.assertTrue(page.matching('script', src=f'{site}/site.js'))
+        footer = (overrides / 'partials/footer.html').read_text()
+        # One footer: Material's previous/next navigation plus the website footer,
+        # without the Material copyright/social meta area.
+        self.assertIn('class="site-footer"', footer)
+        self.assertIn('<nav class="md-footer__inner md-grid"', footer)
+        for absent in ('md-footer-meta', 'partials/copyright.html', 'partials/social.html', '<footer class="site-footer'):
+            self.assertNotIn(absent, footer)
+        self.assertTrue(Markup(footer).matching('a', href=f'{site}/editions.html'))
+        css = (docs.DOCS / 'stylesheets/handbook.css').read_text()
+        for selector in ('.site-header', '.site-footer', '#main-navigation[data-collapsed="true"]', '.menu-toggle:not([hidden])'):
+            self.assertIn(selector, css)
+
     def test_images_use_reviewed_unchanged_sources_and_full_size_links(self):
         manifest = json.loads((docs.DOCS / 'assets/screenshots/captures.json').read_text())
         images = {i['file']: i for i in manifest['images']}
@@ -271,7 +326,7 @@ class WebsiteTests(unittest.TestCase):
 
     def test_legal_pages_are_linked_and_privacy_matches_statistics_setup(self):
         config = yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())
-        override = docs.ROOT / config['theme']['custom_dir'] / 'partials/copyright.html'
+        override = docs.ROOT / config['theme']['custom_dir'] / 'partials/footer.html'
         footer = override.read_text()
         # The handbook is English only: its footer links the English legal pages
         # with the same labels as the English landing page.
@@ -279,6 +334,7 @@ class WebsiteTests(unittest.TestCase):
             self.assertIn(f"{{{{ base_url.rstrip('/') }}}}/../{target}\">{label}</a>", footer)
         for german in self.legal_pairs.values():
             self.assertNotIn(german, footer)
+        self.assertFalse((override.parent / 'copyright.html').exists())
         # Landing pages link the legal pages of their own language.
         for name, (language, _, _) in self.pages.items():
             page = self.markup(name)

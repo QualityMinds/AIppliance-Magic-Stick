@@ -23,7 +23,8 @@ GitHub Pages only redirects to it.
 | [editions.html](../editions.html), [editionen.html](../editionen.html) | Licensing overview, eligibility and the actual request/activation workflow |
 | [site.css](../site.css) | Responsive navy/violet/cyan design from the October 2026 pitch mockup, system fonts for text, the local heading font, visible focus and reduced motion |
 | `assets/fonts/` ([bricolage-grotesque-qm-600-800.woff2](../assets/fonts/bricolage-grotesque-qm-600-800.woff2), [OFL.txt](../assets/fonts/OFL.txt)) | Bricolage Grotesque (variable, weights 600–800) for headings on the landing pages, the legal pages and the handbook, with its SIL Open Font License text; see [Heading font](#heading-font) |
-| [site.js](../site.js) | Mobile navigation, keyboard-accessible dashboard screenshot tabs and the click-to-load product video; see [Product video](#product-video) |
+| [site.js](../site.js) | Mobile navigation (also on handbook pages), keyboard-accessible dashboard screenshot tabs and the click-to-load product video; see [Product video](#product-video) |
+| `docs/overrides/` (`main.html`, `partials/footer.html`, `partials/search.html`) | Material theme overrides: website header and footer on every handbook page and the accessible name of the search dialog; see [Handbook pages](#handbook-pages) |
 | `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
 | `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg), two WebP backgrounds, four `commander-tob-*.webp` character illustrations and [video-poster.webp](../assets/artwork/video-poster.webp)) | Hero illustration, two blurred section backgrounds, the Commander Tob guide character and the product-video poster; see [Artwork provenance](#artwork-provenance) |
 | [assets/favicon.svg](../assets/favicon.svg) | Picture mark: brandmark on a light rounded tile |
@@ -80,6 +81,48 @@ such as LICENSE and SUPPORT.md use explicit public GitHub links; they are not
 handbook pages. New marketing HTML must be included in `MARKETING_PAGES` and
 excluded from MkDocs in `mkdocs.yml`. Do not collide with legacy redirect routes
 from `docs/migration.json` (in particular `licensing.html`).
+
+## Handbook pages
+
+The handbook is part of the website: every page that MkDocs Material renders
+under `handbook/` begins with the website header and ends with the website
+footer, through the theme overrides in `docs/overrides/`.
+
+- `main.html` extends the Material base template. It places the website header
+  (logo, the same navigation entries in the same order as the English landing
+  page, GitHub, the EN/DE switch and the "Get started" button) above the Material
+  header and loads `site.js` from the site root for the mobile menu. The Material
+  row below is titled "Documentation" (`site_name`), keeps search and the
+  section tabs and stays the sticky one; the website header scrolls away. The
+  handbook uses Material's dark scheme only, like the website, without a
+  light-mode toggle. Its GitHub button is hidden because the website header has
+  one, and the `htmltitle` block keeps "Magic Stick Documentation"
+  in browser titles. "Docs" is marked as the current entry. The handbook has no
+  German version, so "DE" leads to the German homepage.
+- `partials/footer.html` is a copy of the Material footer partial whose meta
+  area (copyright, social links, "Made with Material for MkDocs") is replaced by
+  the website footer, so a handbook page carries one footer: Material's
+  previous/next page navigation followed by the logo, the licensing link and the
+  English legal pages. Re-sync the navigation part when `mkdocs-material` is
+  upgraded. The attribution of Material for MkDocs stays in
+  [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and in the generated
+  `licenses/documentation-build.txt` of the site.
+- `partials/search.html` is a copy of the Material search partial that only
+  adds an accessible name to the search dialog; re-sync it as well.
+
+The styles of the header and footer live in
+[handbook.css](../stylesheets/handbook.css), scoped to `.site-header` and
+`.md-footer`, because `site.css` also styles body text and headings and would
+conflict with Material. The same file maps the website palette (navy canvas,
+cyan links, the body font stack, the heading font) onto Material's variables so
+that handbook pages read as the same site, and caps Material's grid at the
+landing page's 1280px content width plus Material's inner gutters, so the
+handbook does not run edge to edge on wide screens. Keep the colours, links, entries and
+the 1080px menu breakpoint in step with `site.css` and the landing pages when the
+header or footer changes. Links in the overrides point one level above the handbook
+(`{{ base_url.rstrip('/') }}/..`); the build's link check resolves them against
+the combined artifact, and `tests/test_website.py` checks entries, order and the
+single footer.
 
 ## Product video
 
@@ -143,12 +186,11 @@ The imprint and the privacy policy each exist as one legal text in two
 languages: [imprint.html](../imprint.html) with
 [impressum.html](../impressum.html), and [privacy.html](../privacy.html) with
 [datenschutz.html](../datenschutz.html). Every landing page links the pair of its
-own language. The handbook is English only, so the footer override in
-`docs/overrides/partials/copyright.html` links the English pair ("Imprint" and
+own language. The handbook is English only, so the website footer in
+`docs/overrides/partials/footer.html` links the English pair ("Imprint" and
 "Privacy", as on the English landing page) from every handbook page; the EN/DE
-switch on those pages leads to the German versions. `docs/overrides/partials/search.html`
-is a copy of the Material search partial that only adds an accessible name to
-the search dialog; re-sync it when `mkdocs-material` is upgraded. The pages are self-contained HTML with
+switch on those pages leads to the German versions (see
+[Handbook pages](#handbook-pages)). The pages are self-contained HTML with
 inline styles, reciprocal `hreflang` links, an English `x-default` and an EN/DE
 switch; the German pages keep the English section IDs so that deep links such as
 `#provider` or `#opt-out` work in both languages.
@@ -292,9 +334,10 @@ Open `http://127.0.0.1:8765/`. To preview only the unbuilt marketing layout, ser
 
 Before publishing:
 
-1. Check all four pages at desktop, tablet and mobile widths, including 320px.
-   Check actual document width as well as visual layout; the full-width hero
-   illustration must not make the page scroll horizontally.
+1. Check all four pages and a nested handbook page at desktop, tablet and mobile
+   widths, including 320px. Check actual document width as well as visual
+   layout; the full-width hero illustration must not make the page scroll
+   horizontally, and the handbook's website header must not either.
 2. Exercise every screenshot tab by mouse and ArrowLeft/ArrowRight/Home/End, and
    every Commander Tob question by mouse and ArrowUp/ArrowDown/Home/End. Confirm
    selected state, visible panel and focus agree. Check the mobile menu, link-close

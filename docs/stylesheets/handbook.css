@@ -5,30 +5,39 @@
   font-display: swap;
   src: url("../assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
 }
+/* Website palette and type from site.css: navy canvas, cyan accents, the same
+   body font stack. The Material header and tabs share the website header's navy. */
 :root {
-  --md-text-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --md-text-font: "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
   --md-code-font: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --md-primary-fg-color: #102439;
-  --md-primary-fg-color--dark: #0c1d2f;
+  --md-primary-fg-color: #080f1c;
+  --md-primary-fg-color--dark: #050b14;
   --md-accent-fg-color: #168caa;
 }
 [data-md-color-scheme="slate"] {
-  --md-default-bg-color: #080f1b;
-  --md-default-fg-color: #e6edf8;
-  --md-default-fg-color--light: #b8c8db;
-  --md-code-bg-color: #0e1b2b;
-  --md-code-fg-color: #e6edf8;
-  --md-typeset-a-color: #35cfe6;
+  --md-default-bg-color: #080f1c;
+  --md-default-fg-color: #f4f7fb;
+  --md-default-fg-color--light: #aab8cc;
+  --md-code-bg-color: #0e1828;
+  --md-code-fg-color: #f4f7fb;
+  --md-typeset-a-color: #29cbe3;
+  --md-accent-fg-color: #73e0ef;
 }
-.md-header { border-bottom: 1px solid #29405a; }
+::selection { background: #25647a; color: white; }
+.md-header, .md-tabs { border-bottom: 1px solid #263347; }
+/* The website header above already shows the GitHub link. */
+.md-header__source { display: none; }
 .md-typeset h1, .md-typeset h2, .md-typeset h3 { font-family: "Bricolage Grotesque", var(--md-text-font); font-weight: 700; letter-spacing: -.015em; }
 .md-typeset h1 { color: var(--md-default-fg-color); }
 .md-typeset table:not([class]) { display: block; max-width: 100%; overflow-x: auto; }
 .md-typeset a, .md-typeset code { overflow-wrap: anywhere; }
 .md-typeset pre > code { overflow-wrap: normal; }
-.md-typeset blockquote { border-left-color: #35cfe6; }
+.md-typeset blockquote { border-left-color: #29cbe3; }
 .md-content { min-width: 0; }
-.md-grid { max-width: 76rem; }
+/* Same content width as the landing page (.container, 1280px): Material's rows
+   keep .8rem inner gutters, so the grid is 1280px plus those gutters and the
+   text, tabs and logo line up with the landing page at desktop widths. */
+.md-grid { max-width: calc(1280px + 1.6rem); }
 @media (max-width: 60em) {
   /* Keep long regression outcomes readable; tables retain their own scrolling. */
   .md-content:has(#installed-appliance-regression-test-case-catalog) th:nth-child(2) {
@@ -40,3 +49,59 @@
 }
 /* Body links are underlined so they do not rely on colour alone (WCAG 1.4.1). */
 .md-typeset a:not(.headerlink):not(.md-button) { text-decoration: underline; text-underline-offset: .2em; }
+
+/* Website header and footer around every handbook page (docs/overrides/main.html
+   and partials/footer.html). Keep colours, links and breakpoints in step with
+   the header/footer rules of site.css. */
+.site-header, .md-footer {
+  --canvas: #080f1c; --surface: #0e1828; --line: #263347; --ink: #f4f7fb; --muted: #aab8cc; --cyan: #29cbe3;
+  font-family: "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.6; color: var(--ink);
+}
+.site-header { border-bottom: 1px solid #141f30; background: var(--canvas); }
+.site-header [hidden] { display: none !important; }
+.site-header .nav, .site-footer { max-width: calc(1280px + 1.6rem); margin-inline: auto; padding-inline: .8rem; }
+.site-header .nav { display: flex; align-items: center; justify-content: space-between; gap: 38px; min-height: 88px; }
+.site-header .logo, .site-footer .logo { display: inline-flex; flex-shrink: 0; }
+.site-header .logo { margin-right: auto; }
+.site-header .logo img, .site-footer .logo img { display: block; width: 146px; height: auto; }
+#main-navigation { display: flex; align-items: center; gap: 28px; font-size: .875em; }
+#main-navigation > a:not(.button) { color: #c8d1df; text-decoration: none; }
+#main-navigation > a:not(.button):hover { color: var(--ink); }
+#main-navigation .external { display: inline-flex; align-items: center; gap: 4px; }
+#main-navigation .external span[aria-hidden] { font-size: .8em; color: var(--cyan); }
+.language-switch { display: inline-flex; align-items: center; gap: 4px; padding-left: 20px; border-left: 1px solid var(--line); }
+.language-switch a { color: var(--muted); text-decoration: none; padding: 5px 7px; font-size: .78em; border-radius: 4px; }
+.language-switch [aria-current="page"] { color: var(--cyan); background: #122738; }
+.site-header .button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 18px; background: var(--cyan); color: var(--canvas); border: 1px solid var(--cyan); border-radius: 8px; font-size: .875em; font-weight: 700; line-height: 1.4; text-decoration: none; transition: background .2s, border-color .2s; }
+.site-header .button:hover { background: #73e0ef; border-color: #73e0ef; }
+.menu-toggle { display: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.site-header a:focus-visible, .menu-toggle:focus-visible, .site-footer a:focus-visible { outline: 3px solid var(--cyan); outline-offset: 5px; }
+.md-footer { background-color: var(--canvas); }
+.site-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px 32px; padding-block: 34px 40px; border-top: 1px solid var(--line); }
+.footer-brand { display: flex; align-items: center; gap: 22px; }
+.footer-brand p { margin: 0; font-size: .92em; color: var(--muted); }
+.footer-links { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: .85em; }
+.footer-links a { color: var(--muted); text-decoration: none; }
+.footer-links a:hover { color: var(--cyan); }
+.footer-note { font-size: .78em; color: #9bacc4; }
+@media (max-width: 1200px) {
+  #main-navigation { gap: 20px; }
+}
+@media (max-width: 1080px) {
+  .site-header .nav { position: relative; flex-wrap: wrap; justify-content: space-between; gap: 14px; min-height: 0; padding-block: 16px; }
+  .site-header .logo { margin-right: 0; }
+  .menu-toggle:not([hidden]) { display: flex; gap: 20px; align-items: center; background: transparent; border: 1px solid #3c5471; border-radius: 7px; color: var(--ink); padding: 8px 14px; font: inherit; font-size: .875em; min-height: 40px; cursor: pointer; }
+  .menu-toggle span { font-size: 1.3em; line-height: 1; transition: transform .2s; }
+  .menu-toggle[aria-expanded="true"] span { transform: rotate(45deg); }
+  #main-navigation { width: 100%; flex-wrap: wrap; padding-top: 18px; gap: 18px 26px; }
+  #main-navigation[data-collapsed] { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 0 0 12px 12px; box-shadow: 0 18px 32px #0005; }
+  #main-navigation[data-collapsed="true"] { display: none; }
+  #main-navigation > a:not(.button) { padding-block: 6px; font-size: 1em; }
+  .language-switch { padding-left: 0; border: 0; }
+  .site-footer { flex-direction: column; align-items: flex-start; gap: 20px; padding-block: 30px 36px; }
+  .footer-brand { flex-wrap: wrap; gap: 10px 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-header .button, .menu-toggle span { transition: none; }
+}

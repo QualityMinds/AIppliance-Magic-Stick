@@ -1,0 +1,41 @@
+{#- Website header around every handbook page, so that the handbook is part of
+    the website (docs/development/website.md, "Handbook pages"). The landing,
+    licensing and legal pages live one level above the handbook. The Material
+    header below keeps search, section tabs and the colour-scheme toggle; the
+    mobile menu reuses the website's site.js. The handbook is English only, so
+    DE leads to the German homepage. -#}
+{% extends "base.html" %}
+
+{% block htmltitle %}
+  {% if page.title and not page.is_homepage %}
+    <title>{{ page.title | striptags }} - Magic Stick Documentation</title>
+  {% else %}
+    <title>Magic Stick Documentation</title>
+  {% endif %}
+{% endblock %}
+
+{% block header %}
+  <header class="site-header">
+    <div class="nav">
+      <a class="logo" href="{{ base_url.rstrip('/') }}/../index.html#top" aria-label="Magic Stick home"><img src="{{ 'assets/brand/logo.svg' | url }}" alt="" width="146" height="22" /></a>
+      <button class="menu-toggle" aria-controls="main-navigation" aria-expanded="false" hidden>Menu <span aria-hidden="true">+</span></button>
+      <nav id="main-navigation" aria-label="Main navigation">
+        <a href="{{ base_url.rstrip('/') }}/../index.html#produkt">Product</a>
+        <a href="{{ base_url.rstrip('/') }}/../index.html#requirements">Requirements</a>
+        <a href="{{ base_url.rstrip('/') }}/../index.html#teams">For teams</a>
+        <a href="{{ base_url.rstrip('/') }}/../index.html#faq">FAQ</a>
+        <a href="{{ base_url.rstrip('/') }}/../editions.html">Licensing</a>
+        <a href="{{ base_url }}/" aria-current="page">Docs</a>
+        <a class="external" href="{{ config.repo_url }}" rel="noopener">GitHub<span aria-hidden="true">↗</span><span class="visually-hidden"> (external link)</span></a>
+        <span class="language-switch"><a href="{{ base_url.rstrip('/') }}/../index.html" lang="en" aria-label="EN, English" aria-current="page">EN</a><a href="{{ base_url.rstrip('/') }}/../de.html" lang="de" aria-label="DE, Deutsch">DE</a></span>
+        <a class="button button-small" href="{{ base_url.rstrip('/') }}/../index.html#starten">Get started</a>
+      </nav>
+    </div>
+  </header>
+  {{ super() }}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ base_url.rstrip('/') }}/../site.js" defer></script>
+{% endblock %}

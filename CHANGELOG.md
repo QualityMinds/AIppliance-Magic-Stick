@@ -8,6 +8,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Website: the handbook pages carry the website header and footer, so the
+  handbook reads as part of the site; the separate Material footer is gone.
+  The header lists Licensing before Docs on every page.
+
 - Choose non-destructive checks (the Dashboard default) or full regression with
   destructive scenarios. Persist the immutable choice through the API, Job and
   reports. Non-destructive runs use a temporary viewer, isolated inputs and

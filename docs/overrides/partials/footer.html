@@ -1,0 +1,58 @@
+{#- Copy of the Material for MkDocs 9.7.7 footer partial with one change: the
+    footer meta area (copyright, social links) is replaced by the website footer
+    so that handbook pages end like the landing pages and carry one footer. The
+    handbook is English only, so the footer links the English legal pages
+    (Section 5 DDG, Article 13 GDPR); each of them offers an EN/DE switch. The
+    licensing and legal pages live one level above the handbook. Re-sync the
+    previous/next navigation from material/templates/partials/footer.html when
+    mkdocs-material is upgraded. -#}
+<footer class="md-footer">
+  {% if "navigation.footer" in features %}
+    {% if page.previous_page or page.next_page %}
+      {% if page.meta and page.meta.hide %}
+        {% set hidden = "hidden" if "footer" in page.meta.hide %}
+      {% endif %}
+      <nav class="md-footer__inner md-grid" aria-label="{{ lang.t('footer') }}" {{ hidden }}>
+        {% if page.previous_page %}
+          {% set direction = lang.t("footer.previous") %}
+          <a href="{{ page.previous_page.url | url }}" class="md-footer__link md-footer__link--prev" aria-label="{{ direction }}: {{ page.previous_page.title | e }}">
+            <div class="md-footer__button md-icon">
+              {% set icon = config.theme.icon.previous or "material/arrow-left" %}
+              {% include ".icons/" ~ icon ~ ".svg" %}
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                {{ direction }}
+              </span>
+              <div class="md-ellipsis">
+                {{ page.previous_page.title }}
+              </div>
+            </div>
+          </a>
+        {% endif %}
+        {% if page.next_page %}
+          {% set direction = lang.t("footer.next") %}
+          <a href="{{ page.next_page.url | url }}" class="md-footer__link md-footer__link--next" aria-label="{{ direction }}: {{ page.next_page.title | e }}">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                {{ direction }}
+              </span>
+              <div class="md-ellipsis">
+                {{ page.next_page.title }}
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              {% set icon = config.theme.icon.next or "material/arrow-right" %}
+              {% include ".icons/" ~ icon ~ ".svg" %}
+            </div>
+          </a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% endif %}
+  <div class="site-footer">
+    <div class="footer-brand"><a class="logo" href="{{ base_url.rstrip('/') }}/../index.html#top" aria-label="Magic Stick home"><img src="{{ 'assets/brand/logo.svg' | url }}" alt="" width="146" height="22" loading="lazy" /></a><p>Your own AI Appliance.</p></div>
+    <nav class="footer-links" aria-label="Legal and licensing"><a href="{{ base_url.rstrip('/') }}/../editions.html">License · BSL 1.1</a><a href="{{ base_url.rstrip('/') }}/../imprint.html">Imprint</a><a href="{{ base_url.rstrip('/') }}/../privacy.html">Privacy</a></nav>
+    <span class="footer-note">Static website. No first-party tracking cookies.</span>
+  </div>
+</footer>

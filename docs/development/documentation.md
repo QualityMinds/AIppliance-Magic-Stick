@@ -109,8 +109,9 @@ python3 -m venv .build/docs-venv
 .build/docs-venv/bin/python -m http.server 8765 --bind 127.0.0.1 --directory dist/docs-site
 ```
 
-Open `http://127.0.0.1:8765/handbook/`. Verify navigation, search, desktop/mobile
-layout, both color modes and source links. The output is disposable and ignored
+Open `http://127.0.0.1:8765/handbook/`. Verify navigation (including the website
+header with its mobile menu), search, desktop/mobile
+layout and source links. The output is disposable and ignored
 by Git. Do not edit generated HTML or commit virtual environments.
 
 ## Catalog-derived reference
