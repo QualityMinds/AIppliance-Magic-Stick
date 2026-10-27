@@ -4,7 +4,7 @@ import {parseLabConfig, type LabConfig, type RuntimeModelFixture} from './config
 import type {KubeObject} from './observer.ts';
 import {requireSafe} from './errors.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle} from './preflight.ts';
-import {engineRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
+import {applicationRegressionEnabled,engineRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
@@ -12,6 +12,7 @@ import {requireGpuProfile} from '../profiles/gpu-p0.ts';
 import {remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
 import {recipeBundle,type HostDrillRecipes} from './host-drill-recipes.ts';
 import {automaticPreparationMeasure,preparationMeasure,type PreparationMeasure,type PreparationMeasureId} from './preparation-measures.ts';
+import {repositoryAppAdapter} from './application-adapters.ts';
 
 type Json = Record<string, any>;
 export const approvals = ['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile','federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills'] as const;
@@ -154,15 +155,22 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
   const apps=profile.applications;
   add('applications','app-cleaner',[[file(apps?.cleanerKubeconfig,snapshot),'The separate app-intent cleaner is missing, unsafe or unreadable.']]);
   for(const type of ['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const) {
+    if(!applicationRegressionEnabled(type))continue;
     const fixture=apps?.fixtures?.find((item:Json)=>item.type === type);
     add('applications',`app-${type}`,[[snapshot.modules.catalogJson?.applications?.[type],'The application is not advertised in the current catalog.'],
-      [fixture && (fixture.adapter === 'semantic-chat-v1' ? ['originTemplate','responseMarker'] :
+      [fixture && (repositoryAppAdapter(fixture) ? ['originTemplate','responseMarker'] :
         ['originTemplate','promptLabel','sendButton','responseSelector','responseMarker']).every(key=>filled(fixture[key])),
         'The reviewed HTTPS template and actual prompt/send/response controls are incomplete.']]);
   }
   add('applications','optional-module',[[filled(profile.modules?.id),'No idle standalone optional-service fixture was selected.'],
     [approved(profile.modules,'approveOptionalModule'),'The optional-module enable/disable test has not been approved.']],!approved(profile.modules,'approveOptionalModule'));
-  add('applications','amd-profile',[[filled(profile.moduleProfile?.profileId),'No advertised alternate AMD profile fixture was selected.'],
+  const amdCompatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
+  const currentAmdProfile=amdCompatibility?.selectedProfile ?? '',amdProfiles=amdCompatibility?.profiles ?? [];
+  const requestedAmdProfile=profile.moduleProfile?.profileId;
+  const amdProfileChange=typeof requestedAmdProfile==='string' && typeof profile.moduleProfile?.allowExperimental==='boolean' &&
+    (!currentAmdProfile || amdProfiles.some(item=>item.id===currentAmdProfile)) && requestedAmdProfile!==currentAmdProfile &&
+    (!requestedAmdProfile || amdProfiles.some(item=>item.id===requestedAmdProfile));
+  add('applications','amd-profile',[[amdProfileChange,'No different advertised AMD profile or upstream-rules choice was selected.'],
     [approved(profile.moduleProfile,'approveTemporaryProfile'),'The temporary AMD profile change has not been approved.']],!approved(profile.moduleProfile,'approveTemporaryProfile'));
   add('kubernetes','oidc-plugin',[[file(profile.kubernetes?.plugin?.filename,snapshot) && /^[a-f0-9]{64}$/.test(profile.kubernetes?.plugin?.sha256 ?? ''),
     'The executable Linux OIDC plugin and its verified SHA-256 are missing or unreadable.']]);
@@ -264,6 +272,8 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
   profile.version=1;
   profile.identity ??= {approveDisposableUsers:false};
   profile.applications ??= {cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:[]};
+  if(Array.isArray(profile.applications.fixtures))profile.applications.fixtures=
+    profile.applications.fixtures.filter((fixture:Json)=>applicationRegressionEnabled(fixture?.type));
   profile.kubernetes ??= {approveAdminGrant:false,plugin:{filename:'/inputs/kubectl-oidc_login',sha256:''}};
   profile.license ??= {approveLicenseReplacement:false,allowFirstActivation:false,validFile:'/inputs/license-valid.license',
     invalidFiles:['/inputs/license-expired.license','/inputs/license-wrong-installation.license','/inputs/license-tampered.license'],

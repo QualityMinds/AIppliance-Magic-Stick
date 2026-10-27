@@ -1,5 +1,122 @@
 import {test,expect,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
+import {diagnosticSelections} from '../core/diagnostic-selection.ts';
+import {reportCountsFixture} from '../fixtures/regression-results.ts';
+
+for(const viewport of ['desktop','mobile'] as const)
+test(`HAR-07 HAR-10 UX-02 ${viewport} all-check totals include runner errors while scenario details stay separate`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  const result=reportCountsFixture(),original=structuredClone(result),writes:string[]=[];
+  await fixturePage(page,{'/api/regression':(request:Request)=>{
+    if(request.method()!=='GET')writes.push(request.method());
+    return {registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+      executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],
+      cleanup:{available:false,message:'Retained setup access needs exact cleanup.'},runs:[{
+        id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),
+        phase:'Failed',phases:[0],message:'Resource cleanup is not verified.',testMode:'full',credentialsCleaned:false,reportAvailable:true,
+        progress:{percent:100,completedPhases:1,totalPhases:1,executionCounts:{Passed:345,Failed:0,Blocked:1}},result}]};
+  }});
+  await page.goto(origin+'/#/system/status/regression');
+  const checks=page.getByLabel('All checks',{exact:true}),scenarios=page.getByLabel('Executable scenario results',{exact:true});
+  for(const value of ['441','3','18'])await expect(checks.getByText(value,{exact:true})).toBeVisible();
+  await expect(checks).toContainText('1 by prerequisite · 17 by failure');
+  await expect(page.getByText('Case / variant / layer evidence · isolated + live',{exact:true})).toBeVisible();
+  await expect(page.getByText('100% means execution finished, not passed.',{exact:true})).toBeVisible();
+  await expect(scenarios).toBeHidden();
+  await page.getByText('Executable scenarios',{exact:true}).focus();await page.keyboard.press('Enter');
+  for(const value of ['345','0','1'])await expect(scenarios.getByText(value,{exact:true})).toBeVisible();
+  await expect(scenarios).toContainText('1 by prerequisite · 0 by failure');
+  await expect(page.getByLabel('Live evidence results')).toContainText('8 passed · 3 failed · 18 blocked');
+  await expect(page.getByLabel('Run lifecycle')).toContainText('Resource cleanup: unknown');
+  await expect(page.getByLabel('Run lifecycle')).toContainText('Test account: not yet removed');
+  await page.reload();await expect(scenarios).toBeHidden();
+  await expect(checks.getByText('3',{exact:true})).toBeVisible();
+  await expect(page.getByRole('table',{name:'Phase results · case / variant / layer evidence'})).toContainText('441');
+  await page.getByRole('button',{name:'Refresh tests',exact:true}).click();
+  await expect(checks.getByText('3',{exact:true})).toBeVisible();
+  expect(writes).toEqual([]);expect(result).toEqual(original);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`regression-all-checks-${viewport}.png`),fullPage:true});
+});
+
+for(const viewport of ['desktop','mobile'] as const)
+test(`HAR-10 UX-02 ${viewport} missing final totals show only explicitly preliminary scenarios`,async({page})=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let writes=0;
+  await fixturePage(page,{'/api/regression':(request:Request)=>{
+    if(request.method()!=='GET')writes++;
+    return {registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+      executionLocation:'appliance-kubernetes',externalRunnerRequired:[],runs:[{
+        id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),
+        phase:'Failed',phases:[0],message:'Final report is unavailable.',credentialsCleaned:false,reportAvailable:false,
+        progress:{percent:100,executionCounts:{Passed:345,Failed:0,Blocked:1}}}]};
+  }});
+  await page.goto(origin+'/#/system/status/regression');
+  await expect(page.getByLabel('All checks availability')).toContainText('All-check totals are not available');
+  await expect(page.getByLabel('All checks',{exact:true})).toHaveCount(0);
+  await page.getByText('Executable scenarios',{exact:true}).click();
+  await expect(page.getByText('Preliminary executable scenario counts; these are not all-check totals.')).toBeVisible();
+  await expect(page.getByLabel('Executable scenario results')).toContainText('345');
+  await page.reload();await expect(page.getByLabel('Executable scenario results')).toBeHidden();
+  await expect(page.getByLabel('All checks availability')).toContainText('All-check totals are not available');expect(writes).toBe(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+for(const viewport of ['desktop','mobile'] as const)for(const profile of diagnosticSelections)
+test(`HAR-02 HAR-10 UX-02 ${viewport} starts ${profile.id} as a diagnostic, never the whole phase`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let id='';const writes:unknown[]=[];
+  const run=()=>({id,uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),phases:[profile.phase],testMode:'full',
+    diagnosticSelection:profile.id,phase:'Running',message:'Running the selected diagnostic.',credentialsCleaned:false,reportAvailable:false,progress:{percent:0}});
+  const status=()=>({registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    diagnosticSelections:diagnosticSelections.map(p=>({id:p.id,title:p.title,caseIds:p.caseIds,phase:p.phase})),
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:id?[run()]:[]});
+  await fixturePage(page,{'/api/regression':status,'/api/regression/runs':(request:Request)=>{
+    const body=request.postDataJSON();expect(body).toEqual({requestId:expect.stringMatching(/^[a-f0-9]{32}$/),
+      acknowledgeDisruption:true,phases:[profile.phase],testMode:'full',diagnosticSelection:profile.id});
+    writes.push(body);id='regression-'+body.requestId;return run();
+  }});
+  await page.goto(origin+'/#/system/status/regression');
+  await page.getByRole('button',{name:'Start regression tests',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Start regression tests'}),selection=dialog.getByRole('combobox',{name:'Test selection'});
+  await selection.selectOption(profile.id);
+  await expect(dialog.getByRole('radio',{name:'Include destructive tests'})).toBeChecked();
+  await expect(dialog.getByRole('checkbox',{checked:true})).toHaveCount(1);
+  await expect(dialog.getByRole('checkbox',{name:new RegExp('^Phase '+profile.phase)})).toBeChecked();
+  for(const checkbox of await dialog.getByRole('checkbox').all())await expect(checkbox).toBeDisabled();
+  await expect(dialog.getByText(/not full-phase acceptance/)).toBeVisible();
+  expect(writes).toEqual([]);expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`diagnostic-${viewport}-${profile.id}.png`),fullPage:true});
+  await dialog.getByRole('button',{name:'Start tests',exact:true}).click();
+  await expect(page.getByLabel('Diagnostic selection')).toContainText(profile.id);
+  await page.reload();await expect(page.getByLabel('Diagnostic selection')).toContainText('Full-phase acceptance is not assessed');
+  await expect(page.getByLabel('Selected test phases')).toHaveText(`Selected phases: ${profile.phase}.`);
+  expect(writes).toHaveLength(1);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+for(const viewport of ['desktop','mobile'] as const)for(const state of ['required','verified','legacy'] as const)
+test(`HAR-07 HAR-10 UX-02 ${viewport} separates ${state} resource cleanup from finished tests and account removal`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let writes=0;
+  const payload={registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:[{
+      id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-22T12:00:00Z',sourceRevision:'b'.repeat(40),
+      phase:'Failed',phases:[4],message:'Historical test failure retained.',credentialsCleaned:true,reportAvailable:true,
+      ...(state!=='legacy'?{cleanup:{state,checkedAt:'2026-10-22T12:00:00Z',...(state==='required'?{reason:'CLEANUP',stage:'recovery-journal'}:{})}}:{}),
+      progress:{percent:100,completedPhases:1,totalPhases:1}}]};
+  await fixturePage(page,{'/api/regression':(request:Request)=>{if(request.method()!=='GET')writes++;return payload;}});
+  await page.goto(origin+'/#/system/status/regression');
+  const lifecycle=page.getByLabel('Run lifecycle');
+  await expect(lifecycle).toContainText('Tests: finished');await expect(lifecycle).toContainText('Test account: removed');
+  await expect(lifecycle).toContainText(`Resource cleanup: ${state==='legacy'?'unknown (legacy or not verified)':state}`);
+  if(state==='required') {
+    await expect(page.getByText(/Cleanup reason: CLEANUP/)).toContainText('recovery-journal');
+    await expect(page.getByRole('button',{name:'Start regression tests',exact:true})).toBeDisabled();
+  }
+  await page.reload();await expect(lifecycle).toBeVisible();expect(writes).toBe(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`cleanup-${viewport}-${state}.png`),fullPage:true});
+});
 
 for(const viewport of ['desktop','mobile'] as const)for(const selection of [[3],[3,5]])for(const testMode of ['non-destructive','full'] as const)
 test(`HAR-10 UX-02 ${viewport} ${testMode} starts only selected phases ${selection.join(',')} and retains their progress after reload`,async({page},info)=>{

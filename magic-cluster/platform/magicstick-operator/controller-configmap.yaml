@@ -1414,6 +1414,32 @@ data:
         return delete_kubeai_model(name, namespace)
 
 
+    def nvidia_dra_handoff_pending(nodes, config):
+        """The ready digest is a completion receipt, not a transition lock.
+
+        A process can stop before writing it, or after removing it. Inspect
+        the selected node and the existing managed chart before legacy Ready.
+        This detects intent only; reconcile_nvidia_dra validates ownership and
+        all consumers again before sending any reverse-handoff mutation.
+        """
+        if any(node_labels(n).get("appliance.magicstick.dev/nvidia-dra-config") for n in nodes):
+            return True
+        node = next((n for n in nodes if node_name(n) == config["nodeName"]
+                     and n.get("metadata", {}).get("uid") == config["nodeUid"]), None)
+        if not node:
+            return False
+        labels = node_labels(node)
+        if (labels.get("nvidia.com/gpu.deploy.device-plugin") == "false"
+                or labels.get("nvidia.com/dra-kubelet-plugin") == "true"
+                or labels.get("appliance.magicstick.dev/nvidia-dra-ready") == "true"):
+            return True
+        values = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-nvidia-dra-values") or {}
+        raw = json.loads((values.get("data") or {}).get("values.json") or "{}")
+        return raw.get("resources", {}).get("gpus", {}).get("enabled") is True or any(
+            p.get("metadata", {}).get("namespace") == "nvidia-dra-driver"
+            and p.get("spec", {}).get("nodeName") == node_name(node) for p in list_items("/api/v1/pods"))
+
+
     def reconcile_nvidia_sharing(nodes, activation):
         """Keep ClusterPolicy; optionally hand off node allocation to standalone DRA."""
         NVIDIA_SHARING_STATE.clear()
@@ -1427,8 +1453,7 @@ data:
                 raise ValueError("NVIDIA module is disabled; sharing configuration was not applied")
             config = gpu_sharing_config(activation, "nvidia")
             state.update(config)
-            if config.get("allocationBackend") == "dra" or any(
-                    node_labels(n).get("appliance.magicstick.dev/nvidia-dra-config") for n in nodes):
+            if config.get("allocationBackend") == "dra" or nvidia_dra_handoff_pending(nodes, config):
                 return reconcile_nvidia_dra(nodes, activation, config, state)
             candidates = [n for n in nodes if positive_int(node_labels(n).get("nvidia.com/gpu.count"))]
             if len(candidates) != 1 or not node_ready(candidates[0]):
@@ -1735,16 +1760,31 @@ data:
             raise ValueError("NVIDIA card selection requires Kubernetes 1.36+ and full GPUs without MIG")
         policy = get_json("/apis/nvidia.com/v1/clusterpolicies/cluster-policy") or {}
         current_key = labels.get("nvidia.com/device-plugin.config", "")
-        if ((policy.get("spec", {}).get("devicePlugin", {}).get("config") or {}).get("name") != "time-slicing-config"
+        if (policy.get("spec", {}).get("devicePlugin", {}).get("enabled", True) is False
+                or (policy.get("spec", {}).get("devicePlugin", {}).get("config") or {}).get("name") != "time-slicing-config"
                 or current_key not in ("", "any", "magicstick-exclusive") and not re.fullmatch(r"magicstick-shared-(?:[2-9]|1[0-6])", current_key)):
             raise ValueError("External NVIDIA allocation configuration was not modified")
+        if not desired:
+            # A disabled legacy plugin alone does not prove that we own an
+            # allocator. Require the shipped Helm source and runtime store;
+            # never adopt a same-named third-party chart during recovery.
+            release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "nvidia-dra-driver") or {}
+            spec = release.get("spec") or {}
+            chart = spec.get("chart", {}).get("spec") or {}
+            if (spec.get("targetNamespace") != "nvidia-dra-driver"
+                    or chart.get("chart") != "dra-driver-nvidia-gpu" or chart.get("version") != "0.5.0"
+                    or chart.get("sourceRef") != {"kind": "HelmRepository", "name": "nvidia-dra", "namespace": FLUX_NAMESPACE}
+                    or spec.get("values", {}).get("kubeletPlugin", {}).get("nodeSelector") != {"nvidia.com/dra-kubelet-plugin": "true"}
+                    or not any(v.get("kind") == "ConfigMap" and v.get("name") == "magicstick-nvidia-dra-values"
+                               and v.get("valuesKey") == "values.json" for v in spec.get("valuesFrom") or [])):
+                raise ValueError("The pinned Magic Stick NVIDIA DRA release is not present; external allocation was not modified")
         pods = list_items("/api/v1/pods")
         active = [p for p in pods if p.get("status", {}).get("phase") not in ("Succeeded", "Failed")]
         managed = [p for p in active if managed_gpu_sharing_pod(p)
                    and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/compute-target") == "nvidia-gpu"]
         models = [m for m in model_activations() if m.get("spec", {}).get("type", "local") == "local" and local_compute_target(m) == "nvidia-gpu"]
         digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:20] if desired else ""
-        changing = labels.get("appliance.magicstick.dev/nvidia-dra-config", "") != digest
+        changing = not desired or labels.get("appliance.magicstick.dev/nvidia-dra-config", "") != digest
         if changing:
             # Include claims owned by other applications. An allocated claim
             # may have no Pod yet; removing its driver would strand Unprepare.
@@ -1804,7 +1844,7 @@ data:
                     "appliance.magicstick.dev/nvidia-dra-ready": "false"}}})
                 state.update(phase="Switching", message="Stopping NVIDIA DRA before restoring the device plugin.")
                 return state
-            if any(p.get("metadata", {}).get("namespace") == "nvidia-dra-driver" and p.get("spec", {}).get("nodeName") == node_name(node) for p in active):
+            if any(p.get("metadata", {}).get("namespace") == "nvidia-dra-driver" and p.get("spec", {}).get("nodeName") == node_name(node) for p in pods):
                 state.update(phase="Switching", message="Waiting for the NVIDIA DRA kubelet plugin to stop.")
                 return state
             values = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-nvidia-dra-values") or {}
@@ -4696,6 +4736,47 @@ data:
         return delete_resource("kubeai.org", "v1", "models", namespace, name)
 
 
+    def replace_nvidia_model_before_update(activation, resource, runtime):
+        """Do not let a KubeAI rollout race the last DRA consumer's cleanup.
+
+        KubeAI v0.23.2 deletes and creates Pods in one plan. Kubernetes 1.36
+        can lose a shared claim's kubelet cache entry when Prepare overlaps
+        Unprepare. Reuse the normal foreground, UID/RV-bound retirement path
+        before changing a single/split model's actual runtime configuration.
+        Never remove the shared claims, caches or the saved activation.
+        """
+        if (runtime.get("computeTarget") != "nvidia-gpu"
+                or (runtime.get("gpuSharing") or {}).get("backend") != "dra"):
+            return False
+        meta = activation.get("metadata") or {}
+        name, namespace = resource["metadata"]["name"], resource["metadata"]["namespace"]
+        if not meta.get("uid"):
+            raise ValueError("Cannot replace a DRA runtime without its saved activation identity")
+        current = get_resource("kubeai.org", "v1", "models", namespace, name)
+        if current:
+            labels = (current.get("metadata") or {}).get("labels") or {}
+            if (labels.get("app.kubernetes.io/managed-by") != FIELD_MANAGER
+                    or labels.get("appliance.magicstick.dev/modelactivation") != name
+                    or labels.get("appliance.magicstick.dev/activation-uid") not in (None, meta["uid"])):
+                raise ValueError("A foreign runtime occupies this model name; its identity was not changed")
+            # Admission/defaulting and the autoscaler may add unrelated fields
+            # such as replicas. Compare the fields actually generated here,
+            # including exact env/args/profile, not the whole server object.
+            current_spec = dict(current.get("spec") or {})
+            # KubeAI v0.23.2 uses json:"args,omitempty" in its typed
+            # Model writes. Missing args and the generated empty Ollama list
+            # have identical runtime meaning; treating them as an edit
+            # continuously retires an otherwise unchanged starting model.
+            if current_spec.get("args") is None and resource["spec"].get("args") == []:
+                current_spec["args"] = []
+            if (not (current.get("metadata") or {}).get("deletionTimestamp")
+                    and all(current_spec.get(key) == value for key, value in resource["spec"].items())):
+                return False
+        # Even after the Model vanishes, an old terminal/terminating Pod must
+        # fence creation until normal kubelet/GC cleanup has actually finished.
+        return delete_local_runtime(name, namespace, runtime["engine"], meta["uid"])
+
+
     def model_cache_cleanup_active():
         terminal = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted", "RolledBack"}
         operations = list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/hostoperations")
@@ -5169,6 +5250,15 @@ data:
             previous_engine = str((activation.get("status") or {}).get("engine") or "").strip()
             if previous_engine == "FreeToken":
                 delete_freetoken_runtime(name, namespace)
+            try:
+                if replace_nvidia_model_before_update(activation, resource, runtime):
+                    message = "Stopping the previous NVIDIA DRA runtime and waiting for all its Pods before applying changed settings."
+                    patch_status("Starting", "ReplacingGpuRuntime", message, name)
+                    return "Starting", status_payload("Starting", message, name)
+            except ValueError as error:
+                message = str(error)
+                patch_status("Degraded", "ModelReplacementBlocked", message, name)
+                return "Degraded", status_payload("Degraded", message, name)
             applied_model = apply_resource(resource)
             kubeai_model = get_resource("kubeai.org", "v1", "models", namespace, name) or applied_model
             ready_replicas, expected_replicas = kubeai_model_replica_counts(kubeai_model)

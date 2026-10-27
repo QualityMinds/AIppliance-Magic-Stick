@@ -1,5 +1,4 @@
-import {test, expect} from '@playwright/test';
-import {GpuScenario} from '../core/gpu-scenario.ts';
+import {test, expect} from './gpu-fixtures.ts';
 import {requireSafe} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
@@ -8,7 +7,6 @@ import {matchingNvidiaCards} from '../../src/NvidiaGpuSelection.ts';
 import type {GpuModelFixture} from '../core/config.ts';
 import {activation} from '../core/owned-model.ts';
 import {savedGpuBudget,gpuBudgetInput,gpuEditEstimateBody} from '../core/model-ui.ts';
-import {withCleanup} from '../core/run-lifecycle.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-sharing' ? 4 : 3;
 const mode = phase === 4 ? 'shared' : 'exclusive';
@@ -18,11 +16,8 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
   const replicated=deployment === 'replicated',id=replicated?'MGPU-02':'MGPU-01';
   const variant = `p${phase}-${replicated?'replicated':'multigpu'}-${engine === 'VLLM' ? 'vllm' : 'ollama'}-${count}`;
   test(`${id} ${engine} ${count} GPUs ${deployment} ${mode}: placement, inference, memory, stop/start and restore`, evidenceAnnotations(
-    ...(['A', 'E', 'O'] as const).map(layer => ({id, variant, layer}))), async ({browser}, info) => {
-    let scenario: GpuScenario | undefined;
-    await withCleanup(async()=>{
-      scenario = await GpuScenario.open(browser, info.workerIndex);
-      const s = scenario, fixture = s.config.gpu!.models[engine === 'VLLM' ? 'nvidiaVllm' : 'nvidiaOllama'];
+    ...(['A', 'E', 'O'] as const).map(layer => ({id, variant, layer}))), async ({gpu:s}) => {
+      const fixture = s.config.gpu!.models[engine === 'VLLM' ? 'nvidiaVllm' : 'nvidiaOllama'];
       requireSafe(fixture && (await s.state('nvidia')).draAvailable, 'PREREQUISITE');
       const inventory = await s.inventory();
       requireSafe(inventory.devices.filter(d => d.vendor === 'nvidia').length >= count, 'CAPABILITY');
@@ -79,6 +74,5 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
       const saved = (await first.client.models()).activations.find(item => item.metadata?.uid === first.uid);
       expect(saved?.spec?.local?.gpuDevices).toEqual(expect.arrayContaining(runtime.gpuDevices!));
       await s.remove(first); await assertSlots(0);
-    },async()=>{if(scenario)await test.step('Verify owned GPU scenario cleanup',()=>scenario!.close());});
   });
 }

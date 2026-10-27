@@ -2,12 +2,12 @@ import {readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {join,resolve,dirname} from 'node:path';
 import type {LiveFoundation} from '../core/live-foundation.ts';
-import {readPrivate,writePrivate} from '../core/private-files.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
 import {AdministrationApi} from '../core/administration-api.ts';
 import {openInferenceSession} from '../core/auth.ts';
-import {disposableUnmanagedKey,UnmanagedKeyFixtureClient,verifyUnmanagedKey} from '../core/unmanaged-key-fixture.ts';
+import {disposableUnmanagedKey,UnmanagedKeyFixtureClient,verifyUnmanagedKey,usableLiteLlmMaster} from '../core/unmanaged-key-fixture.ts';
 import type {ModulesPayload} from '@magicstick/dashboard-contracts';
 
 type Rule={apiGroups?:string[];resources?:string[];verbs?:string[];resourceNames?:string[];nonResourceURLs?:string[]};
@@ -110,11 +110,11 @@ export async function unmanagedKeyWorkflow(live:LiveFoundation) {
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
   const values=(await api.api.moduleCredentials('litellm')).credentials ?? [];
   const master=values.find(item=>item.key === 'master_key')?.value;
-  requireSafe(master && master.startsWith('sk-'),'PREREQUISITE');
+  requireSafe(usableLiteLlmMaster(master),'API');
   const fixtureClient=new UnmanagedKeyFixtureClient(live.context.request,live.config.inferenceUrl,master,live.guard,live.config.requestTimeoutMs);
   const fixture=plan.createDisposableFixture === true ? disposableUnmanagedKey(live.journal.runId,live.config.expected.applianceUid) : undefined;
   const id=fixture?.identity.id ?? plan.id;
-  const receipt=join(process.env.REGRESSION_RUN_DIR!,'unmanaged-key-fixture.json');
+  const receipt=journalFile(live.journal,'unmanaged-key-fixture.json');
   if(fixture)await writePrivate(receipt,{version:1,...fixture.identity,state:'requested'},true);
   try {
     if(fixture) {

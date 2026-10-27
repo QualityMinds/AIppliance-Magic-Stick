@@ -5,6 +5,10 @@ It reads Kubernetes status and writes runtime intent resources. It does not
 directly install workloads, create Flux Kustomizations, or manage app resources
 itself.
 
+Browser login lifetime is configured in Keycloak, not through this API. Its
+optional [Remember me policy](../concepts/identity.md#browser-session-lifetime)
+does not change access-token validation, API keys or service-account rights.
+
 Model create/update payloads accept optional `local.capabilities` or
 `external.capabilities` objects containing `tools`, `vision` and `reasoning`
 booleans. Omitted fields remain unknown; string/numeric booleans and unsupported
@@ -90,7 +94,7 @@ lock check; an unexpected permission error remains an error, not an empty lab.
 | --- | --- |
 | `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results, lock state and external-runner limitations. Read-only. |
 | `POST /api/regression/register` | Exact `confirmation: "DISPOSABLE TEST SERVER"`, `acknowledgeDisruption: true`; immutable Appliance/Node-bound test marker, no production fallback. |
-| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`, optional `phases` array of distinct integers 0–8 (1–9 entries; default all), optional `testMode: non-destructive\|full` (legacy default full). Idempotent `RegressionRun` intent and generated private test account; no UI Job writes. |
+| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`, optional `phases` array of distinct integers 0–8 (1–9 entries; default all), optional `testMode: non-destructive\|full` (legacy default full), optional advertised `diagnosticSelection` ID (requires full mode and exactly that profile's phase). Idempotent `RegressionRun` intent and generated private test account; no UI Job writes. |
 | `POST /api/regression/recover-lock` | 32-lowercase-hex `requestId`, reviewed `expectedLockRevision: "<Lease UID>:<resource version>"`, `acknowledgeCleanup: true`; idempotent recovery-only intent. No test phases or forced Lease deletion. |
 | `GET /api/regression/runs/<id>` | Durable run status. |
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
@@ -102,6 +106,22 @@ before account creation. For example, `phases: [3]` starts only Phase 3, with th
 same automatic previous-run cleanup and baseline checks. Unselected phases are
 not executed or credited as passed. The saved `phases` and selected-phase
 progress/results remain available after reload.
+
+Optional `diagnosticSelections` in status lists fixed `{id,title,caseIds,phase}`
+profiles from the Git-owned regression catalog. It is empty on unsupported
+runner versions. `diagnosticSelection` in a start request and saved run is an
+immutable ID, not a command, regular expression or arbitrary case list. Current
+profiles include `external-route` in Phase 2, `gpu-validation-single` and
+`gpu-validation-all` in Phase 3, and `slot-race`, `reload`, `restoration`,
+`remaining`, `slot-consumers` and `ollama-four-card-split` in Phase 4. The Git-owned
+catalog may further restrict existing variants; a request cannot supply variants,
+grep expressions or commands. Only `testMode: full` with exactly the advertised
+phase (`[2]`, `[3]` or `[4]`) is accepted. A changed selection for the same request ID returns
+409, and unsupported images or schema pruning stop before account provisioning.
+The operator independently checks the pinned runner's versioned capability,
+catalog and exact image/source before scheduling. Mixed older operators/images
+cannot interpret this intent as a full run. Results and JSON/HTML/text/JUnit
+retain the bounded diagnostic scope and never certify full-phase acceptance.
 
 `testMode` is also immutable and included in run responses. Reusing a request ID
 with a different mode returns 409 before provisioning. Unknown/coerced modes are
@@ -141,6 +161,26 @@ Normal start performs the same old-run cleanup before a fresh test execution;
 no successful rows or test progress are resumed. The separate cleanup action
 keeps its existing `/recover-lock` route and `operation: recover-lock` contract.
 
+New run/status/result objects optionally include resource `cleanup` with
+`state: unknown|required|running|verified|blocked`, `checkedAt` (UTC timestamp),
+and allowlisted `reason`/`stage`. This is separate from the top-level cleanup
+action's `available`/`revision` fields and from `credentialsCleaned`, which only
+describes the generated test account. New mutating runs retain that account until
+resource cleanup and setup-access restoration are verified. Missing legacy fields
+are not proof of a clean baseline; historical reports and test outcomes stay
+unchanged. A report-only export failure does not revoke a verified cleanup receipt.
+
+The existing `result.counts` totals count all case/variant/layer evidence,
+including isolated/live checks and runner/cleanup errors without a scenario ID.
+`result.blockedCounts` partitions only that evidence. `executionCounts` and
+`executionBlockedCounts` count recorded executable scenarios separately;
+`evidenceCounts.fixture/live` retain the environment split. These units are not
+interchangeable: neither overlapping phase totals nor the bounded public case
+list reconstructs the global counts. Dashboard **All checks** and new HTML/text
+reports present evidence first, then scenarios; JSON/JUnit keep their meanings.
+Missing legacy/final totals mean unavailable, not zero. Progress-only scenario
+counts are preliminary; 100% progress is not a pass or a cleanup receipt.
+
 `lock` contains `state: free|active|stale|blocked`, `canRecover`, a fixed public
 `message`, and an optional opaque `revision`. Only a terminated, installation-
 bound Kubernetes run with a known journal owner can offer recovery; external
@@ -179,6 +219,12 @@ New reports mark a missing required execution/layer record with
 `MISSING_EVIDENCE` at `report-evidence` as a harness failure. A recorded cleanup
 failure retains its original case, step and trace across child and phase
 boundaries. Historical reports are read without synthesizing new outcomes.
+An export-only failure retains the completed `result` and phase/scenario counts,
+adds a failed `HAR-10` evidence row with `reason: REPORT_EXPORT` and
+`stage: report-export`, and leaves `reportAvailable: false`. It does not set
+`credentialRecoveryRequired` when setup and workload cleanup were verified clean;
+an existing real recovery requirement remains set. Download failure is not a
+new failed scenario or a replacement HAR-02 preparation result.
 
 `result.preparation` is optional. When present, it exposes the sanitized
 automatic preparation outcome, fixed reason/stage/detail, a public explanation
@@ -320,6 +366,22 @@ An explicit parameter map replaces the previous map, including removal of legacy
 unknown fields. Omitting the map preserves saved parameters. Updates carry the
 current Kubernetes resource version so concurrent edits fail rather than being
 overwritten. Independently configured GPU sharing is retained by profile edits.
+
+The existing administrator-only, CSRF-protected
+`POST /api/hardware/gpu-sharing` additionally accepts optional `restoreDefaults`
+for exact restoration of an unset regression baseline. It contains
+`parameters: absent|present`, `gpuSharing: absent|empty`, and, for AMD only,
+`validationRequest: absent|empty`. An absent map cannot contain empty fields.
+The ordinary provider/node/revision/restart fields still apply. This operation
+requires `mode: exclusive`, `acknowledgeSharing: false`, and converged exclusive
+Device-plugin allocation (not NVIDIA DRA). The API independently checks the
+current module revision, node UID and physical extended resources; NVIDIA must
+have the exclusive plugin profile and no active DRA handoff. It removes only
+the named fields; an absent-map request is refused if unrelated parameters
+remain. Active validation, custom settings and incomplete backend transitions
+are not reset. Response acceptance remains HTTP 202, not runtime completion.
+The runner journals the original representation and confirms the resulting
+UID/generation/spec; a lost acknowledgement remains fenced.
 
 The user API identifies locally managed accounts with `source: "local"`. Clients
 must not require a separate `local: true` property. Regression-created accounts

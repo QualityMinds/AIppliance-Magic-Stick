@@ -590,6 +590,73 @@ class Qwen4ExpPLEPinnedHostEmbedding:
                 self.wrapper["configure_cpu_threads"]()
                 self.assertEqual(dict(os.environ), override)
 
+    def test_cpu_runner_default_is_version_bound_and_preserves_native_arguments_and_budgets(self):
+        for version in ("0.31.0", "0.31.0+cpu"):
+            with self.subTest(version=version), patch.dict(os.environ, {
+                    "MAGICSTICK_COMPUTE_TARGET": "cpu", "VLLM_CPU_KVCACHE_SPACE": "1",
+                    "OMP_NUM_THREADS": "3"}, clear=True), \
+                    patch.dict(self.wrapper, {"runtime_version": lambda _: version}):
+                self.wrapper["sys"].argv[:] = ["wrapper.py", "--model=synthetic-public-model",
+                    "--dtype=bfloat16", "--max-model-len=1024", "--compilation-config.mode=2"]
+                self.wrapper["configure_argv"]()
+                self.assertEqual(os.environ.get("VLLM_USE_V2_MODEL_RUNNER"), "0")
+                self.assertEqual(self.wrapper["sys"].argv, ["wrapper.py", "--model=synthetic-public-model",
+                    "--dtype=bfloat16", "--max-model-len=1024", "--compilation-config.mode=2",
+                    "--scheduling-policy", "priority"])
+                self.assertEqual(os.environ["OMP_NUM_THREADS"], "3")
+                self.assertEqual(os.environ["VLLM_CPU_KVCACHE_SPACE"], "1")
+                self.assertNotIn("VLLM_CPU_CI_ENV", os.environ)
+                self.assertNotIn("VLLM_USE_AOT_COMPILE", os.environ)
+
+    def test_cpu_runner_preserves_explicit_policy_and_does_not_guess_for_other_versions(self):
+        for value in ("0", "1", "", "invalid-native-policy"):
+            with self.subTest(value=value), patch.dict(os.environ, {"VLLM_USE_V2_MODEL_RUNNER": value}, clear=True), \
+                    patch.dict(self.wrapper, {"runtime_version": lambda _: self.fail("Explicit policy must win")}):
+                self.wrapper["configure_cpu_runner"]()
+                self.assertEqual(dict(os.environ), {"VLLM_USE_V2_MODEL_RUNNER": value})
+        for version in ("0.30.0", "0.31.1", "0.32.0", "0.31.0rc1", "unidentified"):
+            with self.subTest(version=version), patch.dict(os.environ, {}, clear=True), \
+                    patch.dict(self.wrapper, {"runtime_version": lambda _: version}):
+                self.wrapper["configure_cpu_runner"]()
+                self.assertNotIn("VLLM_USE_V2_MODEL_RUNNER", os.environ)
+        def unavailable(_):
+            raise self.wrapper["PackageNotFoundError"]("vllm")
+        with patch.dict(os.environ, {}, clear=True), patch.dict(self.wrapper, {"runtime_version": unavailable}):
+            self.wrapper["configure_cpu_runner"]()
+            self.assertNotIn("VLLM_USE_V2_MODEL_RUNNER", os.environ)
+
+    def test_gpu_targets_never_apply_the_cpu_runner_default(self):
+        for target in ("nvidia-gpu", "amd-gpu", "intel-gpu"):
+            with self.subTest(target=target), patch.dict(os.environ, {
+                    "MAGICSTICK_COMPUTE_TARGET": target, "MAGICSTICK_VLLM_VRAM_LIMIT": "12000Mi"}, clear=True), \
+                    patch.dict(self.wrapper, {"gpu_total_mib": lambda *_: 24000,
+                        "configure_cpu_runner": lambda: self.fail("CPU policy applied to GPU")}):
+                self.wrapper["sys"].argv[:] = ["wrapper.py", "--model=synthetic"]
+                self.wrapper["configure_argv"]()
+                self.assertNotIn("VLLM_USE_V2_MODEL_RUNNER", os.environ)
+
+    def test_auto_cpu_startup_threads_do_not_disable_native_vllm_serving_thread_reduction(self):
+        # The live failure was Ready + OMP_NUM_THREADS=7 in both EngineCore
+        # and worker. Native 0.31 treats an unmarked value as user policy and
+        # leaves both spin-waiting pools active under an eight-core CFS quota.
+        for version, marker in (("0.31.0", "1"), ("0.32.0", "1"), ("0.30.0", None)):
+            with self.subTest(version=version), patch.dict(os.environ, {}, clear=True), \
+                    patch.object(self.wrapper["Path"], "read_text", return_value="800000 100000"), \
+                    patch.object(os, "sched_getaffinity", return_value=set(range(128)), create=True), \
+                    patch.dict(self.wrapper, {"runtime_version": lambda _: version}):
+                self.wrapper["configure_cpu_threads"]()
+                self.assertEqual(os.environ["OMP_NUM_THREADS"], "7")
+                self.assertEqual(os.environ.get("VLLM_OMP_NUM_THREADS_SET_BY_VLLM"), marker)
+                # Reproduce the selected upstream's actual serving decision:
+                # explicit OMP values win; automatic startup pools can shrink.
+                externally_set = os.environ.get("OMP_NUM_THREADS") is not None and \
+                    os.environ.get("VLLM_OMP_NUM_THREADS_SET_BY_VLLM") != "1"
+                self.assertEqual(7 if externally_set else 1, 1 if marker else 7)
+        for policy in ({"OMP_NUM_THREADS": "5"}, {"VLLM_CPU_OMP_THREADS_BIND": "0-5"}):
+            with patch.dict(os.environ, policy, clear=True):
+                self.wrapper["configure_cpu_threads"]()
+                self.assertEqual(dict(os.environ), policy)
+
     def test_native_collective_failures_retain_only_bounded_private_diagnostics(self):
         output="synthetic-private-detail-" * 8000
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()) as logged:
@@ -619,6 +686,99 @@ class Qwen4ExpPLEPinnedHostEmbedding:
                 reason="COLLECTIVE_PROBE_TIMEOUT")
             self.assertIn('"reason": "COLLECTIVE_PROBE_TIMEOUT"', logged.getvalue())
             self.assertNotIn("synthetic-", logged.getvalue())
+
+    def test_collective_timeout_exposes_only_last_fixed_milestone_per_rank(self):
+        marker = "MAGICSTICK_COLLECTIVE_PROGRESS="
+        output = "synthetic-private-native-text\n" + "\n".join(marker + json.dumps(value) for value in [
+            {"rank": 0, "stage": "import"}, {"rank": 0, "stage": "init", "uuid": "synthetic-private"},
+            {"rank": 1, "stage": "assignment"}, {"rank": 16, "stage": "init"},
+            {"rank": True, "stage": "init"}, {"rank": 2, "stage": "synthetic-private"},
+            {"rank": 3, "stage": {}},
+        ])
+        expected = [{"rank": 0, "stage": "init"}, {"rank": 1, "stage": "assignment"}]
+        self.assertEqual(self.wrapper["collective_progress"](output), expected)
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()) as logged:
+            self.wrapper["collective_diagnostic"](output, None, {}, directory, reason="COLLECTIVE_PROBE_TIMEOUT")
+            line = next(line for line in logged.getvalue().splitlines() if "MAGICSTICK_STARTUP_DIAGNOSTIC=" in line)
+            data = json.loads(line.split("MAGICSTICK_STARTUP_DIAGNOSTIC=", 1)[1])
+            self.assertEqual(data["progress"], expected)
+            self.assertNotIn("synthetic-private", line)
+
+    def test_native_probe_reports_import_assignment_and_init_before_a_stalled_collective(self):
+        manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text())
+        namespace = {"__name__": "collective_probe_fixture"}
+        exec(compile(manifest["data"]["collective_probe.py"], "collective_probe.py", "exec"), namespace)
+        torch, dist = types.ModuleType("torch"), types.ModuleType("torch.distributed")
+        torch.distributed = dist
+        torch.cuda = types.SimpleNamespace(device_count=lambda: 2,
+            get_device_properties=lambda i: types.SimpleNamespace(uuid=f"GPU-private-{i}"), set_device=lambda _: None)
+        def stall(*_, **__):
+            raise RuntimeError("synthetic-private-native-error")
+        dist.init_process_group = stall
+        with patch.dict(sys.modules, {"torch": torch, "torch.distributed": dist}), \
+                patch.dict(os.environ, {"LOCAL_RANK": "1"}), \
+                patch.object(sys, "argv", ["probe", "GPU-private-0,GPU-private-1"]), \
+                contextlib.redirect_stdout(io.StringIO()) as logged:
+            with self.assertRaises(RuntimeError):
+                namespace["main"]()
+        self.assertEqual(self.wrapper["collective_progress"](logged.getvalue()), [{"rank": 1, "stage": "init"}])
+        self.assertNotIn("private", logged.getvalue())
+        self.assertEqual([json.loads(line.split("=", 1)[1])["stage"] for line in logged.getvalue().splitlines()],
+                         ["import", "assignment", "init"])
+
+    def test_native_probe_uses_matching_float32_payloads_for_every_peer(self):
+        manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text())
+        namespace = {"__name__": "collective_probe_fixture"}
+        exec(compile(manifest["data"]["collective_probe.py"], "collective_probe.py", "exec"), namespace)
+        for count in (2, 4):
+            sent, received = [], []
+            for rank in range(count):
+                torch, dist = types.ModuleType("torch"), types.ModuleType("torch.distributed")
+                torch.distributed = dist
+                torch.float32, torch.int64 = "float32", "int64"
+
+                class Tensor:
+                    def __init__(self, shape, value, *, device, dtype=None):
+                        self.shape, self.value, self.device = shape, value, device
+                        # torch.full infers integer versus floating dtype from
+                        # its fill value unless the caller explicitly owns it.
+                        self.dtype = dtype or ("float32" if isinstance(value, float) else "int64")
+
+                    def __eq__(self, expected):
+                        return self.value == expected
+
+                torch.full = Tensor
+                torch.all = lambda result: types.SimpleNamespace(item=lambda: result)
+                torch.cuda = types.SimpleNamespace(device_count=lambda: count,
+                    get_device_properties=lambda i: types.SimpleNamespace(uuid=f"GPU-fixture-{i}"),
+                    set_device=lambda _: None, synchronize=lambda: None)
+                dist.init_process_group = lambda *_, **__: None
+                dist.get_world_size = lambda: count
+                dist.all_reduce = lambda value: setattr(value, "value", count * (count + 1) / 2)
+                dist.barrier = dist.destroy_process_group = lambda: None
+
+                def wire(value):
+                    self.assertEqual((value.shape, value.device, value.dtype), ((1024,), "cuda", "float32"))
+
+                def send(value, peer):
+                    wire(value); sent.append((rank, peer))
+
+                def recv(value, peer):
+                    wire(value); received.append((peer, rank)); value.value = peer + 1
+
+                dist.send, dist.recv = send, recv
+                with self.subTest(count=count, rank=rank), \
+                        patch.dict(sys.modules, {"torch": torch, "torch.distributed": dist}), \
+                        patch.dict(os.environ, {"LOCAL_RANK": str(rank)}), \
+                        patch.object(sys, "argv", ["probe", ",".join(f"GPU-fixture-{i}" for i in range(count))]), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    namespace["main"]()
+                    self.assertIn('"stage": "complete"', output.getvalue())
+            expected = {(source, target) for source in range(count) for target in range(count) if source != target}
+            self.assertEqual(set(sent), expected)
+            self.assertEqual(set(received), expected)
+            self.assertEqual(len(sent), count * (count - 1))
+            self.assertEqual(len(received), len(sent))
 
     def test_fp8_calibration_flags_follow_the_actual_runtime_without_changing_precision(self):
         self.wrapper["os"].environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"

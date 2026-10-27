@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import {createServer} from 'node:http';
 import {browserMutation} from '../core/browser-action.ts';
 import {HarnessError} from '../core/errors.ts';
-import {modelActionButton,modelLifecycleReceipt} from '../core/model-ui.ts';
+import {modelActionButton,modelLifecycleReceipt,modelLifecycleMutation} from '../core/model-ui.ts';
 import {ResourceJournal,newRunId} from '../core/journal.ts';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -94,6 +94,25 @@ test('HAR-06 HAR-09 LIFE-04 waits for the polled Start button before submitting 
     await page.setContent('<button disabled>Start reg-fixture</button>');
     await expect(modelActionButton(page,'reg-fixture','start',100)).rejects.toMatchObject({code:'DEADLINE',stage:'model-ready',outcome:'Failed'});
   }finally{await page.close();}
+  const before:ModelActivation={metadata:{name:'reg-fixture',namespace:'ai-system',uid:'owned-uid',generation:2},
+    spec:{type:'external',enabled:false,targetNamespace:'ai',external:{model:'openai/fixture',apiBase:'https://provider.example.invalid'}}};
+  const after=structuredClone(before);after.metadata!.generation=3;after.spec!.enabled=true;
+  let writes=0,receipts=0;
+  const server=createServer((request,response)=>{
+    if(request.method==='POST') {
+      writes++;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({activation:after}));return;
+    }
+    response.end('<button disabled>Start reg-fixture</button><script>setTimeout(()=>document.querySelector("button").disabled=false,500);'+
+      'document.querySelector("button").onclick=()=>fetch("/api/models/reg-fixture/start",{method:"POST",body:JSON.stringify({expectedRevision:"generation:owned-uid:2"})});</script>');
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const origin='http://127.0.0.1:'+(server.address() as {port:number}).port,external=await browser.newPage();
+  try {
+    await external.goto(origin);
+    const response=await modelLifecycleMutation(external,{origin,before,action:'start',timeoutMs:250,guard:async()=>{},
+      stage:'external-ready',acknowledge:async receipt=>{expect(receipt).toEqual({uid:'owned-uid',generation:3});receipts++;}});
+    expect(response.ok()).toBe(true);expect(writes).toBe(1);expect(receipts).toBe(1);
+  }finally{await external.close();server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });
 
 test('HAR-06 HAR-07 HAR-09 an acknowledged write is journaled even if its browser action fails',async({browser})=>{

@@ -60,6 +60,52 @@ class KubeAIReadinessTests(unittest.TestCase):
         self.assertIn("local-chat", deployments)
         self.assertEqual(deployments["local-chat"]["litellm_params"]["model"], "openai/local-chat")
 
+    def test_stop_withdraws_ready_local_routes_before_kubeai_garbage_collection(self):
+        for engine in ("OLlama", "VLLM"):
+            for state in ("disabled", "activation-deleting", "runtime-deleting"):
+                with self.subTest(engine=engine, state=state):
+                    model = self.kubeai_model(1)
+                    model["spec"]["engine"] = engine
+                    activation = {"metadata": {"name": "local-chat", "uid": "activation-uid"},
+                                  "spec": {"type": "local", "enabled": state != "disabled"}}
+                    if state == "activation-deleting":
+                        activation["metadata"]["deletionTimestamp"] = "2026-10-25T13:52:46Z"
+                    if state == "runtime-deleting":
+                        model["metadata"]["deletionTimestamp"] = "2026-10-25T13:52:46Z"
+                    self.controller["list_kubeai_models"] = lambda: [model]
+                    self.controller["read_model_activations"] = lambda: [activation]
+                    self.assertNotIn("local-chat", self.controller["desired_deployments"]())
+                    model["metadata"].pop("deletionTimestamp", None)
+                    activation["metadata"].pop("deletionTimestamp", None)
+                    activation["spec"]["enabled"] = True
+                    self.assertIn("local-chat", self.controller["desired_deployments"]())
+
+    def test_deleting_standalone_kubeai_model_is_not_published(self):
+        model = self.kubeai_model(1)
+        model["metadata"]["deletionTimestamp"] = "2026-10-25T13:52:46Z"
+        self.controller["list_kubeai_models"] = lambda: [model]
+        self.assertNotIn("local-chat", self.controller["desired_deployments"]())
+
+    def test_stopped_activation_removes_the_route_and_generated_catalog_entry(self):
+        self.controller["list_kubeai_models"] = lambda: [self.kubeai_model(1)]
+        self.controller["read_model_activations"] = lambda: [{
+            "metadata": {"name": "local-chat"}, "spec": {"type": "local", "enabled": False}}]
+        existing = [{"model_name": "local-chat", "model_info": {
+            "id": "ai-appliance-kubeai-local-chat", "ai_appliance_managed": True}}]
+        deleted = []
+        self.controller["fetch_litellm_models"] = lambda: [] if deleted else existing
+
+        def request(method, path, body=None, ok=(200, 201, 202)):
+            self.assertEqual((method, path), ("POST", "/model/delete"))
+            deleted.append(body)
+            return {}
+
+        self.controller["litellm_request"] = request
+        synchronized = self.controller["sync_litellm"]()
+        data, _ = self.controller["build_catalog"](synchronized)
+        self.assertEqual(deleted, [{"id": "ai-appliance-kubeai-local-chat"}])
+        self.assertEqual(json.loads(data["catalog.json"])["models"], [])
+
     def test_local_vllm_route_has_trusted_priority_metadata(self):
         model = self.kubeai_model(1)
         model['spec']['engine'] = 'VLLM'

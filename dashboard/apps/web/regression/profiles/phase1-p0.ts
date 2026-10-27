@@ -19,9 +19,11 @@ export const phase1FixtureVariants = {
   'failed-status': 'NAV-06', 'unknown-memory': 'NAV-06', 'inert-log-output': 'LOG-06',
   'navigation-browser': 'NAV-03', 'logout-browser': 'AUTH-06',
   'keys-browser-create': 'KEY-01', 'keys-browser-revoke': 'KEY-03', 'forms-browser': 'UX-02',
+  'status-history-desktop':'NAV-02','status-history-mobile':'NAV-02',
+  'status-history-desktop-slow':'NAV-02','status-history-mobile-slow':'NAV-02',
 } as const;
 export const phase1FastVariants = {
-  'anonymous-contract': 'AUTH-02', 'navigation-component': 'NAV-03',
+  'anonymous-contract': 'AUTH-02', 'remember-me-policy-contract':'AUTH-01', 'navigation-component': 'NAV-03',
   'failed-status-unit': 'NAV-06', 'unknown-memory-unit': 'NAV-06', 'status-contract': 'NAV-06',
   'lifecycle-stop-component': 'LIFE-03', 'lifecycle-start-component': 'LIFE-04',
   'create-contract': 'LIFE-01', 'stop-contract': 'LIFE-03', 'start-contract': 'LIFE-04',
@@ -34,6 +36,21 @@ export const phase1FastVariants = {
 export const phase1Variants = {...phase1LiveVariants, ...phase1FixtureVariants, ...phase1FastVariants} as const;
 export type Phase1Variant = keyof typeof phase1Variants;
 export const phase1Ids = [...new Set(Object.values(phase1Variants))];
+
+const sessionVariants = new Set(['login-session', 'anonymous-api', 'anonymous-browser', 'logout-session']);
+
+/** The reporter and launcher must finalize the same selected step, not the
+ * entire phase. Full-phase variant/layer acceptance remains separate below. */
+export function phase1StepIds(mode?: string): string[] | undefined {
+  if (mode === 'phase1') return [...phase1Ids];
+  if (mode === 'core-smoke') return [...new Set(Object.entries(phase1LiveVariants)
+    .filter(([variant]) => !sessionVariants.has(variant) && variant !== 'final-idle').map(([, id]) => id))];
+  if (mode === 'smoke-fast') return [...new Set(Object.values(phase1FastVariants))];
+  if (mode === 'smoke-fixtures') return [...new Set(Object.values(phase1FixtureVariants))];
+  if (mode === 'session-smoke') return [...new Set(Object.entries(phase1LiveVariants)
+    .filter(([variant]) => sessionVariants.has(variant)).map(([, id]) => id))];
+  return undefined;
+}
 
 export function requirePhase1Profile(config: LabConfig) { requirePhase0Profile(config); }
 

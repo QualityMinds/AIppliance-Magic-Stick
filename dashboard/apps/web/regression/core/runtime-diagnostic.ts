@@ -9,9 +9,11 @@ const phase=(value:unknown)=>typeof value==='string' && phases.includes(value)?v
 const cause=(value:unknown)=>typeof value==='string' && causes.includes(value)?value:'Unknown';
 const count=(value:unknown)=>typeof value==='number' && Number.isSafeInteger(value) && value>=0 && value<=1_000_000?value:null;
 const startupReasons=['COLLECTIVE_PROBE_FAILED','COLLECTIVE_PROBE_TIMEOUT','COLLECTIVE_PROBE_LAUNCH_FAILED','COLLECTIVE_PROBE_CLEANUP_UNCONFIRMED'] as const;
+const collectiveStages=['import','assignment','init','all-reduce','point-to-point','cleanup','complete'] as const;
 export interface CollectiveStartupDiagnostic {
   version:1;stage:'collective-preflight';reason:typeof startupReasons[number];
   transport:'configured'|'host-mediated';exitCode:number|null;cleanupConfirmed:boolean;
+  progress?:Array<{rank:number;stage:typeof collectiveStages[number]}>;
 }
 /** Accept only the wrapper's fixed schema. Extra fields are dropped both when
  * reading private logs and when importing an untrusted historical attachment. */
@@ -20,8 +22,17 @@ export function parseCollectiveStartupDiagnostic(value:unknown):CollectiveStartu
   requireSafe(data?.version===1 && data.stage==='collective-preflight' && startupReasons.includes(data.reason) &&
     ['configured','host-mediated'].includes(data.transport) && typeof data.cleanupConfirmed==='boolean' &&
     (data.exitCode===null || Number.isSafeInteger(data.exitCode) && data.exitCode>=-255 && data.exitCode<=255),'CONFIG');
+  let progress:CollectiveStartupDiagnostic['progress'];
+  if(data.progress!==undefined) {
+    requireSafe(Array.isArray(data.progress)&&data.progress.length>0&&data.progress.length<=16,'CONFIG');
+    const ranks=new Set<number>();
+    progress=data.progress.map(value=>{
+      requireSafe(Number.isInteger(value?.rank)&&value.rank>=0&&value.rank<16&&!ranks.has(value.rank)&&collectiveStages.includes(value.stage),'CONFIG');
+      ranks.add(value.rank);return {rank:value.rank,stage:value.stage};
+    });
+  }
   return {version:1,stage:'collective-preflight',reason:data.reason,transport:data.transport,
-    exitCode:data.exitCode,cleanupConfirmed:data.cleanupConfirmed};
+    exitCode:data.exitCode,cleanupConfirmed:data.cleanupConfirmed,...(progress?{progress}:{})};
 }
 
 /** Bounded, read-only extraction from the existing authenticated log response.

@@ -243,6 +243,34 @@ jobs:
           echo "Build revision: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "Contains the application archive, SHA-256 checksum, build information and onboarding instructions." >> "$GITHUB_STEP_SUMMARY"
           echo "Test distribution only: macOS apps are ad-hoc signed, not Developer ID signed or notarized; Windows packages are unsigned. Packaged launch and transport checks passed. Real mesh inference acceptance is separate." >> "$GITHUB_STEP_SUMMARY"
+  acceptance:
+    name: Public native acceptance proof
+    needs: build
+    if: ${{ github.event_name != 'pull_request' && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Verify public evidence safety
+        run: python -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_publish_acceptance.py'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: companion-acceptance-*
+          path: ${{ runner.temp }}/native-acceptance
+      - name: Publish bounded native proof for credential-free regression
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python magic-cluster/apps/ai/private-mesh/publish_acceptance.py \
+            --directory "$RUNNER_TEMP/native-acceptance" --run-id "$GITHUB_RUN_ID"
   release:
     name: Publish permanent client downloads
     needs: build

@@ -1,9 +1,9 @@
 import {useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import type {RegressionBlockedCounts,RegressionPhase,RegressionResult,RegressionRun,RegressionTestMode} from '@magicstick/dashboard-contracts';
+import type {RegressionBlockedCounts,RegressionCounts,RegressionPhase,RegressionResult,RegressionRun,RegressionTestMode} from '@magicstick/dashboard-contracts';
 import {regressionBlockedKind,regressionBlockedLabel,regressionBlockedSummary} from '@magicstick/dashboard-core';
 import {api} from '../api';
-import {Button, ConfirmDialog, Empty, ErrorNotice, Loading, Panel, StatusBadge} from '../components';
+import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, StatusBadge} from '../components';
 
 const terminal = new Set(['Passed', 'Failed', 'Blocked', 'Cancelled']);
 const phaseOptions = [
@@ -21,6 +21,19 @@ const allPhases = phaseOptions.map(option => option.phase);
 const timestamp = (value?: string) => value ? new Date(value).toLocaleString() : '—';
 const BlockedBreakdown = ({counts,total}: {counts?: RegressionBlockedCounts;total: number}) =>
   total===0 ? null : counts ? <small>{regressionBlockedSummary(counts)}</small> : <small>Cause breakdown unavailable for this older run.</small>;
+const recordedCounts = (value:unknown):value is RegressionCounts => Boolean(value && typeof value==='object' &&
+  (['Passed','Failed','Blocked'] as const).every(outcome=>{
+    const count=(value as Record<string,unknown>)[outcome];
+    return typeof count==='number' && Number.isSafeInteger(count) && count>=0;
+  }));
+const OutcomeMetrics = ({counts,blockedCounts,label,unit}: {
+  counts:RegressionCounts;blockedCounts?:RegressionBlockedCounts;label:string;unit:string;
+}) => <div className="metric-grid three" aria-label={label}>
+  {(['Passed','Failed','Blocked'] as const).map(outcome=><article className="metric" key={outcome}>
+    <span>{outcome}</span><strong>{counts[outcome]}</strong><small>{unit}</small>
+    {outcome==='Blocked'&&<BlockedBreakdown counts={blockedCounts} total={counts.Blocked}/>}
+  </article>)}
+</div>;
 const CaseBadge = ({row}: {row:RegressionResult['cases'][number]}) => {
   if(row.outcome!=='Blocked')return <StatusBadge phase={row.outcome}/>;
   const kind=row.blockedBy?.kind ?? (row.reason==='PREREQUISITE'&&!row.executionId?'unknown':regressionBlockedKind(row.reason));
@@ -31,7 +44,12 @@ const Result = ({run}: {run: RegressionRun}) => {
   const [downloading, setDownloading] = useState(false);
   const percent = Math.max(0, Math.min(100, run.progress.percent ?? 0));
   const totalPhases = run.progress.totalPhases ?? run.phases.length;
-  const counts = run.result?.executionCounts ?? run.progress.executionCounts;
+  // Report totals include evidence outside executable scenarios (for example,
+  // setup/runner/cleanup failures). Never infer them from progress or a limited
+  // non-passing case list, nor sum overlapping phase results.
+  const counts = recordedCounts(run.result?.counts) ? run.result.counts : undefined;
+  const executionCounts = recordedCounts(run.result?.executionCounts) ? run.result.executionCounts :
+    !run.result && recordedCounts(run.progress.executionCounts) ? run.progress.executionCounts : undefined;
   const executionBlockedCounts=run.result ? run.result.executionBlockedCounts : run.progress.executionBlockedCounts;
   const preparation=run.result?.preparation;
   const download = async (kind: 'archive' | 'html' | 'junit') => {
@@ -45,6 +63,8 @@ const Result = ({run}: {run: RegressionRun}) => {
   return <Panel title={run.operation === 'recover-lock' ? 'Previous run cleanup' : timestamp(run.createdAt)} meta={`${run.operation === 'recover-lock' ? timestamp(run.createdAt) + ' · ' : ''}Runner revision ${run.sourceRevision.slice(0, 12)}`} actions={<StatusBadge phase={run.phase} />}>
     <p role="status">{run.message}</p>
     {run.operation !== 'recover-lock' && <p aria-label="Selected test phases">Selected phases: {run.phases.join(', ')}.</p>}
+    {run.diagnosticSelection&&<p aria-label="Diagnostic selection">Diagnostic subset: {run.result?.diagnosticSelection?.title??run.diagnosticSelection}
+      {run.result?.diagnosticSelection?.caseIds.length?` (${run.result.diagnosticSelection.caseIds.join(', ')})`:''}. Full-phase acceptance is not assessed.</p>}
     {run.operation !== 'recover-lock' && <p aria-label="Test mode">Test mode: {run.testMode === 'non-destructive' ? 'Non-destructive only' : 'Full, including destructive tests'}.</p>}
     {!!run.result?.excludedSteps?.length && <details><summary>Not selected in this mode ({run.result.excludedSteps.length} steps)</summary>
       <p>Destructive and preparation-dependent live steps were not run or counted as passed. Full-phase acceptance was not assessed.</p>
@@ -61,18 +81,28 @@ const Result = ({run}: {run: RegressionRun}) => {
       <div className="progress-track"><span style={{width: `${percent}%`}} /></div>
     </div>
     <p className="muted">{run.operation === 'recover-lock' ? 'Cleanup only: verify the old journal, restore owned resources and release its exact lock. No test phases are selected.' : `${run.progress.completedPhases ?? 0} / ${totalPhases} ${totalPhases === 1 ? 'phase' : 'phases'} finished. Progress reflects completed test steps, not an estimated time.`}</p>
+    <p className="muted">100% means execution finished, not passed.</p>
     {run.progress.step && <p>Current step: <code>{run.progress.step}</code> · {run.progress.testIndex ?? 0} / {run.progress.testTotal ?? 0} scenarios</p>}
     {!terminal.has(run.phase) && run.progress.currentTest && <p aria-live="polite">{run.progress.currentTest}</p>}
-    {counts && <div className="metric-grid" aria-label={run.operation === 'recover-lock' ? 'Cleanup check results' : 'Executable scenario results'}>
-      {(['Passed', 'Failed', 'Blocked'] as const).map(outcome => <article className="metric" key={outcome}><span>{outcome}</span><strong>{counts[outcome]}</strong><small>{run.operation === 'recover-lock' ? 'cleanup checks' : 'executable scenarios'}</small>
-        {outcome==='Blocked'&&<BlockedBreakdown counts={executionBlockedCounts} total={counts.Blocked}/>}</article>)}
-    </div>}
-    {run.result?.recoveryRequired && <div role="alert" className="notice notice-error">Cleanup could not be verified. Starting a new run first cleans up the previous run using its retained journal. It never resumes tests or reuses old results.</div>}
+    {counts ? <>
+      <h3>All checks</h3>
+      <p className="muted">Case / variant / layer evidence · isolated + live</p>
+      <OutcomeMetrics counts={counts} blockedCounts={run.result?.blockedCounts} label="All checks" unit="check evidence"/>
+    </> : <p className="muted" aria-label="All checks availability">All-check totals are not available{terminal.has(run.phase)?' for this run':' yet'}.
+      {executionCounts?' Only preliminary executable scenario counts are available.':' No final totals were reported.'}</p>}
+    {executionCounts && <details><summary>Executable scenarios</summary>
+      {!counts&&<p className="muted">Preliminary executable scenario counts; these are not all-check totals.</p>}
+      <p className="muted">One executable scenario can produce several check results. Runner and cleanup errors without a scenario ID are included in All checks, not added as executed scenarios.</p>
+      <OutcomeMetrics counts={executionCounts} blockedCounts={executionBlockedCounts} label="Executable scenario results" unit="executable scenarios"/>
+    </details>}
+    <p aria-label="Run lifecycle">Tests: {terminal.has(run.phase)?'finished':'in progress'} · Resource cleanup: {run.cleanup?.state??run.result?.cleanup?.state??'unknown (legacy or not verified)'} · Test account: {run.credentialsCleaned?'removed':'not yet removed'}</p>
+    {(run.cleanup?.reason||run.cleanup?.stage)&&<p className="muted">Cleanup reason: {run.cleanup.reason??'not recorded'}{run.cleanup.stage?` · ${run.cleanup.stage}`:''}</p>}
+    {(run.result?.recoveryRequired||run.cleanup&&run.cleanup.state!=='verified'&&terminal.has(run.phase)) && <div role="alert" className="notice notice-error">Resource cleanup could not be verified. Removing the test account or finishing the tests does not prove a clean baseline. Use Clean up previous test run or start a full run for exact journal recovery; old test results are never reused.</div>}
     {run.result?.evidenceCounts&&<p className="muted" aria-label="Live evidence results">Live evidence: {run.result.evidenceCounts.live.Passed} passed · {run.result.evidenceCounts.live.Failed} failed · {run.result.evidenceCounts.live.Blocked} blocked. Case / variant / layer evidence, separate from isolated checks and scenario counts.</p>}
     {!!run.result?.phases.length && <div className="table-wrap"><table><caption>Phase results · case / variant / layer evidence</caption><thead><tr><th>Phase</th><th>Outcome</th><th>Passed</th><th>Failed</th><th>Blocked</th></tr></thead><tbody>
       {run.result.phases.map(row => <tr key={row.phase}><td>{row.phase}</td><td><StatusBadge phase={row.outcome} /></td><td>{row.counts.Passed}</td><td>{row.counts.Failed}</td><td>{row.counts.Blocked}<div><BlockedBreakdown counts={row.blockedCounts} total={row.counts.Blocked}/></div></td></tr>)}
     </tbody></table></div>}
-    {!!run.result?.counts.Blocked&&<p className="muted">Blocked evidence (case / variant / layer): {run.result.blockedCounts ? regressionBlockedSummary(run.result.blockedCounts) : 'Cause breakdown unavailable for this older report.'}</p>}
+    {!!counts?.Blocked&&<p className="muted">Blocked evidence (case / variant / layer): {run.result?.blockedCounts ? regressionBlockedSummary(run.result.blockedCounts) : 'Cause breakdown unavailable for this older report.'}</p>}
     {!!run.result?.cases.length && <details><summary>Failures and blocked checks ({run.result.cases.length}{run.result.omittedCases ? ` shown; ${run.result.omittedCases} more in the report` : ''})</summary><div className="list">
       {run.result.cases.map((row, index) => <article className="list-row" key={`${row.id}-${index}`}><div><strong>{row.id} · {row.layer} · {row.variant}</strong>
         {row.description && <p>{row.description}</p>}
@@ -99,6 +129,7 @@ export const RegressionPage = () => {
   const [reviewedLock, setReviewedLock] = useState<string>();
   const [selectedPhases, setSelectedPhases] = useState<RegressionPhase[]>(allPhases);
   const [testMode, setTestMode] = useState<RegressionTestMode>('non-destructive');
+  const [diagnostic, setDiagnostic] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [enableRequested, setEnableRequested] = useState(false);
   const query = useQuery({queryKey: ['regression'], queryFn: () => api.regression(), refetchInterval: 2000});
@@ -107,7 +138,8 @@ export const RegressionPage = () => {
     try {await query.refetch({cancelRefetch: false});} finally {setRefreshing(false);}
   };
   const data = query.data, active = data?.runs.find(run => !terminal.has(run.phase));
-  const cleanupPending = data?.runs.some(run => terminal.has(run.phase) && !run.credentialsCleaned);
+  const cleanupPending = data?.runs.some(run => terminal.has(run.phase) && (!run.credentialsCleaned||run.cleanup&&run.cleanup.state!=='verified'));
+  const resourcesPending=data?.runs.some(run=>terminal.has(run.phase)&&run.cleanup&&run.cleanup.state!=='verified');
   const cleanup = data?.cleanup ?? {available: Boolean(data?.lock?.canRecover), revision: data?.lock?.revision,
     message: data?.lock && data.lock.state !== 'free' ? data.lock.message : cleanupPending ?
       'Previous run cleanup is pending; refresh to check its recovery status.' : 'No previous test run needs cleanup. New tests will verify the starting state.'};
@@ -117,7 +149,10 @@ export const RegressionPage = () => {
     if (action === 'start') {
       if (!selectedPhases.length) throw new Error('Select at least one test phase.');
       if (testMode === 'non-destructive' && (cleanupPending || (data?.lock && data.lock.state !== 'free'))) throw new Error('Clean up the previous run separately before non-destructive tests.');
-      return api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases, testMode);
+      const profile=data?.diagnosticSelections?.find(p=>p.id===diagnostic);
+      if(diagnostic&&!profile)throw new Error('This diagnostic selection is no longer available. Refresh before starting.');
+      return diagnostic?api.startRegression(crypto.randomUUID().replaceAll('-', ''),[profile!.phase],'full',diagnostic):
+        api.startRegression(crypto.randomUUID().replaceAll('-', ''), selectedPhases, testMode);
     }
     if (action === 'recover') {
       if (!reviewedLock || cleanup.revision !== reviewedLock || !cleanup.available) throw new Error('The lock changed after review. Refresh and review it again.');
@@ -127,7 +162,7 @@ export const RegressionPage = () => {
     return api.cancelRegression(active.id);
   }, retry: false, onSuccess: async (_result, action) => {
     setEnableRequested(action === 'enable');
-    if (action === 'start') setTestMode('non-destructive');
+    if (action === 'start') {setTestMode('non-destructive');setDiagnostic('');}
     setConfirm(null); await client.invalidateQueries({queryKey: ['regression']});
   }});
   const disabled = query.isPending || Boolean(query.error) || mutation.isPending;
@@ -164,7 +199,7 @@ export const RegressionPage = () => {
       <p id="regression-cleanup-status" role="status">{!data.registered ? 'Register this disposable test Appliance before cleanup.' : !data.runtimeAvailable ?
         'Enable the regression runner and wait for readiness before cleanup.' : active ? 'A test or cleanup run is active. Wait for it to finish.' : cleanup.message}</p>
       {data.lock && data.lock.state !== 'free' && data.lock.message !== cleanup.message && <p role="status">{data.lock.message}</p>}
-      {cleanupPending && <p role="status">{data.recoveryAvailable ? 'Full tests can automatically clean up the previous run first. For non-destructive tests, clean up separately before starting. Cleanup must succeed before a fresh test ID and new tests are started.' : "Removing the completed run's generated test account before another run can start."}</p>}
+      {cleanupPending && <p role="status">{data.recoveryAvailable ? 'Full tests can automatically clean up the previous run first. For non-destructive tests, clean up separately before starting. Cleanup must succeed before a fresh test ID and new tests are started.' : resourcesPending ? 'Previous-run resource cleanup is not verified. The exact recovery journal must be checked before new live tests can start.' : "Removing the completed run's generated test account before another run can start."}</p>}
       <p className="muted">No recurring setup or manually prepared test files. Reloading or leaving this page does not stop the job.</p>
     </Panel>}
     {data?.runs.map(run => <Result key={run.uid} run={run} />)}
@@ -179,11 +214,21 @@ export const RegressionPage = () => {
       {confirm === 'start' && <>
         <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending}>
           <legend>Test mode</legend>
-          <label className="check-field"><input type="radio" name="regression-test-mode" value="non-destructive" checked={testMode === 'non-destructive'} onChange={() => setTestMode('non-destructive')} />Non-destructive only</label>
+          <label className="check-field"><input type="radio" name="regression-test-mode" value="non-destructive" checked={testMode === 'non-destructive'} onChange={() => {setTestMode('non-destructive');setDiagnostic('');}} />Non-destructive only</label>
           <label className="check-field"><input type="radio" name="regression-test-mode" value="full" checked={testMode === 'full'} onChange={() => setTestMode('full')} />Include destructive tests</label>
         </fieldset>
+        {!!data?.diagnosticSelections?.length&&<Field label="Test selection">
+          <select aria-label="Test selection" value={diagnostic} disabled={mutation.isPending} onChange={event=>{
+            setDiagnostic(event.target.value);
+            const profile=data.diagnosticSelections?.find(p=>p.id===event.target.value);
+            if(profile){setTestMode('full');setSelectedPhases([profile.phase]);}
+          }}><option value="">All tests in selected phases</option>
+            {data.diagnosticSelections.map(profile=><option key={profile.id} value={profile.id}>{profile.title} (Phase {profile.phase} · {profile.caseIds.join(', ')})</option>)}
+          </select>
+        </Field>}
+        {diagnostic&&<p role="status">Only this Phase {selectedPhases[0]} diagnostic subset will run. Preparation and cleanup remain required; this is not full-phase acceptance.</p>}
         {nonDestructiveBlocked && <p role="alert">Clean up the previous run separately before non-destructive tests. This mode never restores old test resources or clears their lock.</p>}
-        <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending} aria-describedby="regression-phase-hint">
+        <fieldset className="regression-phase-selection stack compact" disabled={mutation.isPending||Boolean(diagnostic)} aria-describedby="regression-phase-hint">
           <legend>Test phases</legend>
           <div className="actions">
             <Button type="button" variant="ghost" disabled={mutation.isPending} onClick={() => setSelectedPhases(allPhases)}>Select all</Button>

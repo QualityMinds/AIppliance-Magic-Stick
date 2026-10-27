@@ -8,6 +8,9 @@ import {requireSafe} from './errors.ts';
 export const labPolicy = Object.freeze({version:1,phases:Object.freeze([0,1,2,3,4,5,6,7,8]),
   // Temporary regression exclusion only; the product's Omni engine stays available.
   disabledExperimentalEngines:Object.freeze(['VLLM-Omni'] as string[]),
+  // Native Hermes application acceptance moves to a separate regression suite.
+  // This changes test selection only, never the installed product or recovery.
+  deferredApplicationTests:Object.freeze(['hermes'] as string[]),
   scopes:Object.freeze(['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile',
     'federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills']),
   credentialSeconds:86_400,namespace:'magicstick-regression',marker:'registered-lab'});

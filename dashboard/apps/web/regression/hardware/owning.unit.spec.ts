@@ -13,6 +13,8 @@ function title(keys:string[],description:string) {return [...new Set(keys.map(ke
 const api = '../../../magic-cluster/apps/dashboard';
 const operator = '../../../magic-cluster/platform/magicstick-operator/controller';
 if (phase === 3) {
+  test('HAR-08 owning API restores fresh GPU defaults only after exclusive backend convergence',proof(['p3-restoration'],'C'),()=>
+    pythonSuite(api,['test_gpu_sharing_api.GpuSharingApiTests']));
   test('ENG-01 supported engine forms and retired model cleanup',proof(['p3-engine-selection'],'U'),async () => {
     await componentSuite('src/ModelLifecycle.test.tsx',[]);
     await componentSuite('src/RealtimeModelForm.test.tsx',[]);
@@ -20,7 +22,8 @@ if (phase === 3) {
   test('ENG-01 retired engine rejects writes and cannot create or export a runtime',proof(['p3-engine-selection'],'C'),() => {
     pythonSuite(api,['test_model_lifecycle_api.ModelLifecycleApiTests']);
     pythonSuite(operator,['test_model_lifecycle.ModelLifecycleTests']);
-    pythonSuite('../../../magic-cluster/apps/ai/model-catalog',['test_controller.DirectRuntimeCatalogTests']);
+    pythonSuite('../../../magic-cluster/apps/ai/model-catalog',[
+      'test_controller.DirectRuntimeCatalogTests','test_controller.KubeAIReadinessTests']);
     pythonSuite('../../../magic-cluster/apps/ai/private-mesh',['test_inventory']);
   });
 }

@@ -171,10 +171,15 @@ test('HAR-10 unmanaged fixture lifecycle uses upstream create/read/delete with h
     else {result={info};if(!info)status=404;}
     return {status:()=>status,headers:()=>({'content-type':'application/json'}),body:async()=>Buffer.from(JSON.stringify(result)),json:async()=>result};
   }} as unknown as APIRequestContext;
-  const client=new UnmanagedKeyFixtureClient(request,'https://inference.example.test','sk-synthetic-master',async()=>{},1000);
+  const master='synthetic-generated-master';
+  const client=new UnmanagedKeyFixtureClient(request,'https://inference.example.test',master,async()=>{},1000);
   await client.create(fixture);await client.removeOwned(fixture.identity);
   expect(calls.map(item=>item.url).join(' ')).not.toContain(fixture.body.key);
+  expect(calls.map(item=>item.url).join(' ')).not.toContain(master);
+  expect(calls.every(item=>item.options.headers.Authorization==='Bearer '+master)).toBe(true);
   expect(calls.filter(item=>item.options.method === 'POST').map(item=>new URL(item.url).pathname)).toEqual(['/key/generate','/key/delete']);
+  for(const invalid of ['', 'sk-synthetic\r\nInjected: value', 'synthetic master with spaces', 'x'.repeat(4097)])
+    expect(()=>new UnmanagedKeyFixtureClient(request,'https://inference.example.test',invalid,async()=>{},1000)).toThrow('[CONFIG]');
 });
 test('HAR-10 unmanaged fixture cleanup refuses a concurrently replaced record',annotation,async()=>{
   const fixture=disposableUnmanagedKey(runId,uid);let writes=0;

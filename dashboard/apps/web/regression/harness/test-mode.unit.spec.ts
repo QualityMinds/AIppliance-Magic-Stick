@@ -9,11 +9,17 @@ import {observeReadOnlyPhase} from '../core/non-destructive.ts';
 import {saveReport} from '../core/report.ts';
 import {readPrivate} from '../core/private-files.ts';
 import {publicResult} from '../core/kubernetes-progress.ts';
+import {remainingRequirements,remainingIds} from '../profiles/remaining-p0.ts';
+import type {CaseResult} from '../core/report.ts';
 
 test('HAR-10 test modes preserve legacy full selection and reject unknown or coerced values',()=>{
   expect(testMode()).toBe('full');expect(testMode('non-destructive')).toBe('non-destructive');
   for(const value of [null,true,false,{},[],'readonly',''])expect(()=>testMode(value)).toThrow('[CONFIG]');
   for(let phase=0;phase<=8;phase++)expect(selectedSteps(phase,'full')).toEqual(phaseSteps[`phase${phase}` as keyof typeof phaseSteps]);
+  const deferred='phase5/hermes-live (deferred to separate regression)';
+  expect(excludedSteps('full',[5])).toEqual([deferred]);
+  expect(excludedSteps('full',[2,3,4])).not.toContain(deferred);
+  expect(excludedSteps('non-destructive',[5])).toContain(deferred);
 });
 test('HAR-04 HAR-10 non-destructive phases never select setup, recovery or mutable installed workflows',()=>{
   for(let phase=0;phase<=8;phase++) {
@@ -70,5 +76,23 @@ test('HAR-10 restricted reports name exclusions in JSON HTML text JUnit and neve
     const result=publicResult({...json,excludedSteps:['synthetic-secret']},{phases:[{phase:3,state:'Passed',counts:json.counts}]});
     expect(result.testMode).toBe('non-destructive');expect(result.excludedSteps).toContain('phase3/phase3-gpu');
     expect(JSON.stringify(result)).not.toContain('synthetic-secret');
+    process.env.REGRESSION_TEST_MODE='full';
+    const required=remainingRequirements('phase5')!,proofs:CaseResult[]=required.map(item=>({...item,
+      variant:item.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
+    const complete=await saveReport(directory,'reg-11111111-2222-3333-4444-555555555555',proofs,
+      remainingIds('phase5')!,'b'.repeat(40),'phase5');
+    expect(complete.acceptable).toBe(true);
+    const reduced=JSON.parse(await readPrivate(join(directory,'summary.json')));
+    expect(reduced.fullPhase5Accepted).toBe(false);
+    const deferred='phase5/hermes-live (deferred to separate regression)';
+    expect(reduced.excludedSteps).toContain(deferred);
+    expect(reduced.counts).toMatchObject({Passed:proofs.length,Failed:0,Blocked:0,Skipped:0});
+    for(const filename of ['summary.html','summary.txt','junit.xml'])
+      expect(await readPrivate(join(directory,filename))).toContain(deferred);
+    const deferredJunit=await readPrivate(join(directory,'junit.xml'));
+    expect(deferredJunit).toContain('name="reason" value="SEPARATE_REGRESSION"');
+    const campaign={phases:[{phase:5,state:'Passed',counts:reduced.counts}]};
+    expect(publicResult(reduced,campaign).excludedSteps).toContain(deferred);
+    expect(publicResult({...reduced,excludedSteps:undefined},campaign).excludedSteps).not.toContain(deferred);
   }finally{if(previous===undefined)delete process.env.REGRESSION_TEST_MODE;else process.env.REGRESSION_TEST_MODE=previous;await rm(directory,{recursive:true,force:true});}
 });

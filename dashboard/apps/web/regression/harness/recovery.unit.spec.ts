@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 import {mkdtemp,rm,lstat,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {mock} from 'node:test';
 import {AutomaticRecovery,campaignRecoveryLease,type RecoveryAdapters} from '../core/automatic-recovery.ts';
 import {LabLease,type Lease,type LeaseStore} from '../core/lease.ts';
 import {HeartbeatLoop,bounded,withCleanup} from '../core/run-lifecycle.ts';
@@ -9,11 +10,14 @@ import {runnerSession,recordedLeaseSession} from '../core/runner-session.ts';
 import {ResourceJournal,newRunId,type CleanupAdapter,type ResourceKind} from '../core/journal.ts';
 import {readPrivate,writePrivate} from '../core/private-files.ts';
 import {BorrowedModule} from '../core/borrowed-module.ts';
+import {BorrowedSharing,sharingSpec,type SharingAdapter,type SharingSnapshot} from '../core/borrowed-sharing.ts';
 import {MutationNotSubmitted} from '../core/browser-action.ts';
 import type {LabRegistration} from '../core/lab-policy.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {HarnessError} from '../core/errors.ts';
 import {gpuWorkerJournal} from '../core/gpu-scenario.ts';
+import {attestKubernetesTermination,verifiedKubernetesTermination,reconcileKubernetesSession} from '../core/kubernetes-termination.ts';
+import {assessCleanup} from '../core/cleanup-state.ts';
 
 test('HAR-06 HAR-09 cleanup always runs without replacing the original scenario error', async () => {
   const primary = new HarnessError('DEADLINE', 'Failed', 'model-ready');
@@ -66,6 +70,40 @@ async function isolated(action:(directory:string)=>Promise<void>) {
   try {await action(directory);}finally {await rm(directory,{recursive:true,force:true});}
 }
 
+test('HAR-08 automatic cleanup restores a fresh GPU baseline and never adopts an ambiguous reset',async()=>{
+  for(const interrupted of ['untouched','shared','reset-response-lost'] as const)await isolated(async directory=>{
+    const f=await fixture(directory),identity={runId:f.runId,targetUid:registration.applianceUid,nodeName:'fixture-node-name',nodeUid:'fixture-node'};
+    let writes=0;
+    const original={module:'gpu',enabled:true};
+    let snapshot:SharingSnapshot={object:{metadata:{uid:'fixture-gpu-module',generation:1,resourceVersion:'7'},spec:original},
+      state:{provider:'nvidia',backend:'time-slicing',mode:'exclusive',managed:false,experimental:false,maxModels:2,
+        nodeName:identity.nodeName,nodeUid:identity.nodeUid,namespace:'ai',expectedRevision:'7',available:true,reason:'',phase:'Ready',
+        message:'',claimName:'',activeModels:0,admittedModels:[],memoryIsolation:false}};
+    const adapter:SharingAdapter={read:async()=>structuredClone(snapshot),apply:async request=>{
+      expect(request.expectedRevision).toBe(snapshot.object.metadata.resourceVersion);writes++;
+      snapshot={object:{metadata:{...snapshot.object.metadata,generation:snapshot.object.metadata.generation!+1,resourceVersion:String(7+writes)},
+        spec:sharingSpec(snapshot.object.spec!,request)},state:{...snapshot.state,mode:request.mode,maxModels:request.maxModels,
+        managed:!request.restoreDefaults,backend:request.allocationBackend==='dra'?'dra':'time-slicing',expectedRevision:String(7+writes)}};
+      if(interrupted === 'reset-response-lost' && request.restoreDefaults)throw new Error('Synthetic lost reset response');
+    }};
+    f.adapters.sharing=(_identity,guard)=>({read:adapter.read,apply:async request=>{await guard();await adapter.apply(request);}});
+    const journal=await BorrowedSharing.create(join(f.path,'gpu-sharing.json'),identity,adapter,async()=>{});
+    await journal.borrow('nvidia');
+    if(interrupted !== 'untouched')await journal.change('nvidia','shared',3,'dra');
+    if(interrupted === 'reset-response-lost')await expect(journal.restore()).rejects.toThrow('Synthetic lost reset response');
+    const plan=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);expect(plan.sharing).toHaveLength(1);
+    if(interrupted === 'reset-response-lost') {
+      await expect(plan.execute(f.adapters)).rejects.toMatchObject({code:'CONFLICT',stage:'recovery-sharing'});
+      expect(f.store.replacements).toBe(0);expect(f.store.value.spec.holderIdentity).toBe(f.runId);expect(writes).toBe(3);
+    } else {
+      await plan.execute(f.adapters);expect(snapshot.object.spec).toEqual(original);expect(snapshot.state.managed).toBe(false);
+      expect(f.store.value.spec.holderIdentity).toBe('');expect(writes).toBe(interrupted === 'untouched'?0:3);
+      await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+      expect(writes).toBe(interrupted === 'untouched'?0:3);
+    }
+  });
+});
+
 test('HAR-04 background heartbeat renews during idle browser waits and sticky loss fences later writes',async()=>{
   let count=0,fail=false;
   const loop=new HeartbeatLoop(async()=>{if(fail)throw new Error('Heartbeat failed');count++;},5).start();
@@ -102,6 +140,52 @@ test('HAR-09 missing response has a bounded deadline, cancellation and exact sta
   await expect(bounded(()=>new Promise(()=>{}),10,'model-update',async()=>{cancelled++;})).rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'model-update'});
   expect(cancelled).toBe(1);
 });
+test('HAR-07 HAR-09 an outer recovery deadline retains the current bounded operation',async()=>{
+  let stage:'recovery-resource'|'gpu-backend'='recovery-resource',cancelled=0;
+  await expect(bounded(async()=>{stage='gpu-backend';await new Promise(()=>{});},10,()=>stage,async()=>{cancelled++;}))
+    .rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'gpu-backend'});
+  expect(cancelled).toBe(1);
+});
+
+test('HAR-07 HAR-08 stalled GPU restoration retains its backend stage, journal and exact Lease',async()=>isolated(async directory=>{
+  const f=await fixture(directory),identity={runId:f.runId,targetUid:registration.applianceUid,nodeName:'fixture-node-name',nodeUid:'fixture-node'};
+  let writes=0,backendReads=0,cancelled=0,rejectRead:(error:Error)=>void=()=>{};
+  let snapshot:SharingSnapshot={object:{metadata:{uid:'fixture-gpu-module',generation:1,resourceVersion:'7'},spec:{module:'gpu',enabled:true}},
+    state:{provider:'nvidia',backend:'time-slicing',mode:'exclusive',managed:false,experimental:false,maxModels:2,
+      nodeName:identity.nodeName,nodeUid:identity.nodeUid,namespace:'ai',expectedRevision:'7',available:true,reason:'',phase:'Ready',
+      message:'',claimName:'',activeModels:0,admittedModels:[],memoryIsolation:false}};
+  const adapter:SharingAdapter={read:async()=>{
+    if(writes===2&&++backendReads>1)return new Promise<SharingSnapshot>((_resolve,reject)=>{rejectRead=reject;});
+    return structuredClone(snapshot);
+  },apply:async request=>{
+    writes++;snapshot={object:{metadata:{...snapshot.object.metadata,generation:snapshot.object.metadata.generation!+1,resourceVersion:String(7+writes)},
+      spec:sharingSpec(snapshot.object.spec!,request)},state:{...snapshot.state,mode:request.mode,maxModels:request.maxModels,
+      backend:request.allocationBackend==='dra'?'dra':'time-slicing',managed:!request.restoreDefaults,
+      expectedRevision:String(7+writes),phase:writes===2?'Switching':'Ready'}};
+  }};
+  const filename=join(f.path,'gpu-sharing.json');
+  const borrowed=await BorrowedSharing.create(filename,identity,adapter,async()=>{});
+  await borrowed.borrow('nvidia');await borrowed.change('nvidia','shared',3,'dra');
+  f.adapters.sharing=(_identity,guard)=>({read:adapter.read,apply:async request=>{await guard();await adapter.apply(request);}});
+  f.adapters.cancel=async()=>{cancelled++;rejectRead(new Error('Synthetic cancelled GPU read'));};
+  const plan=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);
+  const realTimeout=globalThis.setTimeout;
+  // Accelerate only the first, outer ten-minute recovery deadline. The nested
+  // backend wait is deliberately still pending when cancellation fires.
+  let accelerated=false;
+  const timer=mock.method(globalThis,'setTimeout',(callback:()=>void,ms?:number)=>{
+    const outer=ms===600_000&&!accelerated;if(outer)accelerated=true;
+    return realTimeout(callback,outer?1000:ms);
+  });
+  try {
+    await expect(plan.execute(f.adapters)).rejects.toMatchObject({code:'DEADLINE',stage:'gpu-backend'});
+  }finally {timer.mock.restore();}
+  expect(accelerated).toBe(true);expect(cancelled).toBe(1);expect(backendReads).toBeGreaterThan(1);
+  expect(writes).toBe(2);expect(snapshot.object.spec).toHaveProperty('parameters.gpuSharing');
+  expect(JSON.parse(await readPrivate(filename)).entries[0].state).toBe('borrowed');
+  expect(JSON.parse(await readPrivate(join(f.path,'automatic-recovery.json')))).toMatchObject({state:'blocked',reason:'DEADLINE',stage:'gpu-backend'});
+  expect(f.store.value.metadata.uid).toBe('fixture-lease');expect(f.store.value.spec.holderIdentity).not.toBe('');
+}));
 test('HAR-09 a cancellation-triggered page rejection cannot replace the known deadline',async()=>{
   let rejectAction:(error:Error)=>void=()=>{};
   await expect(bounded(()=>new Promise<void>((_resolve,reject)=>{rejectAction=reject;}),10,'kubeconfig-copy',async()=>{
@@ -337,7 +421,123 @@ test('HAR-04 HAR-07 campaign recovery never takes over a live runner foreign chi
     if(fault==='foreign')f.store.value.metadata.annotations!['regression.magicstick.dev/run-id']=newRunId();
     if(fault==='renewed')f.store.value.spec.renewTime=new Date().toISOString();
     await expect(campaignRecoveryLease(f.root,f.runId,registration.applianceUid,f.store,{timeoutMs:25,intervalMs:1}))
-      .rejects.toMatchObject({code:fault==='running'?'LOCK_BUSY':fault==='foreign'?'RECOVERY':'LOCK_STALE'});
+      .rejects.toMatchObject({code:fault==='running'?'PROCESS_STATE':fault==='foreign'?'RECOVERY':'LOCK_STALE',
+        ...(fault==='running'?{outcome:'Failed',stage:'recovery-barrier'}:{})});
     expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
   });
 });
+
+async function kubernetesFixture(directory:string) {
+  const f=await fixture(directory),runtimeRunUid='11111111-1111-4111-8111-111111111111',currentRunUid='22222222-2222-4222-8222-222222222222';
+  const reports=join(directory,'reports'),owner='regression.magicstick.dev/run-uid';
+  const session={version:1,runId:f.runId,targetUid:registration.applianceUid,state:'running',processesStopped:false,
+    interrupted:true,updatedAt:new Date(Date.now()-5000).toISOString()};
+  await writePrivate(join(f.path,'runner-session.json'),session);
+  await writePrivate(join(f.path,'summary.json'),{version:2,runId:f.runId,counts:{Passed:8,Failed:3,Blocked:18},acceptable:false});
+  const published={version:1,runUid:runtimeRunUid,progress:{ownedRunIds:[f.runId]}};
+  await writePrivate(join(reports,runtimeRunUid,'status.json'),published);
+  const run:KubeObject={metadata:{uid:runtimeRunUid,name:'synthetic-run',namespace:'ai-system',resourceVersion:'7'},
+    spec:{applianceUid:registration.applianceUid,nodeUids:registration.nodeUids,image:'registry.example.invalid/runner@sha256:'+'a'.repeat(64)},status:{phase:'Failed'}};
+  const job:KubeObject={metadata:{uid:'synthetic-job',name:'synthetic-run',namespace:'magicstick-regression',resourceVersion:'8',labels:{[owner]:runtimeRunUid}},status:{active:0}};
+  const pod:KubeObject={metadata:{uid:'synthetic-pod',name:'synthetic-run-worker',namespace:'magicstick-regression',resourceVersion:'9',
+    labels:{[owner]:runtimeRunUid},ownerReferences:[{kind:'Job',uid:job.metadata.uid!,controller:true}]},
+    spec:{nodeName:'synthetic-node',securityContext:{runAsNonRoot:true},containers:[{name:'runner',image:run.spec!.image,
+      securityContext:{allowPrivilegeEscalation:false,capabilities:{drop:['ALL']}}}]},
+    status:{phase:'Succeeded',containerStatuses:[{name:'runner',containerID:'containerd://synthetic-container',
+      state:{terminated:{exitCode:0,finishedAt:new Date(Date.now()-1000).toISOString()}}}]}};
+  const node:KubeObject={metadata:{name:'synthetic-node',uid:registration.nodeUids[0]}};
+  const reads:string[]=[],reader={list:async(resource:string)=>{
+    reads.push(resource);return structuredClone(resource==='nodes'?[node]:resource==='pods'?[pod]:[run]);
+  },get:async(resource:string)=>{
+    reads.push(resource);return structuredClone(resource==='pods'?pod:resource==='jobs.batch'?job:run);
+  }};
+  const options={root:f.root,reports,runId:f.runId,runtimeRunUid,accountRunUid:runtimeRunUid,currentRunUid,identity:registration,reader};
+  return {...f,options,session,published,run,job,pod,node,reads,reports,runtimeRunUid};
+}
+
+test('HAR-07 HAR-10 exact terminated Kubernetes ownership permits regular recovery, not a report rewrite or force unlock',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory),name=f.journal.prefix+'owned';
+  await f.journal.requested('model',name);await f.journal.owned('model',name,'synthetic-model',1);f.resources.set(name,'synthetic-model');
+  const originalSession=await readPrivate(join(f.path,'runner-session.json')),originalReport=await readPrivate(join(f.path,'summary.json'));
+  await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now(),true)).rejects.toMatchObject({code:'PROCESS_STATE'});
+  await attestKubernetesTermination(f.options);
+  expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(true);
+  expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
+  // Termination alone is not proof that the model is absent.
+  expect((await assessCleanup(f.path,true)).state).toBe('required');
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now(),true)).execute(f.adapters);
+  expect(f.deleted).toEqual([name]);expect(f.store.value.spec.holderIdentity).toBe('');
+  expect((await assessCleanup(f.path,true)).state).toBe('verified');
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now(),true)).execute(f.adapters);
+  expect(f.deleted).toEqual([name]);
+  expect(await readPrivate(join(f.path,'runner-session.json'))).toBe(originalSession);
+  expect(await readPrivate(join(f.path,'summary.json'))).toBe(originalReport);
+}));
+
+test('HAR-07 HAR-10 Kubernetes reconciliation rejects active foreign missing changed and unsafe execution evidence',async()=>{
+  for(const fault of ['active','unlisted-owner','foreign-run','foreign-account','foreign-job','foreign-pod','foreign-node','same-run',
+    'missing-pod','worker-running','host-pid','privileged','ephemeral','changed-pod','changed-job','changed-session'] as const)await isolated(async directory=>{
+    const f=await kubernetesFixture(directory);
+    if(fault==='active')f.run.status!.phase='Running';
+    if(fault==='unlisted-owner'){f.published.progress.ownedRunIds=[];await writePrivate(join(f.reports,f.runtimeRunUid,'status.json'),f.published);}
+    if(fault==='foreign-run')f.run.spec!.applianceUid='other-appliance';
+    if(fault==='foreign-account')f.run.spec!.accountRunUid='33333333-3333-4333-8333-333333333333';
+    if(fault==='foreign-job')f.job.metadata.labels!['regression.magicstick.dev/run-uid']='other-run';
+    if(fault==='foreign-pod')f.pod.metadata.ownerReferences![0]!.uid='other-job';
+    if(fault==='foreign-node')f.node.metadata.uid='other-node';
+    if(fault==='same-run')f.options.currentRunUid=f.options.runtimeRunUid;
+    if(fault==='missing-pod')f.options.reader.list=async resource=>resource==='pods'?[]:resource==='nodes'?[f.node]:[f.run];
+    if(fault==='worker-running')f.pod.status!.containerStatuses![0]!.state={running:{startedAt:new Date().toISOString()}};
+    if(fault==='host-pid')f.pod.spec!.hostPID=true;
+    if(fault==='privileged')(f.pod.spec!.containers as any[])[0].securityContext.allowPrivilegeEscalation=true;
+    if(fault==='ephemeral')f.pod.spec!.ephemeralContainers=[{name:'unobserved-debugger'}];
+    const original=f.options.reader.get;
+    if(['changed-pod','changed-job','changed-session'].includes(fault))f.options.reader.get=async resource=>{
+      const value=await original(resource);
+      // The first Job read is before the Pod inventory, subsequent reads close
+      // the attestation. Changing a revision during that window must reject it.
+      if(fault==='changed-pod'&&resource==='pods')value.metadata.uid='replacement-pod';
+      if(fault==='changed-job'&&resource==='jobs.batch'&&f.reads.filter(r=>r==='jobs.batch').length>1)value.metadata.resourceVersion='10';
+      if(fault==='changed-session'&&resource==='pods')await writePrivate(join(f.path,'runner-session.json'),{...f.session,updatedAt:new Date(Date.now()+1000).toISOString()});
+      return value;
+    };
+    await expect(attestKubernetesTermination(f.options),fault).rejects.toBeInstanceOf(HarnessError);
+    expect(await verifiedKubernetesTermination(f.path,f.runId,registration),fault).toBe(false);
+    expect(f.store.replacements,fault).toBe(0);expect(f.deleted,fault).toEqual([]);
+  });
+});
+
+test('HAR-07 Kubernetes termination receipts bind the unchanged session and node identity',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory);await attestKubernetesTermination(f.options);
+  expect(await verifiedKubernetesTermination(f.path,f.runId,{...registration,nodeUids:['replacement-node']})).toBe(false);
+  await writePrivate(join(f.path,'runner-session.json'),{...f.session,updatedAt:new Date(Date.now()+1000).toISOString()});
+  expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(false);
+  await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration,Date.now()+2000,true)).rejects.toMatchObject({code:'PROCESS_STATE'});
+}));
+
+test('HAR-07 exact execution ownership is separate from a retained account reused by later runs',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory),account='33333333-3333-4333-8333-333333333333';
+  f.run.spec!.accountRunUid=account;f.options.accountRunUid=account;
+  await attestKubernetesTermination(f.options);
+  expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(true);
+  const proof=JSON.parse(await readPrivate(join(f.path,'runner-termination.json')));
+  expect(proof.runtimeRunUid).toBe(f.runtimeRunUid);expect(proof.runtimeRunUid).not.toBe(account);
+}));
+
+test('HAR-07 setup reconciliation uses only fixed reads for the Lease-linked Kubernetes execution',async()=>isolated(async directory=>{
+  const f=await kubernetesFixture(directory),commands:string[][]=[];
+  const account='33333333-3333-4333-8333-333333333333';f.run.spec!.accountRunUid=account;
+  const env={REGRESSION_EXECUTION:'kubernetes',REGRESSION_ACCOUNT_RUN_UID:account,REGRESSION_RUN_UID:f.options.currentRunUid};
+  const command=async(args:string[])=>{
+    commands.push(args);expect(args[0]).toBe('get');expect(args.slice(-2)).toEqual(['-o','json']);
+    const resource=args[1]!;
+    return args[2]==='-n'||args[2]==='-o'?{items:await f.options.reader.list(resource)}:f.options.reader.get(resource);
+  };
+  await reconcileKubernetesSession({root:f.root,runId:f.runId,reports:f.reports,identity:registration,env,command,runtimeRunUid:f.runtimeRunUid});
+  expect(commands.length).toBe(7);expect(await verifiedKubernetesTermination(f.path,f.runId,registration)).toBe(true);
+  expect(commands.find(args=>args[1]==='nodes')).toEqual(['get','nodes','-o','json']);
+  expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
+  commands.length=0;
+  await reconcileKubernetesSession({root:f.root,runId:f.runId,identity:registration,env:{REGRESSION_EXECUTION:'external'},command});
+  expect(commands).toEqual([]);
+}));

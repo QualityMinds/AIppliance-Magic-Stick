@@ -1,5 +1,5 @@
 import {test, expect} from '@playwright/test';
-import type {FullConfig, Suite, TestCase, TestResult, TestStep} from '@playwright/test/reporter';
+import type {FullConfig, FullResult, Suite, TestCase, TestResult, TestStep} from '@playwright/test/reporter';
 import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -13,7 +13,8 @@ import {phase3Requirements,gpuModeIds} from '../profiles/gpu-p0.ts';
 import {remainingRequirements,remainingIds,remainingVariants,remainingVariantEnabled} from '../profiles/remaining-p0.ts';
 import {disabledExperimentalEngines,engineRegressionEnabled} from '../core/engine-policy.ts';
 import {completeCases,guardedLiveCases,blockedAction,reportExitCode,reportVariants, saveReport, type CaseResult} from '../core/report.ts';
-import {newRunId} from '../core/journal.ts';
+import {newRunId,ResourceJournal} from '../core/journal.ts';
+import {attestCleanup} from '../core/cleanup-state.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {writePrivate} from '../core/private-files.ts';
 import {parsePreparationDiagnostic, preparationDescription,requirePreparation} from '../core/preparation-diagnostic.ts';
@@ -21,6 +22,8 @@ import {blockedCounts,checkedBlocker,withBlockedCauses,inheritRecoveryCause,reco
 import {regressionBlockedKind} from '../../../../packages/core/src/regression-blocking.ts';
 import {saveExecutionTrace} from '../core/execution-trace.ts';
 import type {ExecutionTrace} from '../core/execution-trace.ts';
+import {publicResult} from '../core/kubernetes-progress.ts';
+import {phase1Ids, phase1Requirements, phase1StepIds} from '../profiles/phase1-p0.ts';
 
 function capture(action: () => void): string {
   const chunks: string[] = [], original = process.stdout.write;
@@ -34,6 +37,81 @@ function specimen(title: string, annotations: TestCase['annotations'] = []): Tes
 function result(status: TestResult['status'] = 'passed', message?: string): TestResult {
   return {status, duration: 1250, retry: 0, errors: message ? [{message}] : []} as TestResult;
 }
+
+const otherPhase1Steps = new Set(['login-session', 'anonymous-api', 'anonymous-browser', 'logout-session', 'final-idle']);
+const coreSmokeEvidence = () => phase1Requirements.filter(row => row.environment === 'live' && !otherPhase1Steps.has(row.variant));
+
+test('HAR-10 Phase 1 step scope excludes checks owned by other steps without narrowing the complete phase', () => {
+  const core = phase1StepIds('core-smoke')!;
+  expect([...core].sort()).toEqual([...new Set(coreSmokeEvidence().map(row => row.id))].sort());
+  expect(phase1Ids.filter(id => !core.includes(id)).sort())
+    .toEqual(['AUTH-01', 'AUTH-02', 'AUTH-06', 'HAR-03', 'LOG-06', 'NAV-02', 'NAV-06']);
+  expect(phase1StepIds('session-smoke')).toEqual(['AUTH-01', 'AUTH-02', 'AUTH-06']);
+  expect(phase1StepIds('smoke-fixtures')).toEqual([...new Set(phase1Requirements.filter(row => row.layer === 'B').map(row => row.id))]);
+  expect(phase1StepIds('smoke-fast')).toEqual([...new Set(phase1Requirements.filter(row => ['U', 'C'].includes(row.layer)).map(row => row.id))]);
+  expect(new Set(['smoke-fast', 'smoke-fixtures', 'session-smoke', 'core-smoke']
+    .flatMap(mode => phase1StepIds(mode)!).concat('HAR-03'))).toEqual(new Set(phase1Ids));
+  expect(phase1StepIds('phase1')).toEqual(phase1Ids);
+  for (const mode of [undefined, 'preflight', 'phase2', 'non-destructive-live', 'unknown']) expect(phase1StepIds(mode)).toBeUndefined();
+});
+
+test('HAR-10 Phase 1 core reporter and post-cleanup finalization preserve the same passing selected evidence', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'magicstick-core-report-')), runId = newRunId();
+  const names = ['REGRESSION_RUN_DIR', 'REGRESSION_RUN_ID', 'REGRESSION_MODE', 'REGRESSION_TEST_MODE',
+    'REGRESSION_SCENARIO_ID', 'REGRESSION_DISCOVER_ONLY', 'REGRESSION_PREPARATION_FAILED', 'REGRESSION_PREPARATION_DIAGNOSTIC'];
+  const prior = names.map(name => process.env[name]);
+  try {
+    for (const name of names) delete process.env[name];
+    Object.assign(process.env, {REGRESSION_RUN_DIR: directory, REGRESSION_RUN_ID: runId, REGRESSION_MODE: 'core-smoke', REGRESSION_TEST_MODE: 'full'});
+    const selected = [...new Set(coreSmokeEvidence().map(row => row.variant))].map(variant => {
+      const rows = coreSmokeEvidence().filter(row => row.variant === variant);
+      return specimen(`${rows[0]!.id} [p1:${variant}]`, evidenceAnnotations(...rows).annotation);
+    });
+    const reporter = new SafeReporter();
+    capture(() => {
+      reporter.onBegin({} as FullConfig, {allTests: () => selected} as Suite);
+      for (const item of selected) { reporter.onTestBegin(item); reporter.onTestEnd(item, result()); }
+    });
+    expect(await reporter.onEnd({status: 'passed'} as FullResult)).toEqual({status: 'passed'});
+    const reported = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+    expect(reported.counts).toMatchObject({Passed: coreSmokeEvidence().length, Failed: 0, Blocked: 0});
+    const finalized = await saveReport(directory, runId, reported.cases, phase1StepIds('core-smoke')!, 'unknown', 'core-smoke',
+      {version: 1, outcome: 'Passed'}, {recoveryFenceActive: false, recoveryAttempts: [], cleanup: {state: 'verified'}});
+    expect(finalized.acceptable).toBe(true);
+    expect(finalized.counts).toEqual(reported.counts);
+    const saved = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+    expect(saved.cases).toEqual(reported.cases);
+    expect(saved.cleanup.state).toBe('verified');
+    expect(saved.recoveryFenceActive).toBe(false);
+    // Historical launcher scope reproduces the two devices' seven false
+    // dependencies and one harness failure; stored appliance reports stay unchanged.
+    const historical = completeCases('core-smoke', reported.cases, phase1Ids);
+    expect(historical.filter(row => row.outcome === 'Blocked')).toHaveLength(7);
+    expect(historical.filter(row => row.outcome === 'Failed')).toEqual([
+      expect.objectContaining({id: 'HAR-10', reason: 'MISSING_EVIDENCE', stage: 'report-evidence'})]);
+  } finally {
+    names.forEach((name, index) => { if (prior[index] === undefined) delete process.env[name]; else process.env[name] = prior[index]; });
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('HAR-10 Phase 1 step scope still rejects a missing selected check and preserves real failures and full-layer requirements', () => {
+  const rows: CaseResult[] = coreSmokeEvidence().map(row => ({...row, outcome: 'Passed', durationMs: 1}));
+  const required = phase1StepIds('core-smoke')!;
+  const missing = completeCases('core-smoke', rows.filter(row => row.id !== 'LIFE-01'), required);
+  expect(missing).toContainEqual(expect.objectContaining({id: 'LIFE-01', outcome: 'Blocked', blockedBy: expect.objectContaining({reason: 'MISSING_EVIDENCE'})}));
+  expect(missing).toContainEqual(expect.objectContaining({id: 'HAR-10', outcome: 'Failed', reason: 'MISSING_EVIDENCE'}));
+  const failed: CaseResult[] = [...rows, {id: 'HAR-07', outcome: 'Failed', durationMs: 0, layer: 'A', reason: 'CLEANUP', recoveryRequired: true}];
+  expect(completeCases('core-smoke', failed, required)).toContainEqual(failed.at(-1));
+  expect(reportExitCode(completeCases('core-smoke', failed, required))).toBe(1);
+  expect(completeCases('phase1', rows, phase1StepIds('phase1')!))
+    .toContainEqual(expect.objectContaining({id: 'HAR-10', outcome: 'Failed', reason: 'MISSING_EVIDENCE'}));
+  const full: CaseResult[] = phase1Requirements.map(row => ({...row, outcome: 'Passed', durationMs: 1}));
+  expect(completeCases('phase1', full, phase1Ids)).toEqual(full);
+  const missingLayer = completeCases('phase1', full.filter(row => !(row.variant === 'cpu-chat' && row.layer === 'E')), phase1Ids);
+  expect(missingLayer).toContainEqual(expect.objectContaining({variant: 'cpu-chat', layer: 'E', outcome: 'Blocked'}));
+  expect(missingLayer).toContainEqual(expect.objectContaining({id: 'HAR-10', outcome: 'Failed', reason: 'MISSING_EVIDENCE'}));
+});
 
 test('HAR-10 an explicit shared-workflow dependency retains its root case and trace after worker replacement',()=>{
   const old=process.env.REGRESSION_RUN_ID,runId=newRunId();process.env.REGRESSION_RUN_ID=runId;
@@ -319,6 +397,17 @@ test('HAR-10 cleanup cause survives later phase guards and only verified restora
   inheritRecoveryCause(environment,[],false);expect(environment).toEqual({});expect(root.outcome).toBe('Failed');
 });
 
+test('HAR-07 HAR-10 recovery guards preserve the original process failure instead of another-run prerequisite',()=>{
+  const environment:Record<string,string|undefined>={};
+  const root:CaseResult={id:'HAR-10',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:'PROCESS_STATE',stage:'runner-execution'};
+  inheritRecoveryCause(environment,[{id:'HAR-07',outcome:'Failed',reason:'CLEANUP'},root],true);
+  expect(recoveryCause(environment.REGRESSION_RECOVERY_CAUSE)).toEqual({kind:'failure',caseId:'HAR-10',reason:'PROCESS_STATE',stage:'runner-execution'});
+  const rows=completeCases('phase0',[{id:'HAR-07',outcome:'Blocked',reason:'RECOVERY',durationMs:0,layer:'A',
+    blockedBy:recoveryCause(environment.REGRESSION_RECOVERY_CAUSE)}],[],'PREREQUISITE',true);
+  expect(rows.filter(row=>row.outcome==='Blocked'&&row.environment==='live').every(row=>row.blockedBy?.kind==='failure'&&row.blockedBy.caseId==='HAR-10')).toBe(true);
+  expect(withBlockedCauses([{id:'HAR-07',outcome:'Blocked',reason:'PROCESS_STATE'}])[0]?.blockedBy?.kind).toBe('failure');
+});
+
 test('HAR-10 exact blocked variants retain a known missing prerequisite instead of an invented failure',()=>{
   const source:CaseResult={id:'MGPU-01',variant:'p3-multigpu-vllm-4',layer:'A',environment:'live',durationMs:0,
     outcome:'Blocked',reason:'CAPABILITY',blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}};
@@ -563,6 +652,52 @@ test('HAR-10 Omni exclusions are report metadata, never synthetic passed or bloc
   }finally{await rm(directory,{recursive:true,force:true});}
 });
 
+test('HAR-10 all-check exports retain unassigned runner and cleanup errors without inventing scenarios',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-all-checks-'));
+  try {
+    const execution=(index:number)=>index.toString(16).padStart(24,'0');
+    const cases:CaseResult[]=[
+      ...Array.from({length:433},(_,index)=>({id:'HAR-10',layer:'U' as const,environment:'fixture' as const,
+        outcome:'Passed' as const,durationMs:1,executionId:execution(1+index%338)})),
+      ...Array.from({length:8},(_,index)=>({id:'HAR-01',layer:'A' as const,environment:'live' as const,
+        outcome:'Passed' as const,durationMs:1,executionId:execution(339+index%7)})),
+      {id:'HAR-10',layer:'A',environment:'live',outcome:'Failed',durationMs:0,reason:'UNEXPECTED',stage:'runner-execution'},
+      ...Array.from({length:2},()=>({id:'HAR-07',layer:'A' as const,environment:'live' as const,
+        outcome:'Failed' as const,durationMs:0,reason:'CLEANUP' as const,stage:'recovery-barrier' as const})),
+      {id:'HAR-07',layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason:'LOCK_BUSY',executionId:execution(346)},
+      ...Array.from({length:17},()=>({id:'HAR-02',layer:'A' as const,environment:'live' as const,
+        outcome:'Blocked' as const,durationMs:0,reason:'RECOVERY' as const,stage:'recovery-barrier' as const,
+        blockedBy:{kind:'failure' as const,caseId:'HAR-07',reason:'CLEANUP',stage:'recovery-barrier'}})),
+    ];
+    await saveReport(directory,newRunId(),cases,['HAR-01','HAR-02','HAR-07','HAR-10'],'unknown','all');
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.counts).toMatchObject({Passed:441,Failed:3,Blocked:18});
+    expect(json.executionCounts).toEqual({Passed:345,Failed:0,Blocked:1});
+    expect(json.cases.filter((row:CaseResult)=>row.outcome==='Failed').every((row:CaseResult)=>!row.executionId)).toBe(true);
+    const result=publicResult(json,{phases:[0,4].map(phase=>({phase,state:'Failed',counts:json.counts,executionCounts:json.executionCounts}))});
+    expect(result.counts).toEqual({Passed:441,Failed:3,Blocked:18});
+    expect(result.executionCounts).toEqual({Passed:345,Failed:0,Blocked:1});
+    expect(result.evidenceCounts?.live).toEqual({Passed:8,Failed:3,Blocked:18});
+    expect(result.blockedCounts).toEqual({prerequisite:1,failure:17,cancelled:0,unknown:0});
+    expect(result.executionBlockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:0});
+    for(const file of ['summary.html','summary.txt']) {
+      const value=await readFile(join(directory,file),'utf8');
+      expect(value.indexOf('All checks')).toBeGreaterThan(-1);
+      expect(value.indexOf('All checks')).toBeLessThan(value.indexOf('Recorded executable scenarios'));
+      expect(value).toContain('Case / variant / layer evidence · isolated + live');
+      expect(value).toContain('CLEANUP');expect(value).toContain('UNEXPECTED');
+      if(file.endsWith('.html')) {
+        expect(value).toContain('Evidence rows (case × variant × layer): 441 passed · 3 failed · 18 blocked');
+        expect(value).toContain('<details><summary>Executable scenarios</summary>');
+        expect(value).not.toContain('<details open');
+      } else expect(value).toContain('Passed: 441; Failed: 3; Blocked: 18');
+    }
+    const junit=await readFile(join(directory,'junit.xml'),'utf8');
+    expect(junit).toContain('name="magicstick-selected-regression" tests="462" failures="3" skipped="18"');
+    expect(json.acceptable).toBe(false);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
 test('HAR-10 reports count executable scenarios independently of their case variant layer evidence',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'magicstick-report-counts-'));
   try {
@@ -688,6 +823,9 @@ test('HAR-07 HAR-10 proven campaign restoration clears only the live fence while
   try {
     const runId=newRunId(),previous=newRunId(),directory=join(output,runId),receipt=join(output,'phase-result.json');
     const rows:CaseResult[]=[{id:'HAR-07',layer:'A',environment:'live',durationMs:1,outcome:'Failed',reason:'CLEANUP',recoveryRequired:true}];
+    const identity={applianceUid:'fixture-appliance',nodeUids:['fixture-node']};
+    await ResourceJournal.create(join(directory,'journal.json'),runId,identity.applianceUid);
+    await attestCleanup(directory,identity,true);
     await saveReport(directory,runId,rows,['HAR-07'],'unknown','all',undefined,
       {recoveryFenceActive:false,recoveryAttempts:[{runId:previous,state:'restored'}]});
     await writePrivate(receipt,{version:1,mode:'all',runId,directory,exitCode:1});

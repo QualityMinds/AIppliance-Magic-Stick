@@ -5,6 +5,19 @@
 *Overview on the test appliance, captured 24 September 2026. The URL list below
 the cards is outside this crop. Select any screenshot to open it at full size.*
 
+## Signing in
+
+On the local Keycloak login page, select **Remember me** only on a trusted,
+personal browser. Without it, the session ends after **30 minutes without use**
+or **10 hours overall**. With it, the limits are **7 days without use** and
+**30 days overall**, including a closed browser or standby. Active use renews
+the idle limit, not the overall maximum. Sign out explicitly to end the session.
+
+Access tokens still last five minutes and renew automatically. After this
+feature is installed, sign out and sign in once with the checkbox; an existing
+browser may still carry the earlier, shorter cookie expiry. Administrator-customized policies and
+an external identity provider can impose different limits.
+
 ## UI Areas
 
 | Area | Purpose |
@@ -53,10 +66,25 @@ settings, licenses and caches unchanged; they create a temporary viewer account,
 runner Job and reports, run isolated checks and read the selected phase's live
 inventory. Model lifecycle, inference, sharing, recovery and other mutating live
 checks are not run. Excluded steps are listed separately, not passed or blocked.
+Native Hermes application workflows are currently excluded from standard runs
+and marked **deferred to separate regression** in the report. Other applications
+remain selected; this is not full Hermes/application acceptance and does not
+disable Hermes in the product. Existing failed reports are unchanged.
+For a focused repeat, **Test selection** offers fixed external-provider, GPU
+verification and sharing scenarios. Choosing one selects its advertised phase
+and destructive mode; automatic preparation and cleanup still apply. A passing
+diagnostic is not full-phase acceptance.
 All phases are selected by default. To run only GPU
 tests, choose **Clear selection**, check **Phase 3**, then **Start tests**. You
 can also select several phases. The saved selection appears beside progress
 and limits the report to those phases.
+For focused Phase 4 diagnosis, use **Test selection** to choose slot races
+(`SLOT-09`), sharing reload (`SHR-12`), exact restoration (`HAR-08`), or the
+combined remaining-case profile (also `SLOT-03` and `SHR-07`). This selects
+**Include destructive tests** and only Phase 4, with normal preparation and
+cleanup. The report is explicitly a diagnostic subset, not full-phase acceptance.
+Choose **All tests in selected phases** to return to phase selection. These
+profiles appear only after a supporting runner has been published and installed.
 The suite runs in Kubernetes and survives leaving or reloading the page.
 It can stop models and change test-server state; never
 register a production Appliance.
@@ -75,12 +103,30 @@ Its adjacent status explains whether cleanup is needed, already complete or
 blocked by active work or unverifiable ownership.
 An active run or unavailable journal disables the button and explains why.
 External runs must be recovered from their original runner's private journal.
+If cleanup reports `PROCESS_STATE`, the runner could not confirm that its
+workers ended. After the old Kubernetes run has stopped, use the same cleanup
+button: it checks the exact execution before cleaning resources. Missing or
+changed ownership evidence still requires inspection; do not remove the lock
+manually. Original failed reports remain failed after successful cleanup.
 Non-destructive runs never perform that cleanup automatically: clean up a
 previous interrupted run separately first. A successful limited report does not
 certify complete phases or real model inference. The saved mode survives reload.
 
-The page shows current phase/check, progress and separate executable-scenario
-and case/layer counts. Expand **Failures and blocked checks** for the reason,
+The page shows current phase/check and progress. **100% means execution finished,
+not passed.** The main **All checks** tiles count case/variant/layer evidence
+from isolated and live checks together, including runner and cleanup errors.
+Expand **Executable scenarios** for the separate scenario counts; one scenario
+can produce several check results, and an error without a scenario ID still
+counts in All checks. Live evidence and the phase table retain their own labels.
+Totals come from the saved report, not from adding phases or the visible failure
+list. Without final totals, the page says they are unavailable and labels any
+recorded scenario progress as preliminary; missing results never mean zero failures.
+HTML and text reports also show All checks before executable scenarios.
+The page also separates **Tests**, **Resource cleanup**, and
+**Test account**: a finished Job or removed account does not prove resources were
+cleaned. Cleanup is `unknown`, `required`, `running`, `verified`, or `blocked`, with
+its recorded reason/stage. Missing fields in old reports mean not verified, not
+clean; retain the exact private journal for recovery. Expand **Failures and blocked checks** for the reason,
 phase, variant, check layer, stage, next action and available filtered trace
 location. **Blocked by prerequisite** means required hardware, access or fixtures
 are unavailable. **Blocked by failure** means an earlier test, preparation or

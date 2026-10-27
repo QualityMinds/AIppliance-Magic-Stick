@@ -1,16 +1,50 @@
 import {test,expect} from '@playwright/test';
 import {KubernetesProgress,publicResult} from '../core/kubernetes-progress.ts';
+import {completeReportPublication,maximumReportBytes,publishReportArtifacts} from '../core/kubernetes-report.ts';
 import {setupWorkerMarker} from '../core/preparation-diagnostic.ts';
 import {runHostDrill} from '../core/host-drill.ts';
 import {blockedAction} from '../core/report.ts';
 import {blockerDescription} from '../core/blocker-description.ts';
 import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.ts';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,lstat,readFile,symlink,truncate} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
+import {saveKubernetesRegistration} from '../core/kubernetes-registration.ts';
+
+test('HAR-02 HAR-07 native registration follows renamed origins only for the exact same registered installation',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'native-registration-')),filename=join(directory,'lab-registration.json');
+  const registration={version:1,kind:'disposable-regression-lab',policyVersion:1,id:'11111111-2222-3333-4444-555555555555',
+    applianceUid:'appliance-fixture',nodeUids:['node-b','node-a'],createdAt:'2026-10-01T00:00:00Z',
+    dashboardUrl:'https://old.example.local',identityUrl:'https://id.old.example.local'};
+  try {
+    await saveKubernetesRegistration(filename,registration);
+    const original=await readPrivate(filename);
+    // An equivalent JSON object/order is not a changed registration.
+    await saveKubernetesRegistration(filename,Object.fromEntries(Object.entries({...registration,nodeUids:['node-a','node-b']}).reverse()));
+    expect(await readPrivate(filename)).toBe(original);
+    const renamed={...registration,dashboardUrl:'https://renamed.example.local',identityUrl:'https://id.renamed.example.local'};
+    expect(JSON.stringify(registration)).not.toBe(JSON.stringify(renamed)); // Former startup guard rejects this real transition.
+    await saveKubernetesRegistration(filename,renamed);
+    expect(JSON.parse(await readPrivate(filename))).toEqual(renamed);
+    expect((await lstat(filename)).mode&0o077).toBe(0);
+    const after=await readPrivate(filename);
+    for(const change of [{id:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'},{applianceUid:'other-appliance'},
+      {nodeUids:['other-node']},{createdAt:'2026-10-02T00:00:00Z'},{futureIdentity:'foreign'}]) {
+      await expect(saveKubernetesRegistration(filename,{...renamed,...change})).rejects.toThrow('[IDENTITY]');
+      expect(await readPrivate(filename)).toBe(after);
+    }
+    for(const change of [{policyVersion:2},{kind:'other-lab'},{identityUrl:'http://id.renamed.example.local'}]) {
+      await expect(saveKubernetesRegistration(filename,{...renamed,...change})).rejects.toThrow('[LAB]');
+      expect(await readPrivate(filename)).toBe(after);
+    }
+    const link=join(directory,'unsafe.json');await symlink(filename,link);
+    await expect(saveKubernetesRegistration(link,renamed)).rejects.toThrow('[PRIVATE_FILE]');
+    expect(await readPrivate(filename)).toBe(after);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 
 test('HAR-07 recovery accepts only fixed setup stage/detail markers',()=>{
   expect(setupWorkerMarker('[SETUP_STAGE:kubernetes-access] [detail:ERR_MODULE_NOT_FOUND]')).toEqual(
@@ -45,9 +79,9 @@ test('HAR-10 Kubernetes progress loads in Node strip-only mode and binds the run
     {stdio:'pipe',timeout:10_000,env:{...process.env,NODE_OPTIONS:''}});
 });
 test('HAR-02 HAR-10 Kubernetes test and cleanup entrypoints import in native strip-only mode before private access',()=>{
-  for(const entrypoint of ['kubernetes.mjs','kubernetes-recovery.mjs','kubernetes-nondestructive.mjs']) {
+  for(const entrypoint of ['kubernetes.mjs','kubernetes-recovery.mjs','kubernetes-nondestructive.mjs','kubernetes-diagnostic.mjs']) {
     const result=spawnSync(process.execPath,['--experimental-strip-types',fileURLToPath(new URL('../'+entrypoint,import.meta.url))],
-      {encoding:'utf8',timeout:10_000,env:{...process.env,NODE_OPTIONS:'',REGRESSION_RUN_UID:'',REGRESSION_TEST_MODE:entrypoint==='kubernetes-nondestructive.mjs'?'non-destructive':'full'}});
+      {encoding:'utf8',timeout:10_000,env:{...process.env,NODE_OPTIONS:'',REGRESSION_RUN_UID:'',REGRESSION_DIAGNOSTIC_SELECTION:entrypoint==='kubernetes-diagnostic.mjs'?'remaining':undefined,REGRESSION_PHASES:'4',REGRESSION_TEST_MODE:entrypoint==='kubernetes-nondestructive.mjs'?'non-destructive':'full'}});
     expect(result.error).toBeUndefined();expect(result.signal).toBeNull();expect(result.status).toBe(1);
     expect(result.stderr).toContain('Error: Invalid run identity.');
     expect(result.stderr).not.toMatch(/SyntaxError|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX/);
@@ -129,5 +163,47 @@ test('HAR-10 full campaign reports have an explicit bound without weakening priv
     await expect(readPrivate(file)).rejects.toThrow('[PRIVATE_FILE]');
     expect((await readPrivate(file,8*1024*1024)).length).toBe(2*1024*1024);
     await expect(readPrivate(file,64*1024*1024)).rejects.toThrow('[PRIVATE_FILE]');
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-07 HAR-10 export failure retains completed campaign results without inventing recovery',async()=>{
+  const result=publicResult({counts:{Passed:4532,Failed:16,Blocked:145},executionCounts:{Passed:3402,Failed:6,Blocked:56},
+    recoveryFenceActive:false,cases:[{id:'LIFE-02',layer:'A',environment:'live',outcome:'Failed',reason:'API',stage:'model-inference',durationMs:90_000}]},
+    {phases:[{phase:2,state:'Failed',counts:{Passed:479,Failed:3,Blocked:14},executionCounts:{Passed:358,Failed:1,Blocked:3}}]});
+  for(const recoveryRequired of [false,true]) {
+    const snapshot={result,credentialRecoveryRequired:recoveryRequired,reportAvailable:false,outcome:'Failed' as const,message:'Execution finished.'};
+    expect(await completeReportPublication(snapshot,async()=>{throw new Error('synthetic-private-path-and-credential');})).toBe(false);
+    expect(snapshot.credentialRecoveryRequired).toBe(recoveryRequired);expect(snapshot.reportAvailable).toBe(false);
+    expect(snapshot.result.executionCounts).toEqual(result.executionCounts);expect(snapshot.result.phases).toEqual(result.phases);
+    expect(snapshot.result.counts).toEqual({...result.counts,Failed:17});
+    expect(snapshot.result.cases).toEqual([expect.objectContaining({id:'HAR-10',reason:'REPORT_EXPORT',stage:'report-export'}),...result.cases]);
+    expect(JSON.stringify(snapshot)).not.toContain('synthetic-private');expect(snapshot.message).not.toContain('Setup recovery is required');
+  }
+  const clean={result,credentialRecoveryRequired:false,reportAvailable:false,outcome:'Failed' as const,message:'Execution finished.'};
+  expect(await completeReportPublication(clean,async()=>{})).toBe(true);expect(clean.result).toBe(result);expect(clean.reportAvailable).toBe(true);
+});
+
+test('HAR-10 HAR-11 report publication validates every product before exposing downloads',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-report-export-'));
+  try {
+    const source=join(directory,'source'),published=join(directory,'published');
+    await privateDirectory(source);await privateDirectory(published);
+    const products=['summary.html','junit.xml','report-artifacts.tar.gz'];
+    for(const name of products)await writePrivate(join(source,name),'sanitized '+name);
+    await truncate(join(source,'junit.xml'),maximumReportBytes+1);
+    await expect(publishReportArtifacts(source,published)).rejects.toMatchObject({code:'REPORT_EXPORT',stage:'report-export'});
+    await expect(lstat(join(published,'summary.html'))).rejects.toMatchObject({code:'ENOENT'});
+    await writePrivate(join(source,'junit.xml'),'sanitized junit.xml');
+    await rm(join(source,'report-artifacts.tar.gz'));await symlink(join(source,'summary.html'),join(source,'report-artifacts.tar.gz'));
+    await expect(publishReportArtifacts(source,published)).rejects.toMatchObject({code:'REPORT_EXPORT'});
+    await rm(join(source,'report-artifacts.tar.gz'));await writePrivate(join(source,'report-artifacts.tar.gz'),'sanitized report-artifacts.tar.gz');
+    await publishReportArtifacts(source,published);
+    for(const name of products) {
+      expect(await readFile(join(published,name),'utf8')).toBe('sanitized '+name);
+      expect((await lstat(join(published,name))).mode&0o077).toBe(0);
+    }
+    const chunks='sanitized report chunk '.repeat(10_000);
+    await writePrivate(join(source,'junit.xml'),chunks);await publishReportArtifacts(source,published);
+    expect(await readFile(join(published,'junit.xml'),'utf8')).toBe(chunks);
   }finally{await rm(directory,{recursive:true,force:true});}
 });

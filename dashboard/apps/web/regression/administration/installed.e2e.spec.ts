@@ -21,7 +21,7 @@ import {applicationsWorkflow} from './apps-live.ts';
 import {modulesWorkflow,moduleProfileWorkflow} from './modules-live.ts';
 import {licensingWorkflow} from './license-live.ts';
 import {withUnlicensedBaseline} from '../core/license-baseline.ts';
-import {meshWorkflow,stableMesh} from './mesh-live.ts';
+import {meshWorkflow,stableMesh,moduleIntentSnapshot} from './mesh-live.ts';
 import {federationWorkflow} from './federation-live.ts';
 import {rbacWorkflow,unmanagedKeyWorkflow,securityCiWorkflow} from './security-live.ts';
 import {cacheProtection} from './cache-live.ts';
@@ -290,9 +290,14 @@ async function runCase(definition:P0Definition,browser:Browser) {
     } finally {await page.close();} return;
   }
   if(id === 'MESH-01') {
-    const before=stableMesh(await client.api.mesh()); const modules=JSON.stringify(await client.api.modules());
+    const before=stableMesh(await client.api.mesh());
+    const namespace=live!.config.expected.applianceNamespace;
+    const modules=moduleIntentSnapshot(await live!.observer.list('moduleactivations.appliance.magicstick.dev',namespace),namespace);
     await visible('system/settings/mesh','Private Mesh');
-    checked(stableMesh(await client.api.mesh()) === before && JSON.stringify(await client.api.modules()) === modules && writesBlocked === 0); return;
+    await test.step('Mesh settings navigation preserves Mesh configuration',async()=>checked(stableMesh(await client.api.mesh()) === before));
+    await test.step('Mesh settings navigation preserves module UIDs, generations and saved configuration',async()=>
+      checked(moduleIntentSnapshot(await live!.observer.list('moduleactivations.appliance.magicstick.dev',namespace),namespace) === modules));
+    await test.step('Mesh settings navigation sends no writes',async()=>checked(writesBlocked === 0));return;
   }
   if(id === 'LIC-01' || id === 'SSO-01') {
     return withUnlicensedBaseline(live!,async()=>{

@@ -7,7 +7,7 @@ import {ResourceJournal,newRunId,recoveryJournalPath} from '../core/journal.ts';
 import {saveReport,type CaseResult} from '../core/report.ts';
 import {phase3Requirements,phase4Requirements,gpuCoverage,requireGpuProfile,gpuIds,gpuModeIds,phase3RuntimeCases,phase4SharingCases} from '../profiles/gpu-p0.ts';
 import {BorrowedSharing,SharingWriteRejected,sharingSpec,type SharingSnapshot,type SharingAdapter} from '../core/borrowed-sharing.ts';
-import {GpuScenario,gpuWorkerJournal,unfinishedJob,runtimePodConverged,type GpuCreated} from '../core/gpu-scenario.ts';
+import {GpuScenario,gpuWorkerJournal,unfinishedJob,runtimePodConverged,requireDefaultGpuBackend,type GpuCreated} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
 import type {ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
 import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts';
@@ -22,6 +22,24 @@ import type {GpuModelFixture} from '../core/config.ts';
 import type {MemoryEstimate} from '@magicstick/dashboard-contracts';
 
 let directory:string;
+test('HAR-08 fresh GPU defaults require physical exclusive resources, not inherited sharing or stale DRA',()=>{
+  for(const provider of ['nvidia','amd'] as const) {
+    const state={provider,mode:'exclusive',backend:provider === 'nvidia' ? 'time-slicing' : 'dra',managed:false,available:true} as GpuSharingState;
+    const node:KubeObject={metadata:{uid:'fixture-uid',labels:provider === 'nvidia' ? {'nvidia.com/gpu.count':'4'} : {}},
+      status:{nodeInfo:{bootID:'fixture-boot'},allocatable:{[provider+'.com/gpu']:provider === 'nvidia' ? '4' : '1'}}};
+    expect(()=>requireDefaultGpuBackend(state,node,'fixture-uid','fixture-boot')).not.toThrow();
+    expect(()=>requireDefaultGpuBackend(state,node,'replacement','fixture-boot')).toThrow('[IDENTITY]');
+    expect(()=>requireDefaultGpuBackend(state,node,'fixture-uid','new-boot')).toThrow('[IDENTITY]');
+    expect(()=>requireDefaultGpuBackend({...state,mode:'shared'},node,'fixture-uid','fixture-boot')).toThrow('[CAPABILITY]');
+    const busy=structuredClone(node);busy.status!.allocatable={[provider+'.com/gpu']:'8'};
+    expect(()=>requireDefaultGpuBackend(state,busy,'fixture-uid','fixture-boot')).toThrow('[CAPABILITY]');
+    if(provider === 'nvidia')for(const labels of [{'nvidia.com/device-plugin.config':'custom'},{'nvidia.com/device-plugin.config':'any'},
+      {'nvidia.com/gpu.replicas':'2'},{'appliance.magicstick.dev/nvidia-dra-config':'owned'}, {'nvidia.com/dra-kubelet-plugin':'true'}]) {
+      const foreign=structuredClone(node);Object.assign(foreign.metadata.labels!,labels);
+      expect(()=>requireDefaultGpuBackend(state,foreign,'fixture-uid','fixture-boot')).toThrow('[CAPABILITY]');
+    }
+  }
+});
 test('MGPU-01 MGPU-02 GPU estimates replace CPU budgets and preserve per-card and per-copy scope',()=>{
   for(const count of [2,4])for(const gpuDeployment of ['split','replicated'] as const)for(const engine of ['OLlama','VLLM'] as const) {
     const fixture:GpuModelFixture={engine,computeTarget:'nvidia-gpu',gpuDeployment,automaticSizing:true,
@@ -45,11 +63,31 @@ test('HW-06 validation accepts legacy or exact DRA binding and rejects another i
   const pod:KubeObject={metadata:{},spec:{nodeName:device.node,resourceClaims:[{name:'gpu',resourceClaimName:card.claimName}],
     initContainers:[{name:'engine',resources:{claims:[{name:'gpu'}]}}]}};
   const claim:KubeObject={metadata:{name:card.claimName,namespace:'ai'},status:{allocation:{devices:{results:[{driver:'gpu.nvidia.com',pool:card.pool,device:card.name}]}}}};
-  const slices:KubeObject[]=[{metadata:{},spec:{driver:'gpu.nvidia.com',nodeName:card.node,devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}}];
+  const slice=(pool=card.pool,generation=2,count=1,uuid=card.uuid):KubeObject=>({metadata:{uid:`${pool}-${generation}-${uuid}`},
+    spec:{driver:'gpu.nvidia.com',nodeName:card.node,pool:{name:pool,generation,resourceSliceCount:count},
+      devices:[{name:card.name,attributes:{uuid:{string:uuid}}}]}});
+  const slices=[slice()];
   nvidiaValidationBinding(pod,device,state,claim,slices);
+  // Device names are unique within a driver/pool, not across every Slice on
+  // the node. Only the pool's highest, complete generation can prove binding.
+  nvidiaValidationBinding(pod,device,state,claim,[slice(card.pool,1,1,'GPU-retired'),...slices,slice('foreign-pool')]);
+  for(const observed of [[slice('foreign-pool')],[slice(card.pool,2,2)],
+    [slice(card.pool,1),slice(card.pool,2,1,'GPU-other')],
+    [slice(card.pool,2,2),slice(card.pool,2,2,'GPU-other')],
+    [slice(card.pool,2,1),slice(card.pool,2,2,'GPU-other')]])
+    expect(()=>nvidiaValidationBinding(pod,device,state,claim,observed)).toThrow('[CAPABILITY]');
   for(const patch of [{uuid:'GPU-other'},{name:'gpu-other'},{claimName:'other'},{pool:'other-node'},{pciAddress:'0000:02:00.0'}])
     expect(()=>nvidiaValidationBinding(pod,device,{...state,devices:[{...card,...patch}]},claim,slices)).toThrow('[CAPABILITY]');
   expect(()=>nvidiaValidationBinding(pod,device,state,claim,[])).toThrow('[CAPABILITY]');
+  // Exact-card availability has already been established by prepareValidation.
+  // A mismatched observed allocation is a failed proof, not missing hardware.
+  const wrongSlices:KubeObject[][]=[[],
+    [{...slices[0]!,spec:{...slices[0]!.spec,devices:[{name:card.name,attributes:{uuid:{string:'GPU-other'}}}]}}]];
+  for(const observed of wrongSlices) {
+    let failure:unknown;
+    try{nvidiaValidationBinding(pod,device,state,claim,[...observed]);}catch(error){failure=error;}
+    expect(failure).toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding',check:'slice-uuid'});
+  }
   const legacy:KubeObject={metadata:{},spec:{nodeName:device.node,initContainers:[{name:'engine',resources:{limits:{'nvidia.com/gpu':'1'}}}]}};
   nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'});
   expect(()=>nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'},undefined,[],4)).toThrow('[CAPABILITY]');
@@ -92,6 +130,79 @@ test('HW-06 terminal failed validation stops with a concrete stage before pollin
   const scenario={config:config(),live:{guard:async()=>{},observer:{list:async()=>[job]}},
     inventory:async()=>{throw new Error('A terminal failed Job must not be polled until a deadline');}} as unknown as GpuScenario;
   await expect(completedValidation(scenario,request)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-validation'});
+  const lab=config(),runId=newRunId(),card={name:'gpu-0',pool:lab.gpu!.nodeName,node:lab.gpu!.nodeName,
+    nodeUid:lab.gpu!.nodeUid,pciAddress:lab.gpu!.devices.nvidia!.pciAddress,claimName:'exact-claim',uuid:'GPU-exact'};
+  const device={id:'fixture-card',vendor:'nvidia',node:card.node,nodeUid:card.nodeUid,bootId:lab.gpu!.bootId,pciAddress:card.pciAddress};
+  const pod:KubeObject={metadata:{uid:'pod-uid',ownerReferences:[{kind:'Job',uid:'validation-uid'}]},
+    spec:{nodeName:card.node,resourceClaims:[{name:'gpu',resourceClaimName:card.claimName}],
+      initContainers:[{name:'engine',resources:{claims:[{name:'gpu'}]}}]}};
+  const claim:KubeObject={metadata:{name:card.claimName,namespace:'ai'},
+    status:{allocation:{devices:{results:[{driver:'gpu.nvidia.com',pool:card.pool,device:card.name}]}}}};
+  const bindingScenario={config:lab,directory,live:{journal:{runId},guard:async()=>{},observer:{
+    list:async(resource:string)=>resource==='jobs'?[{...job,status:{}}]:resource==='pods'?[pod]:[],get:async()=>claim}},
+    state:async()=>({backend:'dra',devices:[card]}),inventory:async()=>({devices:[device]})} as unknown as GpuScenario;
+  await expect(completedValidation(bindingScenario,request)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding'});
+  expect(JSON.parse(await readFile(join(directory,'verification-binding-failure.json'),'utf8')))
+    .toEqual({version:1,runId,requestId:request.requestId,engine:'OLlama',check:'slice-uuid'});
+  // The pinned Kubernetes claim controller clears an allocation when its last
+  // consumer completes, before the completed Pod disappears. Exercise the real
+  // polling workflow across that transition, not just a static binding helper.
+  const imageId='registry.example.invalid/engine@sha256:'+'a'.repeat(64);
+  const allocated:KubeObject={...claim,metadata:{...claim.metadata,uid:'claim-uid',resourceVersion:'100',generation:1},
+    spec:{devices:{requests:[{name:'gpu',exactly:{deviceClassName:'gpu.nvidia.com',count:1}}]}}};
+  const slice:KubeObject={metadata:{uid:'slice-uid'},spec:{driver:'gpu.nvidia.com',nodeName:card.node,
+    pool:{name:card.pool,generation:1,resourceSliceCount:1},devices:[{name:card.name,attributes:{uuid:{string:card.uuid}}}]}};
+  async function lifecycle(damage?:string) {
+    let observation=0;
+    const delayedAllocation=['pending-allocation','pending-replaced-claim','pending-changed-generation'].includes(damage??'');
+    const completion=delayedAllocation?2:1;
+    const workflow={config:lab,directory,live:{journal:{runId},guard:async()=>{},observer:{
+      list:async(resource:string,namespace?:string)=>{
+        if(resource==='jobs') {
+          if(namespace!=='ai')return [];
+          observation++;
+          return [{...job,status:observation>completion?{conditions:[{type:'Complete',status:'True'}]}:{}}];
+        }
+        if(resource==='pods')return namespace==='ai'?[{...pod,
+          metadata:{...pod.metadata,name:'validation-pod',namespace:'ai',uid:observation>1&&damage==='different-pod'?'replacement-pod':'pod-uid'},
+          ...(damage==='pending-wrong-claim'?{spec:{...pod.spec,resourceClaims:[{name:'gpu',resourceClaimName:'foreign-claim'}]}}:{}),
+          status:{phase:observation===1&&(delayedAllocation||['pending-started','pending-wrong-claim'].includes(damage??''))?'Pending':
+            damage==='never-observed'||observation>completion&&!['live-deallocation','raced-completion'].includes(damage??'')?'Succeeded':'Running',
+            initContainerStatuses:[{name:'engine',imageID:observation===1&&delayedAllocation?'':observation>1&&damage==='wrong-image'?'unverified':imageId,
+              state:observation===1&&(delayedAllocation||damage==='pending-wrong-claim')?
+                {waiting:{reason:'PodInitializing'}}:{running:{startedAt:new Date().toISOString()}}}]}}]:[];
+        return [slice];
+      },get:async(resource:string)=>{
+        if(resource==='pods')return {...pod,metadata:{...pod.metadata,name:'validation-pod',namespace:'ai'},
+          status:{phase:damage==='raced-completion'?'Succeeded':'Running',initContainerStatuses:[{name:'engine',imageID:imageId}]}};
+        const current=structuredClone(allocated);
+        // ResourceClaim strategy does not maintain metadata.generation. Native
+        // observations carry UID/RV and immutable spec, not a CRD generation.
+        if(damage==='native-claim')delete current.metadata.generation;
+        if(damage==='zero-generation')current.metadata.generation=0;
+        if(damage==='missing-resource-version')delete current.metadata.resourceVersion;
+        if(observation>1)current.metadata.resourceVersion='101';
+        if(observation>completion||damage==='never-observed'||observation===1&&(delayedAllocation||['pending-started','pending-wrong-claim'].includes(damage??''))) {
+          current.status={};
+          if(damage==='replaced-claim')current.metadata.uid='foreign-claim';
+          if(damage==='changed-generation')current.metadata.generation=2;
+          if(damage==='changed-spec')current.spec={devices:{requests:[]}};
+          if(damage==='wrong-allocation')current.status=structuredClone(allocated.status);
+          if(damage==='wrong-allocation')(current.status!.allocation!.devices as any).results[0].device='foreign-card';
+        }
+        if(observation>1&&damage==='pending-replaced-claim')current.metadata.uid='replaced-pending-claim';
+        if(observation>1&&damage==='pending-changed-generation')current.metadata.generation=2;
+        return current;
+      }}},state:async()=>({backend:'dra',devices:[card]}),inventory:async()=>({devices:[{...device,
+        validation:{OLlama:{state:observation>1?'passed':'running',validatedAt:new Date().toISOString(),imageId}}}]})} as unknown as GpuScenario;
+    return completedValidation(workflow,request);
+  }
+  await lifecycle();await lifecycle('raced-completion');await lifecycle('pending-allocation');
+  await lifecycle('native-claim');await lifecycle('zero-generation');
+  for(const damage of ['replaced-claim','changed-generation','changed-spec','different-pod','live-deallocation',
+    'never-observed','wrong-allocation','wrong-image','pending-started','pending-wrong-claim','pending-replaced-claim','pending-changed-generation',
+    'missing-resource-version'])
+    await expect(lifecycle(damage),damage).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-binding'});
 });
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
 test.afterEach(async()=>{await rm(directory,{recursive:true,force:true});});
@@ -371,7 +482,7 @@ test('HAR-10 GPU acceptance needs every variant-layer tuple and keeps maintenanc
 });
 test('HAR-10 the fixed sharing diagnostic uses its selected IDs and can never certify canonical Phase 4',async()=>{
   const ids=gpuModeIds('phase4-sharing','remaining')!;
-  expect(ids).toEqual(phase4SharingCases.remaining.ids);
+  expect(ids).toEqual(phase4SharingCases.remaining!.ids);
   expect(gpuModeIds('phase4')).toEqual(gpuIds(4));
   for(const mode of ['phase3-gpu','phase4','phase4-fast'])
     expect(()=>gpuModeIds(mode,'remaining')).toThrow('[CONFIG]');

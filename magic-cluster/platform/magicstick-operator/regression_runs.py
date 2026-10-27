@@ -45,7 +45,7 @@ class RegressionRuns:
             "backoffLimit": 0, "activeDeadlineSeconds": 86400, "ttlSecondsAfterFinished": 604800,
             "template": {"metadata": {"labels": {OWNER: uid, "app.kubernetes.io/name": "magicstick-regression"}},
                 "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False,
-                    "terminationGracePeriodSeconds": 180,
+                    "terminationGracePeriodSeconds": 900,
                     "nodeSelector": {"kubernetes.io/os": "linux", "kubernetes.io/arch": "amd64"},
                     "affinity": {"podAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": [{
                         "labelSelector": {"matchLabels": {"app": "magicstick-regression-reports"}},
@@ -54,13 +54,14 @@ class RegressionRuns:
                         "fsGroupChangePolicy": "OnRootMismatch", "seccompProfile": {"type": "RuntimeDefault"}},
                     "hostAliases": [{"ip": account["gatewayIp"], "hostnames": [domain, "id." + domain, "api." + domain, "litellm." + domain, "kubernetes." + domain]}],
                     "containers": [{"name": "runner", "image": spec["image"], "imagePullPolicy": "IfNotPresent",
-                        "command": ["node", "regression/kubernetes-recovery.mjs" if recovery else "regression/kubernetes-nondestructive.mjs" if non_destructive else "regression/kubernetes.mjs"],
+                        "command": ["node", "regression/kubernetes-recovery.mjs" if recovery else "regression/kubernetes-diagnostic.mjs" if "diagnosticSelection" in spec else "regression/kubernetes-nondestructive.mjs" if non_destructive else "regression/kubernetes.mjs"],
                         "env": [{"name": "REGRESSION_RUN_UID", "value": uid},
                                 {"name": "REGRESSION_ACCOUNT_RUN_UID", "value": spec.get("accountRunUid", uid)},
                                 {"name": "REGRESSION_APPLIANCE_UID", "value": spec["applianceUid"]},
                                 {"name": "REGRESSION_SOURCE_REVISION", "value": spec["sourceRevision"]},
                                 {"name": "REGRESSION_TEST_MODE", "value": spec.get("testMode", "full")},
-                                {"name": "REGRESSION_PHASES", "value": ",".join(map(str, spec["phases"]))}, *recovery_env],
+                                {"name": "REGRESSION_PHASES", "value": ",".join(map(str, spec["phases"]))},
+                                *([{"name": "REGRESSION_DIAGNOSTIC_SELECTION", "value": spec["diagnosticSelection"]}] if "diagnosticSelection" in spec else []), *recovery_env],
                         "resources": {"requests": {"cpu": "500m", "memory": "2Gi"}, "limits": {"cpu": "4", "memory": "6Gi"}},
                         "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}},
                         "volumeMounts": ([{"name": "state", "mountPath": "/state/reports", "subPath": "reports"}] if non_destructive else [{"name": "state", "mountPath": "/state"},
@@ -76,10 +77,13 @@ class RegressionRuns:
         name, uid = metadata["name"], metadata["uid"]
         recovery = spec.get("operation", "tests") == "recover-lock"
         non_destructive = spec.get("testMode", "full") == "non-destructive"
-        ready_key = "regression.magicstick.dev/" + ("recovery-credentials-ready" if recovery else "non-destructive-credentials-ready" if non_destructive else "credentials-ready")
+        diagnostic = spec.get("diagnosticSelection")
+        ready_key = "regression.magicstick.dev/" + ("recovery-credentials-ready" if recovery else "diagnostic-credentials-ready" if "diagnosticSelection" in spec else "non-destructive-credentials-ready" if non_destructive else "credentials-ready")
         lock = spec.get("lockRecovery", {})
         if (spec.get("operation", "tests") not in {"tests", "recover-lock"}
                 or spec.get("testMode", "full") not in ("full", "non-destructive")
+                or "diagnosticSelection" in spec and (not isinstance(diagnostic, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", diagnostic)
+                    or recovery or non_destructive or spec.get("phases") not in ([2], [3], [4]))
                 or non_destructive and (recovery or "accountRunName" in spec or "accountRunUid" in spec)
                 or recovery and (spec.get("phases") != [] or not isinstance(lock, dict) or set(lock) not in ({"uid", "resourceVersion", "runId"}, {"uid", "resourceVersion", "runId", "released"})
                     or "released" in lock and lock["released"] is not True
@@ -145,6 +149,19 @@ class RegressionRuns:
             self.status(run, phase="Blocked", message="This installation is not registered as a disposable regression lab.")
             return False
         if not job:
+            if "diagnosticSelection" in spec:
+                runtime = (self.get("/api/v1/namespaces/" + NS + "/configmaps/magicstick-regression-runtime") or {}).get("data", {})
+                try:
+                    catalog = json.loads((self.get("/api/v1/namespaces/" + NS + "/configmaps/magicstick-regression-diagnostics") or {}).get("data", {})["diagnostics.json"])
+                    supported = catalog["version"] == 2 and any(p["id"] == diagnostic and
+                        type(p.get("phase")) is int and spec.get("phases") == [p["phase"]] and
+                        p["phase"] in (2, 3, 4) and p.get("grep") == "|".join(p["caseIds"]) for p in catalog["profiles"])
+                except (KeyError, ValueError, TypeError):
+                    supported = False
+                if (not supported or runtime.get("diagnosticSelectionVersion") != "2"
+                        or runtime.get("image") != spec.get("image") or runtime.get("sourceRevision") != spec.get("sourceRevision")):
+                    self.status(run, phase="Blocked", message="The pinned runner does not support this diagnostic selection; no Job was started.")
+                    return False
             if metadata.get("annotations", {}).get("regression.magicstick.dev/credentials-used") == uid:
                 self.status(run, phase="Failed", credentialRecoveryRequired=not non_destructive, finishedAt=self.f["now"](),
                     message="The run-owned Job disappeared or its creation could not be verified. It was not retried; start a new recovery-capable run.")
@@ -184,18 +201,29 @@ class RegressionRuns:
             raise ValueError("Regression report ownership changed")
         if progress and progress.get("testMode", "full") != spec.get("testMode", "full"):
             raise ValueError("Regression report test mode changed")
+        if progress and progress.get("diagnosticSelection") != diagnostic:
+            raise ValueError("Regression report diagnostic selection changed")
         complete = any(c.get("status") == "True" and c.get("type") in {"Complete", "Failed"} for c in job.get("status", {}).get("conditions", []))
         if complete:
             outcome = (progress or {}).get("outcome")
             job_failed = any(c.get("status") == "True" and c.get("type") == "Failed" for c in job.get("status", {}).get("conditions", []))
             if job_failed or outcome not in {"Passed", "Failed", "Blocked"}:
                 outcome = "Failed"
-            self.status(run, phase=outcome, message="Regression execution finished." if progress else "Runner failed before publishing its report. Check scheduling, storage and image availability.",
+            export_failed = any(case.get("reason") == "REPORT_EXPORT" and case.get("stage") == "report-export"
+                                for case in ((progress or {}).get("result") or {}).get("cases", []))
+            message = ("Execution finished, but report export failed. Recorded test results were retained; inspect HAR-10 at report-export."
+                       if export_failed else "Regression execution finished." if progress else
+                       "Runner failed before publishing its report. Check scheduling, storage and image availability.")
+            self.status(run, phase=outcome, message=message,
                 progress=(progress or {}).get("progress", {}), result=(progress or {}).get("result"),
-                credentialRecoveryRequired=False if non_destructive else True if job_failed else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
+                cleanup=(progress or {}).get("cleanup", {"state": "unknown"}),
+                credentialRecoveryRequired=False if non_destructive else True if job_failed else
+                    (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)) or
+                    (progress or {}).get("cleanup", {}).get("state") != "verified",
                 reportAvailable=bool((progress or {}).get("reportAvailable")), finishedAt=self.f["now"]())
             return False
         self.status(run, phase="Running" if progress else "Starting", message=(progress or {}).get("message", "Waiting for the runner Pod to start."),
+            cleanup=(progress or {}).get("cleanup", {"state": "unknown"}),
             credentialRecoveryRequired=False if non_destructive else (progress or {}).get("credentialRecoveryRequired", status.get("credentialRecoveryRequired", True)),
             progress=(progress or {}).get("progress", {}), result=(progress or {}).get("result"), reportAvailable=bool((progress or {}).get("reportAvailable")))
         return True

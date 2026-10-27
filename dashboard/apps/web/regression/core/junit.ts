@@ -4,6 +4,8 @@ import type {CaseResult} from './report.ts';
 import type {TraceArtifact} from './report-artifacts.ts';
 import {blockerDescription} from './blocker-description.ts';
 import {regressionBlockedLabel} from '../../../../packages/core/src/regression-blocking.ts';
+import type {RegressionCleanup,RegressionDiagnosticSelection} from '@magicstick/dashboard-contracts';
+import {deferredApplicationStep} from './engine-policy.ts';
 
 const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]!));
 type Entry={name:string;classname:string;outcome:string;durationMs:number;detail:string;properties:Record<string,string>;
@@ -19,7 +21,7 @@ function suite(name:string,entries:Entry[],excludedEngines:readonly string[]=[])
 }
 /** Keep case/layer evidence, executable scenarios and steps as distinct suites.
  * Relative attachments work after extracting the sanitized report archive. */
-export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],excludedEngines:readonly string[]=[],selection?:{testMode:string;excludedSteps:string[]}) {
+export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],excludedEngines:readonly string[]=[],selection?:{testMode:string;excludedSteps:string[];cleanup?:RegressionCleanup;diagnosticSelection?:RegressionDiagnosticSelection}) {
   const lookup=new Map(artifacts.map(item=>[item.trace.executionId,item]));
   const evidence:Entry[]=cases.map(item=>{
     const artifact=item.executionId?lookup.get(item.executionId):undefined;
@@ -56,11 +58,25 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
     detail:step.reason?reasons[step.reason]:step.outcome,source:step.source,
     properties:{executionId:trace.executionId,stepIndex:String(step.index),category:step.category,outcome:step.outcome,trace:path,
       ...(step.parentIndex?{parentStep:String(step.parentIndex)}:{}),...(step.reason?{reason:step.reason}:{}),...(step.stage?{stage:step.stage}:{}),
-      ...(step.handledError?{handledError:'true'}:{} )},output:JSON.stringify(step)})));
-  if(selection)for(const item of evidence)item.properties.testMode=selection.testMode;
+      ...(step.handledError?{handledError:'true'}:{} )}})));
+  if(selection)for(const item of evidence) {
+    item.properties.testMode=selection.testMode;
+    if(selection.diagnosticSelection)Object.assign(item.properties,{
+      diagnosticSelection:selection.diagnosticSelection.id,diagnosticTitle:selection.diagnosticSelection.title,
+      selectedCaseIds:selection.diagnosticSelection.caseIds.join(', '),fullPhaseAcceptance:'not assessed'});
+    if(selection.cleanup) {
+      item.properties.cleanupState=selection.cleanup.state;
+      if(selection.cleanup.reason)item.properties.cleanupReason=selection.cleanup.reason;
+      if(selection.cleanup.stage)item.properties.cleanupStage=selection.cleanup.stage;
+    }
+  }
   const excluded:Entry[]=(selection?.excludedSteps??[]).map(step=>({name:step,classname:'selection',outcome:'Skipped',durationMs:0,
-    detail:'Not selected: non-destructive mode. No destructive or preparation-dependent live step was executed.',properties:{testMode:selection!.testMode,outcome:'Not selected',reason:'TEST_MODE'}}));
+    detail:deferredApplicationStep(step)?'Not selected: native application workflows are deferred to a separate regression. No live application acceptance is credited.':
+      'Not selected: non-destructive mode. No destructive or preparation-dependent live step was executed.',
+    properties:{testMode:selection!.testMode,outcome:'Not selected',reason:deferredApplicationStep(step)?'SEPARATE_REGRESSION':'TEST_MODE'}}));
+  const modeExcluded=excluded.filter(item=>item.properties.reason==='TEST_MODE'),deferred=excluded.filter(item=>item.properties.reason==='SEPARATE_REGRESSION');
   return '<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>\n'+suite('magicstick-selected-regression',evidence,excludedEngines)+'\n'+
-    (excluded.length?suite('magicstick-not-selected-by-test-mode',excluded)+'\n':'')+
+    (modeExcluded.length?suite('magicstick-not-selected-by-test-mode',modeExcluded)+'\n':'')+
+    (deferred.length?suite('magicstick-deferred-to-separate-regression',deferred)+'\n':'')+
     suite('magicstick-executable-scenarios',scenarios)+'\n'+suite('magicstick-test-steps',steps)+'\n</testsuites>\n';
 }

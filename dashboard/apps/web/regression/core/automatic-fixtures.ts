@@ -5,7 +5,8 @@ import {labPolicy} from './lab-policy.ts';
 import type {HostDrillRecipes} from './host-drill-recipes.ts';
 import {requireSafe} from './errors.ts';
 import {moduleResourceLinks} from '@magicstick/dashboard-core';
-import {realtimeRegressionEnabled} from './engine-policy.ts';
+import {applicationRegressionEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
+import {applicationAdapter} from './application-adapters.ts';
 
 /** Choose test fixtures from the deployed product catalog, including its small
  * CPU text fixtures for compatible GPU runtimes. No user-maintained model list. */
@@ -52,19 +53,25 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
     .sort(([a],[b])=>Number(snapshot.modules.modules[a]?.enabled)-Number(snapshot.modules.modules[b]?.enabled) || a.localeCompare(b))[0];
   if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:snapshot.modules.modules[optional[0]]?.parameters ?? {}};
   const compatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
-  const alternate=compatibility?.profiles?.filter(p=>p.id !== compatibility.selectedProfile).sort((a,b)=>a.id.localeCompare(b.id))[0];
+  const currentProfile=compatibility?.selectedProfile ?? '',amdProfiles=compatibility?.profiles ?? [];
+  // The UI's empty value is the real "Upstream operator rules only" choice,
+  // not a missing fixture. Never borrow an unknown current override that the
+  // advertised profile validator could not restore afterwards.
+  const alternate=(!currentProfile || amdProfiles.some(p=>p.id===currentProfile)) ?
+    amdProfiles.filter(p=>p.id!==currentProfile).sort((a,b)=>a.id.localeCompare(b.id))[0] ??
+      (currentProfile ? {id:'',experimental:false} : undefined) : undefined;
   const amdPin=lab.gpu?.devices.amd;
   const eligibleAmd=amdPin && Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []).some(device=>
     device.vendor==='amd' && device.id===amdPin.id && device.pciAddress===amdPin.pciAddress && device.nodeUid===lab.gpu!.nodeUid &&
     device.node===lab.gpu!.nodeName && device.eligible===true);
   if(alternate && eligibleAmd)profile.moduleProfile={approveTemporaryProfile:true,profileId:alternate.id,allowExperimental:alternate.experimental === true};
   else delete profile.moduleProfile;
-  // Repository-owned semantic adapter. It inspects actual app controls and
-  // does not ask the operator to invent CSS selectors for every run.
+  // Repository-owned adapters follow native controls (Hermes uses a terminal).
+  // The operator never has to invent CSS selectors for every run.
   const suffix=new URL(lab.dashboardUrl).hostname;
   profile.applications={cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:
-    Object.keys(snapshot.modules.catalogJson?.applications ?? {}).filter(type=>['openclaw','hermes','paperclip','kubeopencode','odysseus'].includes(type))
-      .map(type=>({type,originTemplate:`https://{name}.${type}.${suffix}/`,adapter:'semantic-chat-v1',responseMarker:'REGRESSION'}))};
+    Object.keys(snapshot.modules.catalogJson?.applications ?? {}).filter(type=>['openclaw','hermes','paperclip','kubeopencode','odysseus'].includes(type) && applicationRegressionEnabled(type))
+      .map(type=>({type,originTemplate:`https://{name}.${type}.${suffix}/`,adapter:applicationAdapter(type),responseMarker:'REGRESSION'}))};
   profile.kubernetes.plugin={filename:'/inputs/kubectl-oidc_login',sha256:previous.kubernetes?.plugin?.sha256 ?? ''};
   if(previous.federation?.upstream && previous.federation?.brokerCleaner)profile.federation={...previous.federation,approveDisposableProviders:true};
   if(previous.mesh?.peerConfig)profile.mesh={...previous.mesh,approveTwoAppliances:true,approveGpuTransitions:true};

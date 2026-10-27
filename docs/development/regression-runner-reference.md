@@ -24,8 +24,20 @@ UI mutation waits use the configured request timeout (normally 15 seconds),
 not the enclosing hour-long test timeout. A cancelled page proves a write was
 not submitted only when its guarded route never forwarded it. Lost responses
 after submission remain ambiguous. Normal interruption forwards the signal and
-allows two minutes for teardown; cleanup itself has a ten-minute ceiling and
+allows twelve minutes for leaf teardown before forced process-group termination;
+outer coordinators allow fourteen minutes and Kubernetes grants fifteen minutes.
+Cleanup itself has a ten-minute ceiling and
 attempts independently owned resources even if a borrowed-setting restore fails.
+
+`phase4` keeps its public invocation. Its sharing step discovers and validates
+the existing scenario/variant/layer matrix, then executes each scenario exactly
+once in its own sequential process (no parallel GPU work). Preparation, test and
+teardown have separate 10/60/10-minute budgets, with a hard 90-minute scenario
+process limit including shutdown/reporting. The 24-hour Kubernetes campaign
+deadline reserves its last thirty minutes for cancellation, cleanup and export.
+The private coordinator ledger records selected, started and completed scenarios;
+`HAR-10 / DEADLINE` at `runner-execution` identifies a global deadline even after
+an earlier prerequisite block. Unreached checks retain that failure cause.
 
 Guarded foundation and recovery operations verify the bound Dashboard user.
 Only an unauthenticated `/api/session` GET triggers one serialized renewal
@@ -66,6 +78,16 @@ and independent resource absence must still be proved. Ambiguous ownership or
 unfinished unsupported transactions keep subsequent live writes Blocked;
 independent isolated tests continue. The report records the recovery attempt.
 
+Cleanup clearance is derived from the exact root and all worker/model journals,
+borrowed settings, backend readiness and confirmed Lease release, not a report
+boolean or process exit. An independent absence/restoration check writes a private
+fingerprinted verification receipt; later journal writes invalidate it. Parent
+sessions finish only after their writer process group stops. Open/unreadable
+evidence retains the fence. The optional public `cleanup` state is separate from
+test outcome and account removal; old reports remain unchanged and missing fields
+are not a positive proof. Runner ledgers, journals and verification receipts stay
+private and are not added to downloadable archives.
+
 ## JUnit steps and portable report archives
 
 `junit.xml` contains three deliberately separate suites:
@@ -80,6 +102,14 @@ the conventional `[[ATTACHMENT|…]]` marker helps consumers that support it. JU
 has no universal attachment format, so unsupported CI viewers can use the
 property/path or open `summary.html`. Step counts are diagnostics, not additional
 catalogue acceptance or a replacement for the scenario/evidence counts.
+
+Each step is represented once as XML fields/properties, not repeated as a second
+escaped JSON payload. Its complete filtered trace remains an archive attachment.
+The generated download bound stays 64 MiB. An export/storage failure adds
+`HAR-10 / REPORT_EXPORT` at `report-export`, retains completed campaign counts,
+phase results and original private artifacts, and sets `reportAvailable: false`.
+It never substitutes a one-row HAR-02 setup report or invents a cleanup failure.
+Actual unproved cleanup still retains its original credential/recovery fence.
 
 Each canonical phase, `all`, `selftest` and `phaseN-fast` / `phaseN-fixtures`
 produces `report-artifacts.tar.gz`, including after a failed isolated check. It includes
@@ -387,6 +417,8 @@ commit**, with the required jobs/artifact names. A private `tokenFile` in an
 existing profile may supply read-only GitHub access. API/network failures remain
 missing prerequisites; old or other-commit CI success is not substituted.
 Actual artifact/protocol verification still belongs to the tests.
+For anonymous companion checks, the selected run must have the matching public
+native proof; a newer PR artifact build cannot displace a readable trusted build.
 
 No model, key, module, user, license, sharing setting or host operation is changed.
 The separate preparation service can write **only private input files**. Normal
@@ -719,8 +751,18 @@ and clean only owned membership and models.
 
 `companion` consumes fresh native four-platform matrix evidence from the fixed
 repository's `build-mesh-companion.yml`. Pin the current installed commit and run
-ID; optional read-only API credentials stay in a token file. Archive acceptance
-JSON binds source/hash/platform and is retained 30 days. A Linux container does
+ID. Successful trusted builds publish the bounded public
+`magicstick-companion-acceptance` check using the workflow's own token; no GitHub
+credential is installed on the Appliance. Regression verifies the GitHub Actions
+issuer, exact commit, run/attempt and every native platform's source/hash and
+launch boundaries. The fixed workflow itself must also have finished successfully.
+Automatic preparation selects the matching readable trusted build, not a newer
+PR run that merely has acceptance artifacts. It retains the unexpired
+four-platform artifact check; legacy artifact-only selection needs the companion
+profile's own read-only token.
+Older artifact-only builds may use an existing scoped Actions-read token file;
+otherwise `CI_ACCESS` names the missing prerequisite, not a product API failure.
+The exact build proof must be no older than 30 days. A Linux container does
 not execute Windows/macOS binaries. Launcher/loopback/authority proof expressly
 reports `meshInferenceVerified: false`; inference is the separate Mesh workflow.
 

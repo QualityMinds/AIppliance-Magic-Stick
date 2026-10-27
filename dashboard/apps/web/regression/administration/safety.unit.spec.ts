@@ -1,8 +1,8 @@
-import {test,expect} from '@playwright/test';
+import {test,expect,type Browser} from '@playwright/test';
 import type {ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseHostDrill} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
-import {validCompanionReport} from './companion-live.ts';
+import {validCompanionReport,publicCompanionProof,discoverCompanionRun,companionAcceptanceCheck,companionWorkflow} from './companion-live.ts';
 import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
 import {AdministrationApi,allowedAdministrationRead} from '../core/administration-api.ts';
 import type {APIRequestContext} from '@playwright/test';
@@ -11,9 +11,9 @@ import {inspectOidcConfig} from '../core/oidc-exec.ts';
 import {verifyAppCleanerRules,OwnedAppClient,appReleaseTarget,appReleaseReady} from '../core/owned-app.ts';
 import type {AppInstance} from '@magicstick/dashboard-contracts';
 import type {KubeObject} from '../core/observer.ts';
-import {moduleProfileWorkflow} from './modules-live.ts';
+import {moduleProfileWorkflow,waitModuleProfileReadback} from './modules-live.ts';
 import type {LiveFoundation} from '../core/live-foundation.ts';
-import {validateAppFixtures,catalogContext} from './apps-live.ts';
+import {applicationsWorkflow,validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {licenseUiPermits} from './license-live.ts';
@@ -25,9 +25,48 @@ import type {MemoryEstimate,ModelsPayload,ModulesPayload} from '@magicstick/dash
 import {applicationModel,applicationContexts,applicationEditContext} from '../core/application-model.ts';
 import {catalogFixture} from '../core/input-preparation.ts';
 import {HarnessError} from '../core/errors.ts';
+import {HermesTerminalEvidence} from '../core/hermes-terminal.ts';
+import {OpenCodeChatEvidence,completedOpenCodeTurn,openCodeChatPath} from '../core/opencode-chat.ts';
+import {openCodeBackendReady} from '../core/opencode-backend.ts';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.ts';
 import {OwnedModelClient} from '../core/owned-model.ts';
+import {moduleIntentSnapshot} from './mesh-live.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+
+test('MESH-01 read-only navigation compares persisted module intent, not changing reconciliation status',
+  evidenceAnnotations({id:'MESH-01',layer:'U'},{id:'HAR-10',layer:'U'}),()=>{
+  const before:KubeObject[]=[{metadata:{name:'dashboard',namespace:'ai-system',uid:'dashboard-uid',generation:3,resourceVersion:'10'},
+    spec:{module:'dashboard',enabled:true,parameters:{host:'example.local'}},
+    status:{phase:'Ready',observedGeneration:3}},{metadata:{name:'mesh',namespace:'ai-system',uid:'mesh-uid',generation:1},
+    spec:{module:'private-mesh',enabled:true}}];
+  const reconciled=structuredClone(before).reverse();
+  reconciled[1]!.metadata.resourceVersion='11';reconciled[1]!.status={phase:'Reconciling',observedGeneration:3};
+  expect(moduleIntentSnapshot(reconciled)).toBe(moduleIntentSnapshot(before));
+  const custom=structuredClone(before);custom.forEach(item=>{item.metadata.namespace='custom-appliance';});
+  expect(moduleIntentSnapshot(custom,'custom-appliance')).toContain('custom-appliance');
+  expect(()=>moduleIntentSnapshot(custom)).toThrow('[API]');
+  expect(()=>moduleIntentSnapshot(custom,'')).toThrow('[API]');
+  for(const mutate of [
+    (items:KubeObject[])=>{items[0]!.spec!.enabled=false;},
+    (items:KubeObject[])=>{items[0]!.spec!.parameters={host:'other.example.local'};},
+    (items:KubeObject[])=>{items[0]!.metadata.uid='recreated-uid';},
+    (items:KubeObject[])=>{items[0]!.metadata.generation=4;},
+    (items:KubeObject[])=>{items[0]!.metadata.deletionTimestamp='2026-01-01T00:00:00Z';},
+    (items:KubeObject[])=>{items.pop();},
+    (items:KubeObject[])=>{items.push({metadata:{name:'another',namespace:'ai-system',uid:'new-uid',generation:1},spec:{module:'another'}});},
+  ]) {const changed=structuredClone(before);mutate(changed);expect(moduleIntentSnapshot(changed)).not.toBe(moduleIntentSnapshot(before));}
+  for(const broken of [
+    [{metadata:{name:'dashboard',namespace:'ai-system',generation:3},spec:{module:'dashboard'}}],
+    [{metadata:{name:'dashboard',namespace:'ai-system',uid:'uid',generation:0},spec:{module:'dashboard'}}],
+    [{metadata:{name:'dashboard',namespace:'other',uid:'uid',generation:1},spec:{module:'dashboard'}}],
+    [...before,before[0]!],
+    [{metadata:{name:'dashboard',namespace:'ai-system',uid:'uid',generation:1}}],
+  ])expect(()=>moduleIntentSnapshot(broken)).toThrow('[API]');
+});
 
 function applicationInputs() {
   const models={activations:[],presets:{small:{variants:[
@@ -117,11 +156,76 @@ test('APP-02 observes the current controller-owned HelmRelease in the Appliance 
   ])expect(appReleaseReady(item,observed,[change],owned,'ai-system')).toBe(false);
   expect(()=>appReleaseReady({...item,status:{...item.status,phase:'Degraded'}},observed,[child],owned,'ai-system'))
     .toThrow('[stage:app-ready]');
+  // APP-02's real server probe must not create a session while the Service
+  // still load-balances two independent OpenCode databases during a rollout.
+  const agent='fixture-agent',name='kubeopencode-'+agent,namespace='ai',digest='sha256:'+'a'.repeat(64);
+  const agentOwner={kind:'Agent',name:agent,uid:'agent-uid'};
+  const service:KubeObject={metadata:{name:agent,namespace,uid:'service-uid',ownerReferences:[agentOwner]},
+    spec:{selector:{'kubeopencode.io/agent':agent}}};
+  const deployment:KubeObject={metadata:{name:agent+'-server',namespace,uid:'deployment-uid',generation:2,ownerReferences:[agentOwner]},
+    spec:{replicas:1,template:{spec:{containers:[{name:'opencode-server',image:'registry.example.invalid/devbox@'+digest}]}}},
+    status:{observedGeneration:2,replicas:1,readyReplicas:1,updatedReplicas:1,availableReplicas:1} as KubeObject['status']};
+  const replica:KubeObject={metadata:{namespace,uid:'replica-uid',ownerReferences:[{kind:'Deployment',uid:'deployment-uid'}]}};
+  const pod:KubeObject={metadata:{namespace,uid:'pod-uid',labels:{'kubeopencode.io/agent':agent},
+    ownerReferences:[{kind:'ReplicaSet',uid:'replica-uid'}]},status:{phase:'Running',
+      containerStatuses:[{name:'opencode-server',ready:true,imageID:'registry.example.invalid/devbox@'+digest}]}};
+  const readyBackend=(d=deployment,s=service,ps=[pod],rs=[replica])=>openCodeBackendReady(name,namespace,s,d,rs,ps);
+  expect(readyBackend()?.metadata.uid).toBe('pod-uid');
+  const draining={...pod,metadata:{...pod.metadata,uid:'old-pod',deletionTimestamp:new Date().toISOString()}};
+  expect(readyBackend(deployment,service,[draining,pod])).toBeUndefined();
+  for(const change of [{...deployment,status:{...deployment.status,observedGeneration:1}},
+    {...deployment,metadata:{...deployment.metadata,generation:undefined},status:{...deployment.status,observedGeneration:undefined}},
+    {...deployment,status:{...deployment.status,replicas:2}}, {...deployment,metadata:{...deployment.metadata,deletionTimestamp:'now'}}])
+    expect(readyBackend(change)).toBeUndefined();
+  expect(readyBackend(deployment,service,[{...pod,status:{...pod.status,containerStatuses:[{name:'opencode-server',ready:true,imageID:'foreign'}]}}]))
+    .toBeUndefined();
+  expect(()=>readyBackend(deployment,{...service,metadata:{...service.metadata,ownerReferences:[{...agentOwner,uid:'foreign-agent'}]}}))
+    .toThrow('[OWNERSHIP]');
+  expect(()=>readyBackend(deployment,service,[{...pod,metadata:{...pod.metadata,ownerReferences:[{kind:'ReplicaSet',uid:'foreign-replica'}]}}]))
+    .toThrow('[OWNERSHIP]');
+  let reads=0;
+  const observer={list:async(resource:string)=>{
+    if(resource==='services'){reads++;return [service];}
+    if(resource==='helmreleases.helm.toolkit.fluxcd.io')return [{...child,metadata:{...child.metadata,name,
+      labels:{...child.metadata.labels,'appliance.magicstick.dev/appinstance':name,'appliance.magicstick.dev/application':'kubeopencode'}}}];
+    return resource==='deployments.apps'?[deployment]:resource==='replicasets.apps'?[replica]:reads===1?[draining,pod]:[pod];
+  }};
+  const openCodeItem:AppInstance={...item,metadata:{...item.metadata,name},spec:{...item.spec,application:'kubeopencode'},
+    status:{...item.status,name}};
+  const nativeApps=Object.create(OwnedAppClient.prototype) as OwnedAppClient;
+  Object.defineProperties(nativeApps,{owned:{value:new Map([[name,owned]])},read:{value:async()=>openCodeItem},
+    cleaner:{value:{find:async()=>openCodeItem}},live:{value:{guard:async()=>{},observer,config:{expected:{applianceNamespace:'ai-system'}}}}});
+  expect((await nativeApps.ready(name)).item.metadata?.name).toBe(name);expect(reads).toBe(2);
 });
 
-test('MOD-06 absent AMD hardware blocks profile mutation before reading its module or a stale preparation file',annotation,async()=>{
+test('MOD-06 profile mutation requires physical AMD hardware and bounded exact-revision status readback',annotation,async()=>{
   await expect(moduleProfileWorkflow({config:{gpu:{devices:{nvidia:{id:'node/pci'}}}}} as unknown as LiveFoundation))
     .rejects.toMatchObject({code:'GPU_PROVIDER',outcome:'Blocked',stage:'gpu-backend'});
+  const intent:KubeObject={metadata:{uid:'owned-module',generation:2},spec:{enabled:true,module:'amd-gpu',
+    parameters:{compatibilityProfile:'',allowExperimental:'false',gpuSharing:'unchanged-sharing'}},status:{observedGeneration:2}};
+  const stale={schemaVersion:1,profiles:[],nodes:[],selectedProfile:'strix-halo',allowExperimental:true};
+  const current={...stale,selectedProfile:'',allowExperimental:false};
+  let reads=0;
+  await expect(waitModuleProfileReadback(async()=>({intent,compatibility:++reads===1?stale:current}),intent,{timeoutMs:2000}))
+    .resolves.toEqual({intent,compatibility:current});
+  expect(reads).toBe(2);
+  for(const compatibility of [undefined,stale,{...current,allowExperimental:undefined}])
+    await expect(waitModuleProfileReadback(async()=>({intent,compatibility}),intent,{timeoutMs:5}))
+      .rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'module-ready'});
+  await expect(waitModuleProfileReadback(async()=>({intent:{...intent,status:{observedGeneration:1}},compatibility:current}),intent,{timeoutMs:5}))
+    .rejects.toMatchObject({code:'DEADLINE',stage:'module-ready'});
+  for(const changed of [{...intent,metadata:{...intent.metadata,uid:'foreign'}},
+    {...intent,metadata:{...intent.metadata,generation:3}},
+    {...intent,metadata:{...intent.metadata,deletionTimestamp:'2026-10-24T16:00:00Z'}},
+    {...intent,spec:{...intent.spec,parameters:{compatibilityProfile:'',allowExperimental:'false',gpuSharing:'foreign-sharing'}}}])
+    await expect(waitModuleProfileReadback(async()=>({intent:changed,compatibility:current}),intent))
+      .rejects.toMatchObject({code:'CONFLICT',outcome:'Failed'});
+  reads=0;
+  await expect(waitModuleProfileReadback(async()=>{reads++;throw new HarnessError('API','Failed');},intent))
+    .rejects.toMatchObject({code:'API',outcome:'Failed'});
+  expect(reads).toBe(1);
+  await expect(waitModuleProfileReadback(async()=>({intent,compatibility:stale}),intent,{timeoutMs:5,stage:'recovery-module'}))
+    .rejects.toMatchObject({code:'DEADLINE',stage:'recovery-module'});
 });
 test('HAR-10 license UI protection allows bodyless polling but rejects unrelated and stale writes',annotation,()=>{
   const document='synthetic-license',revision='synthetic-revision',origin='https://dashboard.example.local';
@@ -231,6 +335,98 @@ test('HAR-10 native companion proof is commit/platform/format bound and is not m
     expect(validCompanionReport({...proof,...patch},'linux-x64',revision)).toBe(false);
 });
 
+function publicCompanionFixture() {
+  const revision='a'.repeat(40),run={id:123,run_attempt:2,head_sha:revision,event:'workflow_dispatch',
+    path:'.github/workflows/build-mesh-companion.yml',status:'completed',conclusion:'success',updated_at:new Date().toISOString(),
+    repository:{full_name:'QualityMinds/AIppliance-Magic-Stick'}};
+  const reports=Object.entries({'macos-arm64':'darwin','macos-x64':'darwin','linux-x64':'linux','windows-x64':'win32'})
+    .map(([platform,native])=>({version:1,platform,sourceRevision:revision,archiveSha256:'b'.repeat(64),
+      launchCheck:{version:1,platform:native,launcherVerified:true,transportVerified:true,loopbackAuthVerified:true,
+        inferenceAuthorityVerified:true,originHostVerified:true,isolatedStateVerified:true,meshInferenceVerified:false}}));
+  const check={name:companionAcceptanceCheck,head_sha:revision,external_id:'123:2',app:{slug:'github-actions'},
+    details_url:'https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/123',status:'completed',conclusion:'success',
+    output:{text:JSON.stringify({version:1,runId:123,runAttempt:2,sourceRevision:revision,reports})}};
+  return {revision,run,reports,check};
+}
+test('MESH-09 automatic discovery prefers the readable trusted proof over a newer PR artifact build',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const newer={...run,id:999,event:'pull_request'},requests:number[]=[];
+  const artifacts=async(id:number)=>{requests.push(id);return {artifacts:reports.map(report=>({
+    name:'companion-acceptance-'+report.platform,expired:false}))};};
+  expect(await discoverCompanionRun([newer,run],{check_runs:[check]},revision,artifacts)).toEqual(run);
+  expect(requests).toEqual([run.id]);
+  expect(await discoverCompanionRun([newer],{check_runs:[check]},revision,artifacts)).toBeUndefined();
+  expect(await discoverCompanionRun([newer],{check_runs:[]},revision,artifacts,true)).toEqual(newer);
+  requests.length=0;
+  expect(await discoverCompanionRun([newer,run],{check_runs:[check]},revision,artifacts,true)).toEqual(run);
+  expect(requests).toEqual([run.id]);
+});
+test('MESH-09 automatic discovery rejects missing attempt proof and expired or ambiguous platform artifacts',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const complete=reports.map(report=>({name:'companion-acceptance-'+report.platform,expired:false}));
+  expect(await discoverCompanionRun([run],{check_runs:[]},revision,async()=>({artifacts:complete}))).toBeUndefined();
+  for(const artifacts of [complete.slice(0,3),[...complete,complete[0]],complete.map((v,i)=>i?v:{...v,expired:true})])
+    expect(await discoverCompanionRun([run],{check_runs:[check]},revision,async()=>({artifacts}))).toBeUndefined();
+  await expect(discoverCompanionRun([run],{check_runs:[{...check,head_sha:'c'.repeat(40)}]},revision,
+    async()=>({artifacts:complete}))).rejects.toThrow('[REVISION]');
+});
+test('MESH-09 public native proof requires the exact GitHub workflow attempt and every verified platform',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  expect(publicCompanionProof({check_runs:[check]},run,revision)).toHaveLength(4);
+  expect(publicCompanionProof({check_runs:[]},run,revision)).toBeUndefined();
+  for(const patch of [{head_sha:'c'.repeat(40)},{app:{slug:'foreign'}},{status:'in_progress'},{conclusion:'failure'},
+    {details_url:'https://example.invalid/run/123'}])
+    expect(()=>publicCompanionProof({check_runs:[{...check,...patch}]},run,revision)).toThrow('[REVISION]');
+  for(const altered of [reports.slice(0,3),[...reports.slice(0,3),reports[0]],
+    reports.map((r,i)=>i? r:{...r,launchCheck:{...r.launchCheck,originHostVerified:false}})])
+    expect(()=>publicCompanionProof({check_runs:[{...check,output:{text:JSON.stringify({version:1,runId:123,runAttempt:2,sourceRevision:revision,reports:altered})}}]},run,revision)).toThrow();
+  expect(()=>publicCompanionProof({check_runs:[{...check,output:{text:'private-invalid-json'}}]},run,revision)).toThrow('[API]');
+});
+
+test('MESH-09 accepts the canonical check-ID URL returned by GitHub Actions but not foreign or mismatched links',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const {revision,run,reports,check}=publicCompanionFixture();
+  const url='https://github.com/QualityMinds/AIppliance-Magic-Stick/runs/456';
+  const actual={...check,id:456,details_url:url,html_url:url};
+  expect(publicCompanionProof({check_runs:[actual]},run,revision)).toHaveLength(4);
+  expect(await discoverCompanionRun([run],{check_runs:[actual]},revision,async()=>({artifacts:reports.map(report=>({
+    name:'companion-acceptance-'+report.platform,expired:false}))}))).toEqual(run);
+  for(const patch of [{id:457},{id:0},{id:'456'},{id:456.5},{html_url:url+'?untrusted'},
+    {details_url:url+'/extra'}, {details_url:'https://example.invalid/runs/456'},
+    {details_url:url.replace('QualityMinds','Other')},{app:{slug:'foreign'}}])
+    expect(()=>publicCompanionProof({check_runs:[{...actual,...patch}]},run,revision)).toThrow('[REVISION]');
+  expect(publicCompanionProof({check_runs:[{...actual,external_id:'123:1'}]},run,revision)).toBeUndefined();
+});
+
+test('MESH-09 anonymous workflow proof needs no artifact token; legacy access blocks without a doomed ZIP request',
+  evidenceAnnotations({id:'MESH-09',variant:'p7-mesh-09',layer:'C'}),async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-companion-proof-'));
+  const oldProfile=process.env.REGRESSION_REMAINING_PROFILE,oldRun=process.env.REGRESSION_RUN_DIR;
+  try {
+    const {revision,run,check}=publicCompanionFixture();await privateDirectory(directory);
+    const file=join(directory,'profile.json');await writePrivate(file,{companion:{runId:123,sourceRevision:revision}});
+    process.env.REGRESSION_REMAINING_PROFILE=file;process.env.REGRESSION_RUN_DIR=directory;
+    const requests:string[]=[];let publicProof=true;
+    const live={config:{requestTimeoutMs:1000,expected:{flux:{revision:'branch@sha1:'+revision}}},context:{request:{get:async(url:string,options:any)=>{
+      requests.push(url);expect(options.headers).not.toHaveProperty('Authorization');
+      const data=url.includes('/check-runs?')?{check_runs:publicProof?[check]:[]}:run;
+      return {status:()=>200,body:async()=>Buffer.from(JSON.stringify(data)),json:async()=>data};
+    }}}} as unknown as LiveFoundation;
+    await companionWorkflow(live);
+    expect(JSON.parse(await readPrivate(join(directory,'companion-acceptance.json')))).toMatchObject({proofSource:'github-check',meshInferenceVerified:false});
+    publicProof=false;
+    await expect(companionWorkflow(live)).rejects.toMatchObject({code:'CI_ACCESS',outcome:'Blocked',stage:'companion-evidence'});
+    expect(requests.some(url=>url.includes('/zip')||url.includes('/artifacts'))).toBe(false);
+  }finally {
+    if(oldProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=oldProfile;
+    if(oldRun===undefined)delete process.env.REGRESSION_RUN_DIR;else process.env.REGRESSION_RUN_DIR=oldRun;
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
 test('HAR-10 online security evidence cannot use stale, pending, wrong-repo or wrong-commit CI',annotation,()=>{
   const now=Date.now(),revision='a'.repeat(40),path='.github/workflows/dependency-security.yml';
   const proof={path,head_sha:revision,status:'completed',conclusion:'success',updated_at:new Date(now).toISOString(),
@@ -265,13 +461,149 @@ test('HAR-10 kubeconfig permits only typed PKCE exec metadata and verified clust
   expect(()=>inspectOidcConfig({...config,clusters:[{name:'fixture',cluster:{...config.clusters[0]!.cluster,'insecure-skip-tls-verify':true}}]},'https://identity.example.invalid')).toThrow();
 });
 
-test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application or URL inventory',annotation,()=>{
+test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application or URL inventory',annotation,async()=>{
   const fixtures=['openclaw','hermes','paperclip','kubeopencode','odysseus'].map(type=>({type,originTemplate:'https://{name}.'+type+'.example.invalid',
     promptLabel:'Prompt',sendButton:'Send',responseSelector:'[data-role=response]',responseMarker:'REGRESSION'}));
-  expect(validateAppFixtures(fixtures)).toHaveLength(5);
+  expect(validateAppFixtures(fixtures).map(item=>item.type)).toEqual(['openclaw','paperclip','kubeopencode','odysseus']);
+  expect(validateAppFixtures(fixtures.filter(item=>item.type!=='hermes'))).toHaveLength(4);
+  expect(fixtures).toHaveLength(5);
   expect(()=>validateAppFixtures(fixtures.slice(1))).toThrow();
   expect(()=>validateAppFixtures([...fixtures.slice(1),fixtures[1]])).toThrow();
   expect(()=>validateAppFixtures([{...fixtures[0],originTemplate:'http://{name}.example.invalid'},...fixtures.slice(1)])).toThrow();
+  const terminal={type:'hermes',originTemplate:'https://{name}.hermes.example.invalid/',adapter:'hermes-terminal-v1',responseMarker:'REGRESSION'};
+  expect(validateAppFixtures([terminal])).toEqual([]);
+  const deferredDirectory=await mkdtemp(join(tmpdir(),'magicstick-hermes-deferred-'));
+  const previousProfile=process.env.REGRESSION_REMAINING_PROFILE;
+  try {
+    const filename=join(deferredDirectory,'profile.json');
+    await writePrivate(filename,{identity:{approveDisposableUsers:true},applications:{
+      cleanerKubeconfig:join(deferredDirectory,'unused-cleaner.yaml'),fixtures:[terminal]}});
+    process.env.REGRESSION_REMAINING_PROFILE=filename;
+    const live=new Proxy({config:{requestTimeoutMs:100}}, {get(target,key){
+      if(key==='config')return target.config;
+      throw new Error('Deferred Hermes workflow must not reach live preparation or mutations');
+    }}) as unknown as LiveFoundation;
+    await expect(applicationsWorkflow(live,{} as Browser)).rejects.toMatchObject({code:'PREREQUISITE'});
+  }finally {
+    if(previousProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=previousProfile;
+    await rm(deferredDirectory,{recursive:true,force:true});
+  }
+  const opencode={type:'kubeopencode',originTemplate:'https://{name}.kubeopencode.example.invalid/',adapter:'opencode-chat-v1',responseMarker:'REGRESSION'};
+  expect(validateAppFixtures([opencode])).toEqual([opencode]);
+  expect(()=>validateAppFixtures([{...opencode,type:'hermes'}])).toThrow('[CONFIG]');
+  expect(openCodeChatPath).toBe('/L3dvcmtzcGFjZQ/session');
+  const requestUrl='https://opencode.example.invalid/session/ses_fixture/prompt_async?directory=%2Fworkspace';
+  const nativeMarker='REGRESSION_fresh',nativePrompt='Reply with exactly '+nativeMarker;
+  const nativeBody={messageID:'msg_prompt',model:{providerID:'litellm',modelID:'reg-model'},parts:[{type:'text',text:nativePrompt}]};
+  const nativeTurn={sessionId:'ses_fixture',messageId:'msg_prompt',model:'reg-model',prompt:nativePrompt,marker:nativeMarker};
+  const nativeReply={info:{id:'msg_response',sessionID:'ses_fixture',parentID:'msg_prompt',role:'assistant',providerID:'litellm',
+    modelID:'reg-model',time:{created:1,completed:2},finish:'stop'},parts:[{type:'text',text:nativeMarker,sessionID:'ses_fixture',messageID:'msg_response'}]};
+  const nativeProof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');
+  expect(nativeProof.snapshot().composerReady).toBe(false);nativeProof.ready();
+  expect(nativeProof.begin(nativeMarker)).toBe(nativePrompt);nativeProof.submit(requestUrl,'POST',nativeBody);
+  nativeProof.acknowledge(requestUrl,'POST',204);expect(nativeProof.accepted()).toBe(true);
+  expect(new URL(nativeProof.messageUrl()).pathname).toBe('/session/ses_fixture/message');
+  expect(nativeProof.observe([nativeReply])).toBe(true);nativeProof.renderedResponse();
+  expect(nativeProof.snapshot()).toEqual({composerReady:true,submitted:true,acknowledged:true,completed:true,rendered:true,failed:false,promptStatus:204});
+  const headerProof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');headerProof.begin(nativeMarker);
+  headerProof.submit(requestUrl.split('?')[0]!,'POST',nativeBody,{directory:encodeURIComponent('/workspace'),workspace:'owned-workspace'});
+  headerProof.acknowledge(requestUrl.split('?')[0]!,'POST',204);expect(headerProof.accepted()).toBe(true);
+  expect(new URL(headerProof.messageUrl()).searchParams.get('workspace')).toBe('owned-workspace');
+  for(const scope of [{directory:'/foreign'},{directory:encodeURIComponent('/foreign')},{workspace:'../foreign'}]) {
+    const proof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');proof.begin(nativeMarker);
+    expect(()=>proof.submit(requestUrl,'POST',nativeBody,scope)).toThrow('[MUTATION]');
+  }
+  for(const bad of [{...nativeBody,model:{...nativeBody.model,modelID:'foreign-model'}},
+    {...nativeBody,model:{...nativeBody.model,providerID:'external'}},{...nativeBody,noReply:true},
+    {...nativeBody,messageID:'../foreign'}, {...nativeBody,parts:[{type:'text',text:'other prompt'}]},
+    {...nativeBody,parts:[...nativeBody.parts,{type:'file',url:'https://foreign.invalid'}]}]) {
+    const proof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');proof.begin(nativeMarker);
+    expect(()=>proof.submit(requestUrl,'POST',bad)).toThrow('[MUTATION]');
+  }
+  for(const address of [requestUrl.replace('opencode.example.invalid','foreign.example.invalid'),requestUrl.replace('%2Fworkspace','%2Fforeign'),
+    requestUrl+'&token=synthetic',requestUrl.replace('ses_fixture','..')]) {
+    const proof=new OpenCodeChatEvidence('https://opencode.example.invalid','reg-model');proof.begin(nativeMarker);
+    expect(()=>proof.submit(address,'POST',nativeBody)).toThrow('[MUTATION]');
+  }
+  expect(()=>nativeProof.submit(requestUrl,'POST',nativeBody)).toThrow('[MUTATION]');
+  for(const response of [{...nativeReply,info:{...nativeReply.info,sessionID:'foreign'}},
+    {...nativeReply,info:{...nativeReply.info,modelID:'foreign'}}, {...nativeReply,info:{...nativeReply.info,providerID:'external'}},
+    {...nativeReply,info:{...nativeReply.info,error:{name:'synthetic'}}}, {...nativeReply,info:{...nativeReply.info,finish:'length'}},
+    {...nativeReply,parts:[{...nativeReply.parts[0],text:nativePrompt}]}, {...nativeReply,parts:[{...nativeReply.parts[0],synthetic:true}]},
+    {...nativeReply,parts:[{...nativeReply.parts[0],ignored:true}]}, {...nativeReply,parts:[{...nativeReply.parts[0],messageID:'foreign'}]}])
+    expect(()=>completedOpenCodeTurn([response],nativeTurn)).toThrow();
+  for(const response of [{...nativeReply,info:{...nativeReply.info,parentID:'old-prompt'}},
+    {...nativeReply,info:{...nativeReply.info,role:'user'}}, {...nativeReply,info:{...nativeReply.info,time:{created:1}}},
+    {...nativeReply,info:{...nativeReply.info,finish:'tool-calls'}}])
+    expect(completedOpenCodeTurn([response],nativeTurn)).toBe(false);
+  expect(()=>completedOpenCodeTurn([nativeReply,nativeReply],nativeTurn)).toThrow('[API]');
+  expect(()=>validateAppFixtures([{...terminal,type:'openclaw'}])).toThrow('[CONFIG]');
+  expect(()=>validateAppFixtures([{...terminal,adapter:'unreviewed'}])).toThrow('[CONFIG]');
+  expect(()=>validateAppFixtures([{...terminal,responseMarker:'arbitrary prompt with spaces'}])).toThrow('[CONFIG]');
+  const wire=(type:string,seq:number,payload?:unknown,session_id='root')=>JSON.stringify({jsonrpc:'2.0',method:'event',params:{type,seq,session_id,payload}});
+  const model='reg-fixture-model',marker='REGRESSION_fresh',origin='https://hermes.example.invalid';
+  const prepared=()=>{
+    const proof=new HermesTerminalEvidence(origin,model);
+    expect(proof.open('wss://hermes.example.invalid/api/ws?token=private-token')).toBeUndefined();
+    expect(proof.open('wss://foreign.example.invalid/api/events?channel=owned')).toBeUndefined();
+    expect(proof.open('ws://hermes.example.invalid/api/events?channel=owned')).toBeUndefined();
+    const pty=proof.open('wss://hermes.example.invalid/api/pty?channel=owned&token=private-token')!;
+    const feed=proof.open('wss://hermes.example.invalid/api/events?channel=owned&ticket=private-ticket')!;
+    proof.received(feed,wire('session.info',1,{model,lazy:true}));expect(proof.ready()).toBe(true);
+    const prompt=proof.begin(marker);
+    for(const character of prompt)proof.sent(pty,character);
+    proof.sent(pty,'\r');
+    return {proof,pty,feed,prompt};
+  };
+  const live=(current:ReturnType<typeof prepared>)=>{
+    current.proof.received(current.feed,wire('session.info',2,{model,provider:'custom:litellm',version:'synthetic'}));
+    current.proof.received(current.feed,wire('message.start',3));
+  };
+  const success=prepared();live(success);
+  success.proof.received(success.feed,wire('message.complete',4,{status:'complete',text:marker},'foreign-session'));
+  success.proof.received(success.feed,wire('message.complete',1,{status:'complete',text:marker}));
+  expect(success.proof.complete()).toBe(false);
+  success.proof.received(success.feed,wire('message.complete',4,{status:'complete',text:marker}));
+  expect(success.proof.complete()).toBe(true);expect(success.proof.expectedCopy()).toBe(marker);
+  success.proof.copiedResponse();expect(success.proof.snapshot()).toMatchObject({agent:true,submitted:true,started:true,completed:true,copied:true,failed:false});
+  expect(JSON.stringify(success.proof.snapshot())).not.toMatch(/private-token|private-ticket|root|reg-fixture-model/);
+  for(const result of [{status:'interrupted',text:marker},{status:'error',text:marker},{text:marker},
+    {status:'complete',partial:true,text:marker},{status:'complete',error:'synthetic',text:marker},
+    {status:'complete',failure_reason:'synthetic',text:marker},{status:'complete',text:'stale answer'},
+    {status:'complete',text:'Reply with exactly '+marker}]) {
+    const current=prepared();live(current);current.proof.received(current.feed,wire('message.complete',4,result));
+    expect(()=>current.proof.complete()).toThrow('[API]');
+  }
+  const lazy=prepared();lazy.proof.received(lazy.feed,wire('message.start',2));
+  lazy.proof.received(lazy.feed,wire('message.complete',3,{status:'complete',text:marker}));
+  expect(()=>lazy.proof.complete()).toThrow('[API]');
+  const noStart=prepared();noStart.proof.received(noStart.feed,wire('message.complete',4,{status:'complete',text:marker}));
+  expect(()=>noStart.proof.complete()).toThrow('[API]');
+  for(const info of [{model:'foreign-model',provider:'custom:litellm',version:'synthetic'},
+    {model,provider:'external-provider',version:'synthetic'},{model,provider:'custom:litellm',version:'synthetic',credential_warning:'synthetic'}]) {
+    const current=prepared();current.proof.received(current.feed,wire('session.info',2,info));
+    expect(()=>current.proof.complete()).toThrow('[API]');
+  }
+  for(const damage of ['closed','reconnected','malformed','oversize','sequence'] as const) {
+    const current=prepared();live(current);
+    if(damage==='closed')current.proof.close(current.pty);
+    if(damage==='reconnected')current.proof.open('wss://hermes.example.invalid/api/pty?channel=replacement');
+    if(damage==='malformed')current.proof.received(current.feed,'not json');
+    if(damage==='oversize')current.proof.received(current.feed,'x'.repeat(1024*1024+1));
+    if(damage==='sequence')current.proof.received(current.feed,wire('message.complete',NaN,{status:'complete',text:marker}));
+    expect(()=>current.proof.complete()).toThrow('[API]');
+  }
+  const otherChannel=new HermesTerminalEvidence(origin,model);
+  otherChannel.open('wss://hermes.example.invalid/api/pty?channel=owned');
+  const foreignFeed=otherChannel.open('wss://hermes.example.invalid/api/events?channel=foreign')!;
+  otherChannel.received(foreignFeed,wire('session.info',1,{model,provider:'custom:litellm',version:'synthetic'}));
+  expect(otherChannel.ready()).toBe(false);
+  const unsent=new HermesTerminalEvidence(origin,model);
+  unsent.open('wss://hermes.example.invalid/api/pty?channel=owned');
+  const feed=unsent.open('wss://hermes.example.invalid/api/events?channel=owned')!;
+  unsent.received(feed,wire('session.info',1,{model,provider:'custom:litellm',version:'synthetic'}));unsent.begin(marker);
+  unsent.received(feed,wire('message.start',2));unsent.received(feed,wire('message.complete',3,{status:'complete',text:marker}));
+  expect(unsent.complete()).toBe(false);
 });
 
 test('HAR-10 Realtime frames are masked, bounded and reject malformed/extended server messages',annotation,()=>{

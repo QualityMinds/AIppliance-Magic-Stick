@@ -8,6 +8,196 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep unchanged NVIDIA Ollama runtimes running when KubeAI omits an empty
+  argument list. Withdraw stopped/deleting local models from routing even while
+  old KubeAI readiness remains visible. GPU-verification evidence uses native
+  ResourceClaim UID/resource-version and immutable-spec identity rather than
+  requiring a CRD-style generation field. Existing lifecycle and GPU cases
+  cover these corrections; no campaign cases or longer deadlines are added.
+
+- Add fixed Kubernetes diagnostic selections for the existing external-provider
+  lifecycle, single/all-GPU verification, slot-consumer and four-card Ollama
+  split scenarios. Preparation, exact cleanup and scoped reports remain required;
+  mixed older runners cannot expand a diagnostic into a full phase.
+- Separate external-model UI readiness from its request deadline and journal the
+  exact acknowledged lifecycle generation before later browser failure. GPU
+  verification allows a bounded, not-yet-started allocation window without
+  accepting changed Claim identities or losing physical-device checks.
+- Drain single/split NVIDIA DRA runtimes through regular foreground retirement
+  before applying changed Pod settings. Wait for all old Pods, preserve shared
+  claims, caches and saved models, and refuse foreign runtime identities.
+
+- Defer native Hermes application workflows to a separate regression suite.
+  Standard runs no longer prepare or execute Hermes instances, including from
+  retained input profiles. Reports name the exclusion without passing or blocking
+  Hermes checks; historical failures, cleanup and the Hermes product remain
+  unchanged. Other application workflows and isolated Hermes adapter checks stay
+  selected; reduced Phase 5 coverage is not full application acceptance.
+
+- Preserve the exact NVIDIA validation allocation observed while its Job runs;
+  Kubernetes may release that allocation before removing the successful Pod.
+  A completed verification still needs the same Pod/Claim identities, unchanged
+  claim intent, physical UUID and runtime image. Wait for KubeOpenCode's single
+  native server backend after its asynchronous rollout, not only Helm readiness,
+  before starting the existing application workflow. Keep native prompt HTTP
+  status in the private diagnostic; do not retry failed submissions. Existing
+  cases cover these regressions without adding campaign tests.
+
+- Wait for the pinned OpenCode composer's loaded owned-model and agent controls
+  before its first regression submission; a visible editor alone does not prove
+  native readiness. Verify the exact old API Pod is absent before completing the
+  existing license-restart check, avoiding a race with final deployment-pin
+  validation. Existing Chromium and license fixtures cover both regressions;
+  no campaign cases or phases were added.
+
+- Use the pinned OpenCode application's native workspace/session composer in
+  the existing KubeOpenCode regression workflow. Fence its actual UI submission
+  to the owned local model and verify a fresh completed assistant turn through
+  both native message identity and rendered assistant content. Keep a restarted
+  KEY-04 worker's unmanaged-key receipt beside its own journal, so it cannot
+  invalidate an earlier worker's verified cleanup. No campaign cases were added.
+
+- Use Hermes' native terminal in the existing application regression instead of
+  looking for a generic Send button. Verify its same-channel live model/session,
+  fresh completed answer and actual UI clipboard export; clear clipboard data
+  afterwards. An incompatible built-in app adapter is a harness failure, not a
+  missing external prerequisite. No campaign cases or phases were added.
+
+- Wait for the exact saved AMD profile generation and controller projection
+  before the regression reload assertion, and verify the restored projection
+  separately. Use the installer's opaque LiteLLM master credential in the
+  disposable unmanaged-key test without assuming a user-token `sk-` prefix;
+  keep header bounds, authentication and exact fixture cleanup unchanged.
+
+- Report a failed physical GPU verification binding as a failed proof at
+  `gpu-binding`, not an unavailable hardware prerequisite. Retain a bounded
+  private detail code for the failed check without weakening card/claim/image
+  identity checks or changing historical results. Match NVIDIA verification
+  against its exact DRA pool's complete current generation, not retired or
+  same-named devices in another pool.
+
+- Prepare the real **Upstream operator rules only** AMD profile choice when the
+  current explicit profile is the only advertised profile. Keep that explicit
+  empty value distinct from a missing fixture; reject unchanged, unadvertised
+  or unapproved changes and preserve the normal exact-restoration checks.
+
+- Update the pinned Dashboard build/test dependencies and shared Zod validation
+  library for the October security advisories. Retain strict fresh dependency
+  audits and add offline downgrade guards for every affected locked copy;
+  isolated checks do not replace exact-revision CI or appliance acceptance.
+
+- Pin Envoy Proxy 1.38.7 by immutable image digest across the controller default,
+  identity/setup gateways and isolated session fixture. This patch includes
+  main-thread destruction of SDS secret providers during filter teardown.
+  Keep gateway crash/restart assertions and exact regression cleanup fences;
+  native route-churn acceptance remains required after updating an appliance.
+
+- Verify read-only Mesh navigation against independently observed module UIDs,
+  generations and complete saved configuration. Normal status reconciliation
+  and list ordering no longer look like a write; actual configuration changes,
+  replacements, deletions and blocked write attempts still fail MESH-01.
+
+- Verify regression cleanup receipts per journal scope as well as for the whole
+  run. Later independently cleaned workers no longer invalidate an unchanged
+  root receipt. Open resources, changed receipts, live workers and unverified
+  legacy evidence still fence subsequent writes; historical reports are unchanged.
+
+- Finalize Phase 1 reports with the same per-step evidence scope in the runner
+  and reporter. Core CPU/Ollama checks no longer require session, browser-fixture
+  or final-preflight results from other steps. Missing selected evidence, real
+  failures, cleanup fences and the complete Phase 1 layer matrix remain enforced;
+  historical reports are unchanged.
+
+- Verify regression worker termination from Linux process state, retaining a
+  private bounded diagnostic and reaping orphaned children with Tini. Zombies
+  cannot cause a permanent running-session fence; live or unreadable workers
+  still block recovery. Kubernetes cleanup can attest an exact old terminated
+  run/Job/Pod and unchanged session before using existing identity-bound resource
+  recovery. Historical sessions/results are not rewritten. Process failures
+  retain their original cause instead of claiming another run owns the Lease.
+
+- Show all regression check evidence first, including runner and cleanup errors.
+  Keep executable-scenario totals in a closed detail view and live evidence
+  separately labelled. Missing final totals remain unavailable, not zero failures;
+  100% progress means execution finished, not passed. New HTML/text exports use
+  the same order without rewriting stored results or changing JSON/JUnit counts.
+
+- Recover interrupted NVIDIA DRA-to-device-plugin transitions even when their
+  completion marker was never written. Verify the managed chart, claims and
+  consumers, wait for complete DRA Pod removal, then confirm real device-plugin
+  capacity before restoring borrowed defaults. Cleanup deadlines retain the
+  actual stalled recovery/backend stage without releasing the safety lock.
+
+- Select fixed Phase 4 diagnostics in the Kubernetes runner: last-slot races,
+  sharing reload, exact restoration or their combined remaining-case profile.
+  Reuse existing serial scenarios and UID-bound cleanup. Persist selection and
+  report scope; reject unsupported images/schemas instead of running a whole
+  phase. Diagnostic evidence never certifies complete Phase 4 acceptance.
+  Native runs refresh renamed installation-owned login URLs only when the exact
+  persisted lab registration and Appliance/Node identities remain unchanged;
+  previous journals and cleanup evidence are never rewritten or discarded.
+
+- Migrate legacy setup Deployments from `RollingUpdate` to `Recreate` before
+  Flux applies identity updates. Clear retained rollout fields with UID/version
+  preconditions, preserving the Deployment, Pod template and setup state.
+  Repeat convergence is a no-op; foreign ownership and stale writes are refused.
+
+- Preserve the mounted Remember-me migration script during Flux post-build
+  substitution, so shell variables cannot block identity and dependent Dashboard
+  or regression rollouts. Add actual strict Flux build counterexamples while
+  retaining strict checks for other identity resources.
+
+- Keep identity changes in both Dashboard build and browser CI selection. Include
+  the separately selected Remember-me browser coverage in catalogue validation
+  without treating it as installed Phase 5 evidence. Keep subprocess test output
+  in private temporary directories so the counterexamples also run in the
+  read-only Linux runner image; missing proof is a failure, not a prerequisite.
+
+- Run Phase 4 sharing and multi-GPU scenarios sequentially with independent
+  execution and cleanup budgets. Preserve global timeouts and interrupted
+  selections as trace-linked harness failures. Verify exact root/worker journals,
+  borrowed settings and Lease release before clearing a cleanup fence or removing
+  test credentials; show tests, resource cleanup and account removal separately.
+
+- Offer Keycloak **Remember me** for seven days idle and at most thirty days.
+  Unchecked sessions retain thirty minutes idle and ten hours maximum, with
+  five-minute access tokens. A versioned startup migration updates untouched
+  defaults through the existing bootstrap administrator and preserves custom
+  policies without granting Dashboard service accounts realm-management rights.
+
+- Keep completed regression outcomes when a report download cannot be exported.
+  Report `HAR-10 / REPORT_EXPORT` separately, preserve verified cleanup, and avoid
+  duplicating every step as JSON in JUnit. Step outcomes and filtered attachments
+  remain available without exceeding the full campaign's download bound.
+
+- Preserve vLLM 0.31's native transition from automatic CPU startup threads to
+  single-threaded serving under a container quota. Explicit operator thread
+  policies remain unchanged. Retain fixed per-rank GPU collective milestones
+  in sanitized failure traces without publishing native output or GPU identities.
+
+- Use the same explicit Float32 payload for sender and receiver in the NVIDIA
+  collective preflight. Integer-filled receive buffers must not infer Int64 and
+  stall an otherwise functioning host-mediated multi-GPU transport.
+
+- Publish native companion acceptance in a bounded public GitHub check after
+  all four platform builds pass. Installed regression verifies the exact commit,
+  workflow attempt and platform proofs without an Appliance GitHub token;
+  automatic preparation prefers that readable build over newer PR artifacts.
+  Accept GitHub Actions' canonical check-ID link only when it matches that
+  exact check and repository; commit, workflow-attempt and platform proofs remain
+  mandatory.
+  Older artifact-only builds report missing access as a prerequisite.
+
+- Synchronize System Status browser-history checks on the URL, selected tab and
+  visible panel. Keep Back/Forward in dedicated NAV-02 scenarios for desktop and
+  mobile, including slowed Chromium, so one history failure does not mark the
+  unrelated navigation/form assertions as failed.
+
+- Run GPU regression scenarios from fresh exclusive installation defaults without
+  requiring manually saved sharing settings. Journal missing/empty parameters,
+  restore the exclusive backend before removing borrowed intent, and retain
+  UID/revision and ambiguous-write cleanup fences.
+
 - Choose non-destructive checks (the Dashboard default) or full regression with
   destructive scenarios. Persist the immutable choice through the API, Job and
   reports. Non-destructive runs use a temporary viewer, isolated inputs and
@@ -122,6 +312,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   standalone service fixture and retain serial-test failure dependencies.
 - Bound default CPU-vLLM OpenMP workers by the container's real CPU quota,
   preserving explicit runtime tuning instead of increasing inference timeouts.
+- Default the reviewed vLLM 0.31.0 CPU image to its classic model runner after
+  reproducing the newer runner's first-response timeout on AVX2. Preserve
+  explicit native policy, compiler arguments, dtype, budgets and GPU execution;
+  cover the policy in Phase 2 and the real pinned-image configuration contract.
 - Follow the pinned Kubernetes-login plugin's actual local callback instruction,
   validate its IdP/PKCE redirect and final callback state, and isolate mutation
   receipts when a failed regression case restarts its browser worker.
