@@ -41,7 +41,8 @@ PREPARATION_STAGES = {'request', 'tls', 'login', 'discovery', 'kubernetes-access
 RECOVERED_RUN_IDS = []
 PREPARATION_DETAILS = {'ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
                        'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED',
-                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'}
+                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND',
+                       'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'}
 
 
 class SetupError(Exception):
@@ -1081,9 +1082,12 @@ def run_preparation(directory, arguments):
         # ESM import failures happen before the worker's own catch block. Name
         # the fixed error type only, never its module name or filesystem path.
         if not codes:
-            imports = re.findall(r"\bcode:\s*['\"](ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND)['\"]", worker_output)
+            imports = re.findall(r"\bcode:\s*['\"](ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX)['\"]|"
+                                 r"\b(?:SyntaxError|Error)\s*\[(ERR_MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX)\]", worker_output)
             if imports:
-                detail = imports[-1]
+                detail = next(value for value in imports[-1] if value)
+                if detail == 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX':
+                    code = 'CONFIG'
         raise SetupError('Verified input preparation failed (' + code + ') at ' + stage +
                          ('. Detail: ' + detail if detail else '') +
                          '. Check the reported prerequisite or failed step; accepted inputs and recovery receipts were not bypassed.',

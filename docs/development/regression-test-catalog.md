@@ -619,6 +619,16 @@ too; no source-to-promotion equivalence is inferred. Source changes and isolated
 checks do not establish native appliance acceptance. Historical reports remain
 unchanged; qualified rollout and targeted native retests are pending.
 
+Same-day follow-up for HAR-02/07/10 and SEC-03: preparation shares only the pure
+CI-selection helper, not the live adapter's transpiler-dependent imports. The
+existing preparation-selection case invokes both plain-Node entry modes before
+any inputs or browser are used. Existing reporting cases also cover a failed
+preparation across Phases 6–8 and an explicit child cause under a different
+inherited recovery cause. Unknown live coverage without a recorded barrier and
+missing fixture coverage still fail; UID/revision-bound cleanup is unchanged.
+The launcher exposes only a fixed unsupported-TypeScript detail. No registered
+cases are added; local counterexamples are not installed-appliance acceptance.
+
 ### 2026-10-27 — defer product-service/application live workflows
 
 The current source policy excludes only the live A/E/O/N layers of

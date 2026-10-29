@@ -49,6 +49,8 @@ test('HAR-02 HAR-07 native registration follows renamed origins only for the exa
 test('HAR-07 recovery accepts only fixed setup stage/detail markers',()=>{
   expect(setupWorkerMarker('[SETUP_STAGE:kubernetes-access] [detail:ERR_MODULE_NOT_FOUND]')).toEqual(
     {setupStage:'kubernetes-access',detail:'ERR_MODULE_NOT_FOUND'});
+  expect(setupWorkerMarker('[SETUP_STAGE:input-discovery] [detail:ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]')).toEqual(
+    {setupStage:'input-discovery',detail:'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'});
   expect(setupWorkerMarker('[SETUP_STAGE:run-recovery]')).toEqual({setupStage:'run-recovery'});
   expect(setupWorkerMarker('[SETUP_STAGE:run-recovery] private-token')).toBeUndefined();
   expect(setupWorkerMarker('[SETUP_STAGE:foreign]')).toBeUndefined();

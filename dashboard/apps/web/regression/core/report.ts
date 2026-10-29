@@ -58,7 +58,7 @@ export function summarizeExecutions(cases:Array<{executionId?:string;executionOu
 /** Fill the finite matrix, not just one row per catalogue family. A missing
  * prerequisite or interrupted serial group must remain visible in JSON/JUnit. */
 export function completeCases(mode:string|undefined,cases:CaseResult[],required:string[],reason:ReasonCode='PREREQUISITE',
-  recoveryFenceAtStart=false):CaseResult[] {
+  recoveryFenceAtStart=false,preparation?:PreparationDiagnostic):CaseResult[] {
   const result=cases.map(item=>({...item,outcome:terminalOutcome(item.outcome)}));
   const missingCause=(id:string,variant?:string):RegressionBlocker=>{
     const peers=cases.filter(item=>variant?item.variant===variant:item.id===id);
@@ -70,6 +70,14 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
   const absent=(id:string,variant:string|undefined,environment:TestEnvironment)=>{
     const cause=missingCause(id,variant);
     if(reason==='PREREQUISITE'&&cause.caseId==='HAR-10'&&cause.stage==='runner-execution')return {reason:'DEPENDENCY' as const,blockedBy:cause};
+    // A validated failed/blocked preparation is an explicit execution barrier,
+    // not missing live evidence. Isolated coverage still has to prove itself.
+    if(environment==='live'&&reason==='PREREQUISITE'&&cause.kind==='unknown'&&preparation&&preparation.outcome!=='Passed') {
+      const failed=preparation.outcome==='Failed',rootReason=preparation.reason??'PREREQUISITE';
+      return {reason:failed?'PREPARATION_FAILED' as const:rootReason,blockedBy:failed?
+        {kind:'failure' as const,caseId:'HAR-02',reason:rootReason}:
+        {kind:regressionBlockedKind(rootReason),reason:rootReason}};
+    }
     // This phase entered with a recorded recovery fence, so its live steps
     // were refused before mutation. Do not infer this from a fence introduced
     // later in the phase, or attribute absent fixture layers to that fence.
@@ -231,7 +239,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   const selectionText=(diagnostic?`Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.')+deferredText;
   const portableArchive=Boolean(diagnostic)||mode==='all'||mode==='selftest'||mode==='recover'||mode==='phase4-sharing'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
-  const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true).map(item => {
+  const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true,prepared).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
     requireSafe(['Passed', 'Failed', 'Blocked', 'Skipped', 'Not run', 'Flaky'].includes(item.outcome) &&
       testLayers.includes(item.layer) && Number.isFinite(item.durationMs) && item.durationMs >= 0, 'CONFIG');
@@ -250,6 +258,8 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
         {blockedBy:checkedBlocker({kind:'failure',caseId:'HAR-02',reason:prepared.reason ?? 'PREPARATION_FAILED'})} :
         item.outcome==='Blocked' && environment==='live' && prepared?.outcome==='Blocked' && reason==='PREREQUISITE' ?
         {blockedBy:checkedBlocker({kind:regressionBlockedKind(prepared.reason ?? 'PREREQUISITE'),reason:prepared.reason ?? 'PREREQUISITE'})} :
+        item.outcome==='Blocked'&&reason==='RECOVERY'&&checkedBlocker(item.blockedBy)?
+          {blockedBy:checkedBlocker(item.blockedBy)}:
         item.outcome==='Blocked'&&reason==='RECOVERY'&&recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)?
           {blockedBy:recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)}:
         item.outcome==='Blocked' && checkedBlocker(item.blockedBy) ? {blockedBy:checkedBlocker(item.blockedBy)} :

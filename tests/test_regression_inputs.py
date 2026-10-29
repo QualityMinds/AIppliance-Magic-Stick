@@ -655,6 +655,10 @@ class RegressionInputTests(unittest.TestCase):
         cases = [
             ('synthetic-private-error\n[SETUP_STAGE:synthetic-secret] [detail:synthetic-secret]\n', 1, 'UNEXPECTED', None),
             ("Cannot find /synthetic-private-path; code: 'ERR_MODULE_NOT_FOUND'\n", 1, 'UNEXPECTED', 'ERR_MODULE_NOT_FOUND'),
+            ('file:///synthetic-private-path\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: synthetic-private-error\n',
+             1, 'CONFIG', 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'),
+            ("synthetic-private-error; code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n",
+             1, 'CONFIG', 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'),
             ('synthetic-private-error\n', 2, 'PREREQUISITE', None),
         ]
         for output, returncode, code, detail in cases:

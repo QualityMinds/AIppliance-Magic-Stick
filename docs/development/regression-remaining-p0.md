@@ -274,6 +274,16 @@ complete Phase 1 report still requires all selected variants and layers across
 those steps. A genuine missing selected check still fails `MISSING_EVIDENCE`;
 repairing the scope does not remove failures from historical reports.
 
+A recorded failed preparation remains the original `HAR-02` failure. Live checks
+refused by that explicit barrier are **Blocked by failure**, not additional
+`HAR-10 / MISSING_EVIDENCE` errors. Missing isolated coverage still fails.
+An explicit case's saved cause takes precedence over a later inherited recovery
+cause; the original case, stage and trace remain available. Standalone worker
+imports are checked with plain Node, not only Playwright's transpiler. An
+unsupported TypeScript import is reported as `CONFIG` at `input-discovery` with
+the fixed `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` detail, never a raw stack or private
+path. Resource-cleanup proof remains independent and old reports stay unchanged.
+
 The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
 scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
 cause properties. The archive retains every row, even when the Dashboard limits

@@ -8,6 +8,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep automatic regression preparation's CI selection independent of live
+  adapters so its plain-Node entrypoint reaches validation without unsupported
+  TypeScript imports. Preserve explicit blocked causes over inherited phase
+  guards, and attribute unstarted live checks to a recorded preparation failure
+  instead of inventing additional missing-evidence errors. Missing isolated
+  coverage and unverified resource cleanup still fail closed. Existing cases
+  include native-entrypoint and failed-preparation counterexamples.
+
 - Correct GPU form checks for delayed loading and multiple same-vendor cards,
   including mobile accordion help controls. Cache regression populates an owned
   fixture and distinguishes deferred runtime, safe cache-in-use rejection and
