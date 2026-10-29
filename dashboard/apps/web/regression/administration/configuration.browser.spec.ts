@@ -2,7 +2,7 @@ import {test,expect,type Page,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants,remainingVariantEnabled} from '../profiles/remaining-p0.ts';
-import {gpuMemoryDraft,settingsDrafts,selectRange} from './form-checks.ts';
+import {gpuMemoryDraft,gpuSharingDrafts,settingsDrafts,selectRange} from './form-checks.ts';
 import type {ModelActivation,ModelsPayload} from '@magicstick/dashboard-contracts';
 import {selectRealtimeCompute} from './realtime-live.ts';
 
@@ -179,6 +179,19 @@ async function browserProof(page:Page,group:string,id:string) {
       '/api/mesh':{...mesh,configured:true,phase:'connected',authority:true,mesh:{id:'fixture-mesh',name:'Fixture Mesh',authority:'fixture-owner'},
         node:{id:'fixture-owner',name:'fixture-node',type:'magic-stick'},nodes:[],shares:{},imports:[],relay:{mode:'auto',url:''},invites:[]}});
     await settingsDrafts(page,origin,'fixture-node');
+    // The live GPU-only check enters Hardware directly: its first response can
+    // still be loading, and four physical NVIDIA cards share one provider form.
+    for(const width of [1440,390]) {
+      await page.goto('about:blank');await page.setViewportSize({width,height:900});
+      const status=gpuStatus(),card=status.hardwareOperators['nvidia-gpu'].devices[0]!;
+      status.hardwareOperators['nvidia-gpu'].devices=Array.from({length:4},(_,index)=>({...card,
+        id:`fixture-node-uid/nvidia-${index}`,pciAddress:`0000:0${index+1}:00.0`}));
+      const delayedWrites=await mount(page,'system/hardware',{'/api/status':async()=>{
+        await new Promise(resolve=>setTimeout(resolve,250));return status;
+      },'/api/hardware/gpu-sharing':sharing});
+      await gpuSharingDrafts(page,'fixture-node',['AMD','NVIDIA']);
+      expect(delayedWrites).toEqual([]);
+    }
     expect(writes).toEqual([]); return;
   }
   if(group === 'gpu-host') {

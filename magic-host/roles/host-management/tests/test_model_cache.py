@@ -92,6 +92,36 @@ class ModelCacheTests(unittest.TestCase):
         self.assertFalse(cache.collect(node(), self.kube)["blocked"])
         self.assertTrue(cache.cache_path_overlap(str(self.hf / ".." / self.hf.name / "models--example")))
         self.assertTrue(cache.cache_path_overlap("/"))
+        # The shipped NVIDIA infrastructure observes /host read-only. It is
+        # not a model-cache consumer; unknown ancestors must still fail closed.
+        app = "nvidia-device-plugin-daemonset"
+        spec = {"volumes": [{"name": "host-root", "hostPath": {"path": "/"}}],
+                "containers": [{"name": "plugin", "image": "nvcr.io/nvidia/k8s-device-plugin:v0.20.0",
+                                "volumeMounts": [{"name": "host-root", "mountPath": "/host", "readOnly": True}]}]}
+        pod = {"metadata": {"uid": "pod-uid", "namespace": "gpu-operator",
+                            "labels": {"app": app, "app.kubernetes.io/managed-by": "gpu-operator"},
+                            "ownerReferences": [{"kind": "DaemonSet", "name": app, "uid": "daemon-uid", "controller": True}]},
+               "spec": copy.deepcopy(spec)}
+        daemon = {"metadata": {"name": app, "namespace": "gpu-operator", "uid": "daemon-uid"},
+                  "spec": {"template": {"spec": copy.deepcopy(spec)}}}
+        self.contents["daemonsets.apps"] = [daemon]
+        self.contents["pods"] = [pod]
+        self.assertFalse(cache.collect(node(), self.kube)["blocked"])
+        for kind in ("owner", "namespace", "image", "writable", "subpath", "cache", "unknown"):
+            with self.subTest(kind=kind):
+                changed = copy.deepcopy(pod)
+                if kind == "owner": changed["metadata"]["ownerReferences"][0]["uid"] = "foreign"
+                if kind == "namespace": changed["metadata"]["namespace"] = "foreign"
+                if kind == "image": changed["spec"]["containers"][0]["image"] = "foreign/image"
+                if kind == "writable": changed["spec"]["containers"][0]["volumeMounts"][0]["readOnly"] = False
+                if kind == "subpath": changed["spec"]["containers"][0]["volumeMounts"][0]["subPath"] = "root/.ollama"
+                if kind == "cache": changed["spec"]["volumes"][0]["hostPath"]["path"] = str(self.hf)
+                if kind == "unknown": changed["metadata"]["labels"]["app"] = "unknown"
+                self.contents["pods"] = [changed]
+                self.assertTrue(cache.collect(node(), self.kube)["blocked"])
+                with self.assertRaises(ValueError): cache.clear(node(), self.kube, self.payload)
+        self.contents["pods"] = [pod]
+        self.assertEqual(cache.clear(node(), self.kube, self.payload)["reclaimableBytes"], 0)
 
     def test_disabled_external_and_other_pinned_node_do_not_block(self):
         self.contents["modelactivations.appliance.magicstick.dev"] = [

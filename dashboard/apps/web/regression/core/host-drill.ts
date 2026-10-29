@@ -12,8 +12,9 @@ import {openInferenceSession} from './auth.ts';
 import {canonical} from './borrowed-sharing.ts';
 import {podSpec} from './gpu-scenario.ts';
 import {selectRange} from '../administration/form-checks.ts';
-import {materializeHostDrill} from './host-drill-recipes.ts';
+import {materializeHostDrill,recipeBundle} from './host-drill-recipes.ts';
 import {automaticHostRecipes} from './automatic-fixtures.ts';
+import type {KubeObject} from './observer.ts';
 
 const actions:Record<string,string[]>={
   'HOST-04':['prepare-gpu'],'HOST-05':['prepare-gpu'],
@@ -69,6 +70,45 @@ export function parseHostDrill(value:unknown,id:string,host:ManagedHost):HostDri
   return fixture;
 }
 
+export async function prepareCacheFixture(live:LiveFoundation,api:AdministrationApi,id:string,host:ManagedHost) {
+  // Populate only through the normal owned-model lifecycle. An empty cache is
+  // not a successful deletion, and a retained model is not a clean baseline.
+  requireSafe(live.config.smokeModel,'PREREQUISITE');
+  requireSafe(host.available && live.config.expected.nodes.some(node=>node.uid === host.nodeUid &&
+    node.name === host.name && node.bootId === host.bootId),'IDENTITY');
+  requireSafe(host.modelCache?.supported && host.modelCache.blocked === false,'PREREQUISITE');
+  const seed=await live.createModel('cache-seed-'+id.toLowerCase());
+  await live.waitReady(seed.client,seed.uid,seed.generation);
+  await live.cleanup(live.journal,{kind:'model',name:seed.client.name});
+  return poll(async()=>{
+    await live.guard();
+    const value=(await api.api.hostManagement()).nodes.find(item=>item.nodeUid === host.nodeUid);
+    requireSafe(!value || value.bootId === host.bootId && value.name === host.name,'IDENTITY');
+    return value;
+  },value=>Boolean(value?.available && value.modelCache?.supported && value.modelCache.blocked === false && value.modelCache.reclaimableBytes > 0),
+  {timeoutMs:180_000,intervalMs:1000,stage:'host-readiness'});
+}
+
+export function cacheSafetyRejection(operation:{phase?:string;message?:string}|null|undefined) {
+  return Boolean(operation && ['Failed','Rejected'].includes(operation.phase ?? '') && [
+    'Stop local model deployments before clearing shared caches.',
+    'A model started during cleanup. Remaining cache files were kept.',
+  ].includes(operation.message ?? ''));
+}
+export function cacheRaceOutcome(operation:KubeObject,expected:KubeObject,state:Awaited<ReturnType<LiveFoundation['modelState']>>,name:string) {
+  requireSafe(expected.metadata.uid && operation.metadata.uid === expected.metadata.uid &&
+    operation.metadata.generation === expected.metadata.generation && expected.spec?.action === 'clear-model-cache' &&
+    typeof expected.spec.requestId === 'string' && canonical(operation.spec) === canonical(expected.spec),'OWNERSHIP');
+  requireSafe(state.item?.spec?.enabled === true && state.item.metadata?.uid &&
+    state.observed?.metadata.uid === state.item.metadata.uid,'OWNERSHIP');
+  if(cacheSafetyRejection(operation.status))return 'rejected';
+  const phase=operation.status?.phase;
+  if(['Failed','Rejected','Interrupted'].includes(phase ?? ''))throw new HarnessError('HOST','Failed','host-readiness');
+  if(phase === 'Succeeded')throw new HarnessError('CACHE_RACE_WINDOW','Blocked','host-readiness');
+  requireSafe(state.pods.length === 0 && !state.models.models?.some(model=>model.id === name),'API');
+  return /cache cleanup/i.test(state.item?.status?.message ?? '') ? 'deferred' : undefined;
+}
+
 export async function runHostDrill(live:LiveFoundation,id:string) {
   if(process.env.REGRESSION_EXECUTION === 'kubernetes' && !id.startsWith('CACHE-')) throw new HarnessError('EXTERNAL_RUNNER');
   // No environment variable alone can approve a reboot. A reviewed one-boot
@@ -78,6 +118,15 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
   let host=(await api.api.hostManagement()).nodes.find(item=>item.nodeUid === (json.version === 2 ? json.nodeUid : json.cases[id]?.request?.nodeUid));
   requireSafe(host,'IDENTITY');
+  if(id.startsWith('CACHE-') && live.config.registrationFile && json.version === 2) {
+    // A previous cleanup (or a fresh installation) may have left no bytes to
+    // delete. Populate the shared cache through the existing owned model path,
+    // never by writing arbitrary host files. Remove the workload and wait for
+    // the host's independent inventory before materializing the current plan.
+    recipeBundle(json,live.config.expected.applianceUid,host.nodeUid);
+    host=await prepareCacheFixture(live,api,id,host);
+    requireSafe(host,'IDENTITY');
+  }
   if(live.config.registrationFile && json.version === 2)json=automaticHostRecipes(live.config,host);
   requireSafe([1,2].includes(json?.version) && json.cases && Object.hasOwn(json.cases,id),'PREREQUISITE');
   if(json.version === 2 && id.startsWith('CHANNEL-')) {
@@ -145,6 +194,9 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
   const receipt=['GPUHOST-05','NET-05','CHANNEL-06','CACHE-04'].includes(id) ? await submitThroughUi(live,id,host,request,persistRequest) :
     await api.write({method:'POST',path:'/api/host-management/operations',body:request},()=>api.api.requestHostOperation(request));
   requireSafe(receipt.accepted === true && receipt.requestId === request.requestId,'API');
+  // Submit the competing intent immediately after the acknowledged cleanup,
+  // not after several observer polls which may consume the entire race window.
+  const cacheRace=id === 'CACHE-06' ? await live.createModel('cache-race') : undefined;
   const operationName='host-'+createHash('sha256').update(JSON.stringify(host.nodeUid)).digest('hex').slice(0,24);
   const observed=await poll(async()=>{
     const intents=await observeDuringOutage(()=>live.observer.list('hostoperations.appliance.magicstick.dev',live.config.expected.applianceNamespace));
@@ -171,13 +223,13 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
     }
   }
   if(id === 'CACHE-06') {
-    const current=await live.observer.get('hostoperations.appliance.magicstick.dev',live.config.expected.applianceNamespace,operationName);
-    requireSafe(!['Succeeded','Failed','Rejected'].includes(current.status?.phase ?? ''),'PREREQUISITE');
-    const created=await live.createModel('cache-race');
-    const state=await poll(()=>live.modelState(created.client,created.uid),value=>/cache|maintenance/i.test(value.item?.status?.message ?? ''),
-      {timeoutMs:30_000,intervalMs:1000,stage:'model-ready'});
-    requireSafe(state.pods.length === 0 && !state.models.models?.some(model=>model.id === created.client.name) &&
-      /cache|maintenance/i.test(state.item?.status?.message ?? ''),'API');
+    const created=cacheRace!;
+    await poll(async()=>{
+      const [operation,state]=await Promise.all([
+        live.observer.get('hostoperations.appliance.magicstick.dev',live.config.expected.applianceNamespace,operationName),
+        live.modelState(created.client,created.uid)]);
+      return cacheRaceOutcome(operation,observed,state,created.client.name);
+    },Boolean,{timeoutMs:60_000,intervalMs:500,stage:'model-ready'});
     await live.cleanup(live.journal,{kind:'model',name:created.client.name});
   }
   if(id.startsWith('NET-')) {
@@ -217,9 +269,13 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
     const boot=String(node.status?.nodeInfo?.bootID ?? ''); if(boot) boots.add(boot);
     try {
       const report=(await api.api.hostManagement()).nodes.find(item=>item.nodeUid === host.nodeUid);
+      if(report?.operation?.requestId === request.requestId && ['Failed','Rejected','Interrupted'].includes(report.operation.phase) &&
+        report.operation.phase !== drill.expected.terminal && !(id === 'CACHE-06' && cacheSafetyRejection(report.operation)))
+        throw new HarnessError('HOST','Failed','host-readiness');
       return {node,report};
-    } catch {return {node,report:undefined};}
-  },value=>value?.report?.operation?.requestId === request.requestId && value.report.operation.phase === drill.expected.terminal,
+    } catch(error) {if(error instanceof HarnessError && error.code === 'HOST')throw error;return {node,report:undefined};}
+  },value=>value?.report?.operation?.requestId === request.requestId && (value.report.operation.phase === drill.expected.terminal ||
+    id === 'CACHE-06' && cacheSafetyRejection(value.report.operation)),
   {timeoutMs:1_800_000,intervalMs:3000,stage:'host-readiness'});
   requireSafe(final?.report,'HOST');const report=final.report;
   await live.lease.finishOfflineWindow();
@@ -230,7 +286,13 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
   if(drill.expected.ipv4) requireSafe(drill.expected.ipv4.every(address=>report.network?.interfaces.some(item=>item.addresses.includes(address))),'HOST');
   if(drill.expected.sourceCommit) requireSafe(report.software?.hostCommit === drill.expected.sourceCommit && report.software.observed?.ready === true &&
     report.software.observed.appliedRevision?.endsWith(drill.expected.sourceCommit),'REVISION');
-  if(drill.expected.freeCacheIds) requireSafe(drill.expected.freeCacheIds.every(cache=>report.modelCache?.caches.some(item=>item.id === cache && item.usedBytes === 0)),'HOST');
+  if(id === 'CACHE-06' && cacheSafetyRejection(report.operation)) {
+    const terminal=await live.observer.get('hostoperations.appliance.magicstick.dev',live.config.expected.applianceNamespace,operationName);
+    requireSafe(terminal.metadata.uid === observed.metadata.uid && terminal.metadata.generation === observed.metadata.generation &&
+      canonical(terminal.spec) === canonical(observed.spec) && cacheSafetyRejection(terminal.status),'OWNERSHIP');
+    requireSafe(Number(report.modelCache?.reclaimableBytes) > 0,'HOST');
+  }
+  else if(drill.expected.freeCacheIds) requireSafe(drill.expected.freeCacheIds.every(cache=>report.modelCache?.caches.some(item=>item.id === cache && item.usedBytes === 0)),'HOST');
   if(id.startsWith('CACHE-'))requireSafe(canonical((await live.api.models()).activations.map(item=>({uid:item.metadata?.uid,spec:item.spec}))) === beforeCacheModels,'API');
   requireSafe(canonical(await api.api.settings()) === settings,'API');
   if(!['HOST-04','HOST-05','CHANNEL-06','CHANNEL-07','CHANNEL-08'].includes(id))requireSafe(canonical((await live.observer.list('moduleactivations.appliance.magicstick.dev',live.config.expected.applianceNamespace))

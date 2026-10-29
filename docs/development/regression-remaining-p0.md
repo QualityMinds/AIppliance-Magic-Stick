@@ -40,6 +40,15 @@ selected by default. Progress and reports identify the saved selection; other
 phases are not run or counted as passed. Earlier results are never reused.
 Reloading the page does not stop the Kubernetes Job.
 
+Full cache scenarios automatically populate a small owned model cache, remove
+the exact model resources and wait for fresh host inventory before deleting.
+The cache race requires observed overlap or the worker's exact safe cache-in-use
+rejection; finishing too early is blocked, not proof of a race. SEC-03/MESH-09
+need fresh CI for the installed GitOps commit, including a later image-pin
+promotion. A green build for the earlier image source alone does not supply
+those separate checks. Preparation queries that exact commit rather than only
+the most recent repository-wide runs; older results are never rewritten.
+
 After renaming the appliance, native preparation refreshes the dashboard and
 Keycloak origins supplied by that same installation. Its saved registration ID,
 Appliance/Node identities and policy must still match exactly. This does not

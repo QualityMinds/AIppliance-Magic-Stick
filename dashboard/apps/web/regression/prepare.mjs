@@ -23,6 +23,7 @@ import {automaticGpuProfile,automaticProfile,automaticHostRecipes} from './core/
 import {labPolicy,registeredLab} from './core/lab-policy.ts';
 import {setupDetails} from './core/preparation-diagnostic.ts';
 import {companionAcceptanceCheck,discoverCompanionRun} from './administration/companion-live.ts';
+import {latestSecurityCiRun} from './administration/security-live.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..',import.meta.url)));
@@ -239,8 +240,10 @@ async function ciCandidates(source,snapshot,options) {
   ]) {
     if(field === 'runId' ? !options.phases.includes(7) : !options.phases.includes(8))continue;
     try {
-      const listing=await get('/workflows/'+workflow+'/runs?per_page=100');
-      const candidates=(listing.workflow_runs ?? []).filter(run=>run.repository?.full_name === 'QualityMinds/AIppliance-Magic-Stick' &&
+      const listing=await get('/workflows/'+workflow+'/runs?head_sha='+revision+'&per_page=100');
+      const selected=field==='runId' ? listing.workflow_runs ?? [] :
+        [latestSecurityCiRun(listing.workflow_runs ?? [],'.github/workflows/'+workflow,revision)].filter(Boolean);
+      const candidates=selected.filter(run=>run.repository?.full_name === 'QualityMinds/AIppliance-Magic-Stick' &&
         run.path === '.github/workflows/'+workflow && run.head_sha === revision && run.status === 'completed' && run.conclusion === 'success' &&
         Date.now() >= Date.parse(run.updated_at) && Date.now()-Date.parse(run.updated_at) <= days*86400_000);
       if(field==='runId') {
