@@ -165,6 +165,8 @@ test('HAR-10 blocked dependencies inherit only their own scenario cause, preserv
   expect(blockedCounts(cases)).toEqual({prerequisite:2,failure:1,cancelled:1,unknown:2});
   expect(blockedCounts(cases,true)).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
   expect(regressionBlockedKind('EXTERNAL_RUNNER')).toBe('prerequisite');
+  expect(regressionBlockedKind('CACHE_RACE_WINDOW')).toBe('prerequisite');
+  expect(blockedAction('CACHE_RACE_WINDOW','prerequisite')).toContain('Repeat CACHE-06');
   expect(regressionBlockedKind('RECOVERY')).toBe('failure');
   expect(withBlockedCauses([{id:'HAR-10',outcome:'Blocked',reason:'PREREQUISITE'}])[0]?.blockedBy?.kind).toBe('unknown');
 });
