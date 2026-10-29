@@ -128,6 +128,7 @@ export function reportExitCode(cases:Array<{outcome:Outcome}>) {
     !cases.length || cases.some(item=>terminalOutcome(item.outcome) === 'Blocked') ? 2 : 0;
 }
 export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionBlockedKind) {
+  if(reason==='CACHE_RACE_WINDOW')return 'Repeat CACHE-06 with its automatically populated owned model cache. Cleanup finished before overlapping intent was observed; no concurrency proof was credited. Do not slow the production worker or bypass its safety checks.';
   if(reason==='CI_ACCESS')return 'Run build-mesh-companion.yml for the exact installed commit and wait for its public native acceptance check. Legacy builds can use an existing scoped Actions-read token; do not grant Appliance administrator access or silently pass the check.';
   if(reason==='REPORT_EXPORT')return 'Inspect report size, storage and export permissions. Keep the original campaign and cleanup receipts; do not rerun tests or force recovery just to recreate a download.';
   if(reason==='MISSING_EVIDENCE')return 'Repair the runner selection/evidence mapping or interrupted child report. Do not configure a prerequisite or reuse an older result to fill this gap.';
