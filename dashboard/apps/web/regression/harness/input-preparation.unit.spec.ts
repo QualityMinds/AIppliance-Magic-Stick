@@ -1,5 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {parseLabConfig} from '../core/config.ts';
 import {allowedPreparationRequest,estimateInput,preparationApi} from '../core/preparation-api.ts';
 import {automaticInputRecovery,catalogFixture,inputHash,inputReadiness,pinChanges,preparationArguments,prepareInputs,preparedProfile,
@@ -262,6 +264,17 @@ test('HAR-10 preparation selection is bounded; no ambient or blanket approval',(
   for(const args of [['--phases','8-0'],['--phases','9'],['--approve','all'],['--approve','reboot'],['--drill','NET-07'],
     ['--accept','../../lab.json'],['--independent-recovery'],['--phases','0','--phases','1']])
     expect(()=>preparationArguments(args)).toThrow();
+  // Playwright transpiles imported helpers; Kubernetes invokes this entrypoint
+  // with plain Node. Reach argument validation without inputs, a browser or writes.
+  const env=Object.fromEntries(Object.entries(process.env).filter(([name])=>!name.startsWith('REGRESSION_')&&name!=='NODE_OPTIONS'));
+  for(const worker of [false,true]) {
+    const result=spawnSync(process.execPath,[fileURLToPath(new URL('../prepare.mjs',import.meta.url)),
+      ...(worker?['--worker']:[]),'--not-a-preparation-option'],{env,encoding:'utf8',timeout:15_000});
+    expect(result.error).toBeUndefined();expect(result.status).toBe(1);
+    expect(result.stderr).toContain('[CONFIG]');
+    expect(result.stderr).toContain('[SETUP_STAGE:input-discovery]');
+    expect(result.stderr).not.toContain('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX');
+  }
 });
 
 test('HAR-10 initial candidate uses independent identities, exact runtime pins and catalog CPU fixtures',()=>{

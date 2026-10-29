@@ -248,6 +248,22 @@ test('HAR-02 HAR-10 a preparation failure blocks dependent live checks as failur
     const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
     expect(json.counts).toMatchObject({Failed:1,Blocked:1});
     expect(json.cases[1].blockedBy).toEqual({kind:'failure',caseId:'HAR-02',reason:'AUTH'});
+    // An explicit failed preparation also explains live tuples which were
+    // refused before the browser worker could record per-case evidence.
+    for(const mode of ['phase6-live','phase7-live','phase8-live']) {
+      const required=[...new Set(remainingRequirements(mode)!.map(item=>item.id))];
+      await saveReport(directory,newRunId(),[
+        {id:'HAR-02',layer:'A',outcome:'Failed',durationMs:0,reason:'AUTH'},
+      ],required,'unknown',mode,diagnostic);
+      const guarded=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+      expect(guarded.counts.Failed).toBe(1);
+      expect(guarded.cases.filter((item:CaseResult)=>item.outcome==='Blocked').every((item:CaseResult)=>
+        item.reason==='PREPARATION_FAILED'&&item.blockedBy?.caseId==='HAR-02'&&item.blockedBy.reason==='AUTH')).toBe(true);
+      expect(guarded.cases.some((item:CaseResult)=>item.reason==='MISSING_EVIDENCE')).toBe(false);
+    }
+    await saveReport(directory,newRunId(),[],remainingIds('phase6')!,'unknown','phase6',diagnostic);
+    const missingFixture=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(missingFixture.cases.some((item:CaseResult)=>item.environment==='fixture'&&item.reason==='MISSING_EVIDENCE')).toBe(true);
   }finally{
     if(previous===undefined)delete process.env.REGRESSION_PREPARATION_FAILED;else process.env.REGRESSION_PREPARATION_FAILED=previous;
     await rm(directory,{recursive:true,force:true});
@@ -368,6 +384,8 @@ test('HAR-10 GPU prerequisite next actions distinguish missing physical hardware
 
 test('HAR-07 HAR-10 an explicitly guarded child retains its original failure through JSON JUnit and campaign import',async()=>{
   const output=await mkdtemp(join(tmpdir(),'magicstick-guarded-child-')),runId=newRunId(),directory=join(output,runId),receipt=join(output,'phase-result.json');
+  const previous=process.env.REGRESSION_RECOVERY_CAUSE;
+  process.env.REGRESSION_RECOVERY_CAUSE=JSON.stringify({kind:'failure',caseId:'HAR-02',reason:'CONFIG'});
   const cause={kind:'failure' as const,caseId:'MOD-03',reason:'API',stage:'gateway-ready',executionId:'c'.repeat(24),traceRunId:newRunId()};
   const required=[...new Set(remainingRequirements('phase6-live')!.map(item=>item.id))];
   try {
@@ -384,7 +402,10 @@ test('HAR-07 HAR-10 an explicitly guarded child retains its original failure thr
     const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
     expect(json.counts.Failed).toBe(0);expect(json.executionCounts).toEqual({Passed:0,Failed:0,Blocked:0});
     expect(json.blockedCounts.failure).toBe(child.report.cases.length);
-  } finally {await rm(output,{recursive:true,force:true});}
+  } finally {
+    if(previous===undefined)delete process.env.REGRESSION_RECOVERY_CAUSE;else process.env.REGRESSION_RECOVERY_CAUSE=previous;
+    await rm(output,{recursive:true,force:true});
+  }
 });
 
 test('HAR-10 cleanup cause survives later phase guards and only verified restoration clears it',()=>{

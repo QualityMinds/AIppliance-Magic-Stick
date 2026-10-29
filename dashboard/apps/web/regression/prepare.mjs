@@ -23,7 +23,7 @@ import {automaticGpuProfile,automaticProfile,automaticHostRecipes} from './core/
 import {labPolicy,registeredLab} from './core/lab-policy.ts';
 import {setupDetails} from './core/preparation-diagnostic.ts';
 import {companionAcceptanceCheck,discoverCompanionRun} from './administration/companion-live.ts';
-import {latestSecurityCiRun} from './administration/security-live.ts';
+import {latestSecurityCiRun} from './core/security-ci.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..',import.meta.url)));
