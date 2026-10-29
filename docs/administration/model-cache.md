@@ -28,6 +28,12 @@ activations and any remaining KubeAI Model resource conservatively protect cache
 on every node, including scale-to-zero deployments. Existing terminating model
 Pods must also disappear before cleanup.
 
+The NVIDIA operator's own read-only `/host` observers are not model-cache
+consumers. The worker verifies their exact controller UID and mounted
+container template before excluding them. Unknown host-root consumers, writable
+mounts and direct cache mounts still block cleanup; labels or a Pod name alone
+never authorize an exception.
+
 ## Scope
 
 - Hugging Face: only `models--*` entries in `/root/.cache/huggingface/hub`.

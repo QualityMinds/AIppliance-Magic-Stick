@@ -17,7 +17,7 @@ export interface KubeObject {
     ownerReferences?: Array<{uid: string; kind: string; name?: string; controller?: boolean}>};
   spec?: Record<string, unknown>;
   status?: {nodeInfo?: {bootID?: string; kernelVersion?: string}; observedGeneration?: number;
-    conditions?: Array<{type: string; status: string; reason?: string; observedGeneration?: number}>; phase?: string;
+    conditions?: Array<{type: string; status: string; reason?: string; observedGeneration?: number}>; phase?: string; message?: string;
     readyReplicas?: number; replicas?: number; lastAppliedRevision?: string;
     allocatable?: Record<string, string>; capacity?: Record<string, string>;
     allocation?: Record<string, unknown>; devices?: Record<string, unknown>; active?: number; succeeded?: number; failed?: number;

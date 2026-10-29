@@ -8,6 +8,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Correct GPU form checks for delayed loading and multiple same-vendor cards,
+  including mobile accordion help controls. Cache regression populates an owned
+  fixture and distinguishes deferred runtime, safe cache-in-use rejection and
+  a missed race window. Verify read-only NVIDIA host observers by controller
+  identity/template without exempting unknown or writable cache consumers.
+  Security-CI discovery queries the exact deployed revision and cannot fall
+  back from a newer failed attempt to an older successful run.
+
 - Defer all product-service/application live workflows to separate regression,
   including service credentials and app ACLs. Keep isolated checks, core
   identity/license/Kubernetes/model/GPU coverage and exact old-resource cleanup.

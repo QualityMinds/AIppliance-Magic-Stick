@@ -504,9 +504,9 @@ branch is not permission to execute arbitrary unreviewed code on the runner/host
 | CACHE-01 | Read filesystem/cache inventory and refresh the UI. Disk usage is distinct from RAM/VRAM; missing/stale reports remain unavailable and opening the page deletes nothing. | U+C+A+E | P1 · functional |
 | CACHE-02 | Attempt cleanup with active, scale-to-zero, unpinned, other-node or terminating local model references/KubeAI resources. API and worker protect shared caches conservatively. | U+C+A+B | P0 · functional |
 | CACHE-03 | Inspect empty cache, busy host, invalid plan/UID/boot and unauthorized requests. Cleanup remains disabled/rejected with reason, not an arbitrary directory/command override. | U+C+B | P0 · fast |
-| CACHE-04 | Stop/remove all relevant owned models, then approve known-cache cleanup in an isolated maintenance fixture. Only allowlisted HF/Ollama entries go; definitions, credentials, container images and app data stay. | U+C+A+E+O | P0 · maintenance |
+| CACHE-04 | Populate through a catalog-selected owned model, remove its exact resources and await fresh unblocked host inventory before approving known-cache cleanup. Only allowlisted HF/Ollama entries go; definitions, credentials, container images and app data stay. UID/template-verified read-only NVIDIA infrastructure does not count as a cache consumer; unknown/writable/direct cache mounts still block. | U+C+A+E+O | P0 · maintenance |
 | CACHE-05 | Try symlink parents/entries, nested mounts, interrupted deletion and oversized/slow scan fixtures. Fail closed without following/deleting outside cache or replaying deletion. | U+C | P0 · fast |
-| CACHE-06 | Race new local-model intent against pending cleanup. Defer new runtime/reject unsafe deletion; Stop/Remove and external models continue. | U+C+A | P0 · maintenance |
+| CACHE-06 | Populate a fresh owned cache fixture, then submit new local-model intent immediately after cleanup acknowledgement. Independently observe deferred runtime or the exact safe cache-in-use rejection with retained bytes; unrelated operation failures fail. A cleanup that already finished is no race evidence. Stop/Remove and external models continue. | U+C+A | P0 · maintenance |
 
 ## 28. Restart, power and installed-host resilience
 
@@ -601,6 +601,23 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+### 2026-10-29 — cache, GPU forms and exact deployed CI prerequisites
+
+Existing CACHE-04/06, UX-02 and SEC-03 owning scenarios now cover an initially
+empty cache, verified read-only NVIDIA host observers versus foreign/direct or
+writable consumers, exact safe rejection versus an unrelated host failure,
+delayed GPU inventory and four same-vendor cards at desktop/mobile widths.
+Missing race overlap is explicitly blocked, never passed. No registered cases
+or deferred service/Realtime workflows are added.
+
+SEC-03 discovery filters by the full installed GitOps SHA before selecting the
+latest workflow attempt; a failed/pending newer result cannot fall back to an
+older green run. SEC-03/MESH-09 still require fresh exact-commit CI. A generated
+image-pin commit is distinct from its image build source and needs those checks
+too; no source-to-promotion equivalence is inferred. Source changes and isolated
+checks do not establish native appliance acceptance. Historical reports remain
+unchanged; qualified rollout and targeted native retests are pending.
 
 ### 2026-10-27 — defer product-service/application live workflows
 

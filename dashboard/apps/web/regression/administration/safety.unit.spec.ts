@@ -1,9 +1,9 @@
 import {test,expect,type Browser} from '@playwright/test';
 import type {ManagedHost} from '@magicstick/dashboard-contracts';
-import {parseHostDrill} from '../core/host-drill.ts';
+import {parseHostDrill,prepareCacheFixture,cacheSafetyRejection,cacheRaceOutcome} from '../core/host-drill.ts';
 import {remainingIds,remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
 import {validCompanionReport,publicCompanionProof,discoverCompanionRun,companionAcceptanceCheck,companionWorkflow} from './companion-live.ts';
-import {currentSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
+import {currentSecurityCiRun,latestSecurityCiRun,normalizeRules,ordinaryDashboardRules,shippedDashboardRbac} from './security-live.ts';
 import {AdministrationApi,allowedAdministrationRead} from '../core/administration-api.ts';
 import type {APIRequestContext} from '@playwright/test';
 import {atStage} from '../core/errors.ts';
@@ -309,7 +309,7 @@ const drill=()=>({caseId:'GPUHOST-05',acknowledgeDisruption:true,independentReco
     acknowledgeDisruption:true,planId:'a'.repeat(64),gpuMemory:{carveoutIndex:9,dynamicLimitMi:98304}},
   expected:{bootChanges:1,kernel:'fixture-kernel',carveoutMi:512,dynamicLimitMi:98304,terminal:'Succeeded'}});
 
-test('HAR-10 physical drills reject stale identity, implicit consent, arbitrary commands and invalid outcomes',annotation,()=>{
+test('HAR-10 physical drills reject stale identity, implicit consent, arbitrary commands and invalid outcomes',annotation,async()=>{
   expect(parseHostDrill(drill(),'GPUHOST-05',host).caseId).toBe('GPUHOST-05');
   for(const patch of [{nodeUid:'other'},{bootId:'new-boot'},{confirmation:'wrong'},{action:'shutdown'},{command:'arbitrary'}])
     expect(()=>parseHostDrill({...drill(),request:{...drill().request,...patch}},'GPUHOST-05',host)).toThrow();
@@ -321,6 +321,43 @@ test('HAR-10 physical drills reject stale identity, implicit consent, arbitrary 
   expect(remainingRequirements('phase6-drill','BOOT-02')?.every(item=>['A','E','O','N'].includes(item.layer))).toBe(true);
   expect(hostDrillIds).not.toContain('CACHE-07');
   expect(()=>remainingIds('phase6-drill','SEC-01')).toThrow();
+  const events:string[]=[],seed={client:{name:'reg-fixture-cache'},uid:'model-uid',generation:1};
+  const live={config:{smokeModel:{},expected:{nodes:[{name:host.name,uid:host.nodeUid,bootId:host.bootId}]}},journal:{},guard:async()=>{events.push('guard');},
+    createModel:async(suffix:string)=>{events.push(suffix);return seed;},
+    waitReady:async(client:unknown,uid:string,generation:number)=>{expect([client,uid,generation]).toEqual([seed.client,seed.uid,1]);events.push('ready');},
+    cleanup:async(_journal:unknown,only:unknown)=>{expect(only).toEqual({kind:'model',name:seed.client.name});events.push('removed');}} as unknown as LiveFoundation;
+  const fresh={...host,modelCache:{id:'c'.repeat(64),supported:true,blocked:false,reclaimableBytes:4096,caches:[]}};
+  const api={api:{hostManagement:async()=>{events.push('inventory');return {nodes:[fresh]};}}} as unknown as AdministrationApi;
+  expect(await prepareCacheFixture(live,api,'CACHE-06',fresh)).toEqual(fresh);
+  expect(events).toEqual(['cache-seed-cache-06','ready','removed','guard','inventory']);
+  events.length=0;
+  await expect(prepareCacheFixture(live,api,'CACHE-04',{...fresh,bootId:'foreign-boot'})).rejects.toThrow('[IDENTITY]');
+  await expect(prepareCacheFixture(live,api,'CACHE-04',{...fresh,modelCache:{...fresh.modelCache,blocked:true}})).rejects.toThrow('[PREREQUISITE]');
+  expect(events).toEqual([]);
+  api.api.hostManagement=async()=>({nodes:[{...fresh,bootId:'foreign-boot'}]});
+  await expect(prepareCacheFixture(live,api,'CACHE-04',fresh)).rejects.toThrow('[IDENTITY]');
+  live.cleanup=async()=>{throw new HarnessError('CLEANUP');};events.length=0;
+  await expect(prepareCacheFixture(live,api,'CACHE-04',fresh)).rejects.toThrow('[CLEANUP]');
+  expect(events).not.toContain('inventory');
+  const operation={metadata:{name:'host-fixture',uid:'operation-uid',generation:1},
+    spec:{action:'clear-model-cache',requestId:'fixture-request'},status:{phase:'Preparing'}};
+  const state={pods:[],models:{models:[]},observed:{metadata:{uid:'model-uid'}},
+    item:{metadata:{uid:'model-uid'},spec:{enabled:true},status:{message:'Waiting for model cache cleanup.'}}} as unknown as Awaited<ReturnType<LiveFoundation['modelState']>>;
+  expect(cacheRaceOutcome(operation,operation,state,'reg-fixture-cache')).toBe('deferred');
+  for(const changed of [{...operation,metadata:{...operation.metadata,uid:'foreign'}},
+    {...operation,metadata:{...operation.metadata,generation:2}},
+    {...operation,spec:{...operation.spec,requestId:'foreign'}}])
+    expect(()=>cacheRaceOutcome(changed,operation,state,'reg-fixture-cache')).toThrow('[OWNERSHIP]');
+  expect(()=>cacheRaceOutcome(operation,operation,{...state,observed:null},'reg-fixture-cache')).toThrow('[OWNERSHIP]');
+  expect(()=>cacheRaceOutcome(operation,operation,{...state,pods:[{metadata:{name:'unexpected-runtime'}}]},'reg-fixture-cache')).toThrow('[API]');
+  expect(()=>cacheRaceOutcome({...operation,status:{phase:'Succeeded'}},operation,state,'reg-fixture-cache')).toThrow('[CACHE_RACE_WINDOW]');
+  for(const phase of ['Failed','Rejected']) {
+    const safe={phase,message:'A model started during cleanup. Remaining cache files were kept.'};
+    expect(cacheSafetyRejection(safe)).toBe(true);
+    expect(cacheRaceOutcome({...operation,status:safe},operation,state,'reg-fixture-cache')).toBe('rejected');
+    expect(()=>cacheRaceOutcome({...operation,status:{phase,message:'Unrelated failure'}},operation,state,'reg-fixture-cache')).toThrow('[HOST]');
+  }
+  expect(cacheSafetyRejection({phase:'Succeeded',message:'A model started during cleanup. Remaining cache files were kept.'})).toBe(false);
 });
 
 test('HAR-10 native companion proof is commit/platform/format bound and is not mesh inference proof',annotation,()=>{
@@ -435,6 +472,12 @@ test('HAR-10 online security evidence cannot use stale, pending, wrong-repo or w
   for(const patch of [{head_sha:'b'.repeat(40)},{status:'in_progress'},{conclusion:'failure'},
     {repository:{full_name:'other/repo'}},{path:'other.yml'},{updated_at:new Date(now+1000).toISOString()},
     {updated_at:new Date(now-9*86400_000).toISOString()}])expect(currentSecurityCiRun({...proof,...patch},path,revision,now)).toBe(false);
+  const old={...proof,id:1,run_attempt:1};
+  expect(latestSecurityCiRun([old,{...proof,id:2}],path,revision,now)?.id).toBe(2);
+  for(const patch of [{status:'in_progress'},{conclusion:'failure'},{conclusion:'cancelled'},{conclusion:'timed_out'}])
+    expect(latestSecurityCiRun([old,{...proof,id:2,...patch}],path,revision,now)).toBeUndefined();
+  expect(latestSecurityCiRun([old,{...old,run_attempt:2,conclusion:'failure'}],path,revision,now)).toBeUndefined();
+  expect(latestSecurityCiRun([{...old,head_sha:'b'.repeat(40)}],path,revision,now)).toBeUndefined();
 });
 
 test('HAR-10 observer/cleaner/RBAC checks reject wildcard and Secret/workload authority',annotation,()=>{
