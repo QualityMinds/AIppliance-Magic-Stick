@@ -68,6 +68,7 @@ exclude_docs: |
   /site.css
   /site.js
   /llms.txt
+  /BingSiteAuth.xml
   /sales-deck/
   /navigation.json
   /migration.json

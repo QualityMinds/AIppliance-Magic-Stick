@@ -122,6 +122,10 @@ class WebsiteTests(unittest.TestCase):
                 self.assertIn(f'<loc>{canonical}</loc>', pages)
                 self.assertEqual({lang for lang, _ in alternates}, {'en', 'de', 'x-default'})
         self.assertNotIn('magic-stick.si', pages)
+        excluded = yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())['exclude_docs'].splitlines()
+        for name in docs.VERIFICATION_FILES:
+            self.assertTrue((docs.DOCS / name).is_file())
+            self.assertIn('/' + name, excluded)
 
     def test_llms_txt_links_published_pages_with_absolute_urls(self):
         source = (docs.DOCS / 'llms.txt').read_text()

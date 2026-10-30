@@ -31,6 +31,8 @@ CATALOG = ROOT / 'magic-cluster/platform/magicstick-operator/compute-target-cata
 REPO = 'https://github.com/QualityMinds/AIppliance-Magic-Stick'
 MARKETING_PAGES = ('index.html', 'de.html', 'editions.html', 'editionen.html',
                    'imprint.html', 'impressum.html', 'privacy.html', 'datenschutz.html')
+# Search-engine ownership verification files, published unchanged at the site root.
+VERIFICATION_FILES = ('BingSiteAuth.xml',)
 
 
 class Links(HTMLParser):
@@ -323,7 +325,7 @@ def build():
     subprocess.run([sys.executable, '-m', 'mkdocs', 'build', '--strict'], cwd=ROOT, check=True)
     for page in sorted((OUT / 'handbook').rglob('*.html')):
         page.write_text(with_analytics(page.read_text(), analytics))
-    for name in (*MARKETING_PAGES, 'site.css', 'site.js'):
+    for name in (*MARKETING_PAGES, *VERIFICATION_FILES, 'site.css', 'site.js'):
         if name.endswith('.html'):
             (OUT / name).write_text(with_analytics(marketing_links((DOCS / name).read_text()), analytics))
         else:

@@ -328,6 +328,7 @@ as generated output.
 | `sitemap.xml` | Generated sitemap index of `sitemap-pages.xml` and the MkDocs `handbook/sitemap.xml` |
 | `sitemap-pages.xml` | Generated from the canonical and `hreflang` links of every page in `MARKETING_PAGES`; a new landing page appears once it is listed there |
 | `llms.txt` | `docs/llms.txt`, a curated [llms.txt](https://llmstxt.org/) summary; relative handbook and landing-page links become absolute `https://magic-stick.ai/` URLs |
+| `BingSiteAuth.xml` | `docs/BingSiteAuth.xml`, the Bing Webmaster Tools ownership file, copied unchanged through `VERIFICATION_FILES`; keep it while the site is registered there |
 
 Keep the `llms.txt` summary in step with the landing-page claims. `docs.py check`
 fails when one of its relative links is not a landing page or a navigable
