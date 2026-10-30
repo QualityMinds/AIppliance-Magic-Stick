@@ -67,6 +67,7 @@ exclude_docs: |
   /datenschutz.html
   /site.css
   /site.js
+  /llms.txt
   /sales-deck/
   /navigation.json
   /migration.json

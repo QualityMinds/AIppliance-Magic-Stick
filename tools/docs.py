@@ -171,6 +171,10 @@ def check():
             migration = json.loads((DOCS / 'migration.json').read_text())
             if key in migration and migration[key]['target'] != key: continue
             if key not in nav: errors.append(f'Canonical page is not navigable: {key}')
+    for href in llms_links((DOCS / 'llms.txt').read_text()):
+        if urlsplit(href).scheme: continue
+        if href not in MARKETING_PAGES and href not in nav:
+            errors.append(f'llms.txt link is not a website or handbook page: {href}')
     for old, record in json.loads((DOCS / 'migration.json').read_text()).items():
         source = DOCS / old
         if not source.exists():
@@ -216,6 +220,50 @@ def marketing_links(text):
         route = page_url(url.path)
         return match[1] + route + ('#' + url.fragment if url.fragment else '') + match[3]
     return re.sub(r'(href=")([^"]+)(")', replace, text)
+
+
+def llms_links(text):
+    return re.findall(r'\]\(([^)\s]+)\)', text)
+
+
+def llms_text(text, origin):
+    """llms.txt with canonical Markdown and landing-page links made absolute."""
+    def replace(match):
+        href = match[1]
+        if urlsplit(href).scheme: return match[0]
+        route = page_url(href) if href.endswith('.md') else ('' if href == 'index.html' else href)
+        return f']({origin}{route})'
+    return re.sub(r'\]\(([^)\s]+)\)', replace, text)
+
+
+def head_links(text):
+    """Canonical URL and hreflang alternates declared in a landing page head."""
+    canonical = re.search(r'<link rel="canonical" href="([^"]+)"', text)
+    return canonical and canonical[1], re.findall(r'<link rel="alternate" hreflang="([^"]+)" href="([^"]+)"', text)
+
+
+def crawler_files(origin):
+    """robots.txt, a sitemap index and the landing-page sitemap for the site root.
+
+    MkDocs writes handbook/sitemap.xml; the index adds the landing and legal pages
+    from their own canonical and hreflang links, so no second page list exists.
+    """
+    urls = []
+    for name in MARKETING_PAGES:
+        canonical, alternates = head_links((DOCS / name).read_text())
+        links = ''.join(f'\n    <xhtml:link rel="alternate" hreflang="{lang}" href="{html.escape(href)}"/>'
+                        for lang, href in alternates)
+        urls.append(f'  <url>\n    <loc>{html.escape(canonical)}</loc>{links}\n  </url>')
+    pages = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n'
+             + '\n'.join(urls) + '\n</urlset>\n')
+    index = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+             '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+             + ''.join(f'  <sitemap><loc>{origin}{path}</loc></sitemap>\n'
+                       for path in ('sitemap-pages.xml', 'handbook/sitemap.xml'))
+             + '</sitemapindex>\n')
+    robots = f'User-agent: *\nAllow: /\n\nSitemap: {origin}sitemap.xml\n'
+    return {'robots.txt': robots, 'sitemap.xml': index, 'sitemap-pages.xml': pages}
 
 
 def analytics_tag(config):
@@ -281,6 +329,10 @@ def build():
         else:
             shutil.copy2(DOCS / name, OUT / name)
     shutil.copytree(DOCS / 'assets', OUT / 'assets', dirs_exist_ok=True)
+    origin = '{0.scheme}://{0.netloc}/'.format(urlsplit(config['site_url']))
+    for name, content in crawler_files(origin).items():
+        (OUT / name).write_text(content)
+    (OUT / 'llms.txt').write_text(llms_text((DOCS / 'llms.txt').read_text(), origin))
     subprocess.run([sys.executable, str(ROOT / 'tools/collect_python_notices.py'),
                     '--output', str(OUT / 'licenses/documentation-build.txt'),
                     'mkdocs', 'mkdocs-material'], cwd=ROOT, check=True)

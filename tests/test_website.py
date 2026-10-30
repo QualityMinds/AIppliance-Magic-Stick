@@ -108,6 +108,32 @@ class WebsiteTests(unittest.TestCase):
                 self.assertTrue(image_url.startswith(self.public))
                 self.assertTrue((docs.DOCS / image_url.removeprefix(self.public)).is_file())
 
+    def test_crawler_files_list_every_landing_page_with_its_languages(self):
+        files = docs.crawler_files(self.public)
+        self.assertIn(f'Sitemap: {self.public}sitemap.xml', files['robots.txt'])
+        self.assertNotIn('Disallow: /\n', files['robots.txt'])
+        for path in ('sitemap-pages.xml', 'handbook/sitemap.xml'):
+            self.assertIn(f'<loc>{self.public}{path}</loc>', files['sitemap.xml'])
+        pages = files['sitemap-pages.xml']
+        for name in docs.MARKETING_PAGES:
+            with self.subTest(page=name):
+                canonical, alternates = docs.head_links((docs.DOCS / name).read_text())
+                self.assertTrue(canonical.startswith(self.public))
+                self.assertIn(f'<loc>{canonical}</loc>', pages)
+                self.assertEqual({lang for lang, _ in alternates}, {'en', 'de', 'x-default'})
+        self.assertNotIn('magic-stick.si', pages)
+
+    def test_llms_txt_links_published_pages_with_absolute_urls(self):
+        source = (docs.DOCS / 'llms.txt').read_text()
+        self.assertTrue(source.startswith('# Magic Stick\n\n> '))
+        self.assertIn('/llms.txt', yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())['exclude_docs'].splitlines())
+        links = docs.llms_links(docs.llms_text(source, self.public))
+        self.assertTrue(links)
+        for href in links:
+            with self.subTest(href=href):
+                self.assertTrue(href.startswith((self.public, 'https://github.com/QualityMinds/')))
+                self.assertNotRegex(href, r'\.md$')
+
     def test_no_external_runtime_or_tracking_dependency(self):
         # The only remote script, the cookie-free Umami tag, is added by the build
         # from mkdocs.yml (docs.analytics_tag); the sources never carry it.

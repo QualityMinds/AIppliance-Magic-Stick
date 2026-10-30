@@ -1,0 +1,41 @@
+# Magic Stick
+
+> Magic Stick is a source-available (BSL 1.1) AI appliance by QualityMinds. It brings AI models, applications and central sign-in together on your own infrastructure: dedicated hardware, a cloud VM, an existing Ubuntu VM or an existing Kubernetes cluster. One dashboard manages local models (Ollama, vLLM), external model providers behind a common LiteLLM API, catalog applications and users. You remain responsible for the infrastructure and its operation.
+
+The base platform does not require a GPU: small models run on a supported CPU, external model services can be connected, and local GPU model serving can be added when suitable hardware is available. Core features need no license file; only federated SSO requires activation. Team and organisation use is discussed through info@magic-stick.ai.
+
+## Product
+
+- [Magic Stick homepage](index.html): Product overview, deployment environments, first use, team pilots and FAQ
+- [Startseite (Deutsch)](de.html): German product homepage
+- [Licensing and editions](editions.html): Licensing overview, eligibility and the request/activation workflow
+- [Features and limitations](get-started/features.md): What Magic Stick can and cannot do today
+
+## Get started
+
+- [Documentation home](README.md): Reading paths for users, administrators and developers
+- [Requirements](get-started/requirements.md): Hardware, network and GPU requirements
+- [Choose an installation path](installation/README.md): USB, new VM, existing Ubuntu or existing Kubernetes
+- [Your first model](get-started/first-model.md): Walkthrough from installation to a first model and application
+
+## Use and administer
+
+- [User guide](user-guide/README.md): Dashboard, models, applications, sharing and API access
+- [Choose a model engine](user-guide/models/choose-engine.md): When to use Ollama, vLLM or external providers
+- [Applications](user-guide/applications.md): Create catalog applications such as chat, agent and coding tools
+- [API access](user-guide/api-access.md): Use the common LiteLLM-compatible model API
+- [Administration](administration/README.md): Users, SSO, domains, networking, GPUs, updates and backups
+
+## Technical reference
+
+- [Architecture](concepts/architecture.md): How the appliance is built
+- [GPU compatibility](reference/gpu-compatibility.md): Supported GPUs and engines
+- [Compatibility](reference/compatibility.md): Supported platforms and component versions
+- [Model catalog](reference/model-catalog.md): Shared model catalog and capabilities
+
+## Optional
+
+- [Source code on GitHub](https://github.com/QualityMinds/AIppliance-Magic-Stick): Repository, issues and releases
+- [Concepts](concepts/README.md): Modules, models, applications, identity and routing
+- [Reference](reference/README.md): Fields, commands and compatibility rules
+- [Development](development/README.md): Build, extend or release Magic Stick
