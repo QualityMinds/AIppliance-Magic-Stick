@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Bind model-finalizer registration and removal atomically to the observed UID
+  and resource version. A quick create/delete/recreate cannot let an old
+  controller snapshot finalize the replacement or start the old owner's runtime.
+  Conflicts stop reconciliation without adopting foreign resources; other
+  finalizers and the existing foreground cleanup checks remain intact.
+
 - Retain reviewed helper-step labels, original cleanup causes and bounded
   resource observations in sanitized regression traces, Dashboard details and
   HTML/text/JSON/JUnit exports. Checkpoints preserve pending steps and the last

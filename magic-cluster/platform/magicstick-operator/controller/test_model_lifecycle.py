@@ -17,6 +17,94 @@ class ModelLifecycleTests(unittest.TestCase):
                 "appliance.magicstick.dev/modelactivation": "example-model",
                 "appliance.magicstick.dev/activation-uid": "activation-uid"}, **metadata}}
 
+    def activation(self, **metadata):
+        return {"metadata": {"name": "example-model", "namespace": "ai-system", "uid": "activation-uid",
+            "resourceVersion": "42", "finalizers": ["example.com/another-owner"], **metadata}}
+
+    def finalizer_api(self, live):
+        """Atomic JSON Patch tests, plus the former unguarded merge-patch behavior."""
+        def request(_path, body, content_type="application/merge-patch+json"):
+            updated = copy.deepcopy(live)
+            if content_type == "application/json-patch+json":
+                for operation in body:
+                    field = operation["path"].removeprefix("/metadata/")
+                    if operation["op"] == "test":
+                        if updated["metadata"].get(field) != operation["value"]:
+                            raise urllib.error.HTTPError("https://kubernetes.example.local", 409, "Conflict", {}, None)
+                    else:
+                        self.assertEqual(operation["op"], "add")
+                        self.assertEqual(field, "finalizers")
+                        updated["metadata"][field] = copy.deepcopy(operation["value"])
+            else:
+                updated["metadata"].update(copy.deepcopy(body["metadata"]))
+            live.clear()
+            live.update(updated)
+            return copy.deepcopy(live)
+        return request
+
+    def test_model_finalizer_registration_is_atomic_and_preserves_other_owners(self):
+        activation = self.activation()
+        live = copy.deepcopy(activation)
+        request = Mock(side_effect=self.finalizer_api(live))
+        with patch.dict(self.controller, {"patch_json": request}):
+            self.controller["ensure_model_finalizer"](activation)
+        self.assertEqual(live["metadata"]["finalizers"], ["example.com/another-owner", self.controller["MODEL_FINALIZER"]])
+        self.assertIsInstance(request.call_args.args[1], list)
+        self.assertEqual(request.call_args.args[1][:2], [
+            {"op": "test", "path": "/metadata/uid", "value": "activation-uid"},
+            {"op": "test", "path": "/metadata/resourceVersion", "value": "42"}])
+
+    def test_stale_model_snapshot_cannot_finalize_a_replacement_or_then_start_its_old_runtime(self):
+        stale = self.activation()
+        for metadata in ({"uid": "replacement-uid", "resourceVersion": "43"},
+                         {"resourceVersion": "43", "deletionTimestamp": "2026-11-01T10:00:00Z"}):
+            live = self.activation(**metadata)
+            before = copy.deepcopy(live)
+            start_runtime = Mock()
+            with self.subTest(metadata=metadata), patch.dict(self.controller, {"patch_json": self.finalizer_api(live)}):
+                with self.assertRaises(urllib.error.HTTPError):
+                    self.controller["ensure_model_finalizer"](stale)
+                    start_runtime(stale)
+            self.assertEqual(live, before)
+            start_runtime.assert_not_called()
+
+    def test_model_finalizer_removal_cannot_touch_replaced_or_revised_activations(self):
+        stale = self.activation(finalizers=["example.com/another-owner", self.controller["MODEL_FINALIZER"]])
+        for metadata in ({"uid": "replacement-uid", "resourceVersion": "43"}, {"resourceVersion": "43"}):
+            live = copy.deepcopy(stale)
+            live["metadata"].update(metadata)
+            before = copy.deepcopy(live)
+            with self.subTest(metadata=metadata), patch.dict(self.controller, {"patch_json": self.finalizer_api(live)}):
+                with self.assertRaises(urllib.error.HTTPError):
+                    self.controller["remove_model_finalizer"](stale)
+            self.assertEqual(live, before)
+
+    def test_model_finalizer_removal_preserves_another_finalizer(self):
+        activation = self.activation(finalizers=["example.com/another-owner", self.controller["MODEL_FINALIZER"]])
+        live = copy.deepcopy(activation)
+        with patch.dict(self.controller, {"patch_json": self.finalizer_api(live)}):
+            self.controller["remove_model_finalizer"](activation)
+        self.assertEqual(live["metadata"]["finalizers"], ["example.com/another-owner"])
+
+    def test_model_finalizer_writes_require_uid_and_resource_version(self):
+        for helper in ("ensure_model_finalizer", "remove_model_finalizer"):
+            for field in ("uid", "resourceVersion"):
+                activation = self.activation(finalizers=[self.controller["MODEL_FINALIZER"]] if helper.startswith("remove") else [])
+                activation["metadata"].pop(field)
+                request = Mock()
+                with self.subTest(helper=helper, field=field), patch.dict(self.controller, {"patch_json": request}):
+                    with self.assertRaisesRegex(ValueError, "identity"):
+                        self.controller[helper](activation)
+                request.assert_not_called()
+
+    def test_existing_or_deleting_model_finalizer_registration_is_read_only(self):
+        for activation in (self.activation(finalizers=[self.controller["MODEL_FINALIZER"]]),
+                           self.activation(deletionTimestamp="2026-11-01T10:00:00Z")):
+            request = Mock()
+            with patch.dict(self.controller, {"patch_json": request}):
+                self.controller["ensure_model_finalizer"](activation)
+            request.assert_not_called()
+
     def test_stop_deletes_the_observed_model_foreground_with_identity_preconditions(self):
         delete = Mock()
         with patch.dict(self.controller, {"get_resource": Mock(return_value=self.model()), "delete_json": delete}):

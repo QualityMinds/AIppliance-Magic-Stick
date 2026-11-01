@@ -157,6 +157,11 @@ terminal/terminating Pods, before reporting Disabled or releasing the activation
 finalizer. Legacy Models without an activation-UID label retain their managed
 name-label compatibility; conflicting UID labels are refused. An orphan Pod from
 older background deletion fences completion without being adopted or force-deleted.
+Adding or removing the activation's finalizer atomically tests its UID and
+resource version. A stale list snapshot therefore cannot attach the old owner's
+finalizer to a same-name replacement and then create a runtime with the old UID.
+Conflicts stop that reconciliation; the next pass reads fresh intent. Other
+owners' finalizers are retained.
 
 Changed single/split NVIDIA DRA runtime settings use this same retirement and
 Pod-drain barrier before creating the replacement KubeAI Model. During the

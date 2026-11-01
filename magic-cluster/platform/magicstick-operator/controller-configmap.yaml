@@ -683,19 +683,34 @@ data:
         return f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}"
 
 
+    def patch_model_finalizers(activation, finalizers):
+        metadata = activation.get("metadata") or {}
+        if not metadata.get("uid") or not metadata.get("resourceVersion"):
+            raise ValueError("Cannot change model finalizers without their current Kubernetes identity")
+        # A list snapshot can outlive a quick create/delete/recreate. Registering
+        # the old object's finalizer on its replacement would otherwise let this
+        # stale reconciliation create a runtime carrying the deleted owner's UID.
+        # Test both fields atomically; a conflict aborts before runtime creation.
+        return patch_json(model_activation_path(activation), [
+            {"op": "test", "path": "/metadata/uid", "value": metadata["uid"]},
+            {"op": "test", "path": "/metadata/resourceVersion", "value": metadata["resourceVersion"]},
+            {"op": "add", "path": "/metadata/finalizers", "value": finalizers},
+        ], "application/json-patch+json")
+
+
     def ensure_model_finalizer(activation):
         metadata = activation.get("metadata") or {}
         finalizers = list(metadata.get("finalizers") or [])
         if MODEL_FINALIZER in finalizers or metadata.get("deletionTimestamp"):
             return
         finalizers.append(MODEL_FINALIZER)
-        patch_json(model_activation_path(activation), {"metadata": {"finalizers": finalizers}})
+        patch_model_finalizers(activation, finalizers)
 
 
     def remove_model_finalizer(activation):
         metadata = activation.get("metadata") or {}
         finalizers = [item for item in (metadata.get("finalizers") or []) if item != MODEL_FINALIZER]
-        patch_json(model_activation_path(activation), {"metadata": {"finalizers": finalizers}})
+        patch_model_finalizers(activation, finalizers)
 
 
     def get_module_activation(module):
