@@ -72,6 +72,12 @@ list do not redefine totals, and missing final data never means zero failures.
 100% progress means execution finished, not passed. HTML/text use evidence-first
 ordering; JSON/JUnit retain their original units and historical results stay intact.
 
+Existing HAR-05/07/10/11 and UX-02 counterexamples also verify readable reviewed
+helper steps, separate root/cleanup causes, unknown observations, bounded
+first-failure/latest-state preservation, interrupted checkpoints and privacy across
+Dashboard/HTML/text/JSON/JUnit. Diagnostics are not cleanup receipts or extra
+registered scenarios; UID/revision checks and the selection matrix are unchanged.
+
 ## 2. Authentication, sessions and role boundaries
 
 Repeat role checks for administrator, operator, viewer and an ordinary identity
@@ -601,6 +607,19 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+### 2026-11-01 — actionable sanitized traces and cleanup observations
+
+Extended the existing safety, cleanup-diagnostic, artifact, reporting,
+execution-lifecycle and regression-page cases. They cover a remaining Pod after
+model removal, failed observations, safe HTTP status, helper-source attribution,
+late callbacks, bounded traces, worker checkpoints and interrupted pending steps.
+Desktop/mobile fixtures exercise the optional cause/observation details, reload,
+overflow and unchanged start/cleanup actions. Synthetic secrets, raw errors,
+headers, bodies and private identities must not enter portable exports. No case
+IDs, variants, selection profiles, wait budgets or cleanup permissions were added.
+This is local isolated coverage, not native Strix/Aimonster acceptance; existing
+reports, live cleanup failures and test-server state are unchanged.
 
 ### 2026-10-29 — cache, GPU forms and exact deployed CI prerequisites
 

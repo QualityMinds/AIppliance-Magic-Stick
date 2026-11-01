@@ -18,6 +18,7 @@ import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './core/runtime-diag
 import {writePrivate} from './core/private-files.ts';
 import {parsePreflightDiagnostic,type PreflightDiagnostic} from './core/preflight-diagnostic.ts';
 import {isolatedStep} from './core/test-mode.ts';
+import {parseCleanupDiagnostic,type CleanupDiagnostic} from './core/cleanup-diagnostic.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
  * fixed allowlisted marker can carry an explicit failure into safe reports. */
@@ -32,11 +33,13 @@ export function failureOutcome(code:ReasonCode|undefined,messages:readonly (stri
 }
 
 export function harnessFailure(message:string|undefined) {
-  const value=message?.trim().replace(/^HarnessError:\s*/,''),match=value?.match(/^\[([A-Z_]+)\] [^\r\n]* \[outcome:(Failed|Blocked)\](?: \[stage:([a-z-]+)\])?$/);
-  if(!match || !Object.hasOwn(reasons,match[1]!) || match[3] && !stages.includes(match[3] as Stage))return;
+  const value=message?.trim().replace(/^HarnessError:\s*/,''),match=value?.match(/^\[([A-Z_]+)\] [^\r\n]* \[outcome:(Failed|Blocked)\](?: \[stage:([a-z-]+)\])?(?: \[cause:([A-Z_]+)\](?: \[cause-stage:([a-z-]+)\])?)?$/);
+  if(!match || !Object.hasOwn(reasons,match[1]!) || match[3] && !stages.includes(match[3] as Stage) ||
+    match[4]&&!Object.hasOwn(reasons,match[4]) || match[5]&&!stages.includes(match[5] as Stage))return;
   const code=match[1] as ReasonCode,outcome=match[2] as 'Failed'|'Blocked',stage=match[3] as Stage|undefined;
-  if(value !== new HarnessError(code,outcome,stage).message)return;
-  return {code,outcome,stage};
+  const causeReason=match[4] as ReasonCode|undefined,causeStage=match[5] as Stage|undefined;
+  if(value !== new HarnessError(code,outcome,stage,causeReason?{reason:causeReason,stage:causeStage}:undefined).message)return;
+  return {code,outcome,stage,...(causeReason?{causeReason}:{}),...(causeStage?{causeStage}:{})};
 }
 
 export default class SafeReporter implements Reporter {
@@ -47,6 +50,7 @@ export default class SafeReporter implements Reporter {
   private positions = new Map<TestCase, number>();
   private steps=new Map<TestCase,Map<TestStep,{index:number;finished:boolean}>>();
   private omittedSteps=new Map<TestCase,number>();
+  private stepSequence=new Map<TestCase,number>();
   private traces:ExecutionTrace[]=[];
   private suiteFailures=new Map<Suite,NonNullable<ReturnType<typeof checkedBlocker>>>();
   private selected:TestCase[]=[];
@@ -57,23 +61,64 @@ export default class SafeReporter implements Reporter {
   private infrastructureFailure:ReasonCode|undefined;
   private durable=false;
   private writes:Promise<void>=Promise.resolve();
+  private checkpointAt=0;
+  private traceSteps(test:TestCase,outcome?:'Passed'|'Failed'|'Blocked'):TraceStep[] {
+    const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>(),source=safeTraceSource(test.location);
+    return [...recorded].map(([step,entry])=>{
+      const at=safeTraceSource(step.location),category=traceCategories.includes(step.category as TraceStep['category'])?
+        step.category as TraceStep['category']:'test.step';
+      const error=harnessFailure(step.error?.message);let ancestor=step.parent;
+      while(ancestor&&!recorded.has(ancestor))ancestor=ancestor.parent;
+      const parent=ancestor?recorded.get(ancestor)?.index:undefined,title=safeStepTitle(step.title,category,at,source);
+      return {index:entry.index,category,title,durationMs:Math.max(0,step.duration??0),
+        outcome:!entry.finished?'Blocked' as const:!step.error||outcome==='Passed'?'Passed' as const:
+          error?.outcome==='Blocked'?'Blocked' as const:'Failed' as const,
+        ...(parent?{parentIndex:parent}:{}),...(at?{source:at}:{}),
+        ...(step.error&&outcome==='Passed'?{handledError:true as const}:{}),
+        ...(category==='test.step'&&title==='Test step'?{titleFiltered:true as const}:{}),
+        ...(error?{reason:error.code,...(error.stage?{stage:error.stage}:{}),
+          ...(error.causeReason?{causeReason:error.causeReason}:{}),...(error.causeStage?{causeStage:error.causeStage}:{})}:
+          step.error&&outcome!=='Passed'?{reason:'UNEXPECTED' as const}:{} )};
+    });
+  }
   private persistEvidence() {
     if(!this.durable)return;
     const runId=process.env.REGRESSION_RUN_ID!,directory=process.env.REGRESSION_RUN_DIR!;
     const snapshot=JSON.stringify({version:1,runId,scenarios:this.selected.map(test=>({
       executionId:executionIdentity(runId,String(test.id??test.title)),
       state:this.isFinished(test)?'completed':this.positions.has(test)?'running':'selected',
-      evidence:this.mapping(test).evidence})),cases:this.cases,traces:this.traces});
+      evidence:this.mapping(test).evidence})),cases:this.cases,traces:this.traces,
+      pendingTraces:this.selected.filter(test=>this.positions.has(test)&&!this.isFinished(test)).map(test=>({
+        version:1,runId,executionId:executionIdentity(runId,String(test.id??test.title)),outcome:'Blocked',durationMs:0,
+        source:safeTraceSource(test.location),scenario:publicScenarioTitle(test.title,test.location.file),
+        steps:this.traceSteps(test),...(this.omittedSteps.get(test)?{omittedSteps:this.omittedSteps.get(test)}:{})}))});
     this.writes=this.writes.then(()=>writePrivate(join(directory,'runner-evidence.json'),snapshot))
       .catch(()=>{this.unexpected=true;this.infrastructureFailure??='PRIVATE_FILE';});
   }
+  private checkpoint(test:TestCase,step:TestStep) {
+    if(!this.durable||!this.positions.has(test)||this.isFinished(test))return;
+    // Save reviewed high-level boundaries immediately; throttle noisy browser
+    // polls. Pending steps are not completed evidence or a cleanup attestation.
+    if(!['test.step','hook'].includes(step.category)&&Date.now()-this.checkpointAt<1000)return;
+    this.checkpointAt=Date.now();this.persistEvidence();
+  }
   onStepBegin(test:TestCase,_result:TestResult,step:TestStep) {
     let items=this.steps.get(test);if(!items){items=new Map();this.steps.set(test,items);}
-    if(items.size<2000)items.set(step,{index:items.size+1,finished:false});
-    else this.omittedSteps.set(test,(this.omittedSteps.get(test)??0)+1);
+    const index=(this.stepSequence.get(test)??0)+1;this.stepSequence.set(test,index);
+    if(items.size>=2000) {
+      const firstFailure=[...items.keys()].find(step=>step.error);
+      const old=[...items].find(([s,e])=>e.finished&&!s.error&&e.index>16)??
+        [...items].find(([s,e])=>s!==firstFailure&&e.finished&&e.index>16);
+      this.omittedSteps.set(test,(this.omittedSteps.get(test)??0)+1);
+      if(!old)return;
+      items.delete(old[0]);
+    }
+    items.set(step,{index,finished:false});
+    this.checkpoint(test,step);
   }
   onStepEnd(test:TestCase,_result:TestResult,step:TestStep) {
     const item=this.steps.get(test)?.get(step);if(item)item.finished=true;
+    this.checkpoint(test,step);
   }
   onBegin(config: FullConfig, suite: Suite) {
     this.selected=suite.allTests();
@@ -171,22 +216,24 @@ export default class SafeReporter implements Reporter {
     const executionId=executionIdentity(process.env.REGRESSION_RUN_ID ?? 'fixture',String(test.id ?? test.title));
     const runId=process.env.REGRESSION_RUN_ID,traceRunId=this.positions.has(test)?runId:undefined,
       source=safeTraceSource(test.location),scenario=publicScenarioTitle(test.title,test.location.file);
-    const steps:TraceStep[]=[...recorded].map(([step,entry])=>{
-      const at=safeTraceSource(step.location),category=traceCategories.includes(step.category as TraceStep['category'])?
-        step.category as TraceStep['category']:'test.step';
-      const error=harnessFailure(step.error?.message),parent=step.parent?recorded.get(step.parent)?.index:undefined;
-      return {index:entry.index,category,title:safeStepTitle(step.title,category,at),durationMs:Math.max(0,step.duration??0),
-        outcome:!entry.finished?'Blocked' as const:!step.error||outcome==='Passed'?'Passed' as const:
-          error?.outcome==='Blocked'?'Blocked' as const:'Failed' as const,
-        ...(parent?{parentIndex:parent}:{}),...(at?{source:at}:{}),
-        ...(step.error&&outcome==='Passed'?{handledError:true as const}:{}),
-        ...(error?{reason:error.code,...(error.stage?{stage:error.stage}:{})}:
-          step.error&&outcome!=='Passed'?{reason:'UNEXPECTED' as const}:{} )};
-    });
+    const steps=this.traceSteps(test,outcome);
     const omittedSteps=this.omittedSteps.get(test);
     const runtimeDiagnostics:RuntimeDiagnostic[]=[];
+    const cleanupDiagnostics=new Map<string,CleanupDiagnostic>();let omittedCleanupDiagnostics=0,diagnosticsUnavailable=0;
     const preflight=new Map<string,PreflightDiagnostic>(),preflightScopes=new Set<string>();
     for(const attachment of result.attachments??[]) {
+      if(attachment.name==='magicstick-cleanup-diagnostic') {
+        try {
+          if(attachment.contentType!=='application/json'||!attachment.body||attachment.body.length>64*1024)throw new Error();
+          const d=parseCleanupDiagnostic(JSON.parse(attachment.body.toString('utf8')));
+          if(d.runId!==traceRunId)throw new Error();cleanupDiagnostics.set(d.scope,d);
+          if(cleanupDiagnostics.size>16){
+            const discard=[...cleanupDiagnostics].find(([key,value])=>key!==d.scope&&value.state==='passed')?.[0]??
+              [...cleanupDiagnostics.keys()][1]!;
+            cleanupDiagnostics.delete(discard);omittedCleanupDiagnostics++;
+          }
+        }catch{diagnosticsUnavailable++;}
+      }
       if(attachment.name==='magicstick-preflight-diagnostic'&&attachment.contentType==='application/json'&&attachment.body&&attachment.body.length<=256*1024)try{
         const value=JSON.parse(attachment.body.toString('utf8'));
         if(typeof value.scope==='string'&&/^[a-f0-9]{16}$/.test(value.scope)){
@@ -208,8 +255,10 @@ export default class SafeReporter implements Reporter {
       ...(omittedSteps?{omittedSteps}:{}),...(source?{source}:{}),...(scenario?{scenario}:{}),
       ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} ),
       ...(preflight.size?{preflightDiagnostics:[...preflight.values()]}:{}),
+      ...(cleanupDiagnostics.size?{cleanupDiagnostics:[...cleanupDiagnostics.values()]}:{}),
+      ...(omittedCleanupDiagnostics?{omittedCleanupDiagnostics}:{}),...(diagnosticsUnavailable?{diagnosticsUnavailable}:{}),
       ...(preflightScopes.size>preflight.size?{omittedPreflightDiagnostics:preflightScopes.size-preflight.size}:{})});
-    this.steps.delete(test);this.omittedSteps.delete(test);
+    this.steps.delete(test);this.omittedSteps.delete(test);this.stepSequence.delete(test);
     const root=evidence.find(item=>progressed.get(key(item))?.state==='failed');
     const untrackedFailure=outcome==='Failed' && stepAnnotations.length>0 && !root;
     const blockedBy=predecessor ?? checkedBlocker({kind:outcome==='Failed'?'failure':regressionBlockedKind(code),
@@ -229,6 +278,10 @@ export default class SafeReporter implements Reporter {
         durationMs:step?.durationMs ?? (dependent ? 0 : result.duration),
         ...(passed ? {} : dependent ? {reason:'DEPENDENCY' as const} : code ? {reason:code} : itemOutcome === 'Failed' ? {reason:'UNEXPECTED' as const} : {}),
         ...(item.variant ? {variant:item.variant as CaseResult['variant']} : {}),...(!passed && !dependent && stage ? {stage} : {})});
+      const row=this.cases.at(-1)!;
+      if(!passed&&!dependent&&code===failure?.code&&failure?.causeReason){row.causeReason=failure.causeReason;row.causeStage=failure.causeStage;}
+      const cleanupDiagnostic=[...cleanupDiagnostics.values()].find(d=>d.state==='failed');
+      if(itemOutcome==='Failed'&&cleanupDiagnostic)row.cleanupDiagnostic=cleanupDiagnostic;
     }
     // A failure between annotated assertions or in teardown must not disappear
     // from the case counts merely because earlier steps already passed. Keep
@@ -237,6 +290,8 @@ export default class SafeReporter implements Reporter {
       const layer=fileLayer(test.location.file) ?? 'U';
       this.cases.push({id:'HAR-10',layer,environment:environmentFor(layer),outcome:'Failed',executionOutcome:'Failed',
         executionId,...(traceRunId?{traceRunId}:{}),durationMs:result.duration,reason:code ?? 'UNEXPECTED',
+        ...(code===failure?.code&&failure?.causeReason?{causeReason:failure.causeReason,causeStage:failure.causeStage}:{}),
+        ...([...cleanupDiagnostics.values()].some(d=>d.state==='failed')?{cleanupDiagnostic:[...cleanupDiagnostics.values()].find(d=>d.state==='failed')}:{}),
         ...(stage?{stage}:{}),...(recoveryRequired?{recoveryRequired:true}:{})});
     }
     const position = this.positions.get(test);

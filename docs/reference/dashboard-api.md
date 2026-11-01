@@ -214,6 +214,16 @@ reports present evidence first, then scenarios; JSON/JUnit keep their meanings.
 Missing legacy/final totals mean unavailable, not zero. Progress-only scenario
 counts are preliminary; 100% progress is not a pass or a cleanup receipt.
 
+Failed result rows can optionally carry allowlisted `causeReason` / `causeStage`
+separately from the outer cleanup error and fixed, sanitized `diagnostics` lines.
+These describe observed resource presence, identity/revision matches, deletion,
+remaining Pod/catalog counts, timing and available API method/endpoint class/status.
+Raw names, resource UIDs, URLs, headers and bodies are not included. Unknown reads
+remain unknown. Malformed or unavailable diagnostic captures are explicit; none
+of these fields authorizes recovery or proves successful cleanup. Existing
+endpoints and permissions are unchanged; older rows without these fields remain
+readable and are not retrospectively enriched.
+
 `lock` contains `state: free|active|stale|blocked`, `canRecover`, a fixed public
 `message`, and an optional opaque `revision`. Only a terminated, installation-
 bound Kubernetes run with a known journal owner can offer recovery; external

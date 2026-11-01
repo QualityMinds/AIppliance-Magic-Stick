@@ -9,6 +9,7 @@ export class OwnedKeyClient {
   private readonly api: MagicStickApi;
   private readonly ownedIds = new Set<string>();
   private readonly prefix: string;
+  private lastRequest?:{method:'GET'|'POST'|'DELETE';endpoint:'api-key';httpStatus:number|null;requestAttempted:boolean};
   constructor(request: APIRequestContext, baseUrl: string, timeoutMs: number, prefix: string, journal: ReadonlyArray<JournalEntry>,
     assertMutationAllowed: () => Promise<void>) {
     this.prefix = prefix;
@@ -31,12 +32,15 @@ export class OwnedKeyClient {
         requireSafe(match && this.ownedIds.has(match[1]!) && !init.body, 'MUTATION');
       } else throw new HarnessError('MUTATION');
       const headers = new Headers(init.headers);
+      this.lastRequest={method:method as 'GET'|'POST'|'DELETE',endpoint:'api-key',httpStatus:null,requestAttempted:false};
       if (method !== 'GET') { await assertMutationAllowed(); headers.set('Origin', origin); }
       let response;
       try {
+        this.lastRequest.requestAttempted=true;
         response = await request.fetch(url.href, {method, headers: Object.fromEntries(headers.entries()),
           ...(init.body ? {data: String(init.body)} : {}), timeout: timeoutMs, maxRedirects: 0, failOnStatusCode: false});
       } catch { throw new HarnessError('API'); }
+      this.lastRequest.httpStatus=response.status();
       requireSafe(response.status() >= 200 && response.status() < 300 &&
         (response.headers()['content-type'] ?? '').includes('application/json'), 'API');
       const body = await response.body();
@@ -74,21 +78,31 @@ export class OwnedKeyClient {
   }
 
   async create(name: string): Promise<string> { return (await this.createCredential(name)).id; }
+  private requestDiagnostic(){return this.lastRequest?{...this.lastRequest}:{};}
 
   adapter(): CleanupAdapter {
     return {
-      lookup: async entry => {
+      lookup: async (entry,observe) => {
         requireSafe(entry.kind === 'key' && entry.name.startsWith(this.prefix), 'OWNERSHIP');
-        const matches = (await this.list()).items.filter(item => item.name === entry.name);
+        this.lastRequest=undefined;
+        let matches:ApiAccessPayload['items'];
+        try{matches=(await this.list()).items.filter(item=>item.name===entry.name);}
+        finally{await observe?.({operation:'lookup',state:'running',...this.requestDiagnostic()});}
         requireSafe(matches.length <= 1, 'OWNERSHIP');
         return matches.length ? {uid: matches[0]!.id} : null;
       },
-      removeIfUid: async (entry, uid) => {
+      removeIfUid: async (entry, uid,observe) => {
         requireSafe(entry.uid === uid && this.ownedIds.has(uid), 'OWNERSHIP');
+        this.lastRequest=undefined;
         try { await this.api.revokeApiKey(uid); }
         catch (error) { if (error instanceof HarnessError) throw error; throw new HarnessError('CLEANUP'); }
+        finally{await observe?.({operation:'remove',state:'running',...this.requestDiagnostic()});}
       },
-      verifyRemoved: async entry => !(await this.list()).items.some(item => item.id === entry.uid || item.name === entry.name),
+      verifyRemoved: async (entry,observe) => {
+        this.lastRequest=undefined;
+        try{return !(await this.list()).items.some(item=>item.id===entry.uid||item.name===entry.name);}
+        finally{await observe?.({operation:'verify',state:'running',...this.requestDiagnostic()});}
+      },
     };
   }
 }

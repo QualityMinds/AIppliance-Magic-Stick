@@ -9,6 +9,7 @@ import {testMode,excludedSteps} from './test-mode.ts';
 import {cleanupStatus} from './cleanup-state.ts';
 import {diagnosticSelection,diagnosticMetadata} from './diagnostic-selection.ts';
 import {deferredApplicationStep} from './engine-policy.ts';
+import {parseCleanupDiagnostic,cleanupDiagnosticText} from './cleanup-diagnostic.ts';
 
 const count=(n:unknown)=>Number.isSafeInteger(n)&&Number(n)>=0&&Number(n)<=100_000 ? Number(n):0;
 const outcomes=['Passed','Failed','Blocked'] as const;
@@ -56,6 +57,8 @@ export class KubernetesProgress {
 export function publicResult(summary:Record<string,any>,campaign:Record<string,any>) {
   const rows=withBlockedCauses(Array.isArray(summary.cases)?summary.cases:[]);
   const cases=rows.filter((r:Record<string,any>)=>r.outcome!=='Passed').slice(0,200).map((r:Record<string,any>)=>{
+    let diagnostics:string[]|undefined;
+    if(r.cleanupDiagnostic)try{diagnostics=cleanupDiagnosticText(parseCleanupDiagnostic(r.cleanupDiagnostic));}catch{diagnostics=['Cleanup diagnostic unavailable: validation rejected the capture.'];}
     const reason:ReasonCode=Object.hasOwn(reasons,r.reason)?r.reason:'PREREQUISITE';
     const traceRunId=/^reg-[a-f0-9-]{36}$/.test(r.traceRunId)?r.traceRunId:undefined,
       executionId=/^[a-f0-9]{24}$/.test(r.executionId)?r.executionId:undefined,
@@ -65,6 +68,8 @@ export function publicResult(summary:Record<string,any>,campaign:Record<string,a
       description:caseDescription(r.id).slice(0,1000),reason,message:blockerDescription(reason,r.id,r.variant,r.layer),action:blockedAction(reason,r.blockedBy?.kind),durationMs:Number.isSafeInteger(r.durationMs)&&r.durationMs>=0&&r.durationMs<=86_400_000?r.durationMs:0,
       ...(r.outcome==='Blocked'&&checkedBlocker(r.blockedBy)?{blockedBy:checkedBlocker(r.blockedBy)}:{}),
       ...(phase!==undefined?{phase}:{}),...(stages.includes(r.stage)?{stage:r.stage}:{}),
+      ...(Object.hasOwn(reasons,r.causeReason??'')?{causeReason:r.causeReason}:{}),
+      ...(stages.includes(r.causeStage)?{causeStage:r.causeStage}:{}),...(diagnostics?{diagnostics}:{}),
       ...(traceRunId&&executionId?{traceRunId,executionId,tracePath:`report-artifacts/${traceRunId}/traces/${executionId}.json`}:{})};
   });
   const counts=(value:Record<string,any>)=>Object.fromEntries(outcomes.map(key=>[key,count(value?.[key])]));

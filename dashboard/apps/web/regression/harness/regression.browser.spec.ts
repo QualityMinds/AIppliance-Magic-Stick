@@ -248,13 +248,17 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewpor
       progress:{percent:100,completedPhases:9,totalPhases:9},result:{counts,executionCounts,blockedCounts,
         executionBlockedCounts:{prerequisite:1,failure:0,cancelled:0,unknown:0},recoveryRequired:false,omittedCases:0,
         phases:[{phase:3,outcome:'Failed',counts,executionCounts,blockedCounts}],
-        cases:[{id:'LIFE-03',outcome:'Failed',layer:'E',variant:'p3-runtime-stop',reason:'DEADLINE',stage:'model-stopped',message:'Model stop timed out.',action:'Inspect the stop operation.',durationMs:1},
+        cases:[{id:'LIFE-03',outcome:'Failed',layer:'E',variant:'p3-runtime-stop',reason:'DEADLINE',stage:'model-stopped',message:'Model stop timed out.',action:'Inspect the stop operation.',durationMs:1,
+            causeReason:'API',causeStage:'cleanup',diagnostics:['Resource model · reference aaaaaaaaaaaa · failed · capture captured','Last observation: verify: failed · pods 1 · catalog 0']},
           {id:'HW-01',outcome:'Blocked',layer:'A',variant:'p3-inventory',reason:'CAPABILITY',message:'Required GPU hardware is missing.',action:'Provide GPU hardware.',durationMs:0,blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}},
           {id:'LIFE-04',outcome:'Blocked',layer:'E',variant:'p3-runtime-start',reason:'DEPENDENCY',message:'Model stop failed earlier.',action:'Fix the earlier model-stop failure.',durationMs:0,
             blockedBy:{kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped',executionId:'a'.repeat(24),traceRunId:'reg-11111111-2222-3333-4444-555555555555'}}]}
     }]};
   await fixturePage(page,{'/api/regression':payload});await page.goto(origin+'/#/system/regression');
   await page.getByText('Failures and blocked checks (3)',{exact:true}).click();
+  await expect(page.locator('p').filter({hasText:'Underlying cause:'})).toContainText('API · cleanup');
+  await page.getByText('Cleanup observations',{exact:true}).click();
+  await expect(page.getByText('Last observation: verify: failed · pods 1 · catalog 0',{exact:true})).toBeVisible();
   await expect(page.getByText('Blocked by prerequisite',{exact:true})).toBeVisible();
   await expect(page.getByText('Blocked by failure',{exact:true})).toBeVisible();
   await expect(page.locator('p').filter({hasText:'Blocking check:'})).toContainText('LIFE-03 · DEADLINE · Stage: model-stopped');

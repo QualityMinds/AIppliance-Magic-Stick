@@ -107,6 +107,8 @@ const Result = ({run}: {run: RegressionRun}) => {
       {run.result.cases.map((row, index) => <article className="list-row" key={`${row.id}-${index}`}><div><strong>{row.id} · {row.layer} · {row.variant}</strong>
         {row.description && <p>{row.description}</p>}
         <p>Reason: <code>{row.reason}</code> — {row.message}</p>
+        {row.causeReason&&<p>Underlying cause: <code>{row.causeReason}</code>{row.causeStage?` · ${row.causeStage}`:''}</p>}
+        {!!row.diagnostics?.length&&<details><summary>Cleanup observations</summary><ul>{row.diagnostics.map((line,i)=><li className="break-anywhere" key={i}>{line}</li>)}</ul></details>}
         {row.blockedBy?.caseId&&<p>Blocking check: <strong>{row.blockedBy.caseId}</strong>{row.blockedBy.reason ? ` · ${row.blockedBy.reason}` : ''}{row.blockedBy.stage ? ` · Stage: ${row.blockedBy.stage}` : ''}</p>}
         <p className="muted">{row.phase !== undefined ? `Phase ${row.phase} · ` : ''}Check layer {row.layer}{row.stage ? ` · Stage: ${row.stage}` : ''}</p>
         <p className="muted">Next action: {row.action}</p>

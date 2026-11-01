@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import SafeReporter, {failureOutcome, harnessFailure} from '../reporter.ts';
 import {caseDescription, caseDescriptions, durationDescription, layerDescriptions, modeDescription,
   parseCaseDescriptions, publicScenarioTitle, staticScenarioTitles} from '../core/case-descriptions.ts';
-import {HarnessError,reasons} from '../core/errors.ts';
+import {HarnessError,reasons,atStage} from '../core/errors.ts';
 import {evidenceAnnotations,evidenceStep} from '../core/evidence.ts';
 import {phase3Requirements,gpuModeIds} from '../profiles/gpu-p0.ts';
 import {remainingRequirements,remainingIds,remainingVariants,remainingVariantEnabled} from '../profiles/remaining-p0.ts';
@@ -583,7 +583,7 @@ test('HAR-10 reporter shows test progress, exact public scenario, layer, goal an
   expect(output).toContain('variant: final-idle');
 });
 
-test('HAR-11 reporter explains safe failure reasons without printing private titles, errors or annotation fields', () => {
+test('HAR-11 reporter explains safe failure reasons without printing private titles, errors or annotation fields', async () => {
   const secret = 'synthetic-secret-never-print';
   const first = specimen(`HAR-11 https://private.example.test/?token=${secret}`, [{type: 'regression',
     description: JSON.stringify({id: 'HAR-11', layer: 'U', raw: secret, description: secret})}]);
@@ -599,6 +599,17 @@ test('HAR-11 reporter explains safe failure reasons without printing private tit
   expect(output).not.toContain(secret);
   expect(output).not.toContain('https://private.example.test');
   expect(output).not.toContain('Scenario:');
+  const original=new HarnessError('CLEANUP','Failed','cleanup',{reason:'DEADLINE',stage:'model-stopped'});
+  expect(harnessFailure(original.message)).toMatchObject({code:'CLEANUP',causeReason:'DEADLINE',causeStage:'model-stopped'});
+  await expect(atStage('recovery-resource',async()=>{throw original;})).rejects.toMatchObject({causeReason:'DEADLINE',causeStage:'model-stopped'});
+  expect(harnessFailure(original.message.replace('[cause:DEADLINE]',`[cause:${secret}]`))).toBeUndefined();
+  const reporter=new SafeReporter();capture(()=>reporter.onTestEnd(first,result('failed',original.message)));
+  const cases=(reporter as unknown as {cases:CaseResult[]}).cases;
+  expect(cases[0]).toMatchObject({reason:'CLEANUP',causeReason:'DEADLINE',causeStage:'model-stopped'});
+  const view=publicResult({counts:{Failed:1,Passed:0,Blocked:0},executionCounts:{Failed:1,Passed:0,Blocked:0},cases},{});
+  expect(view.cases[0]).toMatchObject({causeReason:'DEADLINE',causeStage:'model-stopped'});
+  const unsafe=publicResult({cases:[{...cases[0],causeReason:secret,causeStage:secret,cleanupDiagnostic:{token:secret}}]},{});
+  expect(JSON.stringify(unsafe)).not.toContain(secret);expect(unsafe.cases[0]?.diagnostics?.[0]).toContain('unavailable');
 });
 
 test('HAR-10 nested HarnessError text in an assertion never changes Failed to Blocked',()=>{
@@ -747,11 +758,11 @@ test('HAR-10 a cleanup failure cannot turn completed checks into a successful ex
   const selected=specimen('ENG-01',evidenceAnnotations(ready).annotation);
   await evidenceStep(selected,[ready],async()=>42);
   const reporter=new SafeReporter();
-  capture(()=>reporter.onTestEnd(selected,result('failed',new HarnessError('CLEANUP','Failed','cleanup').message)));
+  capture(()=>reporter.onTestEnd(selected,result('failed',new HarnessError('CLEANUP','Failed','cleanup',{reason:'DEADLINE',stage:'model-stopped'}).message)));
   const cases=(reporter as unknown as {cases:CaseResult[]}).cases;
   expect(cases).toHaveLength(2);
   expect(cases[0]).toMatchObject({outcome:'Passed',executionOutcome:'Failed'});
-  expect(cases[1]).toMatchObject({id:'HAR-10',outcome:'Failed',reason:'CLEANUP',stage:'cleanup'});
+  expect(cases[1]).toMatchObject({id:'HAR-10',outcome:'Failed',reason:'CLEANUP',stage:'cleanup',causeReason:'DEADLINE',causeStage:'model-stopped'});
   const directory=await mkdtemp(join(tmpdir(),'magicstick-report-cleanup-'));
   try {
     const summary=await saveReport(directory,newRunId(),cases,['ENG-01'],'unknown','phase3-gpu');

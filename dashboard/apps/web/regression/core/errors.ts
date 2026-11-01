@@ -53,7 +53,8 @@ export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form',
 /** Fixed stage names expose which bounded operation failed, never its raw body. */
 export async function atStage<T>(stage:Stage,action:()=>Promise<T>):Promise<T> {
   try{return await action();}catch(error){throw new HarnessError(error instanceof HarnessError?error.code:'UNEXPECTED',
-    error instanceof HarnessError?error.outcome:'Failed',error instanceof HarnessError&&error.stage?error.stage:stage);}
+    error instanceof HarnessError?error.outcome:'Failed',error instanceof HarnessError&&error.stage?error.stage:stage,
+    error instanceof HarnessError&&error.causeReason?{reason:error.causeReason,stage:error.causeStage}:undefined);}
 }
 export type Stage = typeof stages[number];
 
@@ -62,13 +63,20 @@ export class HarnessError extends Error {
   readonly code: ReasonCode;
   readonly outcome: 'Blocked' | 'Failed';
   readonly stage?: Stage;
+  readonly causeReason?:ReasonCode;
+  readonly causeStage?:Stage;
 
-  constructor(code: ReasonCode, outcome: 'Blocked' | 'Failed' = blockedReasons.includes(code) ? 'Blocked' : 'Failed', stage?: Stage) {
-    super(`[${code}] ${reasons[code]} [outcome:${outcome}]${stage && stages.includes(stage) ? ` [stage:${stage}]` : ''}`);
+  constructor(code: ReasonCode, outcome: 'Blocked' | 'Failed' = blockedReasons.includes(code) ? 'Blocked' : 'Failed', stage?: Stage,
+    cause?:{reason:ReasonCode;stage?:Stage}) {
+    const safeCause=cause&&Object.hasOwn(reasons,cause.reason)?cause:undefined;
+    super(`[${code}] ${reasons[code]} [outcome:${outcome}]${stage && stages.includes(stage) ? ` [stage:${stage}]` : ''}`+
+      (safeCause?` [cause:${safeCause.reason}]${safeCause.stage&&stages.includes(safeCause.stage)?` [cause-stage:${safeCause.stage}]`:''}`:''));
     this.name = 'HarnessError';
     this.code = code;
     this.outcome = outcome;
     this.stage = stage;
+    this.causeReason=safeCause?.reason;
+    this.causeStage=safeCause?.stage&&stages.includes(safeCause.stage)?safeCause.stage:undefined;
   }
 }
 

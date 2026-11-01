@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import type {FullConfig,FullResult,Suite,TestCase,TestResult} from '@playwright/test/reporter';
+import type {FullConfig,FullResult,Suite,TestCase,TestResult,TestStep} from '@playwright/test/reporter';
 import {mkdtemp,rm,symlink,lstat,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -19,6 +19,7 @@ import {interruptedEvidence} from '../core/interrupted-evidence.ts';
 import {completeCases,saveReport} from '../core/report.ts';
 import {KubernetesModelCleaner} from '../core/model-cleanup.ts';
 import {LabLease,type Lease,type LeaseStore} from '../core/lease.ts';
+import {CleanupRecorder} from '../core/cleanup-diagnostic.ts';
 
 const identity={applianceUid:'synthetic-appliance',nodeUids:['synthetic-node']};
 async function fixture(action:(root:string)=>Promise<void>) {
@@ -228,15 +229,47 @@ test('HAR-10 durable selection preserves completed evidence and attributes kille
     reporter.onBegin({configFile:fileURLToPath(new URL('../playwright.config.ts',import.meta.url))} as FullConfig,{allTests:()=>tests} as Suite);
     reporter.onTestBegin(tests[0]!);reporter.onTestEnd(tests[0]!,{status:'passed',duration:1,retry:0,errors:[]} as unknown as TestResult);
     reporter.onTestBegin(tests[1]!);
+    const pendingStep={category:'test.step',title:'Bearer synthetic-private-token',duration:0,location:tests[1]!.location} as TestStep;
+    reporter.onStepBegin(tests[1]!,{} as TestResult,pendingStep);
     await (reporter as unknown as {writes:Promise<void>}).writes;
     const ledger=JSON.parse(await readPrivate(join(directory,'runner-evidence.json')));
     expect(ledger.scenarios.map((s:{state:string})=>s.state)).toEqual(['completed','running','selected']);
+    expect(ledger.pendingTraces[0].steps).toMatchObject([{title:'Test step',outcome:'Blocked',titleFiltered:true}]);
+    const checkpoint=new CleanupRecorder({filename:join(directory,'journal.json'),runId},{kind:'model',name:'synthetic-private-name',uid:'synthetic-private-uid'});
+    await checkpoint.record({operation:'verify',state:'running',exists:false,podCount:1,catalogCount:0,timeoutMs:300000});
     const rows=await interruptedEvidence(directory,runId,'DEADLINE');
     expect(rows).toEqual(expect.arrayContaining([
       expect.objectContaining({id:'HAR-01',outcome:'Passed'}),expect.objectContaining({id:'HAR-02',outcome:'Failed',reason:'DEADLINE'}),
       expect.objectContaining({id:'HAR-03',outcome:'Blocked',blockedBy:expect.objectContaining({caseId:'HAR-10',kind:'failure'})})]));
     expect(completeCases('phase4',rows,['SLOT-09']).find(c=>c.id==='SLOT-09'&&c.variant==='p4-last-slot-race'))
       .toMatchObject({outcome:'Blocked',reason:'DEPENDENCY',blockedBy:{caseId:'HAR-10',reason:'DEADLINE',stage:'runner-execution'}});
+    const root=rows.find(r=>r.id==='HAR-10')!;
+    const trace=JSON.parse(await readPrivate(join(directory,'traces',root.executionId+'.json')));
+    expect(trace.cleanupDiagnostics[0]).toMatchObject({state:'running',history:[expect.objectContaining({podCount:1})]});
+    expect(JSON.stringify(trace)).not.toContain('synthetic-private');
+    const interrupted=rows.find(r=>r.id==='HAR-02')!;
+    const lastSteps=JSON.parse(await readPrivate(join(directory,'traces',interrupted.executionId+'.json')));
+    expect(lastSteps.outcome).toBe('Failed');
+    expect(lastSteps.steps).toMatchObject([{title:'Test step',outcome:'Blocked'},
+      {outcome:'Failed',reason:'DEADLINE',stage:'runner-execution'}]);
+    expect(JSON.stringify(lastSteps)).not.toContain('synthetic-private');
+    expect(rows.find(r=>r.id==='HAR-03')).not.toHaveProperty('traceRunId');
+    const report=await saveReport(directory,runId,rows,['HAR-01','HAR-02','HAR-03','HAR-10'],'unknown','preflight');
+    expect(report.counts).toEqual({Passed:1,Failed:2,Blocked:1,Skipped:0,'Not run':0,Flaky:0});
+    const exported=JSON.parse(await readPrivate(join(directory,'summary.json')));
+    expect(exported.cases.find((c:{id:string})=>c.id==='HAR-10').cleanupDiagnostic).toMatchObject({state:'running',history:[expect.objectContaining({podCount:1})]});
+    // A saturated checkpoint still retains the first failure and last pending
+    // observation when adding the interruption marker, including parent links.
+    ledger.pendingTraces[0].steps=Array.from({length:2000},(_,i)=>({index:i+1,category:'expect',title:'Assertion',
+      durationMs:1,outcome:i===16?'Failed':i===1999?'Blocked':'Passed',...(i===16?{reason:'OWNERSHIP'}:{}),
+      ...(i===18?{parentIndex:18}:{})}));
+    await writePrivate(join(directory,'runner-evidence.json'),ledger);
+    await interruptedEvidence(directory,runId,'DEADLINE');
+    const bounded=JSON.parse(await readPrivate(join(directory,'traces',interrupted.executionId+'.json')));
+    expect(bounded.steps).toHaveLength(2000);expect(bounded.omittedSteps).toBe(1);
+    expect(bounded.steps.find((s:{index:number})=>s.index===17)).toMatchObject({outcome:'Failed',reason:'OWNERSHIP'});
+    expect(bounded.steps.at(-2)).toMatchObject({index:2000,outcome:'Blocked'});
+    expect(bounded.steps.at(-1)).toMatchObject({index:2001,reason:'DEADLINE'});
   }finally{for(const name of Object.keys(process.env))if(!Object.hasOwn(previous,name))delete process.env[name];Object.assign(process.env,previous);}
 }));
 

@@ -22,6 +22,7 @@ import {failureOutcome} from '../reporter.ts';
 import {readOnlyApi, readOnlyFetch} from '../core/transport.ts';
 import {KubernetesLeaseStore, verifyObserverRules, type KubeObject} from '../core/observer.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
+import type {CleanupObservation} from '../core/cleanup-diagnostic.ts';
 import {KubernetesModelCleaner, verifyModelCleanerRules} from '../core/model-cleanup.ts';
 import {ModelCreateRejected, OwnedModelClient, activation, editRevision, fixtureIsAdvertised, hasRuntimeCrashLoop, ownedRuntimePods} from '../core/owned-model.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
@@ -598,7 +599,7 @@ test('HAR-05 journal records only owned UIDs; changed-UID same-prefix resource s
 test('HAR-05 API-key adapter revokes only an exact run-owned immutable ID', async () => {
   const prefix = 'reg-' + newRunId().slice(4, 16) + '-';
   const id = 'a'.repeat(64), existingId = 'b'.repeat(64), name = prefix + 'key';
-  const items = [{id: existingId, name: 'existing-key'}];
+  const items = [{id: existingId, name: 'existing-key'}];let failDelete=false;
   const response = (status: number, value: unknown) => ({status: () => status,
     headers: () => ({'content-type': 'application/json'}), body: async () => Buffer.from(JSON.stringify(value))});
   const request = {fetch: async (url: string, options: {method: string; data?: string; headers: Record<string, string>}) => {
@@ -613,6 +614,7 @@ test('HAR-05 API-key adapter revokes only an exact run-owned immutable ID', asyn
     }
     expect(options.method).toBe('DELETE');
     expect(new URL(url).pathname).toBe('/api/api-access/' + id);
+    if(failDelete)return response(503,{message:'Bearer synthetic-private-token'});
     items.splice(items.findIndex(item => item.id === id), 1);
     return response(200, {deleted: id});
   }} as unknown as APIRequestContext;
@@ -621,10 +623,20 @@ test('HAR-05 API-key adapter revokes only an exact run-owned immutable ID', asyn
   await expect(client.adapter().removeIfUid(entry, id)).rejects.toMatchObject({code: 'OWNERSHIP'});
   await expect(client.create('unrelated-key')).rejects.toMatchObject({code: 'OWNERSHIP'});
   expect(await client.create(name)).toBe(id);
-  expect(await client.adapter().lookup(entry)).toEqual({uid: id});
-  await client.adapter().removeIfUid(entry, id);
-  expect(await client.adapter().verifyRemoved(entry)).toBe(true);
+  const diagnostics:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+  const observe=async(value:Omit<CleanupObservation,'at'|'elapsedMs'>)=>{diagnostics.push(value);};
+  expect(await client.adapter().lookup(entry,observe)).toEqual({uid: id});
+  await client.adapter().removeIfUid(entry, id,observe);
+  expect(await client.adapter().verifyRemoved(entry,observe)).toBe(true);
+  expect(diagnostics).toMatchObject([{operation:'lookup',method:'GET',endpoint:'api-key',httpStatus:200,requestAttempted:true},
+    {operation:'remove',method:'DELETE',endpoint:'api-key',httpStatus:200,requestAttempted:true},
+    {operation:'verify',method:'GET',endpoint:'api-key',httpStatus:200,requestAttempted:true}]);
   expect(items).toEqual([{id: existingId, name: 'existing-key'}]);
+  await client.create(name);failDelete=true;
+  await expect(client.adapter().removeIfUid(entry,id,observe)).rejects.toMatchObject({code:'API'});
+  expect(diagnostics.at(-1)).toMatchObject({method:'DELETE',httpStatus:503,requestAttempted:true});
+  expect(JSON.stringify(diagnostics)).not.toMatch(/synthetic-private-token|dashboard\.example|existing-key|sk-synthetic/);
+  expect(JSON.stringify(diagnostics)).not.toContain(id);expect(items).toHaveLength(2);
 });
 
 test('HAR-06 failed scenario cleans only its owned fixtures; cleanup remains a separate gate', async () => {
@@ -826,12 +838,12 @@ test('HAR-05 model cleaner denies excess RBAC and uses atomic UID plus resourceV
   const cleaner = new FakeCleaner('unused', 'ai-system');
   const entry = {kind: 'model' as const, name, uid, generation: 3, state: 'owned' as const};
   const adapter = cleaner.adapter('reg-aabbccddeeff-', async () => ({podCount: 0, catalogCount: 0}));
-  expect(await adapter.lookup(entry)).toEqual({uid});
+  expect(await adapter.lookup(entry)).toEqual({uid,generation:3,deleting:false});
   await expect(adapter.removeIfUid({...entry, generation: 2}, uid)).rejects.toMatchObject({code: 'OWNERSHIP'});
   await adapter.removeIfUid(entry, uid);
   expect(await adapter.verifyRemoved(entry)).toBe(true);
   cleaner.current.spec = {type: 'external', targetNamespace: 'ai'}; cleaner.deleted = false;
-  expect(await adapter.lookup(entry)).toEqual({uid});
+  expect(await adapter.lookup(entry)).toEqual({uid,generation:3,deleting:false});
   await adapter.removeIfUid(entry, uid); expect(await adapter.verifyRemoved(entry)).toBe(true);
 });
 

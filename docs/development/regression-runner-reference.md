@@ -117,13 +117,45 @@ only summaries, JUnit, its manifest and re-validated trace/component attachments
 The aggregate copies child attachments into its own archive, so extracting one
 archive is sufficient; sibling private run directories are not required.
 
-Filtered traces retain literal source-reviewed `test.step` labels, generic
+Filtered traces retain literal source-reviewed `test.step` labels (including
+shared core helpers and their owning scenario), generic
 browser-operation labels, outcome, duration, allowlisted reason/stage and source
 line. Expected negative assertions that are handled by a passing scenario are
 marked `handledError`, not a failing scenario. Each trace has a 2,000-step limit;
-any excess is explicitly counted as `omittedSteps`, never advertised as complete.
+the bounded history preserves initial context, failures and recent steps instead
+of discarding everything after the limit. Any excess is explicitly counted as
+`omittedSteps`, never advertised as complete. Dynamic step titles remain generic
+and are marked `titleFiltered`; this does not suppress their source or outcome.
 Component failures retain the source-literal assertion name, original index,
 category and source line when available, not the expected/received values.
+
+Cleanup has a separate optional `cleanupDiagnostics` contract. Each resource
+uses a run-scoped fingerprint, never its raw name or UID. Observations retain
+lookup/removal/verification/persistence stages, identity/revision match results,
+deletion state, remaining Pod/catalog counts, elapsed time and wait budget.
+The API-key adapter additionally records its fixed method/endpoint class, HTTP
+status and whether a request was attempted; that flag is not server acknowledgement.
+Failed reads retain unknown values, not zero or proof of absence. The outer
+`CLEANUP` error can carry fixed `causeReason` / `causeStage`, independently of an
+earlier scenario failure. Raw error strings are never exported.
+
+Entry-scoped private checkpoints retain the first failure and at most 12
+observations/state transitions, compacting repeated polls while retaining their
+latest timestamp and total/omitted counts. A retry preserves the first failure;
+late callbacks from a finished attempt cannot rewrite its observation. The
+reporter checkpoints sanitized pending steps at high-level boundaries and at
+most once per second for noisy browser operations. Interrupted recovery uses
+only that exact run's bounded root/worker captures and pending evidence. An
+unfinished step never becomes a pass, and interruption adds its runner cause.
+At most 16 cleanup scopes enter a trace; `omittedCleanupDiagnostics` and
+`diagnosticsUnavailable` make limits and rejected/unreadable captures explicit.
+
+Dashboard **Cleanup observations**, HTML, text, JSON and JUnit carry the same
+safe facts. JSON keeps the structured fields; the other formats include readable
+observations and the underlying cause. These are diagnostic observations, not
+ownership receipts, confirmed resource absence or permission to release a Lease.
+The cleanup and identity/revision checks, deadlines, account-retention policy and
+historical reports remain unchanged. No unsafe-debug setting is offered.
 
 Pinned-baseline observations have an optional `preflightDiagnostics` field. The
 first failed observation is retained even after convergence; up to 12 state

@@ -23,6 +23,7 @@ import {recoveryInventory} from './recovery-inventory.ts';
 import {progressEvent} from './progress.ts';
 import {collectPreflightFailure,privatePreflightLogReader} from './preflight-capture.ts';
 import {newPreflightDiagnostic,parsePreflightDiagnostic,recordPinObservation,type ObservationWindow,type PreflightDiagnostic} from './preflight-diagnostic.ts';
+import {cleanupForTrace} from './cleanup-diagnostic.ts';
 
 /** Shared foundation adapter: no GPU, host-maintenance or product-setting writes. */
 export class LiveFoundation {
@@ -231,8 +232,14 @@ export class LiveFoundation {
     const model = this.cleaner.adapter(journal.prefix, name => remainingModelResources(this.observer, this.api, name), this.guard);
     const unavailable:CleanupAdapter={lookup:async()=>{throw new Error('Unregistered cleanup domain');},
       removeIfUid:async()=>{throw new Error('Unregistered cleanup domain');},verifyRemoved:async()=>false};
-    await journal.cleanup({key, model, app: this.domainCleanup.app ?? unavailable,
-      identity: this.domainCleanup.identity ?? unavailable}, this.guard, only);
+    try {await journal.cleanup({key, model, app: this.domainCleanup.app ?? unavailable,
+      identity: this.domainCleanup.identity ?? unavailable}, this.guard, only);}
+    finally {
+      for(const diagnostic of journal.diagnostics)try {
+        const exported=cleanupForTrace(diagnostic,process.env.REGRESSION_RUN_ID??diagnostic.runId);
+        await test.info().attach('magicstick-cleanup-diagnostic',{contentType:'application/json',body:Buffer.from(JSON.stringify(exported))});
+      }catch{/* The exact private checkpoint remains available outside Playwright. */}
+    }
   }
 
   /** Only for a no-resource fault proof, after the exact test replacement owner
@@ -252,8 +259,12 @@ export class LiveFoundation {
         progressEvent({event:'cleanup-state',cleanup:{state:'running',checkedAt:new Date().toISOString(),stage:'cleanup'}});
         await bounded(async()=>{
           const failures:Array<{reason:string;stage:string}>=[];
-          const record=(error:unknown)=>failures.push({reason:error instanceof HarnessError?error.code:'UNEXPECTED',
-            stage:error instanceof HarnessError?error.stage??'cleanup':'cleanup'});
+          let firstCause:{reason:import('./errors.ts').ReasonCode;stage?:import('./errors.ts').Stage}|undefined;
+          const record=(error:unknown)=>{
+            firstCause??={reason:error instanceof HarnessError?error.causeReason??error.code:'UNEXPECTED',
+              stage:error instanceof HarnessError?error.causeStage??error.stage:'cleanup'};
+            failures.push({reason:error instanceof HarnessError?error.code:'UNEXPECTED',stage:error instanceof HarnessError?error.stage??'cleanup':'cleanup'});
+          };
           // Owned workloads must be gone before borrowed modules/sharing can
           // return to their disabled/idle baseline. Still attempt every cleanup
           // domain when another domain fails; each retains its identity guard.
@@ -265,7 +276,7 @@ export class LiveFoundation {
           if(failures.length) {
             await writePrivate(join(dirname(this.journal.filename),'cleanup-failure.json'),{version:1,runId:this.journal.runId,failures,
               cleanupFailures:this.journals.flatMap(journal=>journal.cleanupFailures)}).catch(()=>{});
-            throw new HarnessError('CLEANUP','Failed',failures[0]!.stage as import('./errors.ts').Stage);
+            throw new HarnessError('CLEANUP','Failed',failures[0]!.stage as import('./errors.ts').Stage,firstCause);
           }
           await this.guard();
           const currentIds = new Set((await this.keys.list()).items.map(item => item.id));

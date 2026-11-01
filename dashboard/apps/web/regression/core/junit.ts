@@ -6,6 +6,7 @@ import {blockerDescription} from './blocker-description.ts';
 import {regressionBlockedLabel} from '../../../../packages/core/src/regression-blocking.ts';
 import type {RegressionCleanup,RegressionDiagnosticSelection} from '@magicstick/dashboard-contracts';
 import {deferredApplicationStep} from './engine-policy.ts';
+import {cleanupDiagnosticText} from './cleanup-diagnostic.ts';
 
 const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]!));
 type Entry={name:string;classname:string;outcome:string;durationMs:number;detail:string;properties:Record<string,string>;
@@ -31,6 +32,8 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
       properties:{catalogueGoal:caseDescription(item.id),outcome:item.outcome,
         ...(item.executionId?{executionId:item.executionId}:{}),...(item.executionOutcome?{executionOutcome:item.executionOutcome}:{}),
         ...(item.reason?{reason:item.reason}:{}),...(item.stage?{stage:item.stage}:{}),
+        ...(item.causeReason?{causeReason:item.causeReason}:{}),...(item.causeStage?{causeStage:item.causeStage}:{}),
+        ...(item.cleanupDiagnostic?{cleanupObservations:cleanupDiagnosticText(item.cleanupDiagnostic).join('\n')}:{}),
         ...(item.blockedBy?{blockedKind:item.blockedBy.kind,
           ...(item.blockedBy.caseId?{blockedByCase:item.blockedBy.caseId}:{}),
           ...(item.blockedBy.reason?{blockedByReason:item.blockedBy.reason}:{}),
@@ -50,10 +53,14 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
         ...(trace.runtimeDiagnostics?.length?{runtimeDiagnosticCount:String(trace.runtimeDiagnostics.length)}:{}),
         ...(trace.preflightDiagnostics?.length?{preflightDiagnosticCount:String(trace.preflightDiagnostics.length)}:{}),
         ...(trace.omittedPreflightDiagnostics?{omittedPreflightDiagnostics:String(trace.omittedPreflightDiagnostics)}:{}),
+        ...(trace.cleanupDiagnostics?.length?{cleanupDiagnosticCount:String(trace.cleanupDiagnostics.length)}:{}),
+        ...(trace.diagnosticsUnavailable?{diagnosticsUnavailable:String(trace.diagnosticsUnavailable)}:{}),
+        ...(trace.omittedCleanupDiagnostics?{omittedCleanupDiagnostics:String(trace.omittedCleanupDiagnostics)}:{}),
         ...(artifact.componentPath?{componentDiagnostic:artifact.componentPath}:{}),...(trace.recoveryRequired?{recoveryRequired:'true'}:{} )},
       output:JSON.stringify({outcome:trace.outcome,steps:trace.steps.length,omittedSteps:trace.omittedSteps??0,trace:artifact.path,
         ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics}:{} ),
-        ...(trace.preflightDiagnostics?.length?{preflightDiagnostics:trace.preflightDiagnostics}:{} )})+'\n'+
+        ...(trace.preflightDiagnostics?.length?{preflightDiagnostics:trace.preflightDiagnostics}:{} ),
+        ...(trace.cleanupDiagnostics?.length?{cleanupDiagnostics:trace.cleanupDiagnostics}:{})})+'\n'+
         attachments.map(path=>`[[ATTACHMENT|${path}]]`).join('\n')};
   });
   const steps:Entry[]=artifacts.flatMap(({trace,path})=>trace.steps.map(step=>({name:`${step.index}: ${step.title}`,
@@ -61,6 +68,8 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
     detail:step.reason?reasons[step.reason]:step.outcome,source:step.source,
     properties:{executionId:trace.executionId,stepIndex:String(step.index),category:step.category,outcome:step.outcome,trace:path,
       ...(step.parentIndex?{parentStep:String(step.parentIndex)}:{}),...(step.reason?{reason:step.reason}:{}),...(step.stage?{stage:step.stage}:{}),
+      ...(step.causeReason?{causeReason:step.causeReason}:{}),...(step.causeStage?{causeStage:step.causeStage}:{}),
+      ...(step.titleFiltered?{titleFiltered:'true'}:{}),
       ...(step.handledError?{handledError:'true'}:{} )}})));
   if(selection)for(const item of evidence) {
     item.properties.testMode=selection.testMode;

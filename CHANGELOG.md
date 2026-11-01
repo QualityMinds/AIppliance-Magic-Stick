@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Retain reviewed helper-step labels, original cleanup causes and bounded
+  resource observations in sanitized regression traces, Dashboard details and
+  HTML/text/JSON/JUnit exports. Checkpoints preserve pending steps and the last
+  cleanup observation after interruption; unknown reads, omitted history and
+  unavailable captures are explicit. Credentials and raw responses stay private;
+  diagnostics never replace identity-bound cleanup verification.
+
 - Keep automatic regression preparation's CI selection independent of live
   adapters so its plain-Node entrypoint reaches validation without unsupported
   TypeScript imports. Preserve explicit blocked causes over inherited phase

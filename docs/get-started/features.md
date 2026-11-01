@@ -76,6 +76,9 @@
   errors; **Executable scenarios** has separate, initially closed details.
   Live evidence stays separately labelled. Missing final totals are not shown as
   zero failures; 100% progress means execution finished, not passed.
+  Expand **Cleanup observations** for the original cause, remaining resources
+  and observed wait budget. Sanitized traces retain useful reviewed step names,
+  including shared helpers; credentials and raw responses stay excluded.
   A report-download export failure retains completed results and does not by
   itself require cleanup or repeating the tests.
   Each full start cleans up the previous run and begins again with a fresh test ID.

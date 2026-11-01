@@ -31,7 +31,7 @@ async function withLive(browser: Browser, action: (live: LiveFoundation) => Prom
   await withCleanup(() => test.step('Run owned foundation scenario', () => action(live)),
     () => test.step('Verify owned foundation cleanup', async () => {
       try { await live.close(); }
-      catch { throw new HarnessError('CLEANUP', 'Failed', 'cleanup'); }
+      catch (error) { if(error instanceof HarnessError)throw error;throw new HarnessError('CLEANUP','Failed','cleanup',{reason:'UNEXPECTED'}); }
     }));
 }
 

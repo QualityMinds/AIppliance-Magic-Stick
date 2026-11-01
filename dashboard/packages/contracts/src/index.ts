@@ -52,7 +52,8 @@ export interface RegressionResult {
   phases: Array<{phase: number; outcome: RegressionOutcome; counts: RegressionCounts; executionCounts: RegressionCounts;
     blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts}>;
   cases: Array<{id: string; description?: string; outcome: RegressionOutcome; layer: string; variant: string; reason: string; message: string; action: string; durationMs: number;
-    phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker}>;
+    phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker;
+    causeReason?:string;causeStage?:string;diagnostics?:string[]}>;
 }
 export interface RegressionRun {
   diagnosticSelection?: string;

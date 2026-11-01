@@ -217,7 +217,10 @@ class RegressionApiTests(unittest.TestCase):
         report = {"counts": counts, "executionCounts": scenarios,
                   "evidenceCounts": {"fixture": {"Passed": 433, "Failed": 0, "Blocked": 0},
                                      "live": {"Passed": 8, "Failed": 3, "Blocked": 18}},
-                  "cases": [{"id": "HAR-10", "outcome": "Failed", "reason": "UNEXPECTED"}],
+                  "cases": [{"id": "HAR-10", "outcome": "Failed", "reason": "CLEANUP",
+                             "causeReason": "DEADLINE", "causeStage": "cleanup",
+                             "diagnostics": ["Resource model · reference aaaaaaaaaaaa · failed · capture captured",
+                                             "Last observation: verify: failed · pods 1 · catalog 0"]}],
                   "omittedCases": 20, "phases": [{"phase": phase, "counts": counts} for phase in [0, 4]]}
         saved = {"metadata": {"name": "regression-" + "1"*32, "uid": UID}, "spec": {"phases": [0, 4]},
                  "status": {"phase": "Failed", "result": report, "progress": {"executionCounts": scenarios}}}
@@ -226,7 +229,13 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(view["result"], report)
         self.assertEqual(view["result"]["counts"], counts)
         self.assertEqual(view["result"]["executionCounts"], scenarios)
+        self.assertEqual(view["result"]["cases"][0]["causeReason"], "DEADLINE")
+        self.assertEqual(view["result"]["cases"][0]["diagnostics"], report["cases"][0]["diagnostics"])
         self.assertNotIn("executionId", view["result"]["cases"][0])
+        legacy = copy.deepcopy(saved)
+        for key in ["causeReason", "causeStage", "diagnostics"]:
+            del legacy["status"]["result"]["cases"][0][key]
+        self.assertNotIn("diagnostics", self.service.view(legacy)["result"]["cases"][0])
         self.assertEqual(saved, original)
         self.assertEqual(self.writes, [])
 

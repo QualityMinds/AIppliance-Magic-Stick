@@ -288,6 +288,15 @@ The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
 scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
 cause properties. The archive retains every row, even when the Dashboard limits
 its expanded list. Raw credentials, journals and runtime logs stay private.
+For cleanup failures, expand **Cleanup observations** in the Dashboard or HTML
+report. The original underlying cause stays separate from the outer `CLEANUP`
+error and from a test failure. Observations show which stage was waiting, whether
+the exact resource/revision still matched, remaining Pods/catalog entries and
+elapsed time versus its budget. A failed read is **unknown**, never zero. The
+first failure and last observation survive bounded compaction and interrupted
+execution where their checkpoints are available. Missing/rejected captures and
+filtered dynamic labels are identified explicitly; older reports are not changed.
+These details help diagnosis but do not prove cleanup or permit unlocking a run.
 `HAR-10 / REPORT_EXPORT` means downloads could not be published: completed counts
 remain visible, and it does not imply a cleanup failure. Inspect report size or
 storage; do not repeat a multi-hour run or force recovery to recreate a download.

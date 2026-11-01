@@ -47,16 +47,22 @@ export class KubernetesModelCleaner extends KubectlObserver {
   }
 
   adapter(prefix: string, readRemaining: (name: string) => Promise<{podCount: number; catalogCount: number}>,
-    heartbeat: () => Promise<void> = async () => {}): CleanupAdapter {
+    heartbeat: () => Promise<void> = async () => {},options:{timeoutMs?:number;intervalMs?:number}={}): CleanupAdapter {
+    const timeoutMs=options.timeoutMs??300_000;
+    requireSafe(Number.isSafeInteger(timeoutMs)&&timeoutMs>0&&timeoutMs<=300_000,'CONFIG');
     return {
-      lookup: async entry => {
+      lookup: async (entry,observe) => {
         await heartbeat();
         validateEntry(entry, prefix);
         const item = await this.find(entry.name);
+        await observe?.({operation:'lookup',state:'running',exists:item!==null,uidMatches:item?item.metadata.uid===entry.uid:null,
+          generationMatches:item?item.metadata.generation===entry.generation:null,deleting:!!item?.metadata.deletionTimestamp,
+          ...(entry.generation!==undefined?{expectedGeneration:entry.generation}:{}),
+          ...(item?.metadata.generation!==undefined?{observedGeneration:item.metadata.generation}:{})});
         if (item) requireSafe(item.metadata.generation === entry.generation &&
           item.metadata.labels?.['app.kubernetes.io/managed-by'] === 'ai-appliance-dashboard' &&
           ['local', 'external'].includes(String(item.spec?.type)) && item.spec?.targetNamespace === 'ai', 'OWNERSHIP');
-        return item?.metadata.uid ? {uid: item.metadata.uid} : null;
+        return item?.metadata.uid ? {uid:item.metadata.uid,generation:item.metadata.generation,deleting:!!item.metadata.deletionTimestamp} : null;
       },
       removeIfUid: async (entry, uid) => {
         await heartbeat();
@@ -64,17 +70,25 @@ export class KubernetesModelCleaner extends KubectlObserver {
         requireSafe(entry.uid === uid, 'OWNERSHIP');
         await this.remove(entry.name, uid, entry.generation!);
       },
-      verifyRemoved: async entry => {
+      verifyRemoved: async (entry,observe) => {
         // A conclusively rejected create owns no UID. It is still checked for
         // independent absence, but can never pass the deletion preconditions.
         if(entry.uid===null)requireSafe(entry.kind==='model'&&entry.name.startsWith(prefix)&&entry.state==='removed','OWNERSHIP');
         else validateEntry(entry, prefix);
         await poll(async () => {
           await heartbeat();
-          const [item, remaining] = await Promise.all([this.find(entry.name), readRemaining(entry.name)]);
+          let item:KubeObject|null,remaining:{podCount:number;catalogCount:number};
+          try {[item,remaining]=await Promise.all([this.find(entry.name),readRemaining(entry.name)]);}
+          catch(error){await observe?.({operation:'verify',state:'failed',exists:null,uidMatches:null,generationMatches:null,podCount:null,catalogCount:null,
+            reason:error instanceof HarnessError?error.code:'UNEXPECTED',stage:'cleanup',timeoutMs});throw error;}
+          await observe?.({operation:'verify',state:'running',exists:item!==null,uidMatches:item?item.metadata.uid===entry.uid:null,
+            generationMatches:item?item.metadata.generation===entry.generation:null,deleting:!!item?.metadata.deletionTimestamp,
+            ...(entry.generation!==undefined?{expectedGeneration:entry.generation}:{}),
+            ...(item?.metadata.generation!==undefined?{observedGeneration:item.metadata.generation}:{}),
+            podCount:remaining.podCount,catalogCount:remaining.catalogCount,timeoutMs});
           return {item, remaining};
         }, result => result.item === null && result.remaining.podCount === 0 && result.remaining.catalogCount === 0,
-        {timeoutMs: 300_000, intervalMs: 1000, stage: 'cleanup'});
+        {timeoutMs, intervalMs:options.intervalMs??1000, stage: 'cleanup'});
         return true;
       },
     };
