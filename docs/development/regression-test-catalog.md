@@ -78,6 +78,15 @@ first-failure/latest-state preservation, interrupted checkpoints and privacy acr
 Dashboard/HTML/text/JSON/JUnit. Diagnostics are not cleanup receipts or extra
 registered scenarios; UID/revision checks and the selection matrix are unchanged.
 
+HAR-03/05/07/10/11 also cover Kubernetes cleanup conflict classification and
+bounded re-observation: status/finalizer-only revision changes may permit up to
+three UID/resource-version-bound DELETE attempts, never unguarded deletion.
+Changed UID/generation/intent, stale reads, authorization/transport failures and
+lost ownership prevent retries. Protocol reason, known HTTP status and attempt
+observations survive checkpoints, compaction and report export without raw
+responses. These are owning-layer counterexamples within existing cases, not
+additional registered live scenarios or proof of current appliance acceptance.
+
 ## 2. Authentication, sessions and role boundaries
 
 Repeat role checks for administrator, operator, viewer and an ordinary identity

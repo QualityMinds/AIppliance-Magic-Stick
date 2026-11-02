@@ -518,7 +518,9 @@ describe('In-Appliance regression tests', () => {
       recoveryRequired:false,omittedCases:0,phases:[{phase:3,outcome:'Failed',counts:{Passed:20,Failed:1,Blocked:2},
         executionCounts:{Passed:10,Failed:1,Blocked:1},blockedCounts:{prerequisite:1,failure:1,cancelled:0,unknown:0}}],
       cases:[{id:'LIFE-03',outcome:'Failed',layer:'E',variant:'p3-runtime-stop',reason:'CLEANUP',message:'Cleanup failed.',action:'Inspect exact resource.',durationMs:300000,
-          causeReason:'DEADLINE',causeStage:'cleanup',diagnostics:['Resource model · reference aaaaaaaaaaaa · failed · capture captured','Last observation: verify: failed · pods 1 · catalog 0']},
+          causeReason:'DEADLINE',causeStage:'cleanup',diagnostics:['Resource model · reference aaaaaaaaaaaa · failed · capture captured',
+            'First failure: remove: failed · DELETE model-activation · HTTP 403 · Kubernetes Forbidden · command api · attempt 1/3 · retry not scheduled',
+            'Last observation: verify: failed · pods 1 · catalog 0']},
         {id:'HW-01',outcome:'Blocked',layer:'A',variant:'p3-inventory',reason:'CAPABILITY',message:'Missing GPU.',action:'Provide real GPU hardware.',durationMs:0,blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}},
         {id:'LIFE-04',outcome:'Blocked',layer:'E',variant:'p3-runtime-start',reason:'DEPENDENCY',message:'An earlier model stop failed.',action:'Fix the earlier failed step.',durationMs:0,
           blockedBy:{kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped',executionId:'a'.repeat(24),traceRunId:'reg-11111111-2222-3333-4444-555555555555'}}]
@@ -527,6 +529,8 @@ describe('In-Appliance regression tests', () => {
     await userEvent.click(screen.getByText('Failures and blocked checks (3)'));
     expect(screen.getByText(/Underlying cause:/)).toHaveTextContent('DEADLINE · cleanup');
     await userEvent.click(screen.getByText('Cleanup observations'));
+    expect(screen.getByText(/^First failure: remove: failed/)).toHaveTextContent('HTTP 403 · Kubernetes Forbidden');
+    expect(screen.getByText(/^First failure: remove: failed/)).toHaveTextContent('retry not scheduled');
     expect(screen.getByText(/Last observation: verify: failed/)).toHaveTextContent('pods 1 · catalog 0');
     expect(screen.getByText('Blocked by prerequisite')).toBeVisible();expect(screen.getByText('Blocked by failure')).toBeVisible();
     expect(screen.getByText('LIFE-03',{exact:true}).closest('p')).toHaveTextContent('LIFE-03 · DEADLINE · Stage: model-stopped');

@@ -297,6 +297,19 @@ first failure and last observation survive bounded compaction and interrupted
 execution where their checkpoints are available. Missing/rejected captures and
 filtered dynamic labels are identified explicitly; older reports are not changed.
 These details help diagnosis but do not prove cleanup or permit unlocking a run.
+Model-removal observations retain fixed Kubernetes reasons (for example,
+`Conflict` or `Forbidden`), HTTP status when known, subprocess failure kind and
+the attempt number. Raw stderr and server messages are discarded after this
+classification, not exported. An unknown response is explicitly unknown.
+Only a confirmed API `409 Conflict` can retry, with at most three DELETE attempts
+in total. Each attempt rechecks the held Lease, exact UID, generation, namespace,
+manager and unchanged model intent, and still sends UID plus current resource
+version preconditions. An unchanged re-read, foreign UID, changed intent,
+authorization/transport/timeout error or lost Lease stops new writes. An already
+absent/deleting object proceeds only to independent removal verification.
+The first rejected request survives diagnostic compaction even if a subsequent
+attempt succeeds. Such a request observation does not turn verified cleanup
+into a failed scenario, or rewrite a genuinely failed historical result.
 `HAR-10 / REPORT_EXPORT` means downloads could not be published: completed counts
 remain visible, and it does not imply a cleanup failure. Inspect report size or
 storage; do not repeat a multi-hour run or force recovery to recreate a download.

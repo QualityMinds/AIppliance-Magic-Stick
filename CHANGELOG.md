@@ -8,6 +8,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Preserve fixed Kubernetes API reasons, HTTP status and subprocess failures in
+  regression cleanup diagnostics instead of reducing them to `CLEANUP`. Allow
+  at most three DELETE attempts for a confirmed conflict, with fresh UID/resource-version
+  preconditions, unchanged generation/intent and a held Lease. Replacement,
+  changed intent, stale reads, authorization errors and uncertain failures do
+  not authorize a retry. First rejected requests remain visible after successful
+  cleanup; raw stderr, response bodies and credentials are never exported.
+
 - Bind model-finalizer registration and removal atomically to the observed UID
   and resource version. A quick create/delete/recreate cannot let an old
   controller snapshot finalize the replacement or start the old owner's runtime.

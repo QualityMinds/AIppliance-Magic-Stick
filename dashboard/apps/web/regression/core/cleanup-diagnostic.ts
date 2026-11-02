@@ -3,17 +3,19 @@ import {dirname,join} from 'node:path';
 import {lstat,readdir} from 'node:fs/promises';
 import {HarnessError,reasons,stages,requireSafe,type ReasonCode,type Stage} from './errors.ts';
 import {readPrivate,writePrivate} from './private-files.ts';
+import {KubernetesCommandError,parseKubernetesCommandDiagnostic,type KubernetesCommandDiagnostic} from './kubernetes-command.ts';
 
 export const cleanupOperations=['guard','lookup','remove','verify','persist'] as const;
 export type CleanupOperation=typeof cleanupOperations[number];
-export interface CleanupObservation {
+export interface CleanupObservation extends Partial<KubernetesCommandDiagnostic> {
   operation:CleanupOperation;state:'running'|'passed'|'failed';at:string;elapsedMs:number;
   reason?:ReasonCode;stage?:Stage;
   exists?:boolean|null;uidMatches?:boolean|null;generationMatches?:boolean|null;
   expectedGeneration?:number;observedGeneration?:number;deleting?:boolean|null;
   podCount?:number|null;catalogCount?:number|null;timeoutMs?:number;
-  method?:'GET'|'POST'|'PUT'|'DELETE';endpoint?:'model-activation'|'model-catalog'|'api-key';httpStatus?:number|null;
-  requestAttempted?:boolean;
+  method?:'GET'|'POST'|'PUT'|'DELETE';endpoint?:'model-activation'|'model-catalog'|'api-key';
+  requestAttempted?:boolean;attempt?:number;retrying?:boolean;
+  resourceVersionChanged?:boolean|null;intentMatches?:boolean|null;
 }
 export interface CleanupDiagnostic {
   version:1;runId:string;ownerRunId?:string;scope:string;kind:'model'|'app'|'key'|'identity';state:'running'|'passed'|'failed';
@@ -29,8 +31,9 @@ export function parseCleanupObservation(value:unknown):CleanupObservation {
   const v=value as CleanupObservation;
   requireSafe(v&&cleanupOperations.includes(v.operation)&&['running','passed','failed'].includes(v.state)&&timestamp(v.at)&&integer(v.elapsedMs),'CONFIG');
   const result:CleanupObservation={operation:v.operation,state:v.state,at:v.at,elapsedMs:v.elapsedMs};
-  for(const key of ['exists','uidMatches','generationMatches','deleting'] as const)if(v[key]!==undefined){requireSafe(nullableBoolean(v[key]),'CONFIG');result[key]=v[key];}
-  if(v.requestAttempted!==undefined){requireSafe(typeof v.requestAttempted==='boolean','CONFIG');result.requestAttempted=v.requestAttempted;}
+  for(const key of ['exists','uidMatches','generationMatches','deleting','resourceVersionChanged','intentMatches'] as const)if(v[key]!==undefined){requireSafe(nullableBoolean(v[key]),'CONFIG');result[key]=v[key];}
+  for(const key of ['requestAttempted','retrying'] as const)if(v[key]!==undefined){requireSafe(typeof v[key]==='boolean','CONFIG');result[key]=v[key];}
+  if(v.attempt!==undefined){requireSafe(Number.isSafeInteger(v.attempt)&&v.attempt>0&&v.attempt<=3,'CONFIG');result.attempt=v.attempt;}
   for(const key of ['expectedGeneration','observedGeneration','timeoutMs'] as const)if(v[key]!==undefined){requireSafe(integer(v[key]),'CONFIG');result[key]=v[key];}
   for(const key of ['podCount','catalogCount'] as const)if(v[key]!==undefined){requireSafe(v[key]===null||integer(v[key]),'CONFIG');result[key]=v[key];}
   if(v.reason!==undefined){requireSafe(Object.hasOwn(reasons,v.reason),'CONFIG');result.reason=v.reason;}
@@ -38,6 +41,8 @@ export function parseCleanupObservation(value:unknown):CleanupObservation {
   if(v.method!==undefined){requireSafe(['GET','POST','PUT','DELETE'].includes(v.method),'CONFIG');result.method=v.method;}
   if(v.endpoint!==undefined){requireSafe(['model-activation','model-catalog','api-key'].includes(v.endpoint),'CONFIG');result.endpoint=v.endpoint;}
   if(v.httpStatus!==undefined){requireSafe(v.httpStatus===null||Number.isInteger(v.httpStatus)&&v.httpStatus>=100&&v.httpStatus<=599,'CONFIG');result.httpStatus=v.httpStatus;}
+  if(v.commandFailure!==undefined)Object.assign(result,parseKubernetesCommandDiagnostic(v));
+  else requireSafe(v.kubernetesReason===undefined&&v.exitCode===undefined&&v.processSignal===undefined,'CONFIG');
   return result;
 }
 export function parseCleanupDiagnostic(value:unknown):CleanupDiagnostic {
@@ -106,6 +111,7 @@ export class CleanupRecorder {
   async failure(operation:CleanupOperation,error:unknown) {
     this.retired=true;
     await this.record({...this.diagnostic.history.at(-1),operation,state:'failed',reason:error instanceof HarnessError?error.causeReason??error.code:'UNEXPECTED',
+      ...(error instanceof KubernetesCommandError?error.diagnostic:{}),
       ...(error instanceof HarnessError&&(error.causeStage??error.stage)?{stage:error.causeStage??error.stage}:{})});
   }
   async complete(){this.retired=true;await this.record({operation:'persist',state:'passed'});}
@@ -163,9 +169,17 @@ export function cleanupDiagnosticText(value:CleanupDiagnostic):string[] {
     (o.generationMatches!==undefined?` · revision ${o.generationMatches===null?'unknown':o.generationMatches?'matches':'changed'}`:'')+
     (o.expectedGeneration!==undefined?` · expected revision ${o.expectedGeneration}`:'')+
     (o.observedGeneration!==undefined?` · observed revision ${o.observedGeneration}`:'')+
+    (o.resourceVersionChanged!==undefined?` · resource version ${o.resourceVersionChanged===null?'unknown':o.resourceVersionChanged?'changed':'unchanged'}`:'')+
+    (o.intentMatches!==undefined?` · model intent ${o.intentMatches===null?'unknown':o.intentMatches?'matches':'changed'}`:'')+
     (o.deleting!==undefined?` · deletion ${o.deleting===null?'unknown':o.deleting?'in progress':'not marked'}`:'')+
     (o.podCount!==undefined?` · pods ${o.podCount??'unknown'}`:'')+(o.catalogCount!==undefined?` · catalog ${o.catalogCount??'unknown'}`:'')+
-    (o.method?` · ${o.method} ${o.endpoint??'endpoint-unavailable'} · HTTP ${o.httpStatus??'unknown'}`:'')+
+    (o.method?` · ${o.method} ${o.endpoint??'endpoint-unavailable'}`:'')+
+    (o.method||o.httpStatus!==undefined?` · HTTP ${o.httpStatus??'unknown'}`:'')+
+    (o.kubernetesReason?` · Kubernetes ${o.kubernetesReason}`:'')+
+    (o.commandFailure?` · command ${o.commandFailure}`:'')+
+    (o.exitCode!==undefined?` · exit ${o.exitCode}`:'')+(o.processSignal?` · signal ${o.processSignal}`:'')+
+    (o.attempt!==undefined?` · attempt ${o.attempt}/3`:'')+
+    (o.retrying!==undefined?` · retry ${o.retrying?'after identity recheck':'not scheduled'}`:'')+
     (o.requestAttempted!==undefined?` · request ${o.requestAttempted?'attempted':'not attempted'}`:'');
   return [`Resource ${d.kind} · reference ${d.scope.slice(0,12)} · ${d.state} · capture ${d.collection}`,
     ...(d.firstFailure?['First failure: '+render(d.firstFailure)]:[]),'Last observation: '+render(last),

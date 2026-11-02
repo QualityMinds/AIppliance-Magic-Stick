@@ -249,7 +249,9 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewpor
         executionBlockedCounts:{prerequisite:1,failure:0,cancelled:0,unknown:0},recoveryRequired:false,omittedCases:0,
         phases:[{phase:3,outcome:'Failed',counts,executionCounts,blockedCounts}],
         cases:[{id:'LIFE-03',outcome:'Failed',layer:'E',variant:'p3-runtime-stop',reason:'DEADLINE',stage:'model-stopped',message:'Model stop timed out.',action:'Inspect the stop operation.',durationMs:1,
-            causeReason:'API',causeStage:'cleanup',diagnostics:['Resource model · reference aaaaaaaaaaaa · failed · capture captured','Last observation: verify: failed · pods 1 · catalog 0']},
+            causeReason:'API',causeStage:'cleanup',diagnostics:['Resource model · reference aaaaaaaaaaaa · failed · capture captured',
+              'First failure: remove: failed · DELETE model-activation · HTTP 409 · Kubernetes Conflict · command api · attempt 1/3 · retry after identity recheck',
+              'Last observation: verify: failed · pods 1 · catalog 0']},
           {id:'HW-01',outcome:'Blocked',layer:'A',variant:'p3-inventory',reason:'CAPABILITY',message:'Required GPU hardware is missing.',action:'Provide GPU hardware.',durationMs:0,blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}},
           {id:'LIFE-04',outcome:'Blocked',layer:'E',variant:'p3-runtime-start',reason:'DEPENDENCY',message:'Model stop failed earlier.',action:'Fix the earlier model-stop failure.',durationMs:0,
             blockedBy:{kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped',executionId:'a'.repeat(24),traceRunId:'reg-11111111-2222-3333-4444-555555555555'}}]}
@@ -258,6 +260,8 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewpor
   await page.getByText('Failures and blocked checks (3)',{exact:true}).click();
   await expect(page.locator('p').filter({hasText:'Underlying cause:'})).toContainText('API · cleanup');
   await page.getByText('Cleanup observations',{exact:true}).click();
+  await expect(page.getByText(/^First failure: remove: failed/)).toContainText('HTTP 409 · Kubernetes Conflict');
+  await expect(page.getByText(/^First failure: remove: failed/)).toContainText('attempt 1/3 · retry after identity recheck');
   await expect(page.getByText('Last observation: verify: failed · pods 1 · catalog 0',{exact:true})).toBeVisible();
   await expect(page.getByText('Blocked by prerequisite',{exact:true})).toBeVisible();
   await expect(page.getByText('Blocked by failure',{exact:true})).toBeVisible();
@@ -265,6 +269,10 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewpor
   await page.getByText('Blocking scenario trace',{exact:true}).click();
   await expect(page.getByText('report-artifacts/reg-11111111-2222-3333-4444-555555555555/traces/'+'a'.repeat(24)+'.json',{exact:true})).toBeVisible();
   await expect(page.locator('p').filter({hasText:'Blocked evidence (case / variant / layer):'})).toContainText('1 by prerequisite · 1 by failure');
+  await page.reload();
+  await page.getByText('Failures and blocked checks (3)',{exact:true}).click();
+  await page.getByText('Cleanup observations',{exact:true}).click();
+  await expect(page.getByText(/^First failure: remove: failed/)).toContainText('HTTP 409 · Kubernetes Conflict');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:info.outputPath(`regression-blocked-${viewport}.png`),fullPage:true});
 });

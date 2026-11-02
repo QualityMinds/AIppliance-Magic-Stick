@@ -79,6 +79,8 @@
   Expand **Cleanup observations** for the original cause, remaining resources
   and observed wait budget. Sanitized traces retain useful reviewed step names,
   including shared helpers; credentials and raw responses stay excluded.
+  Kubernetes cleanup details distinguish revision conflicts, access denial and
+  unavailable responses; safe conflict retries retain ownership checks.
   A report-download export failure retains completed results and does not by
   itself require cleanup or repeating the tests.
   Each full start cleans up the previous run and begins again with a fresh test ID.

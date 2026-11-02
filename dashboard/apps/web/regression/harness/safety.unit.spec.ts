@@ -24,6 +24,7 @@ import {KubernetesLeaseStore, verifyObserverRules, type KubeObject} from '../cor
 import {OwnedKeyClient} from '../core/owned-key.ts';
 import type {CleanupObservation} from '../core/cleanup-diagnostic.ts';
 import {KubernetesModelCleaner, verifyModelCleanerRules} from '../core/model-cleanup.ts';
+import {KubernetesCommandError} from '../core/kubernetes-command.ts';
 import {ModelCreateRejected, OwnedModelClient, activation, editRevision, fixtureIsAdvertised, hasRuntimeCrashLoop, ownedRuntimePods} from '../core/owned-model.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {InferenceProbe} from '../core/inference.ts';
@@ -845,6 +846,103 @@ test('HAR-05 model cleaner denies excess RBAC and uses atomic UID plus resourceV
   cleaner.current.spec = {type: 'external', targetNamespace: 'ai'}; cleaner.deleted = false;
   expect(await adapter.lookup(entry)).toEqual({uid,generation:3,deleting:false});
   await adapter.removeIfUid(entry, uid); expect(await adapter.verifyRemoved(entry)).toBe(true);
+});
+
+function conflictCleaner() {
+  const name='reg-aabbccddeeff-cpu',uid='owned-model-uid';
+  class Cleaner extends KubernetesModelCleaner {
+    current:KubeObject|null={metadata:{name,namespace:'ai-system',uid,generation:3,resourceVersion:'28',
+      labels:{'app.kubernetes.io/managed-by':'ai-appliance-dashboard'}},
+      spec:{type:'local',targetNamespace:'ai',local:{url:'ollama://synthetic-model',memoryRequiredMi:2048}}};
+    requests:Array<{uid:string;resourceVersion:string}>=[];
+    conflicts=1;mutate=()=>{this.current!.metadata.resourceVersion=String(Number(this.current!.metadata.resourceVersion)+1);};
+    error:Error=new KubernetesCommandError({commandFailure:'api',httpStatus:409,kubernetesReason:'Conflict',exitCode:1});
+    override async find(){return structuredClone(this.current);}
+    protected override async command(args:string[],input?:string) {
+      expect(args).toEqual(['delete','--raw',`/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/modelactivations/${name}`,'-f','-']);
+      this.requests.push(JSON.parse(input!).preconditions);
+      if(this.requests.length<=this.conflicts){this.mutate();throw this.error;}
+      this.current=null;return '{}';
+    }
+  }
+  const cleaner=new Cleaner('unused','ai-system');
+  const entry={kind:'model' as const,name,uid,generation:3,state:'owned' as const};
+  return {cleaner,entry};
+}
+
+test('HAR-03 HAR-05 status-only delete conflicts re-read identity and keep fresh atomic UID/RV preconditions',async()=>{
+  const {cleaner,entry}=conflictCleaner();let guards=0;
+  const observations:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+  const adapter=cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}),async()=>{guards++;});
+  await adapter.removeIfUid(entry,entry.uid,async value=>{observations.push(value);});
+  expect(cleaner.requests).toEqual([{uid:entry.uid,resourceVersion:'28'},{uid:entry.uid,resourceVersion:'29'}]);
+  expect(guards).toBeGreaterThanOrEqual(4);
+  expect(observations).toContainEqual(expect.objectContaining({operation:'remove',state:'failed',httpStatus:409,
+    kubernetesReason:'Conflict',attempt:1,retrying:true}));
+  expect(observations).toContainEqual(expect.objectContaining({attempt:2,resourceVersionChanged:true,intentMatches:true,uidMatches:true,generationMatches:true}));
+  expect(await adapter.verifyRemoved(entry)).toBe(true);
+
+  // A competing actor already completed the same removal: no blind second DELETE.
+  const absent=conflictCleaner();absent.cleaner.mutate=()=>{absent.cleaner.current=null;};
+  await absent.cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0})).removeIfUid(absent.entry,absent.entry.uid);
+  expect(absent.cleaner.requests).toHaveLength(1);
+  const twice=conflictCleaner();twice.cleaner.conflicts=2;
+  await twice.cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0})).removeIfUid(twice.entry,twice.entry.uid);
+  expect(twice.cleaner.requests.map(p=>p.resourceVersion)).toEqual(['28','29','30']);
+});
+
+test('HAR-05 HAR-07 delete retries cannot adopt a replacement, changed intent, stale read or lost Lease',async()=>{
+  for(const change of ['uid','generation','spec','namespace','name','manager','same-rv','deleting','lease'] as const) {
+    const {cleaner,entry}=conflictCleaner();let lost=false;
+    cleaner.mutate=()=>{
+      cleaner.current!.metadata.resourceVersion='29';
+      if(change==='uid')cleaner.current!.metadata.uid='foreign-model-uid';
+      if(change==='generation')cleaner.current!.metadata.generation=4;
+      if(change==='spec')cleaner.current!.spec!.local={url:'ollama://someone-elses-model'};
+      if(change==='namespace')cleaner.current!.metadata.namespace='other';
+      if(change==='name')cleaner.current!.metadata.name='foreign-name';
+      if(change==='manager')cleaner.current!.metadata.labels!['app.kubernetes.io/managed-by']='other';
+      if(change==='same-rv')cleaner.current!.metadata.resourceVersion='28';
+      if(change==='deleting')cleaner.current!.metadata.deletionTimestamp='2026-01-01T00:00:00Z';
+      if(change==='lease')lost=true;
+    };
+    const adapter=cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}),async()=>{if(lost)throw new HarnessError('LOCK_LOST');});
+    if(change==='deleting')await adapter.removeIfUid(entry,entry.uid);
+    else await expect(adapter.removeIfUid(entry,entry.uid)).rejects.toBeInstanceOf(HarnessError);
+    expect(cleaner.requests,change).toHaveLength(1);
+    expect(cleaner.current,change).not.toBeNull();
+  }
+  // Losing the Lease during an awaited diagnostic write also fences transport.
+  const checkpoint=conflictCleaner();let lost=false;
+  const adapter=checkpoint.cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}),async()=>{if(lost)throw new HarnessError('LOCK_LOST');});
+  await expect(adapter.removeIfUid(checkpoint.entry,checkpoint.entry.uid,async o=>{if(o.requestAttempted)lost=true;}))
+    .rejects.toMatchObject({code:'LOCK_LOST'});
+  expect(checkpoint.cleaner.requests).toHaveLength(0);
+});
+
+test('HAR-07 only confirmed API conflicts retry, bounded to three attempts with failure diagnostics',async()=>{
+  for(const diagnostic of [
+    {commandFailure:'api',httpStatus:403,kubernetesReason:'Forbidden',exitCode:1},
+    {commandFailure:'api',httpStatus:401,kubernetesReason:'Unauthorized',exitCode:1},
+    {commandFailure:'api',httpStatus:500,kubernetesReason:'InternalError',exitCode:1},
+    {commandFailure:'api',httpStatus:409,kubernetesReason:'AlreadyExists',exitCode:1},
+    {commandFailure:'timeout',httpStatus:null},
+    {commandFailure:'signal',httpStatus:null,processSignal:'SIGKILL'},
+    {commandFailure:'unknown',httpStatus:null,exitCode:1},
+  ] as const) {
+    const {cleaner,entry}=conflictCleaner(),observations:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+    cleaner.error=new KubernetesCommandError(diagnostic);
+    await expect(cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}))
+      .removeIfUid(entry,entry.uid,async value=>{observations.push(value);})).rejects.toMatchObject({code:'CLEANUP',outcome:'Failed'});
+    expect(cleaner.requests).toHaveLength(1);
+    expect(observations).toContainEqual(expect.objectContaining({operation:'remove',state:'failed',...diagnostic,requestAttempted:true}));
+  }
+  const {cleaner,entry}=conflictCleaner(),observations:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+  cleaner.conflicts=10;
+  await expect(cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}))
+    .removeIfUid(entry,entry.uid,async value=>{observations.push(value);})).rejects.toMatchObject({code:'CLEANUP',causeReason:'CONFLICT'});
+  expect(cleaner.requests).toHaveLength(3);
+  expect(observations.at(-1)).toMatchObject({attempt:3,retrying:false,httpStatus:409,kubernetesReason:'Conflict',state:'failed'});
 });
 
 test('HAR-07 blocked model cleanup can resume only at the journaled generation', async () => {

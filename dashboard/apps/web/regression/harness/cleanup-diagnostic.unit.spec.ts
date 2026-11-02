@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
-import {mkdtemp,rm,mkdir,symlink} from 'node:fs/promises';
+import {mkdtemp,rm,mkdir,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,delimiter} from 'node:path';
 import {ResourceJournal,newRunId,type CleanupAdapter,type ResourceKind} from '../core/journal.ts';
 import {HarnessError} from '../core/errors.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
@@ -10,6 +10,11 @@ import {readPrivate,writePrivate} from '../core/private-files.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {CleanupRecorder,readCleanupCapture,parseCleanupDiagnostic,runCleanupCaptures} from '../core/cleanup-diagnostic.ts';
 import {KubernetesModelCleaner} from '../core/model-cleanup.ts';
+import {KubectlObserver,type KubeObject} from '../core/observer.ts';
+import {KubernetesCommandError,kubernetesCommandFailure} from '../core/kubernetes-command.ts';
+import {saveExecutionTrace} from '../core/execution-trace.ts';
+import {saveReport} from '../core/report.ts';
+import {publicResult} from '../core/kubernetes-progress.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-07',layer:'U'});
 let directory:string;
@@ -23,6 +28,108 @@ async function owned(base=directory) {
 function adapters(adapter:CleanupAdapter):Record<ResourceKind,CleanupAdapter> {
   return {model:adapter,app:adapter,key:adapter,identity:adapter};
 }
+
+test('HAR-11 kubectl classification retains protocol reasons but never raw stderr, bodies or invented conflicts',()=>{
+  const secret='Bearer synthetic-private-token https://private.invalid/secret',conflict={commandFailure:'api',httpStatus:409,kubernetesReason:'Conflict',exitCode:1};
+  expect(kubernetesCommandFailure(JSON.stringify({apiVersion:'v1',kind:'Status',status:'Failure',code:409,reason:'Conflict',message:secret,
+    details:{name:secret}}),'',1,null)).toEqual(conflict);
+  expect(kubernetesCommandFailure('',`Error from server (Conflict): ${secret}`,1,null)).toEqual(conflict);
+  expect(kubernetesCommandFailure('',`Error from server (Forbidden): ${secret}`,1,null)).toMatchObject({httpStatus:403,kubernetesReason:'Forbidden'});
+  expect(kubernetesCommandFailure('',`Error from server (ServerTimeout): ${secret}`,1,null)).toMatchObject({httpStatus:500,kubernetesReason:'ServerTimeout'});
+  expect(kubernetesCommandFailure('',`Error from server (InternalError): ${secret}`,1,null)).toMatchObject({httpStatus:null,kubernetesReason:'InternalError'});
+  expect(kubernetesCommandFailure(JSON.stringify({apiVersion:'meta.k8s.io/v1',kind:'Status',status:'Failure',code:502,reason:'InternalError',message:secret}),'',1,null))
+    .toMatchObject({httpStatus:502,kubernetesReason:'InternalError'});
+  for(const text of [secret+' 409 Conflict','Error from server (PrivateToken): '+secret,
+    'Untrusted log\nError from server (Conflict): '+secret,JSON.stringify({message:'Error from server (Conflict): '+secret})])
+    expect(kubernetesCommandFailure('',text,1,null)).toEqual({commandFailure:'unknown',httpStatus:null,exitCode:1});
+  expect(kubernetesCommandFailure(JSON.stringify({apiVersion:'v1',kind:'Status',status:'Failure',code:403,reason:'Conflict'}),
+    'Error from server (Conflict): '+secret,1,null)).toEqual({commandFailure:'unknown',httpStatus:null,exitCode:1});
+  expect(kubernetesCommandFailure('','Error from server (Conflict): '+secret,137,'SIGKILL'))
+    .toEqual({commandFailure:'signal',httpStatus:null,exitCode:137,processSignal:'SIGKILL'});
+  expect(kubernetesCommandFailure('','Error from server (Conflict): '+secret,2,null))
+    .toEqual({commandFailure:'unknown',httpStatus:null,exitCode:2});
+  const failure=new KubernetesCommandError({...conflict,commandFailure:'api',kubernetesReason:'Conflict',raw:secret} as never);
+  expect(JSON.stringify(failure)).not.toContain(secret);expect(failure.message).not.toContain(secret);
+  expect(()=>new KubernetesCommandError({commandFailure:'api',httpStatus:403,kubernetesReason:'Conflict'})).toThrow('[CONFIG]');
+});
+
+test('HAR-11 real kubectl subprocess boundary exports safe API, timeout and exit diagnostics only',async()=>{
+  class Reader extends KubectlObserver {read(){return this.command(['get','--raw','/synthetic'], '{}');}}
+  const path=process.env.PATH,shim=join(directory,'kubectl'),secret='synthetic-body-token-never-export';
+  const reader=new Reader('synthetic-kubeconfig',1000);
+  try {
+    process.env.PATH=directory+delimiter+(path??'');
+    for(const [output,stderr,expected] of [
+      ['',`Error from server (Conflict): ${secret}`,{commandFailure:'api',httpStatus:409,kubernetesReason:'Conflict'}],
+      [JSON.stringify({apiVersion:'v1',kind:'Status',status:'Failure',code:403,reason:'Forbidden',message:secret}),'',
+        {commandFailure:'api',httpStatus:403,kubernetesReason:'Forbidden'}],
+      [secret,secret+' 409 Conflict',{commandFailure:'unknown',httpStatus:null}],
+    ] as const) {
+      await writeFile(shim,`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(${JSON.stringify(output)});process.stderr.write(${JSON.stringify(stderr)});process.exitCode=1;});\n`,{mode:0o700});
+      const error=await reader.read().catch(error=>error);
+      expect(error).toBeInstanceOf(KubernetesCommandError);expect(error.diagnostic).toMatchObject(expected);
+      expect(JSON.stringify(error)).not.toContain(secret);expect(error.message).not.toContain(secret);
+    }
+    await writeFile(shim,`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>process.stdout.write('{}'));\n`,{mode:0o700});
+    expect(await reader.read()).toBe('{}');
+    await writeFile(shim,`#!${process.execPath}\nprocess.stdin.resume();setInterval(()=>{},1000);\n`,{mode:0o700});
+    await expect(reader.read()).rejects.toMatchObject({diagnostic:{commandFailure:'timeout',httpStatus:null}});
+    await rm(shim);
+    process.env.PATH=directory;
+    await expect(reader.read()).rejects.toMatchObject({diagnostic:{commandFailure:'spawn',httpStatus:null}});
+  }finally{if(path===undefined)delete process.env.PATH;else process.env.PATH=path;}
+});
+
+test('HAR-07 HAR-10 HAR-11 conflict details survive checkpoints and all exports without changing results or leaking bodies',async()=>{
+  const {journal}=await owned(),recorder=new CleanupRecorder(journal,journal.entries[0]!),secret='synthetic-never-export';
+  await recorder.record({operation:'remove',state:'failed',reason:'CONFLICT',stage:'cleanup',attempt:1,retrying:true,
+    method:'DELETE',endpoint:'model-activation',requestAttempted:true,commandFailure:'api',httpStatus:409,kubernetesReason:'Conflict',exitCode:1});
+  for(let i=0;i<25;i++)await recorder.record({operation:'verify',state:'running',podCount:i,catalogCount:0});
+  await recorder.failure('remove',new HarnessError('CLEANUP','Failed','cleanup',{reason:'CONFLICT',stage:'cleanup'}));
+  const capture=recorder.snapshot()!,executionId='e'.repeat(24);
+  expect(capture.firstFailure).toMatchObject({httpStatus:409,kubernetesReason:'Conflict',attempt:1,retrying:true});
+  expect((await readCleanupCapture(recorder.filename)).firstFailure).toEqual(capture.firstFailure);
+  const safe=parseCleanupDiagnostic({...capture,raw:secret,history:capture.history.map(o=>({...o,stderr:secret}))});
+  const row={id:'HAR-03',variant:'offline-busy-abort' as const,layer:'A' as const,environment:'live' as const,outcome:'Failed' as const,
+    durationMs:1,reason:'CLEANUP' as const,causeReason:'CONFLICT' as const,stage:'cleanup' as const,executionId,traceRunId:journal.runId,cleanupDiagnostic:safe};
+  await saveExecutionTrace(directory,{version:1,runId:journal.runId,executionId,outcome:'Failed',durationMs:1,steps:[],cleanupDiagnostics:[safe]});
+  await saveReport(directory,journal.runId,[row],['HAR-03'],'unknown','selftest');
+  const publicView=publicResult({cases:[row]},{});
+  expect(publicView.cases[0]?.diagnostics?.join('\n')).toContain('Kubernetes Conflict');
+  expect(publicView.cases[0]?.diagnostics?.join('\n')).toContain('HTTP 409');
+  for(const file of ['summary.json','summary.html','summary.txt','junit.xml',`report-artifacts/${journal.runId}/traces/${executionId}.json`]) {
+    const text=await readPrivate(join(directory,file));
+    expect(text).not.toContain(secret);
+    expect(text).toContain(file.endsWith('.json')?'"httpStatus": 409':'409');
+    expect(text).toContain('Conflict');
+  }
+  // A rejected attempt followed by verified cleanup remains a Passed resource
+  // diagnostic; retaining its first failed request does not invent a test error.
+  await recorder.complete();expect(recorder.snapshot()?.state).toBe('passed');
+  expect(recorder.snapshot()?.firstFailure?.httpStatus).toBe(409);
+  expect(publicView.cases[0]?.outcome).toBe('Failed');
+  const retry=await owned(join(directory,'retry'));
+  class Cleaner extends KubernetesModelCleaner {
+    requests=0;
+    current:KubeObject|null={metadata:{name:retry.name,namespace:'ai-system',uid:'fixture-model-uid',generation:2,
+      resourceVersion:'28',labels:{'app.kubernetes.io/managed-by':'ai-appliance-dashboard'}},spec:{type:'local',targetNamespace:'ai'}};
+    override async find(){return structuredClone(this.current);}
+    protected override async command(_args:string[],input?:string) {
+      expect(JSON.parse(input!).preconditions).toEqual({uid:'fixture-model-uid',resourceVersion:this.current!.metadata.resourceVersion});
+      if(++this.requests===1) {
+        this.current!.metadata.resourceVersion='29';
+        throw new KubernetesCommandError({commandFailure:'api',httpStatus:409,kubernetesReason:'Conflict',exitCode:1});
+      }
+      this.current=null;return '{}';
+    }
+  }
+  const cleaner=new Cleaner('unused','ai-system');
+  await retry.journal.cleanup(adapters(cleaner.adapter(retry.journal.prefix,async()=>({podCount:0,catalogCount:0}))),async()=>{});
+  expect(cleaner.requests).toBe(2);expect(retry.journal.recoveryPlan()).toEqual([]);
+  expect(retry.journal.cleanupFailures).toEqual([]);expect(retry.journal.entries[0]?.state).toBe('removed');
+  expect(retry.journal.diagnostics[0]).toMatchObject({state:'passed',firstFailure:{httpStatus:409,kubernetesReason:'Conflict',retrying:true}});
+  expect(JSON.stringify(retry.journal.diagnostics)).not.toContain('fixture-model-uid');
+});
 
 test('HAR-07 cleanup retains exact safe lookup/ownership/removal/verification causes without deleting a foreign UID',annotation,async()=>{
   const {journal}=await owned();let present=true,removed=0,foreign=false,failed='lookup';
