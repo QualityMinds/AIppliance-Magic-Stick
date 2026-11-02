@@ -129,7 +129,7 @@ single footer.
 The section between the welcome band and the product section (`#produktvideo`,
 from the marketing team's video preview of October 2026) presents the product
 interview with Tobias Varlemann, published on the QualityMinds YouTube channel
-(video `vKwI855wBYc`, in German; the English page says so). The preview's small
+(video `wraCU3plXzo`, in German; the English page says so). The preview's small
 "Welcome aboard" block is not repeated because the welcome band above already
 says it. The section continues the light band; the player is capped at 600px so
 the copy and the poster share the row evenly.
