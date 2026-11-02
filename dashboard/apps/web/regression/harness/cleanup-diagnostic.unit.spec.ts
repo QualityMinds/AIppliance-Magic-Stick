@@ -53,12 +53,15 @@ test('HAR-11 kubectl classification retains protocol reasons but never raw stder
   expect(()=>new KubernetesCommandError({commandFailure:'api',httpStatus:403,kubernetesReason:'Conflict'})).toThrow('[CONFIG]');
 });
 
-test('HAR-11 real kubectl subprocess boundary exports safe API, timeout and exit diagnostics only',async()=>{
+test('HAR-11 real kubectl subprocess boundary exports safe API, timeout and exit diagnostics only',async({},testInfo)=>{
   class Reader extends KubectlObserver {read(){return this.command(['get','--raw','/synthetic'], '{}');}}
-  const path=process.env.PATH,shim=join(directory,'kubectl'),secret='synthetic-body-token-never-export';
+  // Docker deliberately mounts /tmp noexec. Keep the executable fixture in the
+  // existing private test output mount without relaxing the runner's mounts.
+  const bin=testInfo.outputPath('kubectl-bin');await mkdir(bin,{mode:0o700});
+  const path=process.env.PATH,shim=join(bin,'kubectl'),secret='synthetic-body-token-never-export';
   const reader=new Reader('synthetic-kubeconfig',1000);
   try {
-    process.env.PATH=directory+delimiter+(path??'');
+    process.env.PATH=bin+delimiter+(path??'');
     for(const [output,stderr,expected] of [
       ['',`Error from server (Conflict): ${secret}`,{commandFailure:'api',httpStatus:409,kubernetesReason:'Conflict'}],
       [JSON.stringify({apiVersion:'v1',kind:'Status',status:'Failure',code:403,reason:'Forbidden',message:secret}),'',
@@ -75,9 +78,9 @@ test('HAR-11 real kubectl subprocess boundary exports safe API, timeout and exit
     await writeFile(shim,`#!${process.execPath}\nprocess.stdin.resume();setInterval(()=>{},1000);\n`,{mode:0o700});
     await expect(reader.read()).rejects.toMatchObject({diagnostic:{commandFailure:'timeout',httpStatus:null}});
     await rm(shim);
-    process.env.PATH=directory;
+    process.env.PATH=bin;
     await expect(reader.read()).rejects.toMatchObject({diagnostic:{commandFailure:'spawn',httpStatus:null}});
-  }finally{if(path===undefined)delete process.env.PATH;else process.env.PATH=path;}
+  }finally{if(path===undefined)delete process.env.PATH;else process.env.PATH=path;await rm(bin,{recursive:true,force:true});}
 });
 
 test('HAR-07 HAR-10 HAR-11 conflict details survive checkpoints and all exports without changing results or leaking bodies',async()=>{
