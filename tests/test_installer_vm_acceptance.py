@@ -94,6 +94,19 @@ class InstallerVmAcceptanceTests(unittest.TestCase):
         self.assertTrue(any("127.0.0.1:2222-:22" in item for item in installer))
         self.assertTrue(any("127.0.0.1:9444-:9443" in item for item in installer))
 
+    def test_first_run_requires_enforced_policy_real_databases_and_trusted_identity(self):
+        checks = vm.bootstrap_readiness_checks()
+        commands = [command for command, _label in checks]
+        self.assertIn("sudo /usr/bin/python3 /usr/local/lib/magicstick/k3s/apparmor_profile.py --check", commands)
+        for namespace, pod in (("identity-system", "keycloak-postgresql-0"), ("ai", "litellm-postgresql-0")):
+            self.assertIn(f"sudo k3s kubectl -n {namespace} exec {pod} -- pg_isready -q", commands)
+        oidc = next(command for command in commands if "openid-configuration" in command)
+        self.assertIn("--cacert /etc/rancher/k3s/magicstick-oidc-ca.crt", oidc)
+        self.assertIn("--fail", oidc)
+        self.assertNotIn("--insecure", " ".join(commands))
+        self.assertNotIn("get secret", " ".join(commands))
+        self.assertTrue(all("--load" not in command for command in commands))
+
     def test_expired_group_cleanup_requires_name_tag_region_and_deadline(self):
         now = datetime.now(timezone.utc)
         group = {

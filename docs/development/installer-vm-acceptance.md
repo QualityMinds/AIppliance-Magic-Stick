@@ -22,7 +22,9 @@ from installing a cloud VM with [cloud-init](../installation/cloud-init-vm.md).
 4. Boot the image as a virtual USB device under UEFI/KVM. The installer must
    power off after installation. Boot again from the 100 GiB target disk with
    the USB image detached.
-5. Check Ubuntu 26.04, successful cloud-init, active K3s, a Ready Node, Ready
+5. Check Ubuntu 26.04, successful cloud-init, active K3s, the reviewed enforcing
+   AppArmor profile/boot loader, both PostgreSQL databases accepting real
+   connections, trusted Keycloak OIDC discovery, a Ready Node, Ready
    `first-run-bootstrap` Flux Kustomization, `ApplianceSetup/local` in `Pending`,
    and the private setup page on the VM's forwarded test port.
 6. Save a short JSON result with stage names only and delete the entire

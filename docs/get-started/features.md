@@ -2,6 +2,12 @@
 
 ## What you can do
 
+- Install new Ubuntu 26.04 appliances through the normal host bootstrap with a
+  reviewed, enforcing containerd AppArmor compatibility profile loaded before
+  K3s. No global AppArmor disablement or kernel downgrade is used; existing
+  unowned clusters are not silently changed. See
+  [host bootstrap boundaries](../administration/host-management.md#container-runtime-apparmor-bootstrap).
+  Fresh VM/physical installation acceptance remains separate from local checks.
 - Run local models with Ollama or vLLM on eligible CPU/GPU targets.
 - Create and edit Ollama, vLLM and experimental vLLM-Omni in one local-model
   configuration form, with shared runtime/CPU controls and engine-specific

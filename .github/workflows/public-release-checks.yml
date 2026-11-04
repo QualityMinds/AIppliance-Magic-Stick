@@ -70,6 +70,11 @@ jobs:
       - name: Install Ansible collections
         run: ansible-galaxy collection install -r magic-host/requirements.yml
 
+      - name: Install the native AppArmor policy compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends apparmor
+
       - name: Check source license and publication metadata contracts
         run: |
           python3 tools/license_audit.py --check
@@ -99,6 +104,8 @@ jobs:
         run: ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
       - name: Check appliance consoles and host management
+        env:
+          MAGICSTICK_REQUIRE_APPARMOR_PARSER: "1"
         run: |
           python3 -m unittest discover -s magic-host/roles/first-run-setup/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/flux-bootstrap/tests -p 'test_*.py'

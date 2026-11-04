@@ -53,6 +53,64 @@ upgrade and confirmation that the generated containerd configuration imports
 must preserve that prerequisite; choosing another K3s version is not a claim of
 GPU support. See the [pinned K3s release](https://github.com/k3s-io/k3s/releases/tag/v1.36.4%2Bk3s1).
 
+## Container runtime AppArmor bootstrap
+
+On a new Ubuntu 26.04 host, Ansible installs a narrowly patched containerd
+AppArmor profile before installing/starting K3s. The reviewed baseline is
+`v1.36.4+k3s1`, with embedded containerd `v2.3.4-k3s1.36`. The default remains
+confined: this is not an `Unconfined` Pod setting, a privileged workload, a
+global `apparmor_restrict_unprivileged_unconfined` change or a kernel rollback.
+
+Ubuntu's stacked label `cri-containerd.apparmor.d//&unconfined` does not match
+containerd's original plain-label signal peer. On affected systems, gosu cannot
+finish changing credentials; PostgreSQL stays in the entrypoint, Keycloak
+returns HTTP 503, and first-run setup is never reached. The local compatibility
+backport adds only that **exact** signal peer, with no wildcard, no send grant to
+plain host `unconfined`, and no additional ptrace permission. The upstream
+filesystem, `/proc`, `/sys` and mount denials are retained. Provenance and the
+Apache-2.0 license are retained in the
+[host policy notice](../../magic-host/roles/k3s/files/containerd-apparmor-LICENSE.txt).
+This is a local compatibility backport; the related
+[containerd proposal](https://github.com/containerd/containerd/pull/13905) is not
+being represented as a released upstream fix.
+
+The root-owned profile lives at `/etc/apparmor.d/cri-containerd.apparmor.d`.
+`magicstick-k3s-apparmor.service` requires and follows `apparmor.service` and
+precedes K3s. A K3s drop-in requires the loader and runs a separate read-only
+check on **every** K3s start. A separate root-only record under `/run` attests
+successful loading in the current boot; an old enforcing profile of the same
+name alone is not credited. Profile bytes, enforcing mode, signal mediation,
+host release and the actual installed K3s version must match the reviewed
+baseline. Existing K3s clusters or profile files without Magic Stick ownership
+are not adopted. An initial ownership record permits interrupted installation
+to resume; it does not by itself prove the profile was loaded. Ubuntu 24.04
+installations keep their existing policy path. A future K3s/OS/profile change
+needs review of this baseline and its ownership migration, not an unchecked
+override.
+
+Read-only diagnostics on a host using this path:
+
+```bash
+sudo /usr/bin/python3 /usr/local/lib/magicstick/k3s/apparmor_profile.py --check
+sudo systemctl status magicstick-k3s-apparmor.service
+sudo journalctl -u magicstick-k3s-apparmor.service -u k3s.service --since '-30 minutes'
+```
+
+The helper returns fixed reasons for disabled AppArmor, unreviewed versions,
+altered policy, missing ownership or unsuccessful loading. Do not delete its
+ownership record, disable AppArmor, broaden profile peers, remove database PVCs
+or skip trusted OIDC checks to force setup through. Diagnose a failure before
+changing an existing host. A previously failed installation with K3s already
+present does not gain automatic permission to reload its policy.
+
+The policy is fetched with the normal host playbook, so an existing USB stick
+following the updated branch can receive it at first boot without a new image.
+Only the selected branch gets that change; publishing it on a feature branch is
+not a `main` release. The [installer VM suite](../development/installer-vm-acceptance.md)
+checks real database connections and trusted OIDC separately from Running/Ready
+Pod labels. Local policy/role checks do not certify a fresh installation or GPU
+hardware compatibility.
+
 ## User workflow
 
 Registered disposable regression labs serialize software convergence with their

@@ -8,6 +8,16 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Prepare a reviewed, enforcing containerd AppArmor profile before the first
+  K3s start on new Ubuntu 26.04 hosts. Permit only the exact stacked container
+  signal peer needed by Go/gosu; retain the upstream deny rules and unchanged
+  ptrace policy. A boot-ordered loader and read-only K3s start guard reject
+  disabled confinement, unknown versions, altered policy and unowned existing
+  clusters. No kernel downgrade, global AppArmor exception or database reset is
+  performed. Installer VM acceptance now checks both real databases and trusted
+  OIDC discovery separately from Pod readiness; physical fresh-install acceptance
+  remains required.
+
 - Preserve fixed Kubernetes API reasons, HTTP status and subprocess failures in
   regression cleanup diagnostics instead of reducing them to `CLEANUP`. Allow
   at most three DELETE attempts for a confirmed conflict, with fresh UID/resource-version

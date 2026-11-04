@@ -617,6 +617,22 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+### 2026-11-04 — fresh-install AppArmor compatibility boundary
+
+The owning K3s role tests cover the Ubuntu 26.04 stacked-label signal failure,
+first-load ordering, current-boot load attestation, interrupted bootstrap,
+repeat convergence and reboot reload. They reject disabled/complain confinement,
+missing signal mediation, changed policy/version/ownership, foreign existing
+clusters and parser success without enforced rules. Native Linux CI compiles
+both patched and unpatched policies against the explicit ABI and verifies that
+the added rule survives compilation. The USB VM acceptance harness independently
+checks the enforcing policy, both real PostgreSQL connections and trusted OIDC
+before first-run readiness. These are owning installer/host U/C checks, not new
+registered campaign cases or installed AUTH-09/SEC-03 live acceptance. The
+installed-appliance Phase 0–8 suite, its exclusions and historical reports are
+unchanged. Fresh VM/USB installation and reboot acceptance remain separately
+required; no physical installation success is claimed by these isolated tests.
+
 ### 2026-11-01 — actionable sanitized traces and cleanup observations
 
 Extended the existing safety, cleanup-diagnostic, artifact, reporting,

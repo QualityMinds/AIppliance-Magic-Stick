@@ -1,0 +1,125 @@
+---
+- name: Check whether K3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_apparmor_binary
+
+- name: Check for Magic Stick AppArmor ownership
+  ansible.builtin.stat:
+    path: /var/lib/magicstick/k3s-apparmor/owner.json
+    follow: false
+  register: k3s_apparmor_owner
+
+# Do not adopt/reload an existing cluster's policy during an ordinary upgrade.
+# Once installed on a new Ubuntu 26.04 host, this policy remains host-owned.
+- name: Maintain AppArmor compatibility on new or previously managed hosts
+  when: >-
+    k3s_apparmor_owner.stat.exists or
+    (not k3s_apparmor_binary.stat.exists and
+     ansible_facts['distribution'] == 'Ubuntu' and
+     ansible_facts['distribution_version'] == '26.04')
+  block:
+    - name: Require the exact reviewed host and containerd baseline
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] == '26.04'
+          - k3s_version == 'v1.36.4+k3s1'
+        fail_msg: >-
+          The managed AppArmor profile is reviewed for Ubuntu 26.04 and
+          K3s v1.36.4+k3s1/containerd v2.3.4-k3s1.36 only. Review a changed
+          baseline before installation; do not disable AppArmor to continue.
+
+    - name: Install the distribution AppArmor parser
+      ansible.builtin.apt:
+        name: apparmor
+        state: present
+
+    - name: Create the root-owned AppArmor helper directory
+      ansible.builtin.file:
+        path: /usr/local/lib/magicstick/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the fixed-scope AppArmor loader
+      ansible.builtin.copy:
+        src: apparmor_profile.py
+        dest: /usr/local/lib/magicstick/k3s/apparmor_profile.py
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check initial policy ownership before writing any profile
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - /usr/local/lib/magicstick/k3s/apparmor_profile.py
+          - --preflight
+      changed_when: false
+
+    - name: Record ownership before interruptible profile installation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - /usr/local/lib/magicstick/k3s/apparmor_profile.py
+          - --prepare
+      register: k3s_apparmor_prepare
+      changed_when: k3s_apparmor_prepare.rc == 0 and ((k3s_apparmor_prepare.stdout | from_json).changed | bool)
+
+    - name: Install the reviewed containerd profile
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - src: cri-containerd.apparmor.d
+          dest: /etc/apparmor.d/cri-containerd.apparmor.d
+
+    - name: Retain the upstream policy license on the installed host
+      ansible.builtin.copy:
+        src: containerd-apparmor-LICENSE.txt
+        dest: /usr/local/lib/magicstick/k3s/containerd-apparmor-LICENSE.txt
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Create the K3s systemd drop-in directory before installation
+      ansible.builtin.file:
+        path: /etc/systemd/system/k3s.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Order K3s after the enforcing profile on every boot
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - src: magicstick-k3s-apparmor.service
+          dest: /etc/systemd/system/magicstick-k3s-apparmor.service
+        - src: 10-magicstick-apparmor.conf
+          dest: /etc/systemd/system/k3s.service.d/10-magicstick-apparmor.conf
+
+    - name: Load and independently verify the profile before installing K3s
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - /usr/local/lib/magicstick/k3s/apparmor_profile.py
+          - --load
+      register: k3s_apparmor_load
+      changed_when: k3s_apparmor_load.rc == 0 and ((k3s_apparmor_load.stdout | from_json).changed | bool)
+
+    - name: Enable the profile loader without restarting K3s
+      ansible.builtin.systemd:
+        name: magicstick-k3s-apparmor.service
+        daemon_reload: true
+        enabled: true
+        state: started

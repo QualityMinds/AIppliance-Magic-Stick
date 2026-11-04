@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "4c410bf5af1e6640a048882ee9623fec6e04ac81b6179b255b1efd8216b33bc9",
+  "deploymentReferencesSha256": "dbe129f49bfdbf248f1510e96c1c0af61caa1a2ff96daf9f0b9d679bd86513ef",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2242,7 +2242,12 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 127,
+      "line": 76,
+      "reference": "sudo apt-get install -y --no-install-recommends apparmor"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 134,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
