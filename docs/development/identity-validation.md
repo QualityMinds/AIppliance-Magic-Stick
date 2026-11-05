@@ -46,6 +46,41 @@ routes automatically. Rancher Desktop keeps multicast inside its Linux VM; use
 while testing so the same accepted routes are published through the host mDNS
 responder.
 
+## Hostname and callback reconciliation
+
+Run the owning callback and whole-startup counterexamples:
+
+```sh
+python3 -m unittest discover -s magic-cluster/platform/identity/tests -p test_callback_policy.py
+```
+
+These tests execute the mounted shell helper and actual deployment hook with a
+synthetic CLI. They cover renamed hosts, replacement of old callback sets,
+idempotency, native set ordering/deduplication, preserved client state, denied
+or failed writes, changed identity, stale readback and malformed projections.
+They also require the hook to wait for completion, propagate all client-helper
+failures and return nonzero on exhaustion. The protected ConfigMap must preserve
+both shell scripts byte-for-byte through strict Flux substitution; the full
+identity suite includes that build check. Public release checks discovers these
+owning tests. No new installed campaign registration is implied.
+
+For authorized native acceptance, first confirm idle state and the installed
+Git/Flux revision. After regular convergence, confirm the new Keycloak Pod is
+Ready and read only the existing human gateway client's identity, redirect URIs
+and web origins using its scoped administration path. They must match the
+configured hosts; readiness alone does not certify the browser workflow. Use
+the trusted appliance CA for protocol requests: the current dashboard callback
+must reach the login form, while an unrelated host must still be rejected.
+Finally open a fresh dashboard URL and complete human login. Never publish
+authorization state, credentials or full client exports. A certificate warning
+requires independently verified trust, not a validation bypass.
+
+The foreground hook avoids `/proc/1/fd` redirection, which can be denied for
+stacked AppArmor exec labels. Do not broaden ptrace policy, add callback host
+wildcards, reset the database or grant new service-account roles as a workaround.
+Synthetic checks are not physical installation or authenticated native login
+acceptance; record each result separately.
+
 ## Session policy and Remember me
 
 Run the owning import/migration counterexamples first. The complete file also

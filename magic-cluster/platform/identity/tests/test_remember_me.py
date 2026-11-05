@@ -220,6 +220,8 @@ class RememberMeFluxBuildTests(unittest.TestCase):
         config = next(item for item in documents if item["kind"] == "ConfigMap"
                       and item["metadata"]["name"].startswith("keycloak-session-policy-"))
         self.assertEqual(config["data"]["keycloak-session-policy.sh"], SCRIPT.read_text())
+        self.assertEqual(config["data"]["keycloak-callback-policy.sh"],
+                         (ROOT / "keycloak-callback-policy.sh").read_text())
         deployment = next(item for item in documents if item["kind"] == "Deployment"
                           and item["metadata"]["name"] == "keycloak")
         env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
@@ -237,7 +239,9 @@ class RememberMeFluxBuildTests(unittest.TestCase):
         result = self.build()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("variable not set", result.stderr)
-        self.assertIn('"before"', result.stderr)
+        # Both runtime scripts must remain protected. Kustomize's key order can
+        # expose the callback parser's variable before the session migration's.
+        self.assertRegex(result.stderr, r'"(?:before|input)"')
 
     def test_strict_flux_build_still_rejects_missing_variables_in_other_resources(self):
         path = self.identity / "auth-pilot-nginx.conf"

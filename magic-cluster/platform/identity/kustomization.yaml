@@ -8,6 +8,7 @@ configMapGenerator:
         kustomize.toolkit.fluxcd.io/substitute: disabled
     files:
       - keycloak-session-policy.sh
+      - keycloak-callback-policy.sh
   - name: auth-pilot-nginx
     namespace: identity-system
     files:

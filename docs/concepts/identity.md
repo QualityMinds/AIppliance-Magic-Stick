@@ -125,6 +125,28 @@ never enable an unauthenticated fallback. Other realm attributes, ordinary
 session policy, API keys and API token validation are unchanged. See the
 [isolated session checks](../development/identity-validation.md#session-policy-and-remember-me).
 
+## Hostname changes and callback readiness
+
+The first-run wizard and Settings save the configured local and public hosts.
+Flux updates the identity routes and runs the existing Keycloak startup
+reconciliation. Importing a changed realm file alone does not replace clients
+already stored in Keycloak's database.
+
+The startup hook now completes in the foreground, without opening process 1's
+file descriptors. The existing scoped setup client updates only the configured
+human gateway redirect URIs, web origins and logout callbacks. Readback verifies
+the same client identity and exact redirect/origin sets before startup succeeds;
+failed writes, stale data or failed companion-client synchronization fail the
+hook instead of leaving a Ready server with old callbacks. Existing users,
+credentials, roles and unrelated client attributes are preserved. Callback
+paths for instances remain scoped to the explicit configured hosts; no wildcard
+host, additional realm permission or AppArmor ptrace grant is introduced.
+
+After an approved name change, wait for identity reconciliation to finish and
+open the new dashboard URL again. A saved authorization URL can contain stale
+login state; it is not a new login attempt. See the
+[callback validation procedure](../development/identity-validation.md#hostname-and-callback-reconciliation).
+
 ## Implemented Scope
 
 The current implementation provides:
@@ -153,8 +175,8 @@ The current implementation provides:
   forwarded in the `Authorization` header
 - per-instance callback routes on the shared dashboard hosts, so the same
   Keycloak client and browser session protect dynamically created instances
-- a non-blocking Keycloak startup reconciliation that adds the callback path
-  patterns needed by existing installations
+- a verified foreground Keycloak startup reconciliation for configured callback
+  hosts and the instance callback paths needed by existing installations
 - dashboard API token validation, a minimal user launchpad and viewer/operator/admin authorization
 - a public `magicstick-cli` device-flow client and the JWT-protected,
   mDNS-published `api.<mDNS-domain>` route used by the CLI and TUI

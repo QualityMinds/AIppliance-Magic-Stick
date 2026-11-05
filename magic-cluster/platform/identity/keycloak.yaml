@@ -98,6 +98,8 @@ spec:
                   - /bin/sh
                   - -ec
                   - |
+                    # Keep startup gated on verified stored clients. Background
+                    # success or PID-1 log redirection can hide a denied hook.
                     (
                       umask 077
                       config=/tmp/kcadm-client-sync.config
@@ -461,16 +463,15 @@ spec:
                           --secret "$MAGICSTICK_SETUP_CLIENT_SECRET" >/dev/null 2>&1 || return 1
                         human_gateway_client_uuid="$(client_uuid magicstick-human-gateway-local)"
                         [ -n "$human_gateway_client_uuid" ] || return 1
-                        /opt/keycloak/bin/kcadm.sh update "clients/$human_gateway_client_uuid" \
-                          --config "$config" \
-                          --realm magicstick \
-                          -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
-                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
-                          -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
-                        sync_user_admin_client
-                        sync_federation_admin_client
-                        sync_kubernetes_client_and_groups
-                        sync_dashboard_cli_client
+                        /bin/sh /opt/magicstick/keycloak-callback-policy.sh \
+                          "$config" "$human_gateway_client_uuid" \
+                          '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
+                          '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
+                          'https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' || return 1
+                        sync_user_admin_client || return 1
+                        sync_federation_admin_client || return 1
+                        sync_kubernetes_client_and_groups || return 1
+                        sync_dashboard_cli_client || return 1
                       }
                       attempt=0
                       # Match the ten-minute startup-probe budget. First-start
@@ -553,7 +554,8 @@ spec:
                         sleep 5
                       done
                       echo "Keycloak client synchronization did not complete; existing realm settings require administrator review" >&2
-                    ) >/proc/1/fd/1 2>/proc/1/fd/2 &
+                      exit 1
+                    )
           ports:
             - name: http
               containerPort: 8080

@@ -617,6 +617,21 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+### 2026-11-05 — configured identity callback reconciliation
+
+AUTH-01/09 and HOST-07's owning identity checks now execute the mounted callback
+helper and actual startup hook with synthetic CLI responses. They reproduce
+early background completion and failed/stale synchronization, cover renamed
+hosts and repeated set reconciliation, preserve unrelated client state, and
+reject malformed or wider readback. Every companion-client helper must propagate
+failure. Strict Flux build checks preserve both mounted scripts byte-for-byte.
+Public release checks discovers these U/C tests; no new registered campaign case,
+phase selection or exclusion changes. The existing installed login/handoff and
+approved domain-change workflows retain their scope. Native trusted callback
+acceptance, denied unrelated redirects, completed human login and physical
+fresh-install acceptance remain distinct checks, not evidence inferred from
+isolated tests or Pod readiness. Historical results are unchanged.
+
 ### 2026-11-04 — fresh-install AppArmor compatibility boundary
 
 The owning K3s role tests cover the Ubuntu 26.04 stacked-label signal failure,

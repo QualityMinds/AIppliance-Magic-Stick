@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Reconcile configured login callbacks before Keycloak startup succeeds after
+  a local/public hostname change. Verify the existing client's exact redirect
+  and origin sets and propagate failed client synchronization instead of
+  reporting background success. Avoid process-1 log redirection blocked by
+  stacked AppArmor labels; retain confinement, scoped permissions, credentials
+  and host-limited callback paths. No database reset or reinstallation is needed.
+
 - Prepare a reviewed, enforcing containerd AppArmor profile before the first
   K3s start on new Ubuntu 26.04 hosts. Permit only the exact stacked container
   signal peer needed by Go/gosu; retain the upstream deny rules and unchanged
