@@ -38,6 +38,28 @@ operation=args[0]; resource=args[1] if len(args)>1 else ""
 field=flag("--fields") if "--fields" in args else ""
 state.setdefault("calls",[]).append({"operation":operation,"resource":resource,"field":field})
 failure=state.get("failure"); client=state["client"]
+if state.get("roleFixture"):
+    roles=state["roles"]
+    if operation=="get" and resource=="clients":
+        print("realm-fixture" if flag("--query")=="clientId=realm-management" else client["id"])
+    elif operation=="get" and resource=="users": print("service-fixture")
+    elif operation=="get" and resource.startswith("users/service-fixture/role-mappings/"):
+        if failure=="role-read": fail(403)
+        print("\n".join(state["originalRoles"] if state.get("staleRoleReadback") and state.get("roleWrites") else roles))
+    elif operation=="update" and resource=="clients/"+client["id"]:
+        state["clientUpdates"]=state.get("clientUpdates",0)+1
+    elif operation in ("add-roles","remove-roles"):
+        role=flag("--rolename")
+        state.setdefault("roleWrites",[]).append({"operation":operation,"role":role})
+        # Reproduce a denied redundant role mapping without granting authority.
+        # All writes occur only in this synthetic fixture, never in Keycloak.
+        if state.get("denyRoleWrites") or (operation=="add-roles" and role in roles): fail(403)
+        if operation=="add-roles": roles.append(role)
+        else: roles.remove(role)
+    elif operation=="config": Path(flag("--config")).write_text("private-fixture-token")
+    elif operation=="get" and (resource=="roles/magicstick-user" or resource=="identity-provider/instances"): print("{}")
+    else: fail()
+    save(); sys.exit(0)
 if operation=="config":
     if flag("--realm")=="master": fail(401)
     if os.environ.get("BLOCK_CONFIG")=="1":
@@ -198,7 +220,29 @@ class CallbackPolicyTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("Synchronized scoped", result.stdout)
                 self.assertIn("did not complete", result.stderr)
+                stage = {"sync_user_admin_client": "USER_ADMIN",
+                         "sync_federation_admin_client": "FEDERATION_ADMIN",
+                         "sync_kubernetes_client_and_groups": "KUBERNETES",
+                         "sync_dashboard_cli_client": "DASHBOARD_CLI"}[failed]
+                self.assertIn("Keycloak client sync: " + stage + " failed", result.stderr)
                 self.assertFalse((self.directory / "sync.config").exists())
+
+    def test_whole_hook_stops_retrying_after_elapsed_budget(self):
+        self.state_path.write_text(json.dumps({"client": self.initial}))
+        clock = self.directory / "clock"
+        clock.write_text("#!" + sys.executable + "\nfrom pathlib import Path\n"
+                         "p=Path(__file__).with_suffix('.count')\n"
+                         "n=int(p.read_text()) if p.exists() else 0\n"
+                         "p.write_text(str(n+1))\nprint(0 if n<2 else 601)\n")
+        clock.chmod(0o700)
+        source = self.hook("sync_user_admin_client").replace("date +%s", str(clock))
+        result = subprocess.run(["/bin/sh", "-ec", source],
+                                env={**self.env, "MAGICSTICK_SETUP_CLIENT_SECRET": "CHANGEME"},
+                                text=True, capture_output=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("did not complete", result.stderr)
+        state = json.loads(self.state_path.read_text())
+        self.assertEqual(len(state["updates"]), 1, "Elapsed budget must prevent the next otherwise allowed retry")
 
     def test_whole_hook_rejects_failed_or_unverified_callback_sync(self):
         for failure in ("permission", "stale", "identity-change"):
@@ -237,6 +281,67 @@ class CallbackPolicyTests(unittest.TestCase):
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.communicate(timeout=5)
+
+    def role_helper(self, *, federation=False, roles=None, denied=False, stale=False, failure=None):
+        allowed = (["manage-identity-providers", "view-identity-providers", "view-realm"]
+                   if federation else ["manage-users", "query-users", "view-users", "view-realm"])
+        roles = list(allowed if roles is None else roles)
+        self.state_path.write_text(json.dumps({"client": self.initial, "roleFixture": True,
+            "roles": roles, "originalRoles": roles, "denyRoleWrites": denied,
+            "staleRoleReadback": stale, "failure": failure}))
+        deployment = next(x for x in yaml.safe_load_all((ROOT / "keycloak.yaml").read_text()) if x["kind"] == "Deployment")
+        source = deployment["spec"]["template"]["spec"]["containers"][0]["lifecycle"]["postStart"]["exec"]["command"][-1]
+        source = source.split("attempt=0", 1)[0]
+        source = source.replace("/opt/keycloak/bin/kcadm.sh", str(self.cli))
+        paths = {"/tmp/kcadm-client-sync.config": "sync.config",
+                 "/tmp/kcadm-user-admin-check.config": "user.config",
+                 "/tmp/kcadm-federation-admin-check.config": "federation.config"}
+        for old, name in paths.items():
+            source = source.replace(old, str(self.directory / name))
+        (self.directory / "sync.config").write_text("private-fixture-token")
+        helper = "sync_federation_admin_client" if federation else "sync_user_admin_client"
+        # Execute the real helper bodies, role reads and final equality checks;
+        # do not stub these helpers as the independent whole-hook tests do.
+        source += f"\nif {helper}; then exit 0; else exit 1; fi\n)\n"
+        result = subprocess.run(["/bin/sh", "-ec", source], env={**self.env,
+            "MAGICSTICK_USER_ADMIN_CLIENT_SECRET": "CHANGEME",
+            "MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET": "CHANGEME"},
+            capture_output=True, text=True, timeout=15)
+        self.assertNotIn("private-fixture", result.stdout + result.stderr)
+        for name in paths.values():
+            self.assertFalse((self.directory / name).exists())
+        return result, json.loads(self.state_path.read_text()), allowed
+
+    def test_real_role_helpers_preserve_correct_mappings_without_role_writes(self):
+        for federation in (False, True):
+            with self.subTest(federation=federation):
+                result, state, allowed = self.role_helper(federation=federation, denied=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["roles"], allowed)
+                self.assertEqual(state.get("roleWrites", []), [])
+
+    def test_real_role_helpers_write_only_differences_and_verify_exact_result(self):
+        for federation in (False, True):
+            allowed = (["manage-identity-providers", "view-identity-providers", "view-realm"]
+                       if federation else ["manage-users", "query-users", "view-users", "view-realm"])
+            for roles, expected in ((allowed[1:], [{"operation": "add-roles", "role": allowed[0]}]),
+                                    (allowed + ["unexpected-admin"], [{"operation": "remove-roles", "role": "unexpected-admin"}])):
+                with self.subTest(federation=federation, roles=roles):
+                    result, state, _ = self.role_helper(federation=federation, roles=roles)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(state["roleWrites"], expected)
+                    self.assertEqual(set(state["roles"]), set(allowed))
+
+    def test_real_role_helpers_fail_on_denied_differences_or_failed_readback(self):
+        for federation in (False, True):
+            allowed = (["manage-identity-providers", "view-identity-providers", "view-realm"]
+                       if federation else ["manage-users", "query-users", "view-users", "view-realm"])
+            for options in ({"roles": allowed[1:], "denied": True},
+                            {"roles": allowed + ["unexpected-admin"], "denied": True},
+                            {"roles": allowed[1:], "stale": True}, {"failure": "role-read"}):
+                with self.subTest(federation=federation, options=options):
+                    result, _, _ = self.role_helper(federation=federation, **options)
+                    self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":

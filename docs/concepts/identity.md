@@ -141,6 +141,12 @@ hook instead of leaving a Ready server with old callbacks. Existing users,
 credentials, roles and unrelated client attributes are preserved. Callback
 paths for instances remain scoped to the explicit configured hosts; no wildcard
 host, additional realm permission or AppArmor ptrace grant is introduced.
+The existing administrative clients reconcile only role differences: an exact
+direct mapping is verified without posting the same grant again. Missing or
+unexpected mappings still require the existing authority and exact final
+readback; denied changes do not become success. Retry decisions are bounded by
+both the attempt limit and a ten-minute elapsed-time budget. Fixed step codes
+identify a failed companion-client reconciliation without exposing raw errors.
 
 After an approved name change, wait for identity reconciliation to finish and
 open the new dashboard URL again. A saved authorization URL can contain stale

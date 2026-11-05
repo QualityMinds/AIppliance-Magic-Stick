@@ -13,7 +13,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   and origin sets and propagate failed client synchronization instead of
   reporting background success. Avoid process-1 log redirection blocked by
   stacked AppArmor labels; retain confinement, scoped permissions, credentials
-  and host-limited callback paths. No database reset or reinstallation is needed.
+  and host-limited callback paths. Existing administrative role mappings are
+  read back instead of redundantly granted; missing/extra roles still require
+  the existing authority. Failed steps retain fixed safe codes and retry
+  decisions have an elapsed-time bound. No database reset or reinstallation is
+  needed.
 
 - Prepare a reviewed, enforcing containerd AppArmor profile before the first
   K3s start on new Ubuntu 26.04 hosts. Permit only the exact stacked container

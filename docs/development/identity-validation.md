@@ -64,6 +64,13 @@ both shell scripts byte-for-byte through strict Flux substitution; the full
 identity suite includes that build check. Public release checks discovers these
 owning tests. No new installed campaign registration is implied.
 
+The same suite executes the real user-administration and federation helper
+bodies, not only hook stubs. An already correct direct role set must succeed
+even when redundant role writes are refused. Missing/extra roles exercise only
+their differences in synthetic state; denied changes, failed reads and stale
+readback fail. These fixtures do not prove a particular native write returned
+403 and do not authorize a manual role assignment on an appliance.
+
 For authorized native acceptance, first confirm idle state and the installed
 Git/Flux revision. After regular convergence, confirm the new Keycloak Pod is
 Ready and read only the existing human gateway client's identity, redirect URIs

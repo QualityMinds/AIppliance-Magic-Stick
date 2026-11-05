@@ -625,6 +625,11 @@ early background completion and failed/stale synchronization, cover renamed
 hosts and repeated set reconciliation, preserve unrelated client state, and
 reject malformed or wider readback. Every companion-client helper must propagate
 failure. Strict Flux build checks preserve both mounted scripts byte-for-byte.
+The actual user/federation helper bodies also reject redundant grants, exercise
+only role differences and fail on denied changes or stale readback. These are
+synthetic role-write counterexamples, not native role-write acceptance. Fixed
+failed-step codes and elapsed-time retry limits keep startup failures bounded
+and diagnosable without widening authority.
 Public release checks discovers these U/C tests; no new registered campaign case,
 phase selection or exclusion changes. The existing installed login/handoff and
 approved domain-change workflows retain their scope. Native trusted callback
