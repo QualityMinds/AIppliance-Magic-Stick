@@ -433,9 +433,23 @@ cleanup independently checks that ID, local origin and protected-account status.
 
 ### Software channel operations
 
+`GET /api/software/releases` is administrator-only, read-only and independent of
+license/entitlement availability. It reads bounded public product metadata from
+the fixed official repository, caches for five minutes and returns
+`{releases, fetchedAt, stale, message?}`. Entries include semantic `version`,
+`releaseId`, official notes URL, publication timestamp, `prerelease`, `selectable`
+and an optional unavailability reason. Draft/component tags are excluded;
+legacy/unverified releases are disabled. On public-network failure retained data
+is explicitly stale; no implicit selection/update occurs. There is no client-
+supplied upstream URL or publisher credential. See [release metadata](../development/releases.md).
+
 `GET /api/host-management` includes each managed host's sanitized `software`
 status: desired branch/tag/commit, host revision, source/applied Flux revision,
 critical running image IDs, last operation, preview and previous revision.
+Release-aware workers advertise `releaseCatalogVersion: 1` and the approved
+commit. A checked product preview contains only fixed release/tag/manifest
+identities and its validated original license record; raw API payloads/tokens
+are never exported. An old worker does not gain this capability by UI inference.
 Local repository paths, metadata, process IDs and credentials are not exposed.
 
 Administrators use the existing host-operation endpoint with

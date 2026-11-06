@@ -20,6 +20,15 @@ Docker or a local image build.** Check [requirements](../get-started/requirement
 
 ## 1. Download the installer
 
+> **Version boundary:** the pinned download below is a historical **development
+> main follower**, not fixed product-version media. Its bytes and provenance are
+> unchanged. For a normal fixed-version installation, use a verified
+> `installer-v…` download when published for the selected product release; do not
+> substitute this main image as if it were that release. Until one is published,
+> use the [existing-host installer](existing-vm.md) with an explicitly verified
+> product version, or treat the download below as an explicit development choice.
+> See [version-bound media](../development/installer-images.md).
+
 Download these two files into the same folder:
 
 - [Reduced installer image · AMD64 / main](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-main-be5ea39c2b30b3aa291d1e3ae5d7ea0da8dc5e3d72d919d51f196178fefdca10/magicstick-installer-main-amd64-reduced-be5ea39c2b30b3aa.img)
@@ -60,8 +69,8 @@ Get-FileHash .\magicstick-installer-main-amd64-reduced-be5ea39c2b30b3aa.img -Alg
 
 Stop if the checksum does not match. Local build scripts are
 [development tools](../development/installer-images.md#local-development-builds),
-not an installation prerequisite. `develop` images are for explicit development
-testing; do not substitute them for the `main` download above.
+not an installation prerequisite. Old develop images and the main candidate
+above are development distributions; neither is an implicit stable fallback.
 
 <a id="3-usb-stick-beschreiben"></a>
 

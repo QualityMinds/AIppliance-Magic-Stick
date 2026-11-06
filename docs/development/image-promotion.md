@@ -2,67 +2,45 @@
 
 ### Dashboard image promotion
 
-Dashboard images are pinned by immutable digest, not by mutable registry aliases.
-A source push starts the build; it is not itself a rollout. For ordinary pushes
-to `main` or `develop`, **Build MagicStick dashboard clients** now promotes the
-tested Web, API and CLI images back to that same branch automatically. No new
-GitHub Release tag or manual Pod restart is needed for a branch follower.
+Runtime manifests use immutable digests, never mutable registry aliases. Main is
+the integration trunk. A source merge/build is neither a stable release nor a
+verified appliance rollout. Normal fresh installations stay on their selected
+[product release](releases.md), not main.
 
 ## Automatic promotion
 
-1. The build job runs client/API tests and publishes the three multi-architecture
-   images from one exact source commit.
-2. The promotion job requires successful **Public release checks** and
-   **Dashboard browser smoke** push runs for that commit and branch. A failed,
-   cancelled, skipped or missing check cannot count as success; the latest run
-   attempt is authoritative. Pending checks have a bounded 20-minute wait.
-3. `tools/promote_dashboard_images.py` inspects registry metadata, not image
-   layers. It verifies each index, platform manifest and configuration against
-   its SHA-256 digest. Every component must contain Linux AMD64 and ARM64 and
-   carry the expected project, component and source-revision labels.
-4. The helper checks the current branch head. A newer runtime, promotion-policy
-   or image-pin change supersedes the older build. Documentation, host-only or
-   ConfigMap advances can be retained when they do not change baked image inputs;
-   their own public source checks must also succeed. A generated runner-pin-only
-   advance is the narrow exception described below, not permission to ignore CI.
-5. A clean CI checkout receives one scoped commit changing only the three image
-   pins and generated deployment-reference inventory. Existing dependency and
-   license-review metadata is preserved. The normal fast-forward push rejects
-   a concurrent branch change. Only a confirmed forward advance permits a fresh
-   attempt: fetch/review its source and CI, retain its changes and regenerate the
-   four owned files. At most three attempts are made, without rebasing the old
-   commit, force-pushing or overwriting a conflicting runtime/policy change.
+1. Main source builds run native tests before publishing the coordinated Web/API/
+   CLI AMD64+ARM64 images and AMD64 regression runner. Manual branch candidates
+   remain explicitly requested; skipped tests never qualify a product release.
+2. **Propose tested image promotion PR** observes trusted same-repository main
+   push completions. `tools/trunk_promotion.py` requires current successful public
+   checks, matching browser checks when a dashboard build exists, native testing/
+   publishing steps and anonymous registry hash/platform/source-label verification.
+   Missing/pending evidence waits without writing; a newer failed attempt is not
+   replaced with an old green result. A newer runtime/policy source supersedes an
+   obsolete candidate.
+3. The helper starts from the current main head and changes only canonical Web,
+   API, CLI and runner pins plus generated deployment references. Package identities,
+   licensing decisions and unrelated changes are retained. It opens a normal
+   `codex/promote-images-…` PR to main, never pushes main or merges itself.
+4. Normal current-base PR checks and review remain required. If GitHub requires
+   approval for repository-token-created PR workflows, approve them normally or
+   use an approved PR identity; there is no protection bypass, personal-token
+   fallback, auto-merge, force push or suppressed check. A branch already present
+   without one matching open PR requires inspection, not an overwrite.
+5. After merge, a content proof recognizes a pure-pin/reference delta. It proves
+   canonical replacements and unchanged package/legal fields, not a bot identity
+   or commit message. The runner job verifies pinned image hashes/source consistency
+   and the original successful native publishing steps. Dashboard rebuilding is
+   explicitly skipped for this proven case. The promotion coordinator does not
+   treat that merge as a new image source: no recursive build/pin loop.
 
-For a runner promotion made with `GITHUB_TOKEN`, a new push CI run does not exist.
-The helper recognizes this by content, not by an author name or commit message:
-only the runner pin and generated deployment-reference inventory may differ;
-the image/source fields and versioned diagnostic capability must be exactly the standard replacement for the **same
-tested source**, and all package, legal and unrelated reference metadata must
-be unchanged. Refreshed navigation line numbers are accepted only when the
-unchanged reference is proved at that exact line in the committed source;
-they are not dependency identity. Its exact-source **Regression runner** workflow must have passed,
-as must the prior source revision's required checks. A real failed, cancelled,
-skipped or pending check for the generated head is never hidden by this rule.
-Other edits, merge commits and unproved metadata still require their own CI.
-
-While waiting, the job reports the exact short revision, missing/pending workflow
-and bounded deadline in its log. Permission/network/protection failures without
-a confirmed channel advance are not retried. If a push response is lost, the
-helper checks whether the remote actually contains its commit before retrying.
-
-The build and browser workflows use matching path filters, so a normal image
-build cannot silently omit its required browser check. `main` promotion never
-updates `develop`, and `develop` promotion never updates `main`. Feature-branch
-and manually dispatched builds remain candidates for explicit promotion,
-including manual builds with `skip_tests: true`.
-
-The promotion job uses only its repository `GITHUB_TOKEN`, with `contents: write`
-and `actions: read`. The repository's branch rules must allow that scoped push.
-If rules prohibit it, the job fails instead of weakening protection or falling
-back to a personal token. GitHub does not start another push workflow for a
-[push made with `GITHUB_TOKEN`](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow),
-preventing recursive image builds. The image pins and inventory are checked
-before that generated commit is pushed; it is not a new tested runtime build.
+The final pin commit still needs its own public, security, license, browser and
+release-acceptance evidence before a product tag is published. Original image
+source and later GitOps/promotion revision are always reported separately.
+Legacy direct-main promotion entrypoints are disabled; they are not a workaround
+for branch protection or missing CI. Feature-branch pins remain explicit, scoped
+publication within separately granted authority.
 
 ## Appliance convergence and diagnosis
 
@@ -83,7 +61,7 @@ the test cleanup button never clears a host maintenance reservation.
 If a source push has not appeared on an appliance, inspect these distinct stages:
 
 - **Build:** did all three images publish successfully?
-- **Promotion:** did the job write a promotion commit to the selected branch?
+- **Promotion:** was the normal tested pin PR reviewed and merged to main?
   Check its summary for failed CI, unavailable registry metadata, a superseded
   build, a concurrent push or branch-rule rejection.
 - **Host/Flux:** has the selected promotion commit converged? A failed image/source
@@ -114,21 +92,21 @@ without inventing new package or legal metadata. Use an isolated checkout and
 commit only the intended promotion. A mutable alias or restart of an unchanged
 Pod does not update any of these pins.
 
-For normal `main`/`develop` push candidates, the helper also supports a read-only
+For normal main push candidates, the legacy helper also supports a read-only
 verification mode. Supply the exact source commit and the three build-output
 index digests:
 
 ```sh
 python3 tools/promote_dashboard_images.py \
-  --branch develop --source "$SOURCE_COMMIT" \
+  --branch main --source "$SOURCE_COMMIT" \
   --web-digest "$WEB_INDEX_DIGEST" --api-digest "$API_INDEX_DIGEST" \
   --cli-digest "$CLI_INDEX_DIGEST" --check-only
 ```
 
 This requires authenticated `gh` access to Actions status and public dashboard
 registry metadata. It fetches the selected Git branch but edits no worktree files
-and pushes nothing. `--push` is the CI publishing mode and requires an authorized,
-clean checkout; it is not a bypass for feature branches or failed checks.
+and pushes nothing. Direct `--push` to main is disabled. Use the coordinated
+normal PR workflow, not a branch-protection or failed-check bypass.
 
 An explicitly requested manual rollout may dispatch the image workflow with
 `skip_tests: true`. The default is `false`; normal push builds always run tests.

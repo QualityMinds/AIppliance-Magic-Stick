@@ -192,7 +192,9 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
     def test_existing_installation_media_delegates_reboot_to_host_ansible(self):
         usb = (ROOT / "magic-installer/user-data").read_text()
         linux = (ROOT / "install-from-linux.sh").read_text()
-        self.assertIn("MAGICSTICK_PUBLIC_REF=main", usb)
+        self.assertIn("MAGICSTICK_PUBLIC_REF=stable", usb)
+        self.assertIn("MAGICSTICK_PUBLIC_REF_KIND=release", usb)
+        self.assertIn("tools/release_bootstrap.py", usb)
         self.assertIn("ai-appliance-converge", usb)
         self.assertIn("start_installation", linux)
         for installer in (usb, linux):

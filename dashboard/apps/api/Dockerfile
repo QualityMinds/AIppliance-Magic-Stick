@@ -9,6 +9,7 @@ COPY magic-host/roles/host-management/files/network_contract.py ./
 COPY magic-host/roles/host-management/files/updates_contract.py ./
 COPY magic-host/roles/host-management/files/model_cache.py ./
 COPY magic-host/roles/host-management/files/software_contract.py ./
+COPY magic-host/roles/host-management/files/release_catalog.py ./
 COPY core/magicstick_core ./magicstick_core
 COPY LICENSE LICENSING.md THIRD_PARTY_NOTICES.md /licenses/
 COPY licenses /licenses/licenses

@@ -364,9 +364,14 @@ def cidata_offset(image, partition=3):
         return first * 512
 
 
-def verify_public_bootstrap(config, metadata, channel):
+def verify_public_bootstrap(config, metadata, channel=None, release=None):
     """Fail closed before publishing media containing deployment-specific metadata."""
-    if channel not in {"main", "develop"}:
+    if release is not None:
+        if (set(release) != {"version", "commit", "tagObject"}
+                or not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", release.get("version", ""))
+                or any(not re.fullmatch(r"[a-f0-9]{40}", release.get(key, "")) for key in ("commit", "tagObject"))):
+            raise ValueError("Public release media require an exact product tag and approved Git identities")
+    elif channel not in {"main", "develop"}:
         raise ValueError("Public installer channel must be main or develop")
     if metadata != {"instance-id": "example-host-01", "local-hostname": "example-host-01"}:
         raise ValueError("Public CI images require placeholder host metadata")
@@ -381,8 +386,8 @@ def verify_public_bootstrap(config, metadata, channel):
     expected = {
         "FLUX_BOOTSTRAP_MODE": "readonly-public",
         "MAGICSTICK_PUBLIC_REPO": "https://github.com/QualityMinds/AIppliance-Magic-Stick.git",
-        "MAGICSTICK_PUBLIC_REF": channel,
-        "MAGICSTICK_PUBLIC_REF_KIND": "branch",
+        "MAGICSTICK_PUBLIC_REF": release["version"] if release else channel,
+        "MAGICSTICK_PUBLIC_REF_KIND": "tag" if release else "branch",
         "FLUX_PUBLIC_SYNC_PATH": "magic-cluster/flux/entrypoints/single-node",
         "AI_APPLIANCE_DOMAIN": "magicstick.example.com",
         "AI_APPLIANCE_DASHBOARD_HOST": "magicstick.example.com",
@@ -400,6 +405,14 @@ def verify_public_bootstrap(config, metadata, channel):
         if not separator or key in actual:
             raise ValueError("Invalid public bootstrap setting")
         actual[key] = value
+    if release:
+        expected.update(MAGICSTICK_PUBLIC_REF_COMMIT=release["commit"], MAGICSTICK_PUBLIC_TAG_OBJECT=release["tagObject"])
+    else:
+        # New branch candidates spell out empty bindings; old immutable media
+        # omitted them. Neither representation may smuggle a nonempty identity.
+        for key in ("MAGICSTICK_PUBLIC_REF_COMMIT", "MAGICSTICK_PUBLIC_TAG_OBJECT"):
+            if actual.get(key) == "":
+                actual.pop(key)
     if actual != expected:
         raise ValueError("Public installer contains non-default, private or incorrect channel settings")
 
@@ -439,8 +452,11 @@ def verify(args):
         raise ValueError("Expected interactive installer sections are missing")
     if not metadata_config.get("instance-id") or not metadata_config.get("local-hostname"):
         raise ValueError("CIDATA metadata is incomplete")
-    if args.public_channel:
-        verify_public_bootstrap(config, metadata_config, args.public_channel)
+    release = None
+    if args.public_release:
+        release = {"version": args.public_release, "commit": args.public_commit or "", "tagObject": args.public_tag_object or ""}
+    if args.public_channel or release:
+        verify_public_bootstrap(config, metadata_config, args.public_channel, release)
     boot = run("xorriso", "-indev", args.image, "-report_el_torito", "plain", capture=True).decode()
     if not re.search(r"El Torito boot img\s*:.*BIOS", boot) or not re.search(r"El Torito boot img\s*:.*UEFI", boot):
         raise ValueError("BIOS or UEFI boot entry is missing")
@@ -452,6 +468,8 @@ def verify(args):
               "installationTested": False}
     if args.public_channel:
         result["publicBootstrapChannel"] = args.public_channel
+    if release:
+        result["publicBootstrapRelease"] = release
     write_json(report_dir / "verification.json", result)
     print(json.dumps(result, indent=2))
 
@@ -467,7 +485,12 @@ def main():
     parser.add_argument("--cidata-partition", type=int, default=3)
     parser.add_argument("--public-channel", choices=("main", "develop"),
                         help="Also verify token-free public CI bootstrap metadata")
+    parser.add_argument("--public-release", help="Verify fixed product-version CIDATA, not branch-following media")
+    parser.add_argument("--public-commit")
+    parser.add_argument("--public-tag-object")
     args = parser.parse_args()
+    if args.public_channel and args.public_release:
+        parser.error("Choose branch-candidate or product-release media, not both")
     if args.operation == "prepare" and (not args.iso or not args.template):
         parser.error("prepare requires --iso and --template")
     if args.operation in ("finish", "verify") and not args.image:

@@ -38,6 +38,13 @@ is the default at `#/system/settings`. Former `#/system/network` and
 Only the selected subtab mounts its page; opening Settings does not apply
 network, update, domain, or identity configuration changes.
 
+For software versions, use **System → Settings → Updates → Magic Stick software**.
+Choose **Released version**, optionally show prereleases, then **Check channel**
+and review the resolved revision/notes/license dates before **Apply channel**.
+Refreshing the list never updates the computer. Unverified legacy versions and
+offline catalogs cannot silently select main. Existing branch selections remain
+unchanged until explicitly applied. See [updates and rollback](../administration/updates-rollback.md).
+
 ## System Status
 
 Open **System → System Status** for a second tab bar, like the one in Settings:

@@ -238,8 +238,10 @@ class RegressionSecurityTests(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / '.github/workflows/dependency-security.yml').read_text())
         triggers = workflow.get('on', workflow.get(True))
         for event in ['push', 'pull_request']:
-            for path in manifests:
-                self.assertIn(path, triggers[event]['paths'])
+            # Globally required checks must run even on docs-only/pin-only PRs;
+            # an omitted path-filter workflow would leave protection pending.
+            self.assertNotIn('paths', triggers[event])
+            self.assertEqual(triggers[event]['branches'], ['main'])
         job = workflow['jobs']['python-advisories']
         self.assertIs(job['strategy']['fail-fast'], False)
         self.assertEqual(job['strategy']['matrix']['requirements'], manifests)
@@ -259,7 +261,8 @@ class RegressionSecurityTests(unittest.TestCase):
         archive = next(item for item in steps if item.get('name') == 'Archive the reviewed patch')
         self.assertEqual(archive['with']['if-no-files-found'], 'error')
         self.assertEqual(archive['with']['name'], 'runtime-image-update-proposal')
-        automatic = next(item for item in steps if item.get('name') == 'Propose a reviewed update on develop')
+        automatic = next(item for item in steps if item.get('name') == 'Propose a reviewed update on main')
+        self.assertEqual(automatic['with']['base'], 'main')
         self.assertEqual(automatic['if'], "steps.proposal.outputs.changed == 'true' && vars.RUNTIME_IMAGE_PR_ENABLED == 'true'")
         manual = next(item for item in steps if item.get('name') == 'Explain the policy-compatible manual proposal')
         self.assertIn("vars.RUNTIME_IMAGE_PR_ENABLED != 'true'", manual['if'])

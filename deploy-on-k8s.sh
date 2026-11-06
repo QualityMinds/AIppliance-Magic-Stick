@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 REPOSITORY_URL="https://github.com/QualityMinds/AIppliance-Magic-Stick.git"
-REQUESTED_REF="main"
+REQUESTED_REF="stable"
 REF_KIND=""
 SYNC_PATH="magic-cluster/flux/entrypoints/single-node"
 APPLIANCE_DOMAIN="magicstick.example.com"
@@ -24,7 +24,8 @@ Usage:
 
 Options:
   --context CONTEXT     kubectl context (default: current context)
-  --ref REF             Git branch, tag, or 40-character commit (default: main)
+  --ref REF             Verified product version (default: stable, fixed SHA)
+                        Explicit branches/commits are advanced development options.
   --ref-kind KIND       branch, tag, semver, or commit (auto-detected by default)
   --repository URL      Public Git repository URL
   --domain DOMAIN       Initial public domain placeholder
@@ -123,6 +124,17 @@ validate_domain() {
 }
 
 detect_ref_kind() {
+  if [[ "$REPOSITORY_URL" == "https://github.com/QualityMinds/AIppliance-Magic-Stick.git" ]] && \
+     { [[ "$REQUESTED_REF" == stable ]] || [[ "$REF_KIND" != branch && "$REQUESTED_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; }; then
+    local proof helper
+    helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tools/release_bootstrap.py"
+    [[ -f "$helper" ]] || fail "Use the complete reviewed installer checkout for product releases; no main fallback was selected."
+    proof="$(python3 "$helper" --resolve-only --version "$REQUESTED_REF" --format tsv)" || fail "No verified product release; no cluster resources were changed."
+    IFS=$'\t' read -r RELEASE_VERSION REQUESTED_REF RELEASE_TAG_OBJECT <<<"$proof"
+    [[ "$REQUESTED_REF" =~ ^[a-f0-9]{40}$ ]] || fail "Invalid product release identity."
+    REF_KIND=commit
+    return
+  fi
   if [[ -n "$REF_KIND" ]]; then
     case "$REF_KIND" in
       branch|tag|semver|commit) return ;;
@@ -156,7 +168,6 @@ run_preflight() {
   validate_domain "$APPLIANCE_DOMAIN" "--domain"
   validate_domain "$MDNS_DOMAIN" "--mdns-domain"
   [[ "$MDNS_DOMAIN" == *.local ]] || fail "--mdns-domain must end in .local."
-  detect_ref_kind
 
   if [[ -z "$KUBE_CONTEXT" ]]; then
     KUBE_CONTEXT="$(kubectl config current-context 2>/dev/null || true)"
@@ -179,6 +190,7 @@ run_preflight() {
   if resource_exists -n identity-system get appliancesetup local; then
     fail "ApplianceSetup/local already exists. This script never resets an existing appliance."
   fi
+  detect_ref_kind
 
   if resource_exists -n flux-system get configmap "$INSTALLER_STATE_NAME"; then
     local state state_repository state_ref state_ref_kind state_path

@@ -63,6 +63,65 @@ class HostTests(unittest.TestCase):
         channel.METADATA.write_text("X='$(touch /tmp/never)'\n")
         self.assertEqual(channel.metadata()["X"], "$(touch /tmp/never)")
 
+    def test_release_selection_persists_approved_identity_and_branch_switch_clears_only_that_pin(self):
+        selected = {"kind": "tag", "value": "v1.2.3"}
+        channel.save_selection(selected, "d" * 40, "e" * 40)
+        self.assertEqual(channel.config()["approvedCommit"], "d" * 40)
+        self.assertEqual(channel.config()["tagObject"], "e" * 40)
+        self.assertIn("PRIVATE_VALUE='keep this'", channel.METADATA.read_text())
+        channel.save_selection({"kind": "branch", "value": "main"})
+        self.assertNotIn("approvedCommit", channel.config())
+        self.assertEqual(channel.metadata()["MAGICSTICK_PUBLIC_REF_COMMIT"], "")
+        self.assertEqual(channel.metadata()["MAGICSTICK_PUBLIC_TAG_OBJECT"], "")
+
+    def test_saved_tag_cannot_move_even_after_its_original_preview_expired(self):
+        selected = {"kind": "tag", "value": "v1.2.3"}
+        channel.save_selection(selected, "d" * 40, "e" * 40)
+        before = channel.METADATA.read_bytes()
+        with patch.object(channel, "resolve", return_value="f" * 40), patch.object(channel, "inspect") as inspect:
+            with self.assertRaisesRegex(ValueError, "approved commit"):
+                channel.preview(selected)
+            inspect.assert_not_called()
+        self.assertEqual(channel.METADATA.read_bytes(), before)
+
+    def test_release_preview_checks_git_license_archive_images_and_runner_independently(self):
+        from tests.test_release_catalog import manifest
+        version, commit = "v1.2.3", "a" * 40
+        record = manifest(version, commit)
+        proof = {"version": version, "commit": commit, "tagObject": "b" * 40, "releaseId": 1,
+                 "manifestDigest": "sha256:" + "c" * 64, "prerelease": False,
+                 "license": record["license"], "images": record["images"]}
+        names = {"web": "Dashboard", "api": "Dashboard API", "cli": "Console", "operator": "Operator runtime"}
+        images = [{"name": names[item["component"]], "image": item["image"]} for item in record["images"] if item["component"] in names]
+        files = {"LICENSE-RELEASE.json": json.dumps(record["license"]),
+                 "licenses/releases/v1.2.3.json": json.dumps(record["license"]),
+                 "magic-cluster/apps/regression/runtime.yaml": 'data:\n  image: "' + record["images"][-1]["image"] + '"\n'}
+        with patch.object(channel, "resolve", return_value=commit), patch.object(channel, "inspect", return_value=images), \
+                patch.object(channel, "source", side_effect=lambda _g, _c, path: files[path]), \
+                patch.object(channel.ReleaseClient, "resolve", return_value=proof) as read:
+            result = channel.preview({"kind": "tag", "value": version})
+            self.assertEqual(result["release"]["license"], record["license"])
+            read.assert_called_once_with(version, expected_commit=commit)
+            files["licenses/releases/v1.2.3.json"] = json.dumps({**record["license"], "changeDate": "2035-01-01"})
+            with self.assertRaisesRegex(ValueError, "license record differ"):
+                channel.preview({"kind": "tag", "value": version})
+
+    def test_changed_release_proof_cannot_reuse_a_reviewed_preview_even_for_same_commit(self):
+        selected = {"kind": "tag", "value": "v1.2.3"}
+        first = {"channel": selected, "commit": "b" * 40, "configurationId": channel.config()["id"],
+                 "ready": True, "checkedAtEpoch": time.time(), "id": "c" * 64,
+                 "release": {"manifestDigest": "sha256:" + "1" * 64}}
+        channel.write_json(channel.STATE / "software-preview.json", first)
+        second = {**first, "release": {"manifestDigest": "sha256:" + "2" * 64}}
+        request = {"action": "apply-software-channel", "softwareChannel": selected,
+                   "planId": channel.config()["id"], "softwarePreviewId": first["id"]}
+        before = channel.METADATA.read_bytes()
+        with patch.object(channel, "preview", return_value=second), patch.object(channel, "backup") as backup:
+            with self.assertRaisesRegex(ValueError, "changed after review"):
+                channel.execute(request, object(), object())
+            backup.assert_not_called()
+        self.assertEqual(channel.METADATA.read_bytes(), before)
+
     def test_resolve_distinguishes_same_name_tag_and_branch_and_tracks_new_commits(self):
         remote = self.root / "remote"; remote.mkdir()
         env = {**os.environ, "GIT_AUTHOR_NAME": "Fixture", "GIT_AUTHOR_EMAIL": "fixture@example.com", "GIT_COMMITTER_NAME": "Fixture", "GIT_COMMITTER_EMAIL": "fixture@example.com"}

@@ -8731,6 +8731,27 @@ data:
     HOST_MANAGEMENT_ANNOTATION = "appliance.magicstick.dev/host-management"
     HOST_NETWORK_SECRET_NAMESPACE = "host-management"
     HOST_OPERATION_TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted", "RolledBack"}
+    SOFTWARE_RELEASE_CACHE = {}
+    SOFTWARE_RELEASE_CACHE_LOCK = threading.RLock()
+
+
+    def software_release_catalog(principal):
+        if not ROLE_ACCESS["admin"].intersection(principal.get("roles", [])):
+            raise AuthError(403, "Administrator access is required for software version discovery.")
+        # Public product metadata only. Never require a product entitlement,
+        # expose publisher credentials or let a client choose an upstream URL.
+        from release_catalog import ReleaseClient, ReleaseError
+        with SOFTWARE_RELEASE_CACHE_LOCK:
+            now = time.monotonic()
+            cached = SOFTWARE_RELEASE_CACHE.get("value")
+            if cached and 0 <= now - SOFTWARE_RELEASE_CACHE.get("at", 0) < 300:
+                return cached
+            try:
+                value = ReleaseClient().catalog()
+            except ReleaseError as error:
+                return {**(cached or {"releases": [], "fetchedAt": ""}), "stale": True, "message": str(error)}
+            SOFTWARE_RELEASE_CACHE.update(value=value, at=now)
+            return value
 
 
     def host_operations_path():
@@ -8794,8 +8815,10 @@ data:
     def public_host_software(value):
         if not isinstance(value, dict):
             return None
-        result = {key: value[key] for key in ("supported", "id", "busy", "blocked", "hostCommit", "previousCommit", "message")
+        result = {key: value[key] for key in ("supported", "id", "busy", "blocked", "hostCommit", "approvedCommit", "previousCommit", "message")
                   if key in value and type(value[key]) in {str, bool}}
+        if type(value.get("releaseCatalogVersion")) is int:
+            result["releaseCatalogVersion"] = value["releaseCatalogVersion"]
         if isinstance(value.get("channel"), dict):
             result["channel"] = {key: value["channel"].get(key, "") for key in ("kind", "value")}
         preview = value.get("preview")
@@ -8804,6 +8827,22 @@ data:
             result["preview"]["channel"] = {key: (preview.get("channel") or {}).get(key, "") for key in ("kind", "value")}
             result["preview"]["images"] = [{key: item[key] for key in ("name", "image", "available") if key in item}
                 for item in preview.get("images", [])[:8] if isinstance(item, dict)]
+            release = preview.get("release")
+            if isinstance(release, dict):
+                from release_catalog import validate_license_record, is_product_version
+                try:
+                    validate_license_record(release.get("license"), release=True)
+                    if (not is_product_version(release.get("version")) or release["license"]["version"] != release["version"]
+                            or release.get("commit") != preview.get("commit")
+                            or any(not isinstance(release.get(key), str) or not re.fullmatch(r"[a-f0-9]{40}", release[key]) for key in ("commit", "tagObject"))
+                            or not isinstance(release.get("manifestDigest"), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", release["manifestDigest"])
+                            or type(release.get("releaseId")) is not int or not 0 < release["releaseId"] < 2 ** 63
+                            or type(release.get("prerelease")) is not bool):
+                        raise ValueError()
+                    result["preview"]["release"] = {key: release[key] for key in
+                        ("version", "commit", "tagObject", "releaseId", "manifestDigest", "prerelease", "license")}
+                except (ValueError, TypeError, KeyError):
+                    pass
         observed = value.get("observed")
         if isinstance(observed, dict):
             result["observed"] = {key: observed[key] for key in ("sourceRevision", "appliedRevision", "ready", "checkedAtEpoch") if key in observed}
@@ -9362,6 +9401,14 @@ data:
                 self.send_error_json(503, "Regression status or setup is unavailable. No private logs or credentials were exposed.")
 
         def do_GET(self):
+            if self.route() == "/api/software/releases":
+                try:
+                    self.send_json(software_release_catalog(self.require_access("admin")))
+                except AuthError as error:
+                    self.send_auth_error(error)
+                except Exception:
+                    self.send_error_json(503, "Software version discovery is unavailable. No update was requested.")
+                return
             if self.route().startswith("/api/regression"):
                 self.handle_regression()
                 return

@@ -16,9 +16,9 @@ param(
   [string]$FluxBootstrapMode = "readonly-public",
   [string]$FluxPublicSyncPath = "magic-cluster/flux/entrypoints/single-node",
   [string]$PublicRepo = "https://github.com/QualityMinds/AIppliance-Magic-Stick.git",
-  [string]$PublicRef = "main",
-  [ValidateSet("branch", "tag", "semver", "commit")]
-  [string]$PublicRefKind = "branch",
+  [string]$PublicRef = "stable",
+  [ValidateSet("release", "branch", "tag", "semver", "commit")]
+  [string]$PublicRefKind = "release",
   [string]$Output = "",
   [ValidateSet("full", "reduced")]
   [string]$OfflinePool = "reduced",
@@ -104,6 +104,20 @@ if (-not $ContainerRuntime) {
   $ContainerRuntime = Resolve-Tool -Names @("docker", "podman")
 }
 
+$approvedCommit = ""
+$tagObject = ""
+if ($PublicRefKind -eq "release" -or ($PublicRefKind -eq "tag" -and $PublicRef -match '^v[0-9]+\.[0-9]+\.[0-9]+')) {
+  if ($PublicRepo -ne "https://github.com/QualityMinds/AIppliance-Magic-Stick.git") { throw "Product releases require the official public repository." }
+  $python = Resolve-Tool -Names @("python3", "python")
+  $proof = & $python (Join-Path $repoRoot "tools/release_bootstrap.py") --resolve-only --version $PublicRef
+  if ($LASTEXITCODE -ne 0) { throw "No verified release; no main fallback or image build was started." }
+  $identity = ($proof | Out-String) | ConvertFrom-Json
+  $PublicRef = $identity.version
+  $PublicRefKind = "tag"
+  $approvedCommit = $identity.commit
+  $tagObject = $identity.tagObject
+}
+
 if (-not $Output) {
   $Output = "dist/magicstick-installer-$OfflinePool.img"
 }
@@ -146,6 +160,8 @@ $env:MAGICSTICK_FLUX_GITHUB_TOKEN = $token
 $env:MAGICSTICK_PUBLIC_REPO = $PublicRepo
 $env:MAGICSTICK_PUBLIC_REF = $PublicRef
 $env:MAGICSTICK_PUBLIC_REF_KIND = $PublicRefKind
+$env:MAGICSTICK_PUBLIC_REF_COMMIT = $approvedCommit
+$env:MAGICSTICK_PUBLIC_TAG_OBJECT = $tagObject
 $env:MAGICSTICK_UBUNTU_ISO_URL = $UbuntuIsoUrl
 $env:MAGICSTICK_UBUNTU_ISO_SHA256 = $UbuntuIsoSha256
 $env:MAGICSTICK_OFFLINE_POOL = $OfflinePool
@@ -168,6 +184,8 @@ $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME = $DashboardMdnsName
   --env MAGICSTICK_PUBLIC_REPO `
   --env MAGICSTICK_PUBLIC_REF `
   --env MAGICSTICK_PUBLIC_REF_KIND `
+  --env MAGICSTICK_PUBLIC_REF_COMMIT `
+  --env MAGICSTICK_PUBLIC_TAG_OBJECT `
   --env MAGICSTICK_UBUNTU_ISO_URL `
   --env MAGICSTICK_UBUNTU_ISO_SHA256 `
   --env MAGICSTICK_OFFLINE_POOL `

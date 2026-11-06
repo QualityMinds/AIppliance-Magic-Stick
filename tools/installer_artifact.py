@@ -8,12 +8,18 @@ from pathlib import Path
 import re
 import subprocess
 import tarfile
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tools import release_bootstrap
 WORKFLOW = '.github/workflows/build-installer-image.yml'
 INPUTS = (
     WORKFLOW, 'tools/installer_artifact.py', 'magic-installer/ci-build.json',
+    'tools/release_bootstrap.py', 'magic-host/roles/host-management/files/release_catalog.py',
+    'magic-host/roles/host-management/files/software_channel.py',
+    'magic-host/roles/host-management/files/software_contract.py',
     'magic-installer/Containerfile', 'magic-installer/build-installer-image.sh',
     'magic-installer/scripts/build-installer-image-container.sh',
     'magic-installer/scripts/installer-media.py',
@@ -40,7 +46,7 @@ def json_bytes(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
 
 
-def plan(root, channel, revision):
+def plan(root, channel, revision, product_release=None):
     if channel not in {'main', 'develop'} or not REVISION.fullmatch(revision):
         raise ValueError('An exact source commit on main or develop is required')
     root = Path(root)
@@ -71,14 +77,26 @@ def plan(root, channel, revision):
     if not SHA256.fullmatch(iso['sha256']) or not iso['url'].startswith('https://releases.ubuntu.com/'):
         raise ValueError('CI requires a checksum-pinned official Ubuntu ISO')
     identity = {'schemaVersion': 1, 'channel': channel, 'config': config, 'inputs': files, 'ubuntu': iso}
+    label = channel
+    if product_release is not None:
+        if (not isinstance(product_release, dict) or set(product_release) != {'version', 'commit', 'tagObject', 'manifestDigest', 'license'}
+                or not release_bootstrap.catalog.is_product_version(product_release.get('version'))
+                or any(not isinstance(product_release.get(key), str) or not REVISION.fullmatch(product_release[key]) for key in ('commit', 'tagObject'))
+                or not release_bootstrap.catalog.DIGEST.fullmatch(str(product_release.get('manifestDigest', '')))):
+            raise ValueError('Product installer identity is incomplete or invalid')
+        release_bootstrap.catalog.validate_license_record(product_release['license'], release=True)
+        if product_release['license']['version'] != product_release['version']:
+            raise ValueError('Product media must retain the selected version publication/change dates')
+        identity['productRelease'] = product_release
+        label = product_release['version']
     fingerprint = hashlib.sha256(json_bytes(identity)).hexdigest()
-    stem = f'magicstick-installer-{channel}-amd64-reduced-{fingerprint[:16]}'
+    stem = f'magicstick-installer-{label}-amd64-reduced-{fingerprint[:16]}'
     return {**identity, 'fingerprint': fingerprint, 'sourceRevision': revision,
-            'tag': f'installer-{channel}-{fingerprint}', 'stem': stem, 'imageName': stem + '.img'}
+            'tag': f'installer-{label}-{fingerprint}', 'stem': stem, 'imageName': stem + '.img'}
 
 
 def check_plan(value, root):
-    expected = plan(root, value['channel'], value['sourceRevision'])
+    expected = plan(root, value['channel'], value['sourceRevision'], value.get('productRelease'))
     if value != expected:
         raise ValueError('Build inputs changed after planning; refusing stale artifact identity')
 
@@ -122,6 +140,7 @@ def check_manifest(info, value):
             or info.get('channel') != value['channel'] or info.get('inputs') != value['inputs']
             or info.get('config') != value['config'] or info.get('ubuntu') != value['ubuntu']
             or info.get('releaseStatus') != 'test-build'
+            or info.get('productRelease') != value.get('productRelease')
             or not REVISION.fullmatch(info.get('sourceRevision', ''))
             or not str(info.get('sourceRunId', '')).isdigit()
             or int(info['sourceRunId']) < 1
@@ -203,7 +222,8 @@ def bundle(root, value, directory, run_id):
             or report['sourceIso']['sha256'] != value['ubuntu']['sha256']
             or report['poolAfter']['pool'] <= 0 or report['poolAfter']['poolPackageCount'] <= 0
             or verified.get('biosBootEntry') is not True or verified.get('uefiBootEntry') is not True
-            or verified.get('publicBootstrapChannel') != value['channel']
+            or (verified.get('publicBootstrapRelease') != {k: value['productRelease'][k] for k in ('version', 'commit', 'tagObject')}
+                if value.get('productRelease') else verified.get('publicBootstrapChannel') != value['channel'])
             or verified.get('imageSha256') != sha
             or verified.get('checkedIntegrityEntries', 0) < 1
             or verified.get('protectedFilesUnchanged', 0) < 1):
@@ -224,6 +244,8 @@ def bundle(root, value, directory, run_id):
         for name in ('LICENSE', 'LICENSING.md', 'LICENSE-RELEASE.json', 'THIRD_PARTY_NOTICES.md'):
             archive.add(Path(root) / name, arcname='source-notices/' + name)
     info = {k: value[k] for k in ('schemaVersion', 'fingerprint', 'channel', 'inputs', 'config', 'ubuntu', 'sourceRevision')}
+    if value.get('productRelease'):
+        info['productRelease'] = value['productRelease']
     info.update({'sourceRunId': str(run_id), 'releaseStatus': 'test-build',
                  'acceptance': {'mediaIntegrity': True, 'physicalInstallation': False},
                  'assets': {p.name: {'bytes': p.stat().st_size, 'sha256': digest(p)}
@@ -269,11 +291,12 @@ def publish(repo, value, directory, run_id):
     if release is None:
         notes = (f'Online-only AMD64 installer candidate for **{value["channel"]}**.\n\n'
                  f'Build inputs: `{value["fingerprint"]}`. Source: `{info["sourceRevision"]}`. '
-                 f'[CI evidence](https://github.com/{repo}/actions/runs/{run_id}).\n\n'
+                 f'[CI evidence](https://github.com/{repo}/actions/runs/{run_id}).\n\n' +
                  'Download the `.img` and `.img.sha256` assets; the generated source archives are not installation media. '
                  'The evidence archive retains media checks, package inventories and source notices. '
-                 'Ubuntu and other third-party components retain their own licenses.\n\n'
-                 f'First boot follows `{value["channel"]}`, not the source commit that built the stick. '
+                 'Ubuntu and other third-party components retain their own licenses.\n\n' +
+                 (f'First boot is fixed to `{value["productRelease"]["version"]}` at `{value["productRelease"]["commit"]}`. '
+                  if value.get('productRelease') else f'First boot follows development `{value["channel"]}`, not the source commit that built the stick. ') +
                  'Public defaults only: hostname `example-host-01`, no deployment token. '
                  'A working Ubuntu mirror is required.\n\n'
                  '**Test distribution, not installation/hardware acceptance.** CI checks media integrity; '
@@ -328,6 +351,7 @@ def main():
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--channel', choices=('main', 'develop'))
     parser.add_argument('--revision')
+    parser.add_argument('--product-version', help='Optional already published verified product tag; never relabel an old branch image')
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--repo', default=REPOSITORY)
     parser.add_argument('--directory', type=Path)
@@ -335,10 +359,18 @@ def main():
     args = parser.parse_args()
     try:
         if args.operation == 'plan':
-            value = plan(args.root, args.channel, args.revision or '')
+            product_identity = None
+            if args.product_version:
+                proof = release_bootstrap.resolve(args.product_version)
+                product_identity = {k: proof[k] for k in ('version', 'commit', 'tagObject', 'manifestDigest', 'license')}
+            value = plan(args.root, args.channel, args.revision or '', product_identity)
             save(args.plan, value)
             output({'fingerprint': value['fingerprint'], 'tag': value['tag'], 'stem': value['stem'],
-                    'image': value['imageName'], 'ubuntu_sha256': value['ubuntu']['sha256']})
+                    'image': value['imageName'], 'ubuntu_sha256': value['ubuntu']['sha256'],
+                    'public_ref': product_identity['version'] if product_identity else args.channel,
+                    'public_ref_kind': 'tag' if product_identity else 'branch',
+                    'public_commit': product_identity['commit'] if product_identity else '',
+                    'public_tag_object': product_identity['tagObject'] if product_identity else ''})
         else:
             value = json.loads(args.plan.read_text())
             check_plan(value, args.root)

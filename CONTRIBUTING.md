@@ -61,6 +61,11 @@ legacy links and Pages publication, and the
 
 ## Pull Requests
 
+Use short-lived branches targeting the protected `main` integration trunk. There
+is no regular develop-to-main release merge. Normal released installations stay
+on their verified version tag; see [trunk-based releases](docs/development/releases.md)
+for image-promotion PRs, exact CI evidence and per-version license dates.
+
 - Keep changes focused and explain the public behavior change.
 - Update docs when adding public configuration, CRD fields, modules, models, or
   runtime parameters.

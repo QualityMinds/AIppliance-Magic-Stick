@@ -33,6 +33,7 @@
     - host_updates.py
     - model_cache.py
     - software_contract.py
+    - release_catalog.py
     - software_channel.py
     - regression_guard.py
     - gpu_memory.py

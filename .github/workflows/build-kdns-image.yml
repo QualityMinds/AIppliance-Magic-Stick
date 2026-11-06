@@ -2,7 +2,7 @@ name: Build MagicStick kdns image
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - .github/workflows/build-kdns-image.yml
       - LICENSE

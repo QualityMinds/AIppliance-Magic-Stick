@@ -35,6 +35,8 @@ Signed-By:
 class InstallerPoolTests(unittest.TestCase):
     def test_public_ci_bootstrap_is_token_free_and_channel_specific(self):
         config = yaml.safe_load((ROOT / "magic-installer/user-data").read_text())["autoinstall"]
+        content = config["user-data"]["write_files"][0]["content"]
+        config["user-data"]["write_files"][0]["content"] = content.replace("MAGICSTICK_PUBLIC_REF=stable", "MAGICSTICK_PUBLIC_REF=main").replace("MAGICSTICK_PUBLIC_REF_KIND=release", "MAGICSTICK_PUBLIC_REF_KIND=branch")
         metadata = {"instance-id": "example-host-01", "local-hostname": "example-host-01"}
         media.verify_public_bootstrap(config, metadata, "main")
         with self.assertRaises(ValueError):
@@ -201,6 +203,7 @@ class InstallerPoolTests(unittest.TestCase):
         script.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SCRIPT, script)
         return subprocess.run(["bash", str(script), "--hostname", "example-host-01", "--no-build",
+                               "--public-ref", "main", "--public-ref-kind", "branch",
                                "--container-runtime", str(runtime), *arguments],
                               text=True, capture_output=True, check=False)
 

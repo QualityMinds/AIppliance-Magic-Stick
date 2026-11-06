@@ -177,8 +177,10 @@ when `FLUX_BOOTSTRAP_MODE=github`.
 | `FLUX_BOOTSTRAP_MODE` | `flux_bootstrap_mode` |
 | `FLUX_PUBLIC_SYNC_PATH` | `flux_public_sync_path` |
 | `MAGICSTICK_PUBLIC_REPO` | public template Git URL used by the converge runner |
-| `MAGICSTICK_PUBLIC_REF` | public template branch (main by default), tag or commit used by the converge runner |
-| `MAGICSTICK_PUBLIC_REF_KIND` | public template ref field, e.g. `branch` |
+| `MAGICSTICK_PUBLIC_REF` | selected product tag after one-time stable resolution; explicit advanced branch/commit remains supported |
+| `MAGICSTICK_PUBLIC_REF_KIND` | public template ref field, e.g. `tag` |
+| `MAGICSTICK_PUBLIC_REF_COMMIT` | durable approved commit for a selected product tag |
+| `MAGICSTICK_PUBLIC_TAG_OBJECT` | original tag object; a moved tag is not silently adopted |
 | `AI_APPLIANCE_DOMAIN` | public read-only domain setting |
 | `AI_APPLIANCE_DASHBOARD_HOST` | dashboard ingress hostname |
 | `AI_APPLIANCE_MDNS_DOMAIN` | local mDNS domain, e.g. `magicstick.local` |
@@ -213,7 +215,8 @@ The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. 
 In `readonly-public` mode the runner skips the external deployment checkout and
 Flux reads only the public Magicstick repository.
 
-Administrators can change `main`, `develop`, a custom branch, tag or full commit
+Administrators can select a verified released version, or explicitly choose a
+development `main`/custom branch, tag or full commit
 under **System → Settings → Updates**. The existing host-operation worker handles
 check/apply, immutable-image preflight and recovery; it does not execute Git from
 the API process. The host's resolved commit is passed to Flux so the two cannot

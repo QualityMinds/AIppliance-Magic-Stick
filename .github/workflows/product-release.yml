@@ -1,0 +1,102 @@
+name: Qualify and publish product release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact prepared product version, for example v1.2.3 or v1.2.3-rc.1
+        type: string
+        required: true
+      revision:
+        description: Full reviewed main commit AFTER image promotion and matching CI
+        type: string
+        required: true
+      publish:
+        description: Explicitly create a new annotated tag and immutable product release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: product-release
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve only the explicit main-reachable revision
+        env:
+          RELEASE_REVISION: ${{ inputs.revision }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python -c 'import os,re; from tools.release import valid_version; valid_version(os.environ["RELEASE_VERSION"]); assert re.fullmatch("[a-f0-9]{40}", os.environ["RELEASE_REVISION"])'
+          git merge-base --is-ancestor "$RELEASE_REVISION" origin/main
+          git checkout --detach "$RELEASE_REVISION"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify release, privacy, license and current CI counterexamples
+        run: |
+          python -m unittest tests.test_release tests.test_license_release tests.test_release_catalog tests.test_product_release tests.test_release_codeql
+          python tools/license_audit.py --review
+      - name: Qualify the exact source, both client platforms and published runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ inputs.revision }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python tools/product_release.py --prepare --version "$RELEASE_VERSION" \
+            --revision "$RELEASE_REVISION" --output-directory "$RUNNER_TEMP/product-release"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-release-${{ inputs.version }}-${{ inputs.revision }}
+          path: ${{ runner.temp }}/product-release/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: qualify
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    environment: product-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: product-release-${{ inputs.version }}-${{ inputs.revision }}
+          path: ${{ runner.temp }}/product-release/
+      - name: Recheck and publish without replacing tags or assets
+        env:
+          # GITHUB_TOKEN has no Administration read permission. An approved
+          # release identity with that read permission verifies immutability;
+          # missing permission fails before any tag/release write.
+          GH_TOKEN: ${{ secrets.PRODUCT_RELEASE_TOKEN || github.token }}
+          RELEASE_REVISION: ${{ inputs.revision }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python tools/product_release.py --publish --version "$RELEASE_VERSION" \
+            --revision "$RELEASE_REVISION" --output-directory "$RUNNER_TEMP/product-release"
+          echo 'Product release published. No appliance was switched, updated or tested by this workflow.' >> "$GITHUB_STEP_SUMMARY"

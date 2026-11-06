@@ -417,9 +417,10 @@ class LocalGitPromotionTests(unittest.TestCase):
                           (self.root / path).read_text())
         self.assertEqual(self.git("status", "--porcelain"), "")
 
-    def test_main_promotion_does_not_advance_develop(self):
-        commit = self.publish(branch="main")
-        self.assertEqual(self.raw_git(self.remote, "rev-parse", "refs/heads/main"), commit)
+    def test_direct_main_promotion_is_rejected_without_advancing_any_branch(self):
+        with self.assertRaisesRegex(promotion.PromotionError, "Direct main"):
+            self.publish(branch="main")
+        self.assertEqual(self.raw_git(self.remote, "rev-parse", "refs/heads/main"), self.source)
         self.assertEqual(self.raw_git(self.remote, "rev-parse", "refs/heads/develop"), self.source)
 
     def test_same_build_is_idempotent_without_an_empty_commit(self):
@@ -777,11 +778,11 @@ class PromotionWorkflowContractTests(unittest.TestCase):
         cls.browser = yaml.load((ROOT / ".github/workflows/dashboard-browser-smoke.yml").read_text(),
                                 Loader=yaml.BaseLoader)
 
-    def test_automatic_promotion_is_push_only_on_main_and_develop(self):
-        job = self.build["jobs"]["promote"]
-        self.assertEqual(job["needs"], "build")
-        self.assertEqual(job["if"], "github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')")
-        self.assertEqual(job["permissions"], {"contents": "write", "actions": "read"})
+    def test_trunk_build_never_pushes_main_and_pin_only_content_avoids_rebuild_loop(self):
+        self.assertNotIn("promote", self.build["jobs"])
+        self.assertEqual(self.build["on"]["push"]["branches"], ["main"])
+        self.assertEqual(self.build["jobs"]["build"]["needs"], "plan")
+        self.assertIn("needs.plan.outputs.pin_only != 'true'", self.build["jobs"]["build"]["if"])
         self.assertEqual(self.build["permissions"]["contents"], "read")
         self.assertEqual(self.build["concurrency"]["cancel-in-progress"], "true")
 
@@ -796,17 +797,15 @@ class PromotionWorkflowContractTests(unittest.TestCase):
             self.assertEqual(outputs[component + "_digest"], "${{ steps." + component + "-image.outputs.digest }}")
 
     def test_no_recursive_push_token_or_force_push_or_skip_ci(self):
-        job = self.build["jobs"]["promote"]
-        checkout = job["steps"][0]
-        self.assertEqual(checkout["with"], {"ref": "${{ github.sha }}", "fetch-depth": "0"})
-        step = job["steps"][1]
-        self.assertEqual(step["env"]["GH_TOKEN"], "${{ secrets.GITHUB_TOKEN }}")
-        self.assertEqual(step["env"]["SOURCE_REVISION"], "${{ github.sha }}")
-        self.assertEqual(step["env"]["CHANNEL"], "${{ github.ref_name }}")
-        self.assertIn("--push", step["run"])
-        self.assertNotIn("--force", step["run"])
-        self.assertNotIn("[skip ci]", step["run"])
-        self.assertNotIn("PAT", str(step["env"]))
+        workflow = yaml.load((ROOT / ".github/workflows/promote-images-pr.yml").read_text(), Loader=yaml.BaseLoader)
+        job = workflow["jobs"]["propose"]
+        self.assertIn("head_repository.full_name == github.repository", job["if"])
+        self.assertIn("github.event.workflow_run.event == 'push'", job["if"])
+        self.assertEqual(job["permissions"]["pull-requests"], "write")
+        commands = "\n".join(s.get("run", "") for s in job["steps"])
+        self.assertIn("--propose", commands)
+        for unsafe in ("--force", "[skip ci]", "HEAD:main", "--admin", "--auto"):
+            self.assertNotIn(unsafe, commands)
 
     def test_browser_checks_cover_every_automatic_build_input(self):
         self.assertEqual(set(self.browser["on"]["push"]["paths"]), set(self.build["on"]["push"]["paths"]))

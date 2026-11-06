@@ -1,15 +1,7 @@
-"""Promote only an already-tested immutable runner on its original channel.
-
-Called by the trusted runner-build job after digest/source inspection. Never
-rebase an old runner onto new source, force-push or dispatch another workflow.
-"""
+# SPDX-License-Identifier: BUSL-1.1
+"""Render canonical tested runner pins. Publish through normal trunk PRs only."""
 import argparse
 import re
-import subprocess
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import license_audit
 
 PIN = "magic-cluster/apps/regression/runtime.yaml"
 PROMOTIONS = {PIN, "licenses/dependency-inventory.json", "magic-cluster/apps/dashboard/api-deployment.yaml",
@@ -41,10 +33,6 @@ def replacement(text, source, digest):
     return updated.rstrip() + '\n' + capability + '\n'
 
 
-def git(*args):
-    return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL, timeout=180).strip()
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source", required=True)
@@ -52,43 +40,7 @@ def main():
     p.add_argument("--branch", required=True, choices=["main", "develop"])
     args = p.parse_args()
     image_reference(args.source, args.digest)
-    if git("status", "--porcelain"):
-        raise ValueError("Promotion requires a clean dedicated CI checkout.")
-    git("config", "user.name", "github-actions[bot]")
-    git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
-    # Dashboard and runner promotions may finish concurrently. Recompute a
-    # scoped commit on the observed remote head, rather than pushing a stale tree.
-    for _ in range(3):
-        git("fetch", "--no-tags", "origin", "refs/heads/" + args.branch)
-        head = git("rev-parse", "FETCH_HEAD")
-        git("merge-base", "--is-ancestor", args.source, head)
-        changed = git("diff", "--name-only", args.source, head).splitlines()
-        if source_advanced(changed):
-            print("A newer source revision superseded this runner; no promotion was made.")
-            return
-        git("checkout", "--detach", head)
-        path = Path(PIN)
-        before = path.read_text()
-        after = replacement(before, args.source, args.digest)
-        if after == before:
-            print("Runner already pinned; no new commit.")
-            return
-        path.write_text(after)
-        license_audit.refresh_references(Path.cwd())
-        if license_audit.source_checks(Path.cwd()):
-            raise ValueError("Promoted source/license references are inconsistent; nothing was pushed.")
-        if set(git("diff", "--name-only").splitlines()) - {PIN, "licenses/dependency-inventory.json"}:
-            raise ValueError("Runner promotion must not change other source files.")
-        changed = set(git("diff", "--name-only").splitlines())
-        git("add", "--", PIN, "licenses/dependency-inventory.json")
-        if set(git("diff", "--cached", "--name-only").splitlines()) != changed:
-            raise ValueError("Unexpected staged content; nothing was pushed.")
-        git("commit", "-m", "chore(images): promote regression " + args.source[:12] + " on " + args.branch)
-        result = subprocess.run(["git", "push", "origin", "HEAD:" + args.branch], capture_output=True, timeout=180)
-        if result.returncode == 0:
-            print("Tested runner promoted to " + args.branch + ": " + image_reference(args.source, args.digest))
-            return
-    raise ValueError("Channel advanced repeatedly; runner promotion was not force-pushed.")
+    p.error("Direct channel promotion is retired. Use tools/trunk_promotion.py --propose for a normal main PR; replacement() remains the canonical pin renderer.")
 
 
 if __name__ == "__main__":

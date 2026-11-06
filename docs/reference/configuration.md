@@ -24,7 +24,7 @@ archive, with `apt` in `interactive-sections` for manual URL selection. Disable
 The installer writes `/etc/default/ai-appliance-repo`. The Ansible playbook
 reads that file and maps environment-style keys into Ansible variables. It remains
 the durable authority for host software selection. The dashboard changes only
-the ref/kind using an administrator-reviewed host operation; it does not create a
+the reviewed selection using an administrator-reviewed host operation; it does not create a
 second update-channel ConfigMap. Values are literal assignments, not shell programs.
 
 Default `readonly-public` metadata:
@@ -33,8 +33,10 @@ Default `readonly-public` metadata:
 |---|---|
 | `FLUX_BOOTSTRAP_MODE` | `readonly-public` or `github`. |
 | `MAGICSTICK_PUBLIC_REPO` | Public Magic Stick repository URL. |
-| `MAGICSTICK_PUBLIC_REF` | Branch name (including feature branches), tag or full commit resolved by the host. Flux receives the resulting commit. |
-| `MAGICSTICK_PUBLIC_REF_KIND` | Managed host: `branch`, `tag`, or `commit`. Semver selection is not supported by the host runner. |
+| `MAGICSTICK_PUBLIC_REF` | Normal installation resolves `stable` once to a verified product tag. An explicit development branch or full commit is also supported. Flux receives the exact resulting commit. |
+| `MAGICSTICK_PUBLIC_REF_KIND` | Persisted host selection: `branch`, `tag`, or `commit`. The installer-only `release` input is resolved before convergence; it is never a moving semver range. |
+| `MAGICSTICK_PUBLIC_REF_COMMIT` | Verified product-tag commit, persisted by installation or the reviewed update operation. A moved tag is refused. |
+| `MAGICSTICK_PUBLIC_TAG_OBJECT` | Reviewed product tag-object identity; a changed tag object is also refused. |
 | `FLUX_PUBLIC_SYNC_PATH` | Public profile path used by `readonly-public` mode. |
 
 Optional advanced overrides:
@@ -65,7 +67,7 @@ same host metadata instead of introducing a second configuration model:
 | Installer option | Written setting |
 |---|---|
 | `--repository` | `MAGICSTICK_PUBLIC_REPO` |
-| `--ref` | Retains an existing branch (default `main`) or tag; an explicit full commit remains pinned. Written as `MAGICSTICK_PUBLIC_REF` plus the corresponding kind. |
+| `--ref` | Default `stable` resolves once to a verified product tag/SHA. Explicit branches, tags and full commits remain supported. Written as `MAGICSTICK_PUBLIC_REF` plus kind and, for verified releases, approved identities. |
 | `--domain` | `AI_APPLIANCE_DOMAIN` and `AI_APPLIANCE_DASHBOARD_HOST` |
 | `--mdns-domain` | `AI_APPLIANCE_MDNS_DOMAIN` plus the derived mDNS names |
 | `--install-dir` | `MAGICSTICK_PUBLIC_CHECKOUT` |
@@ -74,10 +76,11 @@ same host metadata instead of introducing a second configuration model:
 [`deploy-on-k8s.ps1`](../../deploy-on-k8s.ps1) have no host metadata. They create
 `ConfigMap/ai-appliance-settings` and the public Flux source directly in the
 selected cluster. Their `--ref`/`-Ref`, domain, and mDNS options have the same
-selection meaning as the Linux installer. `main` is the standard release channel;
-`develop` or another branch is an explicit development opt-in. These cluster-only
-paths have no host worker and cannot use the dashboard's host channel switch.
-Use a release tag or full commit when a fixed revision is required.
+selection meaning as the Linux installer. The default stable product is resolved
+once and Flux receives its exact commit. `main` or another branch is an explicit
+development opt-in, not a product release. These cluster-only paths have no host
+worker and cannot use the dashboard's host channel switch. Existing installations
+keep their selection; they are not silently migrated.
 
 See [software channels and recovery](../administration/updates-rollback.md#choose-a-software-channel)
 for the check/apply workflow and local recovery command. Ubuntu updates remain a

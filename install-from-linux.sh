@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 REPOSITORY_URL="https://github.com/QualityMinds/AIppliance-Magic-Stick.git"
-REQUESTED_REF="main"
+REQUESTED_REF="stable"
 INSTALL_DIRECTORY="/opt/ai-appliance/magicstick"
 METADATA_FILE="/etc/default/ai-appliance-repo"
 PUBLIC_SYNC_PATH="magic-cluster/flux/entrypoints/single-node"
@@ -19,8 +19,8 @@ Usage:
   sudo bash install-from-linux.sh [options]
 
 Options:
-  --ref REF             Git branch, tag, or commit (default: main release channel;
-                        use develop for development builds)
+  --ref REF             Verified product version (default: stable, resolved once).
+                        main/other branches/commits are explicit development options.
   --repository URL      Public Git repository URL
   --domain DOMAIN       Initial public domain placeholder
   --mdns-domain DOMAIN  Initial local domain (default: magicstick.local)
@@ -202,18 +202,34 @@ checkout_repository() {
   git init --quiet "$INSTALL_DIRECTORY"
   git -C "$INSTALL_DIRECTORY" remote add origin "$REPOSITORY_URL"
   resolve_repository_ref
+  if [[ "$REPOSITORY_URL" == "https://github.com/QualityMinds/AIppliance-Magic-Stick.git" && "$PUBLIC_REF_KIND" == tag && "$PUBLIC_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    # Bootstrap from the reviewed installer implementation, not unverified old
+    # tag contents. The helper checks out the published tag's exact SHA next.
+    FETCH_REF=refs/heads/main
+  fi
   if ! git_with_http11_fallback -C "$INSTALL_DIRECTORY" fetch --depth=1 origin "$FETCH_REF"; then
     fail "Could not fetch ref '$REQUESTED_REF' from $REPOSITORY_URL."
   fi
   git -C "$INSTALL_DIRECTORY" checkout --quiet --detach FETCH_HEAD
   RESOLVED_COMMIT="$(git -C "$INSTALL_DIRECTORY" rev-parse HEAD)"
   [[ "$RESOLVED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "Could not resolve the installation commit."
+  APPROVED_COMMIT=""; APPROVED_TAG_OBJECT=""
+  if [[ "$REPOSITORY_URL" == "https://github.com/QualityMinds/AIppliance-Magic-Stick.git" ]] && \
+     { [[ "$REQUESTED_REF" == stable ]] || [[ "$PUBLIC_REF_KIND" == tag && "$PUBLIC_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; }; then
+    local resolved
+    resolved="$(python3 "$INSTALL_DIRECTORY/tools/release_bootstrap.py" --checkout "$INSTALL_DIRECTORY" --version "$PUBLIC_REF" --format tsv)" || \
+      fail "No verified product release was installed. No automatic main fallback is permitted."
+    IFS=$'\t' read -r PUBLIC_REF APPROVED_COMMIT APPROVED_TAG_OBJECT <<<"$resolved"
+    PUBLIC_REF_KIND=tag
+    RESOLVED_COMMIT="$APPROVED_COMMIT"
+  fi
   log "Installed $PUBLIC_REF_KIND $PUBLIC_REF at commit $RESOLVED_COMMIT."
 }
 
 resolve_repository_ref() {
   PUBLIC_REF="$REQUESTED_REF"
   case "$REQUESTED_REF" in
+    stable) PUBLIC_REF_KIND=release; FETCH_REF=refs/heads/main; return ;;
     refs/heads/*) PUBLIC_REF_KIND=branch; PUBLIC_REF="${REQUESTED_REF#refs/heads/}" ;;
     refs/tags/*) PUBLIC_REF_KIND=tag; PUBLIC_REF="${REQUESTED_REF#refs/tags/}" ;;
     *)
@@ -251,6 +267,8 @@ write_metadata() {
     printf 'MAGICSTICK_PUBLIC_REPO=%q\n' "$REPOSITORY_URL"
     printf 'MAGICSTICK_PUBLIC_REF=%q\n' "$PUBLIC_REF"
     printf 'MAGICSTICK_PUBLIC_REF_KIND=%q\n' "$PUBLIC_REF_KIND"
+    printf 'MAGICSTICK_PUBLIC_REF_COMMIT=%q\n' "$APPROVED_COMMIT"
+    printf 'MAGICSTICK_PUBLIC_TAG_OBJECT=%q\n' "$APPROVED_TAG_OBJECT"
     printf 'MAGICSTICK_PUBLIC_CHECKOUT=%q\n' "$INSTALL_DIRECTORY"
     printf 'FLUX_PUBLIC_SYNC_PATH=%q\n' "$PUBLIC_SYNC_PATH"
     printf 'AI_APPLIANCE_DOMAIN=%q\n' "$APPLIANCE_DOMAIN"

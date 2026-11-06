@@ -2,22 +2,7 @@ name: License audit
 
 on:
   pull_request:
-    paths:
-      - .github/**
-      - tools/**
-      - tests/test_license_*.py
-      - licenses/**
-      - LICENSE*
-      - LICENSING.md
-      - THIRD_PARTY_NOTICES.md
-      - docs/license-audit.md
-      - docs/development/license-audit.md
-      - requirements-docs.txt
-      - dashboard/**
-      - core/**
-      - magic-cluster/**
-      - magic-host/**
-      - magic-installer/**
+    branches: [main]
   push:
     branches: [main]
   schedule:

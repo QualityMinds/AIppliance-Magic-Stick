@@ -69,6 +69,12 @@ checksum, write it to a USB drive and boot the server. No Git, Docker or local
 image build is needed. The guide includes the current test-build status and
 takes you from Ubuntu installation to a running Magic Stick appliance.
 
+New installers resolve a verified stable product version once and keep Ansible
+and Flux on that same tag/commit. Historical test images keep their original
+development behavior; check the guide before downloading. Version selection is
+available under **System → Settings → Updates**. `main` is an explicit development
+choice, not a released version. See [releases](docs/development/releases.md).
+
 Read the [hardware and network requirements](docs/get-started/requirements.md)
 first. Back up existing data and choose the route that matches your starting point:
 

@@ -1,6 +1,6 @@
 ---
 name: magicstick-release
-description: "Prepare or review a versioned Magic Stick release: main/develop channels, immutable license dates, curated notes, relevant checks, image evidence and an optional draft GitHub release. Use for release preparation, not an ordinary commit-only request."
+description: "Prepare or review a trunk-based Magic Stick release: main PRs, immutable product tags and license dates, curated notes, exact CI/image evidence and deliberate publication. Use for release preparation, not an ordinary commit-only request."
 ---
 
 # Prepare a versioned release
@@ -14,8 +14,9 @@ do not copy their details into another checklist or invent approval.
 ## Establish the boundary
 
 Inspect branch, worktree and exact source revision. Preserve unrelated work.
-`develop` is the development channel; `main` is the release/installation channel.
-A merge to main is already deployment-eligible for branch-following appliances.
+`main` is the integration trunk; short-lived PRs replace a regular develop branch.
+A main merge is development-deployment-eligible only for explicit branch followers.
+Stable installations stay bound to a verified product tag and exact commit.
 Do not merge, tag, push, dispatch publication or touch an appliance without a
 request covering that operation. Preparation alone remains local.
 
@@ -37,7 +38,7 @@ do not call an unfinished feature complete.
 3. Check upstream update candidates, resolved image digests, matching CI commit
    and required architectures. Never accept a mutable tag as deployment evidence.
    Read [image promotion](../../../docs/development/image-promotion.md) when images
-   are included. Keep development candidates out of main until release approval.
+   are included. Use a normal image-promotion PR; never bypass main protection.
 4. Report passed, failed, skipped and unavailable checks, open advisory reviews
    and any necessary user decisions. Normal reviews stay advisory; strict
    full-distribution approval is only required when explicitly selected.
@@ -50,9 +51,11 @@ or blocked variants remain visible; do not infer full acceptance from a smoke ru
 ## Publish only when requested
 
 Follow [publication and rollout](../magicstick-publish-rollout/SKILL.md) for any
-authorized source push, image promotion or appliance rollout. The manual draft
-release workflow requires an existing main-reachable tag and successful checks
-for its exact commit; it does not publish the draft or deploy an appliance.
+authorized source push, image promotion or appliance rollout. The product-release
+workflow qualifies the exact final main/GitOps revision, license archive and
+original image sources, then creates a new annotated tag and immutable release
+only on explicit publication. The old draft-export workflow is not the product
+publication path. Repository-policy changes also need explicit authorization.
 Do not move tags, replace old assets or publish a failed/partially verified build.
 
 Conclude with the version/commit, local checks, CI result, draft/publication status,

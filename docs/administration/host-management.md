@@ -113,6 +113,12 @@ hardware compatibility.
 
 ## User workflow
 
+Software versions use the existing host-operation boundary too. Verified product
+tags retain their approved commit/tag identity; explicit branch followers remain
+development options. The host applies Ansible and gives Flux the same commit.
+No license entitlement is needed for catalog discovery/check/apply, and existing
+installations are never silently migrated. See [updates and rollback](updates-rollback.md).
+
 Registered disposable regression labs serialize software convergence with their
 existing lab Lease. Active/queued regression and cleanup runs defer automatic
 updates. A software update keeps its reservation until Flux observes the current

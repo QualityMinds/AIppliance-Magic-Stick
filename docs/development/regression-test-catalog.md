@@ -503,11 +503,11 @@ branch is not permission to execute arbitrary unreviewed code on the runner/host
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
-| CHANNEL-01 | Read desired/host/Flux/applied revisions and actual critical image IDs. Stable main, develop, other branch, fixed tag and full commit forms reflect the current authoritative configuration. | U+C+A+E | P1 · functional |
+| CHANNEL-01 | Read desired/host/Flux/applied revisions and actual critical image IDs. Verified released versions, explicit development main/custom branches, advanced tags and full commits reflect the current authoritative configuration; no automatic migration. | U+C+A+E | P1 · functional |
 | CHANNEL-02 | Validate supported ref kinds and exact syntax; reject URLs/shell expressions/short commits/missing refs/stale host identity. External GitOps installation reports management unavailable. | U+C+B | P0 · fast |
-| CHANNEL-03 | Check a reviewed main/develop/tag/commit/feature branch. Resolve its commit and matching published architecture/image digests; check alone changes no host/channel. | U+C+A+E | P1 · maintenance |
+| CHANNEL-03 | Check a verified product version or explicitly reviewed development/tag/commit/feature branch. Bind product tag, manifest, original license dates, commit and matching published image/platform digests; catalog refresh/check alone changes no host/channel. | U+C+A+E | P1 · maintenance |
 | CHANNEL-04 | Present unpublished/mismatched runtime images or changed runtime source since build. Reject; documentation/host-only changes may reuse unchanged compatible images. | U+C | P0 · fast |
-| CHANNEL-05 | Expire/move a checked ref and apply with old preview. Reject the unapproved revision; require a fresh check instead of racing branch changes. | U+C | P0 · fast |
+| CHANNEL-05 | Expire/move a checked ref or change its release proof and apply an old preview. Reject the unapproved revision. Persist approved tag/commit identity so later convergence cannot silently adopt a moved tag; never fall back to main. | U+C | P0 · fast |
 | CHANNEL-06 | Apply an approved compatible selection. Preserve other repo defaults/settings, run Ansible and give Flux the same commit; live image IDs/readiness and inference prove convergence. | C+A+E+O | P0 · maintenance |
 | CHANNEL-07 | Interrupt/fail a controlled apply. Persist recovery evidence, pause ordinary host convergence, do not replay completed requests or claim an offline rollout. | U+C+O | P0 · maintenance |
 | CHANNEL-08 | Select/recover a compatible previous revision using the documented saved runner. Leave it commit-pinned, restore source/config consistently and verify login/inference; do not promise database/OS rollback. | U+C+A+O | P0 · maintenance |
@@ -1189,6 +1189,24 @@ lines; a fabricated line number cannot inherit a parent check.
 These are isolated U/C checks; no live appliance campaign or successful remote
 promotion is inferred from them. Existing HAR-02/10 runner-promotion checks remain
 selected by the Kubernetes harness selftest.
+
+6 November 2026 trunk-release follow-up: existing CHANNEL-01–08, UX-02 and
+SEC-03 coverage now includes the read-only public release catalog, stable versus
+prerelease selection, disabled legacy versions, old-worker/offline handling,
+unchanged check/apply confirmation, tag/commit/object binding and original license
+dates. The existing Phase 6 channel and Phase 8 supply-chain owning selections
+include the release/catalog/bootstrap/policy/promotion counterexamples; no new
+registered case was added. Tests reject moved tags, mismatched manifests, dirty
+or unmerged release sources, missing native image tests, stale/failed/skipped CI,
+open CodeQL findings, changed legal metadata and direct main/promotion loops.
+Local Phase 6 fast and desktop/mobile browser selections passed 46/46 and 17/17.
+Phase 8 fast and browser selections passed 43/43 and 64/64. Public bootstrap
+discovery is additionally exercised without the Linux-only host-worker import;
+native PowerShell execution remains a separate unavailable local check.
+The harness selftest passed 374 scenarios with zero failures; two Linux-only
+process scenarios remained blocked on macOS. These are isolated implementation
+checks, not product publication, native Linux runner acceptance, a USB/VM
+installation or an installed-appliance upgrade. Historical evidence is unchanged.
 
 20 October 2026 release-CI follow-up: HAR-02/10 and SEC-02/03 report-server
 counterexamples reject noncanonical identities, private/traversal filenames,

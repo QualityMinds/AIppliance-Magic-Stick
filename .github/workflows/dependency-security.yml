@@ -2,24 +2,9 @@ name: Dependency security
 
 on:
   push:
-    branches: [main, develop]
-    paths:
-      - dashboard/package.json
-      - dashboard/pnpm-lock.yaml
-      - dashboard/pnpm-workspace.yaml
-      - dashboard/**/package.json
-      - dashboard/apps/api/requirements.txt
-      - magic-cluster/apps/ai/private-mesh/requirements.txt
-      - .github/workflows/dependency-security.yml
+    branches: [main]
   pull_request:
-    paths:
-      - dashboard/package.json
-      - dashboard/pnpm-lock.yaml
-      - dashboard/pnpm-workspace.yaml
-      - dashboard/**/package.json
-      - dashboard/apps/api/requirements.txt
-      - magic-cluster/apps/ai/private-mesh/requirements.txt
-      - .github/workflows/dependency-security.yml
+    branches: [main]
   schedule:
     - cron: '41 4 * * 1'
   workflow_dispatch:
