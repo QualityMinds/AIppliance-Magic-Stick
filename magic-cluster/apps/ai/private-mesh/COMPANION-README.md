@@ -28,7 +28,7 @@ These are **test builds**, not signed production releases. macOS apps are only
 ad-hoc signed, not Developer ID signed or notarized, and macOS may block a
 downloaded copy. Windows packages are unsigned and may trigger a security
 warning. Do not disable Gatekeeper, SmartScreen, Defender or other security controls. Intel
-builds use macOS 15 runners; Apple Silicon builds use macOS 14 runners. Build
+builds use macOS 15 Intel runners; Apple Silicon builds use macOS 15 ARM runners. Build
 success does not establish compatibility with every older OS version.
 
 ## Join your mesh

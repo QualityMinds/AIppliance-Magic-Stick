@@ -8,6 +8,20 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Adopt trunk-based main PRs and coordinated immutable image-promotion PRs, with
+  an exact-source product-release workflow, independent CodeQL/finding acceptance
+  and immutable annotated version tags. Add administrator version discovery and
+  checked fixed-version selection to the existing host update workflow. Normal
+  fresh installers resolve a verified stable release once; version-bound installer
+  artifacts include tag/SHA/license identity in their media fingerprint. Preserve
+  old installations, historical releases, third-party notices and per-version
+  BUSL-1.1/MIT dates. No entitlement is required for version discovery or updates;
+  repository settings, publication and live acceptance remain distinct outcomes.
+
+- Keep the native companion matrix on supported macOS 15 ARM/Intel runners after
+  GitHub retired macOS 14. Retain all four native targets and separate build,
+  acceptance and product-publication evidence; no platform is skipped as a fix.
+
 - Reconcile configured login callbacks before Keycloak startup succeeds after
   a local/public hostname change. Verify the existing client's exact redirect
   and origin sets and propagate failed client synchronization instead of

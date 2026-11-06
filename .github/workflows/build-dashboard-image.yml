@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - develop
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
@@ -12,6 +11,9 @@ on:
       - .github/workflows/dashboard-browser-smoke.yml
       - tools/promote_dashboard_images.py
       - tools/promote_regression_image.py
+      - tools/trunk_promotion.py
+      - tools/product_release.py
+      - tests/test_trunk_promotion.py
       - tests/test_dashboard_image_promotion.py
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py
@@ -22,6 +24,7 @@ on:
       - magic-host/roles/host-management/files/updates_contract.py
       - magic-host/roles/host-management/files/model_cache.py
       - magic-host/roles/host-management/files/software_contract.py
+      - magic-host/roles/host-management/files/release_catalog.py
       - core/**
       - LICENSE
       - LICENSING.md
@@ -52,8 +55,33 @@ env:
   IMAGE_NAME: ghcr.io/qualityminds/magicstick-dashboard
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      pin_only: ${{ steps.delta.outputs.pin_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Detect a canonical immutable pin-only advance
+        id: delta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = push ]; then
+            python tools/trunk_promotion.py --pin-only >> "$GITHUB_OUTPUT"
+          else
+            echo 'pin_only=false' >> "$GITHUB_OUTPUT"
+          fi
   build:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/'))
+    needs: plan
+    if: needs.plan.outputs.pin_only != 'true' && (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')))
     runs-on: ubuntu-24.04
     outputs:
       web_digest: ${{ steps.web-image.outputs.digest }}
@@ -145,7 +173,6 @@ jobs:
             type=sha,prefix=sha-,format=long
             type=raw,value=web,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=react-preview,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=web-develop,enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.title=MagicStick React dashboard
             org.opencontainers.image.description=Default React dashboard for MagicStick
@@ -161,7 +188,6 @@ jobs:
           tags: |
             type=sha,prefix=cli-sha-,format=long
             type=raw,value=console,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=console-develop,enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.title=MagicStick CLI and TUI runtime
             org.opencontainers.image.description=Private runtime image for the physical MagicStick console
@@ -177,7 +203,6 @@ jobs:
           tags: |
             type=sha,prefix=api-sha-,format=long
             type=raw,value=api-licensing-v1,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=api-develop,enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.title=MagicStick dashboard API
             org.opencontainers.image.description=Magic Stick API with offline edition and Federated SSO entitlement verification
@@ -230,35 +255,5 @@ jobs:
           provenance: mode=max
           sbom: true
 
-  promote:
-    name: Promote tested dashboard images to their channel
-    needs: build
-    # Manual/no-tests and feature-branch builds remain unpromoted candidates.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 50
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - name: Check out the exact build source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Verify required CI, registry provenance and publish the scoped pins
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SOURCE_REVISION: ${{ github.sha }}
-          CHANNEL: ${{ github.ref_name }}
-          WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
-          API_DIGEST: ${{ needs.build.outputs.api_digest }}
-          CLI_DIGEST: ${{ needs.build.outputs.cli_digest }}
-        run: |
-          python3 tools/promote_dashboard_images.py \
-            --branch "$CHANNEL" --source "$SOURCE_REVISION" \
-            --web-digest "$WEB_DIGEST" --api-digest "$API_DIGEST" \
-            --cli-digest "$CLI_DIGEST" --push >> "$GITHUB_STEP_SUMMARY"
-          # GITHUB_TOKEN pushes do not trigger another push workflow. No PAT,
-          # skip-ci override or force-push is used to avoid recursive builds.
+  # A separate trusted workflow coordinates Web/API/CLI and runner candidates
+  # into a normal reviewed PR. This builder never pushes deployment pins.

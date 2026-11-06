@@ -84,6 +84,7 @@ class InstallerEntrypointTests(unittest.TestCase):
             result = self.run_command(
                 "bash",
                 str(KUBERNETES_INSTALLER),
+                "--ref", "main",
                 "--context",
                 "fake-context",
                 "--preflight-only",
@@ -130,6 +131,7 @@ class InstallerEntrypointTests(unittest.TestCase):
             result = self.run_command(
                 "bash",
                 str(KUBERNETES_INSTALLER),
+                "--ref", "main",
                 "--context",
                 "fake-context",
                 "--preflight-only",
@@ -202,6 +204,7 @@ class InstallerEntrypointTests(unittest.TestCase):
             result = self.run_command(
                 "bash",
                 str(KUBERNETES_INSTALLER),
+                "--ref", "main",
                 "--context",
                 "fake-context",
                 "--yes",

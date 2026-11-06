@@ -1,7 +1,7 @@
 name: Build Private Mesh companion
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - .gitattributes
       - .github/workflows/build-mesh-companion.yml
@@ -56,7 +56,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             machine: arm64
             protoc: osx-aarch_64

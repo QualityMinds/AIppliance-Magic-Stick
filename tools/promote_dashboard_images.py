@@ -34,6 +34,8 @@ AUTOMATION = {"tools/promote_dashboard_images.py", "tests/test_dashboard_image_p
               "tools/promote_regression_image.py", ".github/workflows/regression-runner.yml",
               ".github/workflows/build-dashboard-image.yml", ".github/workflows/dashboard-browser-smoke.yml",
               ".github/workflows/public-release-checks.yml"}
+AUTOMATION |= {"tools/trunk_promotion.py", "tools/product_release.py", "tests/test_trunk_promotion.py",
+               ".github/workflows/promote-images-pr.yml", ".github/workflows/product-release.yml"}
 LIMIT = 4 * 1024 * 1024
 TITLES = {"web": "MagicStick React dashboard", "api": "MagicStick dashboard API",
           "cli": "MagicStick CLI and TUI runtime"}
@@ -359,6 +361,8 @@ def rewrite_pins(root, source, digests):
 
 
 def publish(root, branch, source, digests, head):
+    if branch == "main":
+        raise PromotionError("Direct main pushes are disabled; propose a normal image-promotion PR instead.")
     if git(root, "status", "--porcelain"):
         raise PromotionError("Promotion requires its own clean CI checkout; existing changes will not be included.")
     if git(root, "rev-parse", "refs/remotes/origin/" + branch) != head:
@@ -428,6 +432,8 @@ def main(argv=None):
     digests = {component: getattr(args, component + "_digest") for component in FILES}
     try:
         validate(args.branch, args.source, digests)
+        if args.push and args.branch == "main":
+            raise PromotionError("Direct main promotion is disabled. Use tools/trunk_promotion.py --propose for a reviewed PR.")
         commit = promote(ROOT, args.branch, args.source, digests, check_only=args.check_only)
         if args.check_only:
             print("CI, both Linux architectures and image/source provenance verified. No files were edited or pushed.")

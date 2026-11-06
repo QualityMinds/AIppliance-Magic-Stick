@@ -31,23 +31,28 @@ context before proceeding.
 ## Install with the wrapper
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.sh \
-  -o /tmp/deploy-on-k8s.sh
-less /tmp/deploy-on-k8s.sh
-bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)" --preflight-only
-bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)"
+git clone https://github.com/QualityMinds/AIppliance-Magic-Stick.git
+cd AIppliance-Magic-Stick
+less deploy-on-k8s.sh
+bash deploy-on-k8s.sh --context "$(kubectl config current-context)" --preflight-only
+bash deploy-on-k8s.sh --context "$(kubectl config current-context)"
 ```
 
 Or with PowerShell 7:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.ps1 -OutFile $env:TEMP\deploy-on-k8s.ps1
-Get-Content $env:TEMP\deploy-on-k8s.ps1
-pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context) -PreflightOnly
-pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context)
+git clone https://github.com/QualityMinds/AIppliance-Magic-Stick.git
+Set-Location AIppliance-Magic-Stick
+Get-Content deploy-on-k8s.ps1
+pwsh ./deploy-on-k8s.ps1 -Context (kubectl config current-context) -PreflightOnly
+pwsh ./deploy-on-k8s.ps1 -Context (kubectl config current-context)
 ```
 
 Use `--ref <release-tag>` or `-Ref <release-tag>` for a selected release.
+The complete checkout includes the shared release verifier (Python 3 is required
+on both platforms). The default resolves a verified stable release once and pins
+Flux to its commit. No verified version stops before writes; it never falls back
+to main. `--ref main`/`-Ref main` is an explicit development option.
 The wrapper checks existing appliance/Flux ownership and stops rather than
 overwriting another source tree. It installs the matching Gateway CRDs without
 forcing field ownership. Resolve any conflict with the platform owner; do not

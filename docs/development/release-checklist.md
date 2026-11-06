@@ -54,8 +54,8 @@ evidence. The strict license review below remains explicitly opt-in.
 - CI release checks are present under `.github/workflows/`.
 - Runtime images and chart versions avoid mutable tags such as `latest` where practical.
 - Dashboard source publication is not appliance rollout: after a successful
-  client-image workflow, verify its automatic `main`/`develop` promotion (or
-  explicitly promote a reviewed manual candidate). Web, API and CLI image-index
+  client-image workflow, verify the normal coordinated main pin PR and its checks
+  (or explicitly promote a reviewed manual candidate). Web, API and CLI image-index
   digests must belong to the same tested source. Verify host convergence, Flux,
   running image IDs and the changed browser screen separately. Follow
   [dashboard image promotion](image-promotion.md#dashboard-image-promotion).

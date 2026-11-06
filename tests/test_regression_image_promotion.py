@@ -31,19 +31,14 @@ class RegressionImagePromotionTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         job = yaml.safe_load((root / '.github/workflows/regression-runner.yml').read_text())["jobs"]["regression-image"]
         publish = next(step for step in job["steps"] if step.get("id") == "publish")
-        promote = next(step for step in job["steps"] if "promote_regression_image.py" in step.get("run", ""))
-        self.assertIn("github.event_name == 'push'", promote["if"])
-        self.assertIn("refs/heads/main", promote["if"])
-        self.assertIn("refs/heads/develop", promote["if"])
-        self.assertNotIn("workflow_dispatch", promote["if"])
+        self.assertFalse(any("promote_regression_image.py" in step.get("run", "") for step in job["steps"]))
+        self.assertEqual(job["permissions"]["contents"], "read")
         self.assertEqual(publish["env"]["GH_TOKEN"], "${{ secrets.GITHUB_TOKEN }}")
         command = publish["run"]
         self.assertLess(command.index("docker logout ghcr.io"), command.index('docker pull "ghcr.io/qualityminds/magicstick-regression@$digest"'))
         self.assertLess(command.index("org.opencontainers.image.revision"), command.index('>> "$GITHUB_OUTPUT"'))
-        self.assertLess(job["steps"].index(publish), job["steps"].index(promote))
-        self.assertEqual(promote["env"]["DIGEST"], "${{ steps.publish.outputs.digest }}")
         self.assertIn("linux/amd64", command)
-        self.assertNotIn("--force", command + promote["run"])
+        self.assertNotIn("--force", command)
         self.assertFalse(job["steps"][0]["with"]["persist-credentials"])
 
     def test_manual_candidate_is_explicit_branch_only_and_cannot_promote_a_channel(self):
@@ -63,9 +58,9 @@ class RegressionImagePromotionTests(unittest.TestCase):
         self.assertIn("SOURCE_REVISION", publish["env"])
         self.assertEqual(publish["env"]["SOURCE_REVISION"], "${{ github.sha }}")
         self.assertNotIn("git push", publish["run"])
-        promote = next(step for step in steps if "promote_regression_image.py" in step.get("run", ""))
-        self.assertNotIn("always()", promote["if"])
-        self.assertNotIn("workflow_dispatch", promote["if"])
+        reuse = next(step for step in steps if "--verify-pins" in step.get("run", ""))
+        self.assertIn("pin_only == 'true'", reuse["if"])
+        self.assertNotIn("continue-on-error", reuse)
 
     def test_ci_uploads_only_sanitized_archives_and_selects_regression_browser_fixtures(self):
         root = Path(__file__).resolve().parents[1]

@@ -2,31 +2,17 @@
 
 ## Release channels
 
-All installation paths follow `main` by default. It is the release channel;
-only reviewed release changes belong there. Development builds use `develop`
-and must be selected explicitly (for example `--ref develop` in the Linux and
-Kubernetes installers, or the public-ref option in the USB builder). The branch
-must exist in the selected repository. A version tag or full commit remains an
-explicit fixed-version option, not the default.
+Normal new installations resolve a verified stable product release once and stay
+fixed to its Git tag and approved commit. `main` is the integration/development
+trunk, not the stable version. Existing main/custom-branch/commit installations
+keep their current selection until an administrator explicitly changes it.
 
-Branch followers receive changes through the existing host-convergence timer and
-Flux reconciliation. They do not poll GitHub Release objects: merging to `main`
-already makes that configuration eligible for rollout. A tag alone does not
-promote new image digests. Development image builds and digest promotions must
-stay on `develop` until release review. See [release process](../development/releases.md).
-
-Ordinary dashboard-runtime pushes to `main` and `develop` automatically build and,
-after successful required CI, promote a matching Web/API/CLI image set to that
-same branch. The host timer can then pick up the promotion without a manual
-rollout. Builds from feature branches or manual dispatches require an explicit
-promotion; tag/commit-pinned installations remain fixed. A failed CI or promotion
-leaves the previous compatible version in use. See
-[automatic image promotion](../development/image-promotion.md#automatic-promotion)
-for the checks and diagnosis; a green image build alone is not promotion success.
-
-Older installations may still be commit-pinned. They are not silently migrated.
-Once a channel-capable version is installed, use the dashboard to opt in. Do not
-rerun initial setup to change channels.
+Host convergence and Flux use the same approved commit; Flux never independently
+follows a semver range or a moving latest tag. A new GitHub release is discoverable
+but does not update existing version-pinned devices automatically. No stable
+release, an offline catalog or an incompatible old release produces a clear
+unavailable state, never a fallback to main or a prerelease. See the
+[release process](../development/releases.md).
 
 ## Choose a software channel
 
@@ -35,41 +21,44 @@ Updates → Magic Stick software** as an administrator.
 
 | Selection | Behavior |
 |---|---|
-| Stable · main | Follows reviewed changes on `main`; the installation default |
-| Development · develop | Follows development changes, including host automation |
-| Other branch | Follows an existing branch such as `feature/my-change` |
-| Fixed tag | Uses an existing tag; version tags must never be moved |
-| Fixed commit | Pins the exact 40-character commit ID |
+| Released version | Choose an immutable published product version; fixed Ansible/Flux commit |
+| Development · main | Explicitly follows future integration commits, including host automation |
+| Other branch (advanced) | Explicitly follows a trusted existing feature/custom branch |
+| Other tag (advanced) | Exact reviewed tag; semantic product tags still require release verification |
+| Exact commit (advanced) | Fixed full 40-character commit ID, including local recovery choices |
 
-1. Select the channel and, when requested, enter its exact name.
-2. Select **Check channel**. The host resolves the ref and checks that the
-   dashboard, API, console and operator runtime images are published, digest-pinned
-   and available for its Linux architecture. The dashboard/API/console pins must
-   refer to one build. This is not a GPU, model or every-optional-image acceptance test.
-   Runtime-source changes since that image build are rejected until matching
-   images are promoted; documentation, host-only changes and digest-reference
-   evidence can reuse the same build.
-3. Review the resolved revision. Select **Apply channel** and confirm the computer
-   name. Services and the dashboard may reconnect during the change.
-4. Wait for success, then inspect the host and cluster revisions. Running image
-   identifiers are available under **Running software details**.
+1. Choose **Released version**, then a version. Prereleases are hidden unless
+   **Show prereleases** is enabled. Legacy releases without verified manifests
+   remain visible but disabled; installer/mesh component downloads are not product
+   versions. **Refresh versions** only reads metadata and preserves your draft.
+2. Select **Check channel**. The host resolves the exact tag/commit and verifies
+   the immutable release manifest, original license record, coordinated dashboard
+   images, operator and runner pins. Critical images must be publicly available
+   for the host architecture. Runtime/source mismatches are rejected; unchanged
+   compatible images may be reused. This is not a model/GPU/upgrade acceptance test.
+3. Review the resolved revision, release notes and per-version BUSL-1.1 publication/
+   MIT Change Date. Third parties retain their licenses; installing software does
+   not grant a commercial entitlement. Discovery/update requires no entitlement.
+4. Select **Apply channel** and confirm the computer name. Existing identity,
+   current-preview, idle/maintenance and recovery checks remain mandatory.
+5. Verify host/cluster revisions and **Running software details** after success.
+   The dashboard may reconnect while services restart.
 
-A check expires after 15 minutes. If the branch/tag moves after review, application
-is rejected and a new check is required. A channel without compatible software
-management (`magic-host/software-channel.json`) is rejected before changing the
-host. Historical releases without that contract need local recovery instead of
-a dashboard downgrade. External GitOps installations remain owned by their
-deployment repository and do not expose this switch.
+A preview expires after 15 minutes. A moved tag, changed release proof or branch
+advance invalidates it. Version-aware hosts additionally retain the approved
+commit/tag identity permanently, so ordinary later convergence cannot silently
+follow a moved product tag. Old host workers can retain their settings and use
+compatible advanced refs but cannot pretend to support verified version selection.
+Historical releases without the management contract need local recovery instead
+of a dashboard downgrade. External GitOps remains owned by its deployment repo.
 
-The root-owned `/etc/default/ai-appliance-repo` remains the single durable desired
-configuration, not a historical leftover. The host saves only the selected ref
-and ref kind; domain, storage and other installation settings are preserved.
-There is no second channel stored in a dashboard ConfigMap. On each normal
-15-minute convergence cycle the host resolves the selected branch, checks its
-critical image pins and runs Ansible from that commit. Flux is then given that
-same **commit**, preventing its branch watcher from advancing ahead of Ansible.
-There is no need to rebuild an unchanged container: the selected Git revision
-can reuse an existing published digest. Image builds alone do not deploy images.
+The root-owned `/etc/default/ai-appliance-repo` is the single durable desired
+configuration. Version selection saves `MAGICSTICK_PUBLIC_REF`, `_REF_KIND`,
+`_REF_COMMIT` and `_TAG_OBJECT`; domain, storage and other installation settings
+are preserved. No second selection is stored in a dashboard ConfigMap. The host
+runs Ansible and gives Flux the same commit after all checks. The existing
+15-minute convergence timer does not authorize an update over active workloads.
+Software rollback cannot undo database migrations or Ubuntu upgrades.
 
 ## Three separate update paths
 

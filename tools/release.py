@@ -9,14 +9,14 @@ if __package__:
     from .license_release import change_date, validate
 else:
     from license_release import change_date, validate
+from release_catalog import version_key
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*)?")
 
 
 def valid_version(version):
-    if not VERSION.fullmatch(version):
-        raise ValueError("Use an explicit version such as v1.2.3 or v1.2.3-rc.1")
+    version_key(version)
 
 
 def release_notes(changelog, version, date):

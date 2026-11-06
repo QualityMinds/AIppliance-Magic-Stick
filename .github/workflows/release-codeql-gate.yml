@@ -1,0 +1,35 @@
+name: Release CodeQL acceptance
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  security-events: read
+
+concurrency:
+  group: release-codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-codeql:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test missing, failed, stale and incomplete security evidence
+        run: python -m unittest tests.test_release_codeql
+      - name: Inspect the latest exact-source analyses and open findings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: python -m tools.release_codeql --commit "$RELEASE_COMMIT" --wait-seconds 900

@@ -28,9 +28,11 @@ creates the first-install marker and invokes the existing host-convergence runne
 It is for a **new VM only**. Never replay it on a completed appliance or reuse the
 first-install marker as a recovery mechanism.
 
-The example starts from the public `main` branch. For a repeatable release,
-select a published tag and set `MAGICSTICK_PUBLIC_REF_KIND=tag` alongside that ref.
-Use the same revision for installation and subsequent maintenance.
+The example uses main only to load the reviewed release resolver, then resolves
+`stable` once to a verified published tag and approved SHA before host automation.
+No verified stable version means a clear error, not main fallback. For an exact
+version, set its tag and `MAGICSTICK_PUBLIC_REF_KIND=tag`. An explicit branch is a
+development opt-in. Ansible and Flux retain the same selected commit.
 
 <a id="2-vm-bei-hetzner-cloud-erstellen"></a>
 <a id="3-vm-bei-microsoft-azure-erstellen"></a>

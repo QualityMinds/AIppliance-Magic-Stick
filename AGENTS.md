@@ -6,9 +6,14 @@
   normal path simple and technical detail available separately.
 - `readonly-public` plus dashboard/runtime configuration is the default.
   External GitOps repositories and overlays are optional advanced integrations.
-- Installation defaults follow `main`; development versions follow explicit
-  `develop` opt-in. A main merge is deployment-eligible, not gated by creating a
-  GitHub Release. Keep development image aliases and promotions separate.
+- Use trunk-based development: short-lived reviewed PRs target `main`; there is
+  no regular `develop` integration/release branch. Normal fresh installations
+  resolve a verified stable product release once and stay tag/SHA-bound.
+  Branch-following installations are explicit development opt-ins and are never
+  silently migrated. A main merge is not a stable product release.
+- Coordinate immutable image pins through a normal promotion PR, never a direct
+  bot push to main. Publish a new immutable product tag only after the exact
+  final GitOps commit, original image builds and license evidence are qualified.
 - Keep `Appliance/local.spec` Git-owned. Clients use the shared API and runtime
   intent (`ModuleActivation`, `ModelActivation`, `AppInstance`, settings and
   existing host-operation APIs); controllers create the resulting workloads.

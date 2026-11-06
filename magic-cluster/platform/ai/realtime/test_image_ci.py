@@ -44,10 +44,11 @@ class ImageCiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             source_metadata(self.catalog, self.recipe.replace("@sha256:", "@invalid:"))
 
-    def test_workflow_uses_ci_token_and_separate_release_development_channels(self):
+    def test_workflow_uses_ci_token_and_main_only_automatic_integration(self):
         workflow = self.workflow
         self.assertIn("pull_request", workflow["on"])
-        self.assertEqual(workflow["on"]["push"]["branches"], ["main", "develop"])
+        self.assertEqual(workflow["on"]["push"]["branches"], ["main"])
+        self.assertIn("workflow_dispatch", workflow["on"])
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         build = workflow["jobs"]["build"]
         self.assertIn("github.ref == 'refs/heads/main'", build["if"])

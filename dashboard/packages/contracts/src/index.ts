@@ -1091,6 +1091,28 @@ export interface HostOperationRequest {
 }
 
 export interface SoftwareChannel {kind: 'branch' | 'tag' | 'commit'; value: string}
+export interface SoftwareLicenseRecord {
+  schemaVersion: 1;
+  version: string;
+  firstPublicDistribution: string;
+  changeDate: string;
+  changeLicense: 'MIT';
+}
+export interface SoftwareRelease {
+  version: string;
+  releaseId: number;
+  url: string;
+  publishedAt: string;
+  prerelease: boolean;
+  selectable: boolean;
+  reason?: string;
+}
+export interface SoftwareReleaseCatalog {
+  releases: SoftwareRelease[];
+  fetchedAt: string;
+  stale: boolean;
+  message?: string;
+}
 export interface SoftwarePreview {
   id: string;
   configurationId: string;
@@ -1099,12 +1121,16 @@ export interface SoftwarePreview {
   checkedAtEpoch: number;
   ready: boolean;
   images: Array<{name: string; image: string; available: boolean}>;
+  release?: {version: string; commit: string; tagObject: string; releaseId: number; manifestDigest: string;
+    prerelease: boolean; license: SoftwareLicenseRecord};
 }
 export interface HostSoftware {
   supported: boolean;
+  releaseCatalogVersion?: number;
   id?: string;
   channel?: SoftwareChannel;
   hostCommit?: string;
+  approvedCommit?: string;
   previousCommit?: string;
   busy?: boolean;
   blocked?: boolean;

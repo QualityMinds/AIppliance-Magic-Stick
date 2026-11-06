@@ -150,7 +150,7 @@ editable FAT32 `CIDATA` partition.
 ### Automatic reduced image builds
 
 The [installer CI workflow](../.github/workflows/build-installer-image.yml) uses
-`reduced` mode only. Relevant installer changes on `main` or `develop` produce
+`reduced` mode only. Relevant installer changes on `main` produce
 separate test/prerelease downloads; unchanged build inputs reuse an existing
 image. Product version changes alone do not trigger a rebuild. See
 [automatic installer images](../docs/development/installer-images.md) for download
@@ -280,6 +280,17 @@ This is another **host-only** correction: an existing stick following the
 updated `MAGICSTICK_PUBLIC_REF` does not need rewriting for it. A stick following
 `main` does not receive a fix published only on a feature branch. Publication
 and local/CI checks are not a completed fresh USB installation acceptance.
+
+### Version-bound media
+
+Local build wrappers default to `stable`: they resolve a verified published
+product release before building, embed its tag/approved commit and tag object,
+and verify it again on first boot. No stable release stops without a main
+fallback. Use explicit `--public-ref main --public-ref-kind branch` only for
+integration testing. Existing branch-following downloads remain unchanged.
+For content-addressed CI media, dispatch on main with `product_version`; this
+adds version/SHA/license identity to the fingerprint and never relabels an old
+main image. See [trunk-based releases](../docs/development/releases.md).
 
 ### Network configuration
 

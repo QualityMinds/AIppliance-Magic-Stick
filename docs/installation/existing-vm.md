@@ -37,9 +37,9 @@ sudo bash /tmp/install-from-linux.sh
 
 The wrapper shows the source and target directory, checks out the requested source,
 creates the new-install marker once, and invokes host convergence. By default the
-host and Flux continue following **main**, the release channel, just like USB,
-cloud-init and existing-cluster installations. `--ref develop` explicitly selects
-development builds. A supplied release tag or full commit SHA stays pinned;
+host and Flux stay bound to the verified stable product tag/SHA resolved once.
+An absent stable release stops without a main fallback. `--ref main` explicitly
+selects development branch following. A selected product tag or full commit stays pinned;
 use `--help` for the supported options. See [release channels](../administration/updates-rollback.md#release-channels).
 The host's Ubuntu release and existing kernel flavor are not silently replaced.
 

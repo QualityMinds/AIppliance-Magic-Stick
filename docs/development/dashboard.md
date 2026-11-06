@@ -221,18 +221,21 @@ Only Federated SSO depends on a signed entitlement. Do not split the source or
 images by edition. Follow [the release audit](license-audit.md) before publishing.
 
 For coordinated API/ConfigMap changes, matching immutable images must publish
-before deployment pins advance. Normal push builds on `main`/`develop` perform
-this promotion automatically only after public and browser checks succeed.
+before deployment pins advance. Normal main builds propose a coordinated pin PR
+only after public, browser and native publishing checks succeed.
 The workflow can also build an integration branch via `workflow_dispatch`, but
-does not automatically promote manual candidates. `main` builds update mutable
-`web`, `react-preview`, `console` and `api-licensing-v1` aliases; `develop` builds
-update only their development aliases. Integration branches publish SHA tags
-without moving either installation channel. Aliases alone never change a pinned
+does not automatically promote manual candidates. Main builds may update mutable
+`web`, `react-preview`, `console` and `api-licensing-v1` discovery aliases.
+Integration branches publish SHA tags without moving the integration trunk or a
+fixed product version. Aliases alone never change a pinned
 Deployment. See [image promotion](image-promotion.md#automatic-promotion).
 
 Software channel selection extends the existing host-operation contract rather
 than creating another update controller. `software_contract.py` is shared by the
 API image and host worker. `SoftwareChannelEditor` uses typed host status and
+the administrator-only release catalog; verified stable/prerelease versions are
+separate from development refs. `release_catalog.py` shares strict product,
+immutable-manifest and per-version license validation with host/installer/tools.
 check/apply requests; the host performs Git/registry inspection, Ansible execution,
 Flux verification and durable recovery. Tests cover role enforcement, ref syntax,
 stale previews, moved branches, failure pause and matching image verification.

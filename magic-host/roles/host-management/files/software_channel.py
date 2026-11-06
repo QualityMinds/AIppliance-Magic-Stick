@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 
 from software_contract import PREVIEW_TTL, digest, selection, validate_request
+from release_catalog import ReleaseClient, is_product_version
 
 STATE = Path("/var/lib/magicstick/host-management")
 METADATA = Path("/etc/default/ai-appliance-repo")
@@ -107,16 +108,29 @@ def config(values=None):
         raise ValueError("The host checkout must be an absolute local path.")
     result = {"mode": mode, "repository": repo, "checkout": checkout, "channel": selected,
               "syncPath": values.get("FLUX_PUBLIC_SYNC_PATH", "magic-cluster/flux/entrypoints/single-node")}
+    approved = values.get("MAGICSTICK_PUBLIC_REF_COMMIT", "")
+    tag_object = values.get("MAGICSTICK_PUBLIC_TAG_OBJECT", "")
+    if any(value and not re.fullmatch(r"[a-f0-9]{40}", value) for value in (approved, tag_object)):
+        raise ValueError("The saved software version identity is invalid.")
+    if selected["kind"] == "tag" and approved:
+        result["approvedCommit"] = approved
+        result["tagObject"] = tag_object
     result["id"] = digest(result)
     return result
 
 
-def save_selection(selected):
+def save_selection(selected, approved_commit=None, tag_object=None):
     selected = selection(selected)
     replacements = {"MAGICSTICK_PUBLIC_REF": selected["value"], "MAGICSTICK_PUBLIC_REF_KIND": selected["kind"]}
+    if selected["kind"] == "tag" and approved_commit:
+        if not re.fullmatch(r"[a-f0-9]{40}", approved_commit) or tag_object and not re.fullmatch(r"[a-f0-9]{40}", tag_object):
+            raise ValueError("The reviewed software version identity is invalid.")
+        replacements.update(MAGICSTICK_PUBLIC_REF_COMMIT=approved_commit, MAGICSTICK_PUBLIC_TAG_OBJECT=tag_object or "")
+    else:
+        replacements.update(MAGICSTICK_PUBLIC_REF_COMMIT="", MAGICSTICK_PUBLIC_TAG_OBJECT="")
     lines, seen = [], set()
     for line in METADATA.read_text().splitlines():
-        match = re.match(r"\s*(?:export\s+)?(MAGICSTICK_PUBLIC_REF(?:_KIND)?)=", line)
+        match = re.match(r"\s*(?:export\s+)?(MAGICSTICK_PUBLIC_REF(?:_KIND|_COMMIT)?|MAGICSTICK_PUBLIC_TAG_OBJECT)=", line)
         if match:
             key = match.group(1)
             if key not in seen:
@@ -153,7 +167,8 @@ def status():
         if current["mode"] != "readonly-public":
             return {"supported": False, "message": "This installation is managed by an external GitOps repository."}
         operation = operation_status()
-        return {"supported": True, "id": current["id"], "channel": current["channel"],
+        return {"supported": True, "releaseCatalogVersion": 1, "id": current["id"], "channel": current["channel"],
+                "approvedCommit": current.get("approvedCommit", ""),
                 "hostCommit": git_commit(current["checkout"]),
                 "busy": bool(operation and operation.get("phase") not in TERMINAL),
                 "blocked": (STATE / "software-blocked.json").exists(),
@@ -281,7 +296,7 @@ def image_source_path(path):
             or path == "magic-cluster/apps/dashboard/regression_api.py"
             or path.startswith("licenses/")
             or path in {"magic-host/roles/host-management/files/" + name for name in
-                        ("network_contract.py", "updates_contract.py", "software_contract.py", "model_cache.py")})
+                        ("network_contract.py", "updates_contract.py", "software_contract.py", "release_catalog.py", "model_cache.py")})
 
 
 def verify_image_sources(git_dir, commit, images):
@@ -304,9 +319,28 @@ def preview(selected):
         raise ValueError("The external GitOps repository owns this installation.")
     git_dir = STATE / "software-git"
     commit = resolve(current["repository"], selected, git_dir)
+    if selected == current["channel"] and current.get("approvedCommit") and commit != current["approvedCommit"]:
+        raise ValueError("The saved release tag no longer identifies its approved commit. Use a new verified version, never a moved tag.")
     images = inspect(git_dir, commit)
     result = {"channel": selection(selected), "commit": commit, "configurationId": current["id"],
               "images": images, "ready": True, "checkedAtEpoch": int(time.time())}
+    if selected["kind"] == "tag" and is_product_version(selected["value"]):
+        release = ReleaseClient().resolve(selected["value"], expected_commit=commit)
+        if selected == current["channel"] and current.get("tagObject") and current["tagObject"] != release["tagObject"]:
+            raise ValueError("The saved release tag object changed. Use a new verified version, never a replaced tag.")
+        saved_license = json.loads(source(git_dir, commit, "LICENSE-RELEASE.json"))
+        archived_license = json.loads(source(git_dir, commit, "licenses/releases/" + selected["value"] + ".json"))
+        if saved_license != release["license"] or saved_license != archived_license:
+            raise ValueError("The selected Git source and its published immutable license record differ.")
+        names = {"Dashboard": "web", "Dashboard API": "api", "Console": "cli", "Operator runtime": "operator"}
+        published = {item["component"]: item["image"] for item in release["images"]}
+        if any(published.get(names[item["name"]]) != item["image"] for item in images):
+            raise ValueError("The published release images do not match the selected Git source.")
+        runtime = source(git_dir, commit, "magic-cluster/apps/regression/runtime.yaml")
+        runner_images = re.findall(r'^\s*image:\s*["\']?([^\s"\']+)', runtime, re.M)
+        if runner_images != [published["runner"]]:
+            raise ValueError("The published regression runner does not match the selected Git source.")
+        result["release"] = {key: release[key] for key in ("version", "commit", "tagObject", "releaseId", "manifestDigest", "prerelease", "license")}
     result["id"] = digest(result)
     write_json(STATE / "software-preview.json", result)
     return result
@@ -344,7 +378,7 @@ def backup(current):
         raise ValueError("The current host revision is unavailable; a recoverable switch cannot be started.")
     recovery = STATE / "software-recovery"
     recovery.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for filename in ("software_channel.py", "software_contract.py"):
+    for filename in ("software_channel.py", "software_contract.py", "release_catalog.py"):
         shutil.copyfile(BASE / filename, recovery / filename)
     shutil.copyfile(RUNNER, recovery / "ai-appliance-converge")
     atomic(recovery / "metadata.env", METADATA.read_text())
@@ -392,7 +426,7 @@ def execute(request, lock, kube):
     regression_guard.assert_idle(kube)
     reviewed = read_json(STATE / "software-preview.json")
     checked = preview(selected)
-    if checked["commit"] != reviewed["commit"]:
+    if checked["commit"] != reviewed["commit"] or checked.get("release") != reviewed.get("release"):
         raise ValueError("The branch or tag changed after review. Review the new preview before applying it.")
     # A retry must retain the recovery snapshot from before the failed switch.
     if not (STATE / "software-blocked.json").exists():
@@ -400,7 +434,8 @@ def execute(request, lock, kube):
     elif not read_json(STATE / "software-previous.json").get("commit"):
         raise ValueError("The recovery snapshot is missing. Inspect the host before retrying.")
     write_json(STATE / "software-blocked.json", {"commit": checked["commit"], "requestId": request["requestId"]})
-    save_selection(selected)
+    release = checked.get("release") or {}
+    save_selection(selected, checked["commit"] if selected["kind"] == "tag" else None, release.get("tagObject"))
     converge(checked["commit"], lock)
     verify(checked["commit"], kube, expected_images=[item["image"] for item in checked["images"]])
     (STATE / "software-blocked.json").unlink(missing_ok=True)

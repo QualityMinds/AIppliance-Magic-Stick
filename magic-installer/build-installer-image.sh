@@ -24,8 +24,8 @@ Options:
   --flux-bootstrap-mode MODE   github or readonly-public. Default: readonly-public.
   --flux-public-sync-path PATH Public profile for readonly-public mode.
   --public-repo URL            Public Magic-Stick repository URL.
-  --public-ref REF             Public Magic-Stick ref. Default: main.
-  --public-ref-kind KIND       branch, tag, semver, or commit. Default: branch.
+  --public-ref REF             Product version or advanced ref. Default: stable.
+  --public-ref-kind KIND       release (default), branch, tag, semver, or commit.
   --domain HOSTNAME            Public appliance domain. Default: magicstick.example.com.
   --dashboard-host HOSTNAME    Dashboard public host. Default: public domain.
   --mdns-domain HOSTNAME       Local mDNS domain. Default: magicstick.local.
@@ -98,8 +98,10 @@ FLUX_CLUSTER_PATH=""
 FLUX_BOOTSTRAP_MODE="readonly-public"
 FLUX_PUBLIC_SYNC_PATH="magic-cluster/flux/entrypoints/single-node"
 PUBLIC_REPO="https://github.com/QualityMinds/AIppliance-Magic-Stick.git"
-PUBLIC_REF="main"
-PUBLIC_REF_KIND="branch"
+PUBLIC_REF="stable"
+PUBLIC_REF_KIND="release"
+PUBLIC_REF_COMMIT=""
+PUBLIC_TAG_OBJECT=""
 OUTPUT=""
 OFFLINE_POOL="reduced"
 CONTAINER_RUNTIME=""
@@ -182,6 +184,12 @@ else
 fi
 
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-$(detect_runtime)}"
+if [[ "$PUBLIC_REF_KIND" == release || "$PUBLIC_REF_KIND" == tag && "$PUBLIC_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+  [[ "$PUBLIC_REPO" == "https://github.com/QualityMinds/AIppliance-Magic-Stick.git" ]] || die "Product releases require the official public repository."
+  resolved="$(python3 "$REPO_ROOT/tools/release_bootstrap.py" --resolve-only --version "$PUBLIC_REF" --format tsv)" || die "No verified release; no main fallback or image build was started."
+  IFS=$'\t' read -r PUBLIC_REF PUBLIC_REF_COMMIT PUBLIC_TAG_OBJECT <<<"$resolved"
+  PUBLIC_REF_KIND=tag
+fi
 OUTPUT_ABS="$(absolute_path "$OUTPUT")"
 OUTPUT_DIR="$(dirname "$OUTPUT_ABS")"
 OUTPUT_BASENAME="$(basename "$OUTPUT_ABS")"
@@ -211,6 +219,8 @@ export MAGICSTICK_FLUX_GITHUB_TOKEN="$FLUX_GITHUB_TOKEN"
 export MAGICSTICK_PUBLIC_REPO="$PUBLIC_REPO"
 export MAGICSTICK_PUBLIC_REF="$PUBLIC_REF"
 export MAGICSTICK_PUBLIC_REF_KIND="$PUBLIC_REF_KIND"
+export MAGICSTICK_PUBLIC_REF_COMMIT="$PUBLIC_REF_COMMIT"
+export MAGICSTICK_PUBLIC_TAG_OBJECT="$PUBLIC_TAG_OBJECT"
 export MAGICSTICK_UBUNTU_ISO_URL="$UBUNTU_ISO_URL"
 export MAGICSTICK_UBUNTU_ISO_SHA256="$UBUNTU_ISO_SHA256"
 export MAGICSTICK_OFFLINE_POOL="$OFFLINE_POOL"
@@ -235,6 +245,8 @@ run_args=(
   --env MAGICSTICK_PUBLIC_REPO
   --env MAGICSTICK_PUBLIC_REF
   --env MAGICSTICK_PUBLIC_REF_KIND
+  --env MAGICSTICK_PUBLIC_REF_COMMIT
+  --env MAGICSTICK_PUBLIC_TAG_OBJECT
   --env MAGICSTICK_UBUNTU_ISO_URL
   --env MAGICSTICK_UBUNTU_ISO_SHA256
   --env MAGICSTICK_OFFLINE_POOL

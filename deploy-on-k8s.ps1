@@ -20,7 +20,7 @@ param(
     [string]$Context,
 
     [Parameter()]
-    [string]$Ref = "main",
+    [string]$Ref = "stable",
 
     [Parameter()]
     [ValidateSet("branch", "tag", "semver", "commit")]
@@ -122,6 +122,17 @@ function Assert-DnsName {
 }
 
 function Resolve-RefKind {
+    if ($script:Repository -eq "https://github.com/QualityMinds/AIppliance-Magic-Stick.git" -and
+        ($script:Ref -eq "stable" -or ($script:RefKind -ne "branch" -and $script:Ref -match '^v[0-9]+\.[0-9]+\.[0-9]+'))) {
+        Assert-Command "python3"
+        $helper = Join-Path $PSScriptRoot "tools/release_bootstrap.py"
+        if (-not (Test-Path -LiteralPath $helper)) { Stop-Install "Use the complete reviewed installer checkout; no main fallback was selected." }
+        $proof = Invoke-Checked -Command "python3" -Arguments @($helper, "--resolve-only", "--version", $script:Ref) -Capture | ConvertFrom-Json
+        if ($proof.commit -notmatch '^[a-f0-9]{40}$') { Stop-Install "Invalid product release identity." }
+        $script:Ref = $proof.commit
+        $script:RefKind = "commit"
+        return
+    }
     if ($script:RefKind) {
         return
     }
@@ -149,7 +160,6 @@ function Invoke-Preflight {
     if (-not $script:MdnsDomain.EndsWith(".local", [StringComparison]::OrdinalIgnoreCase)) {
         Stop-Install "-MdnsDomain must end in .local."
     }
-    Resolve-RefKind
 
     if (-not $script:Context) {
         $script:Context = Invoke-Checked -Command "kubectl" -Arguments @("config", "current-context") -Capture
@@ -179,6 +189,7 @@ function Invoke-Preflight {
     if (Test-KubernetesResource -Arguments @("-n", "identity-system", "get", "appliancesetup", "local")) {
         Stop-Install "ApplianceSetup/local already exists. This script never resets an existing appliance."
     }
+    Resolve-RefKind
 
     if (Test-KubernetesResource -Arguments @("-n", "flux-system", "get", "configmap", $script:InstallerStateName)) {
         $state = Invoke-Kubectl -Arguments @("-n", "flux-system", "get", "configmap", $script:InstallerStateName, "-o", "jsonpath={.data.state}") -Capture

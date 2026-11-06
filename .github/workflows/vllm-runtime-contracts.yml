@@ -10,7 +10,7 @@ on:
       - 'magic-cluster/platform/magicstick-operator/controller-configmap.yaml'
       - 'magic-cluster/apps/ai/private-mesh/e2e-job.yaml'
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - '.github/workflows/vllm-runtime-contracts.yml'
       - 'magic-cluster/platform/ai/kubeai/base/**'

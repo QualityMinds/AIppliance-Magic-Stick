@@ -2,10 +2,14 @@ name: Build reduced installer image
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - .github/workflows/build-installer-image.yml
       - tools/installer_artifact.py
+      - tools/release_bootstrap.py
+      - magic-host/roles/host-management/files/release_catalog.py
+      - magic-host/roles/host-management/files/software_channel.py
+      - magic-host/roles/host-management/files/software_contract.py
       - magic-installer/ci-build.json
       - magic-installer/Containerfile
       - magic-installer/.dockerignore
@@ -20,6 +24,11 @@ on:
       - LICENSE
       - LICENSING.md
   workflow_dispatch:
+    inputs:
+      product_version:
+        description: Optional already-published product tag; blank creates a development main follower, never relabels old media
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -37,7 +46,7 @@ jobs:
     name: build
     if: >-
       github.repository == 'QualityMinds/AIppliance-Magic-Stick' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
@@ -63,9 +72,13 @@ jobs:
             detect --source /repo --config /repo/.gitleaks.toml --no-git --redact
       - name: Fingerprint build inputs
         id: plan
+        env:
+          PRODUCT_VERSION: ${{ inputs.product_version }}
         run: |
+          args=()
+          if [ -n "$PRODUCT_VERSION" ]; then args+=(--product-version "$PRODUCT_VERSION"); fi
           python tools/installer_artifact.py plan --channel "$GITHUB_REF_NAME" \
-            --revision "$GITHUB_SHA" --plan "$RUNNER_TEMP/installer-plan.json"
+            --revision "$GITHUB_SHA" --plan "$RUNNER_TEMP/installer-plan.json" "${args[@]}"
       - name: Reuse an identical published installer
         id: lookup
         env:
@@ -88,24 +101,34 @@ jobs:
         if: steps.lookup.outputs.reused != 'true'
         env:
           IMAGE_NAME: ${{ steps.plan.outputs.image }}
+          PUBLIC_REF: ${{ steps.plan.outputs.public_ref }}
+          PUBLIC_REF_KIND: ${{ steps.plan.outputs.public_ref_kind }}
         run: |
           bash magic-installer/build-installer-image.sh \
             --hostname example-host-01 --offline-pool reduced \
-            --flux-bootstrap-mode readonly-public --public-ref "$GITHUB_REF_NAME" \
-            --public-ref-kind branch --container-runtime docker \
+            --flux-bootstrap-mode readonly-public --public-ref "$PUBLIC_REF" \
+            --public-ref-kind "$PUBLIC_REF_KIND" --container-runtime docker \
             --builder-image magicstick-installer-builder:ci \
             --output "$RUNNER_TEMP/installer-assets/$IMAGE_NAME"
       - name: Verify media and public bootstrap configuration
         if: steps.lookup.outputs.reused != 'true'
         env:
           IMAGE_NAME: ${{ steps.plan.outputs.image }}
+          PUBLIC_REF: ${{ steps.plan.outputs.public_ref }}
+          PUBLIC_REF_KIND: ${{ steps.plan.outputs.public_ref_kind }}
+          PUBLIC_COMMIT: ${{ steps.plan.outputs.public_commit }}
+          PUBLIC_TAG_OBJECT: ${{ steps.plan.outputs.public_tag_object }}
         run: |
+          args=(--public-channel "$PUBLIC_REF")
+          if [ "$PUBLIC_REF_KIND" = tag ]; then
+            args=(--public-release "$PUBLIC_REF" --public-commit "$PUBLIC_COMMIT" --public-tag-object "$PUBLIC_TAG_OBJECT")
+          fi
           docker run --rm --user "$(id -u):$(id -g)" \
             -v "$RUNNER_TEMP/installer-assets:/output" \
             --entrypoint python3 magicstick-installer-builder:ci \
             /usr/local/lib/magicstick-installer/installer-media.py verify \
             --image "/output/$IMAGE_NAME" --work /tmp \
-            --public-channel "$GITHUB_REF_NAME"
+            "${args[@]}"
           python tools/installer_artifact.py bundle --plan "$RUNNER_TEMP/installer-plan.json" \
             --directory "$RUNNER_TEMP/installer-assets" --run-id "$GITHUB_RUN_ID"
       - name: Pass verified artifacts to publication

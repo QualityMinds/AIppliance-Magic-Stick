@@ -10,7 +10,7 @@ on:
       - magic-cluster/platform/gpu/amd-gpu-operator/image/**
       - magic-cluster/platform/gpu/amd-gpu-operator/patches/**
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - .github/workflows/build-amd-dra-image.yml
       - LICENSE

@@ -60,6 +60,8 @@ FLUX_BOOTSTRAP_MODE="${FLUX_BOOTSTRAP_MODE:-readonly-public}"
 MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}"
 MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-main}"
 MAGICSTICK_PUBLIC_REF_KIND="${MAGICSTICK_PUBLIC_REF_KIND:-branch}"
+MAGICSTICK_PUBLIC_REF_COMMIT="${MAGICSTICK_PUBLIC_REF_COMMIT:-}"
+MAGICSTICK_PUBLIC_TAG_OBJECT="${MAGICSTICK_PUBLIC_TAG_OBJECT:-}"
 MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}"
 AI_APPLIANCE_PRIVATE_CHECKOUT="${AI_APPLIANCE_PRIVATE_CHECKOUT:-/opt/ai-appliance/deployment}"
 ANSIBLE_INVENTORY_PATH="${ANSIBLE_INVENTORY_PATH:-magic-host/inventory/localhost.yml}"
@@ -195,6 +197,14 @@ sync_repo() {
   commit="$(git -C "$checkout_dir" rev-parse --verify "$target^{commit}")"
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || return 1
   if [[ "$checkout_dir" == "$MAGICSTICK_PUBLIC_CHECKOUT" ]]; then
+    if [[ "$kind" == tag && -n "$MAGICSTICK_PUBLIC_REF_COMMIT" && "$commit" != "$MAGICSTICK_PUBLIC_REF_COMMIT" ]]; then
+      echo "The release tag differs from the saved approved commit; refusing an unreviewed version change." >&2
+      return 1
+    fi
+    if [[ "$kind" == tag && -n "$MAGICSTICK_PUBLIC_TAG_OBJECT" && "$(git -C "$checkout_dir" rev-parse "$target")" != "$MAGICSTICK_PUBLIC_TAG_OBJECT" ]]; then
+      echo "The release tag object differs from the saved approved identity; refusing an unreviewed tag replacement." >&2
+      return 1
+    fi
     if [[ -n "${MAGICSTICK_EXPECTED_COMMIT:-}" && "$commit" != "$MAGICSTICK_EXPECTED_COMMIT" ]]; then
       echo "The selected source moved after review; check the channel again." >&2
       return 1

@@ -11,6 +11,7 @@ import {
   type InstancesPayload,
   type ManagedHost,
   type HostOperationRequest,
+  type SoftwareReleaseCatalog,
   type GpuValidationRequest,
   type GpuSharingState,
   type GpuSharingRequest,
@@ -197,6 +198,7 @@ export class MagicStickApi {
   }
   status() { return this.request<SystemStatusPayload>('/api/status'); }
   hostManagement() { return this.request<{nodes: ManagedHost[]}>('/api/host-management'); }
+  softwareReleases() { return this.request<SoftwareReleaseCatalog>('/api/software/releases'); }
   confirmHostNetwork(payload: {nodeUid: string; requestId: string; confirmation: string}) {
     return this.request<{accepted: boolean; requestId: string}>('/api/host-management/network-confirm', {method: 'POST', body: JSON.stringify(payload)});
   }

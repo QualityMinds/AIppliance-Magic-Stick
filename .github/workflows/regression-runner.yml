@@ -2,7 +2,7 @@ name: Regression runner
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths: &runner-inputs
       - .dockerignore
       - .github/**
@@ -45,8 +45,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     permissions:
-      contents: write
+      contents: read
       packages: write
+      actions: read
     env:
       DOCKER_BUILDKIT: '1'
     steps:
@@ -54,12 +55,33 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Detect a canonical immutable pin-only advance
+        id: delta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = push ]; then
+            python tools/trunk_promotion.py --pin-only >> "$GITHUB_OUTPUT"
+          else
+            echo 'pin_only=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify unchanged pinned images and their original native publishing evidence
+        if: steps.delta.outputs.pin_only == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/trunk_promotion.py --verify-pins
       - name: Build regression runner from current source
         id: build
+        if: steps.delta.outputs.pin_only != 'true'
         run: bash tools/regression.sh build
       - name: Record built runner size and filesystem layers
+        if: steps.delta.outputs.pin_only != 'true'
         run: docker image inspect magicstick-regression:local --format 'Size={{.Size}} bytes; filesystem layers={{len .RootFS.Layers}}'
       - name: Verify the packaged setup entrypoint imports before reading private inputs
+        if: steps.delta.outputs.pin_only != 'true'
         run: |
           set +e
           result=$(docker run --rm --network none --entrypoint node \
@@ -75,6 +97,7 @@ jobs:
           test "$status" -eq 2
           printf '%s\n' "$result" | grep -Fq '[PRIVATE_FILE]'
       - name: Verify native Kubernetes test and cleanup entrypoints before private access
+        if: steps.delta.outputs.pin_only != 'true'
         run: |
           for entrypoint in kubernetes.mjs kubernetes-recovery.mjs; do
             set +e
@@ -88,6 +111,7 @@ jobs:
             printf '%s\n' "$result" | grep -Fq 'Error: Invalid run identity.'
           done
       - name: Verify fixture reporting with a failed live preparation context
+        if: steps.delta.outputs.pin_only != 'true'
         run: |
           docker run --rm --network none --entrypoint node \
             -e REGRESSION_MODE=selftest -e REGRESSION_PREPARATION_FAILED=Failed \
@@ -96,6 +120,7 @@ jobs:
             --config regression/playwright.config.ts --reporter=line \
             --grep 'fresh explicit prerequisites remain distinct|synthetic prerequisite reports are isolated'
       - name: Verify isolated contracts and native recovery tests in the built image
+        if: steps.delta.outputs.pin_only != 'true'
         run: |
           bash tools/regression.sh typecheck
           bash tools/regression.sh selftest
@@ -103,17 +128,17 @@ jobs:
           bash tools/regression.sh phase6-fast
           bash tools/regression.sh phase8-fast
       - name: Exercise model Chromium fixtures in the built image
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.delta.outputs.pin_only != 'true' && steps.build.outcome == 'success' }}
         run: bash tools/regression.sh phase2-fixtures
       - name: Exercise Realtime Chromium fixtures in the built image
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.delta.outputs.pin_only != 'true' && steps.build.outcome == 'success' }}
         run: bash tools/regression.sh phase7-fixtures
       - name: Exercise administration and regression-dashboard Chromium fixtures
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.delta.outputs.pin_only != 'true' && steps.build.outcome == 'success' }}
         run: bash tools/regression.sh phase8-fixtures
       - name: Publish tested Linux AMD64 runner
         id: publish
-        if: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) || (github.event_name == 'workflow_dispatch' && inputs.publish_candidate && startsWith(github.ref, 'refs/heads/')) }}
+        if: ${{ steps.delta.outputs.pin_only != 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_candidate && startsWith(github.ref, 'refs/heads/'))) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_REVISION: ${{ github.sha }}
@@ -132,18 +157,6 @@ jobs:
           test "$(docker image inspect "ghcr.io/qualityminds/magicstick-regression@$digest" --format '{{.Os}}/{{.Architecture}}')" = 'linux/amd64'
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
           printf 'Tested runner candidate: source `%s`, image `%s@%s`. Publication is not promotion or installed acceptance.\n' "$SOURCE_REVISION" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
-      - name: Promote tested runner only to its original push channel
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SOURCE_REVISION: ${{ github.sha }}
-          CHANNEL: ${{ github.ref_name }}
-          DIGEST: ${{ steps.publish.outputs.digest }}
-        run: |
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          python3 tools/promote_regression_image.py --source "$SOURCE_REVISION" --digest "$DIGEST" --branch "$CHANNEL" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

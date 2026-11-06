@@ -17,10 +17,10 @@ jobs:
   updates:
     runs-on: ubuntu-24.04
     steps:
-      - name: Check out development channel
+      - name: Check out the integration trunk
         uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -62,14 +62,14 @@ jobs:
       - name: Explain the policy-compatible manual proposal
         if: steps.proposal.outputs.changed == 'true' && vars.RUNTIME_IMAGE_PR_ENABLED != 'true'
         run: |
-          echo '::warning::Automatic PR creation is not enabled. Download the validated proposal artifact and open a human-reviewed PR to develop. No image has been promoted.'
+          echo '::warning::Automatic PR creation is not enabled. Download the validated proposal artifact and open a human-reviewed PR to main. No image has been promoted.'
           echo 'Automatic PR creation requires enterprise/organization permission and RUNTIME_IMAGE_PR_ENABLED=true. The resolver, tests, chart render and artifact checks remain mandatory.' >> "$GITHUB_STEP_SUMMARY"
-      - name: Propose a reviewed update on develop
+      - name: Propose a reviewed update on main
         if: steps.proposal.outputs.changed == 'true' && vars.RUNTIME_IMAGE_PR_ENABLED == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          base: develop
+          base: main
           branch: automation/runtime-image-updates
           add-paths: |
             magic-cluster/apps/instances/odysseus/files/runtime-images.json
@@ -81,8 +81,8 @@ jobs:
             Runtime references remain immutable. This PR neither merges itself nor deploys an appliance.
 
             The update job tests the resolver and renders the candidate chart. Review upstream
-            changes and test existing application data before merging to develop. Approve the
+            changes and test existing application data before merging to main. Approve the
             pending PR workflows created through GITHUB_TOKEN, or run Public release checks
             manually on this automation branch if they are unavailable. An approved bot identity
             can be configured separately for unattended PR checks.
-            Promote a tested release to main separately. Legal review stays advisory.
+            Publish a tested product tag separately. Legal review stays advisory.

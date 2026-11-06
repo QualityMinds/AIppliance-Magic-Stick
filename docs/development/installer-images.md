@@ -57,8 +57,10 @@ writers and the media layout, see the [developer tool reference](../../magic-ins
 
 ## Build once for each installer recipe
 
-A push to `main` or `develop` starts the workflow only when an installer input or
-its focused tests change. Manual runs are also allowed on these two branches.
+A push to `main` starts the workflow only when an installer input or its focused
+tests change. Old develop downloads remain historical. A manual main run may set
+`product_version` to an already verified product tag, generating fixed-version
+media rather than a main follower. Local wrappers default to stable resolution.
 Before building, the workflow computes a SHA-256 fingerprint from:
 
 - the build scripts, media helper, Containerfile, optional Docker ignore file,
@@ -66,12 +68,17 @@ Before building, the workflow computes a SHA-256 fingerprint from:
 - the pinned Ubuntu ISO URL and checksum;
 - the workflow, artifact helper and public CI build configuration;
 - the source license terms (`LICENSE` and `LICENSING.md`);
-- the selected channel (`main` or `develop`).
+- the explicit development channel or verified product-release identity.
 
-The source commit and product version are **not** cache keys. Dashboard, model,
+For development main candidates, the source commit/product version are **not**
+cache keys. For fixed media the exact version, approved commit, tag object,
+published manifest digest and original license record **are** fingerprint inputs.
+Changing the version/identity cannot reuse an older branch-following image.
+Dashboard, model,
 host-automation, documentation, changelog or release-date changes alone do not
-rebuild the installer. The first boot fetches the selected channel's current
-source, rather than embedding all Magic Stick components into the image.
+rebuild a development installer. Its first boot fetches the selected branch's
+current source, rather than embedding all components. Fixed media instead verify
+and check out their embedded product tag/commit; they never follow newer tags.
 
 If a complete, matching download already exists, CI verifies its manifest,
 checksums, sizes and original source tag, then reports the existing download URL.
@@ -113,7 +120,9 @@ guide's image/checksum/evidence links together. Documentation-only changes do no
 rebuild the image. Do not use GitHub's generic “latest release” URL: product and
 installer releases have different lifecycles, and installer candidates are prereleases.
 
-`main` media follows `main`; `develop` media follows `develop`. Public CI fixes the
+Explicit development main media follows main; historical develop media follows
+develop. Product-version media embeds its tag/approved SHA and verifies them again
+at first boot. Public CI fixes the
 hostname to `example-host-01`, uses public example domains and `readonly-public`,
 and embeds no GitHub token, user password or SSH access. Inspect/edit CIDATA for
 the target computer as described in the [installer guide](../../magic-installer/README.md).

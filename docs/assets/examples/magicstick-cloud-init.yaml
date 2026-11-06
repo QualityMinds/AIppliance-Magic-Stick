@@ -15,8 +15,8 @@ write_files:
     content: |
       FLUX_BOOTSTRAP_MODE=readonly-public
       MAGICSTICK_PUBLIC_REPO=https://github.com/QualityMinds/AIppliance-Magic-Stick.git
-      MAGICSTICK_PUBLIC_REF=main
-      MAGICSTICK_PUBLIC_REF_KIND=branch
+      MAGICSTICK_PUBLIC_REF=stable
+      MAGICSTICK_PUBLIC_REF_KIND=release
       FLUX_PUBLIC_SYNC_PATH=magic-cluster/flux/entrypoints/single-node
 
       AI_APPLIANCE_DOMAIN=magicstick.example.com
@@ -32,8 +32,8 @@ runcmd:
   - >-
     /bin/bash -lc '. /etc/default/ai-appliance-repo &&
     MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}" &&
-    MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-main}" &&
-    MAGICSTICK_PUBLIC_REF_KIND="${MAGICSTICK_PUBLIC_REF_KIND:-branch}" &&
+    MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-stable}" &&
+    MAGICSTICK_PUBLIC_REF_KIND="${MAGICSTICK_PUBLIC_REF_KIND:-release}" &&
     MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}" &&
     export GIT_TERMINAL_PROMPT=0 &&
     git_with_http11_fallback() {
@@ -57,9 +57,12 @@ runcmd:
       git_clone_with_http11_fallback "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_CHECKOUT";
     fi &&
     git_with_http11_fallback -C "$MAGICSTICK_PUBLIC_CHECKOUT" fetch --tags --prune origin &&
-    if [ "$MAGICSTICK_PUBLIC_REF_KIND" = branch ] && git -C "$MAGICSTICK_PUBLIC_CHECKOUT" show-ref --verify --quiet "refs/remotes/origin/$MAGICSTICK_PUBLIC_REF"; then
+    if [ "$MAGICSTICK_PUBLIC_REF_KIND" = release ]; then
+      git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --detach origin/main;
+    elif [ "$MAGICSTICK_PUBLIC_REF_KIND" = branch ] && git -C "$MAGICSTICK_PUBLIC_CHECKOUT" show-ref --verify --quiet "refs/remotes/origin/$MAGICSTICK_PUBLIC_REF"; then
       git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force -B "$MAGICSTICK_PUBLIC_REF" "origin/$MAGICSTICK_PUBLIC_REF";
     else
       git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force --detach "$MAGICSTICK_PUBLIC_REF";
     fi &&
+    python3 "$MAGICSTICK_PUBLIC_CHECKOUT/tools/release_bootstrap.py" --checkout "$MAGICSTICK_PUBLIC_CHECKOUT" --metadata /etc/default/ai-appliance-repo &&
     bash "$MAGICSTICK_PUBLIC_CHECKOUT/magic-host/roles/ansible-pull-timer/files/ai-appliance-converge"'

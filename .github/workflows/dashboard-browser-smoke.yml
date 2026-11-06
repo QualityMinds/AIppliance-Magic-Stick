@@ -1,13 +1,16 @@
 name: Dashboard browser smoke
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
       - .github/workflows/public-release-checks.yml
       - tools/promote_dashboard_images.py
       - tools/promote_regression_image.py
+      - tools/trunk_promotion.py
+      - tools/product_release.py
+      - tests/test_trunk_promotion.py
       - tests/test_dashboard_image_promotion.py
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py
@@ -18,6 +21,7 @@ on:
       - magic-host/roles/host-management/files/updates_contract.py
       - magic-host/roles/host-management/files/model_cache.py
       - magic-host/roles/host-management/files/software_contract.py
+      - magic-host/roles/host-management/files/release_catalog.py
       - core/**
       - LICENSE
       - LICENSING.md
@@ -34,6 +38,9 @@ on:
       - .github/workflows/public-release-checks.yml
       - tools/promote_dashboard_images.py
       - tools/promote_regression_image.py
+      - tools/trunk_promotion.py
+      - tools/product_release.py
+      - tests/test_trunk_promotion.py
       - tests/test_dashboard_image_promotion.py
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py
@@ -44,6 +51,7 @@ on:
       - magic-host/roles/host-management/files/updates_contract.py
       - magic-host/roles/host-management/files/model_cache.py
       - magic-host/roles/host-management/files/software_contract.py
+      - magic-host/roles/host-management/files/release_catalog.py
       - core/**
       - LICENSE
       - LICENSING.md

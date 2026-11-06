@@ -14,6 +14,7 @@ from unittest import mock
 import yaml
 
 from tools import installer_artifact as artifact
+from tests.test_release_catalog import manifest as product_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +93,23 @@ class InstallerArtifactTests(unittest.TestCase):
         self.assertNotEqual(changed['fingerprint'], self.value['fingerprint'])
         (self.root / 'magic-installer/.dockerignore').write_text('README.md\n')
         self.assertNotEqual(artifact.plan(self.root, 'main', REVISION)['fingerprint'], changed['fingerprint'])
+
+    def test_product_media_identity_includes_exact_tag_commit_and_original_license_dates(self):
+        record = product_manifest()['license']
+        proof = {'version': 'v1.2.3', 'commit': 'b' * 40, 'tagObject': 'c' * 40,
+                 'manifestDigest': 'sha256:' + 'd' * 64, 'license': record}
+        value = artifact.plan(self.root, 'main', REVISION, proof)
+        self.assertNotEqual(value['fingerprint'], self.value['fingerprint'])
+        self.assertTrue(value['tag'].startswith('installer-v1.2.3-'))
+        self.assertEqual(value['productRelease']['license'], record)
+        changed = artifact.plan(self.root, 'main', REVISION, {**proof, 'commit': 'e' * 40})
+        self.assertNotEqual(value['fingerprint'], changed['fingerprint'])
+        with self.assertRaises(ValueError):
+            artifact.plan(self.root, 'main', REVISION, {**proof, 'license': {**record, 'changeDate': '2030-01-01'}})
+        # An old main-following image cannot be bundled as fixed-version media.
+        self.value = value
+        self.build_fixture()
+        with self.assertRaises(ValueError): artifact.bundle(self.root, value, self.directory, '123')
 
     def test_public_profile_rejects_private_full_or_unpinned_builds(self):
         path = self.root / 'magic-installer/ci-build.json'
@@ -276,7 +294,7 @@ class InstallerArtifactTests(unittest.TestCase):
         workflow = yaml.load((ROOT / artifact.WORKFLOW).read_text(), Loader=yaml.BaseLoader)
         triggers = workflow['on']
         self.assertEqual(set(triggers), {'push', 'workflow_dispatch'})
-        self.assertEqual(triggers['push']['branches'], ['main', 'develop'])
+        self.assertEqual(triggers['push']['branches'], ['main'])
         paths = triggers['push']['paths']
         for path in (*artifact.INPUTS, *artifact.OPTIONAL_INPUTS):
             self.assertTrue(any(fnmatch.fnmatch(path, pattern) for pattern in paths), path)
@@ -291,7 +309,8 @@ class InstallerArtifactTests(unittest.TestCase):
         image_step = next(s for s in build if s.get('name') == 'Build reduced media')
         self.assertEqual(image_step['if'], "steps.lookup.outputs.reused != 'true'")
         self.assertIn('--offline-pool reduced', image_step['run'])
-        self.assertIn('--public-ref "$GITHUB_REF_NAME"', image_step['run'])
+        self.assertIn('--public-ref "$PUBLIC_REF"', image_step['run'])
+        self.assertIn('--public-ref-kind "$PUBLIC_REF_KIND"', image_step['run'])
         cache = next(s for s in build if s.get('uses', '').startswith('actions/cache@'))
         self.assertEqual(cache['with']['path'], '.installer-cache')
         self.assertNotIn('restore-keys', cache['with'])

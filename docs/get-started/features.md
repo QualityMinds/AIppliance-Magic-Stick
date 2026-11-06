@@ -2,6 +2,12 @@
 
 ## What you can do
 
+- Choose fixed released versions under **System → Settings → Updates**, review
+  release notes and original license dates, then check/apply the same host/Flux
+  revision. Prereleases are opt-in; unavailable legacy releases/offline catalogs
+  never fall back to main. Development branches remain explicit advanced options.
+  See [software versions](../administration/updates-rollback.md).
+
 - Install new Ubuntu 26.04 appliances through the normal host bootstrap with a
   reviewed, enforcing containerd AppArmor compatibility profile loaded before
   K3s. No global AppArmor disablement or kernel downgrade is used; existing

@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - develop
   workflow_dispatch:
 
 permissions:
@@ -78,7 +77,7 @@ jobs:
       - name: Check source license and publication metadata contracts
         run: |
           python3 tools/license_audit.py --check
-          python3 -m unittest tests/test_license_release.py tests/test_license_audit.py tests/test_license_kdns.py
+          python3 -m unittest tests/test_license_release.py tests/test_license_audit.py tests/test_license_kdns.py tests.test_release_catalog tests.test_product_release tests.test_release_bootstrap tests.test_trunk_promotion tests.test_trunk_policy
 
       - name: Secret scan current tree
         run: |

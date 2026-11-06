@@ -51,11 +51,11 @@ write_metadata
                     self.assertIn(f"MAGICSTICK_PUBLIC_REF_KIND={kind}\n", content)
                     self.assertEqual(subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip(), commit)
 
-    def test_public_install_paths_default_to_main(self):
+    def test_public_install_paths_default_to_verified_stable_without_main_fallback(self):
         for path, text in [
-            ("install-from-linux.sh", 'REQUESTED_REF="main"'),
-            ("deploy-on-k8s.sh", 'REQUESTED_REF="main"'),
-            ("deploy-on-k8s.ps1", '[string]$Ref = "main"'),
-            ("magic-installer/user-data", 'MAGICSTICK_PUBLIC_REF=main'),
+            ("install-from-linux.sh", 'REQUESTED_REF="stable"'),
+            ("deploy-on-k8s.sh", 'REQUESTED_REF="stable"'),
+            ("deploy-on-k8s.ps1", '[string]$Ref = "stable"'),
+            ("magic-installer/user-data", 'MAGICSTICK_PUBLIC_REF=stable'),
         ]:
             self.assertIn(text, (ROOT / path).read_text(), path)

@@ -1,0 +1,55 @@
+name: Propose tested image promotion PR
+
+on:
+  workflow_run:
+    workflows: [Build MagicStick dashboard clients, Regression runner, Public release checks, Dashboard browser smoke]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Full already-tested main image source commit
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trunk-image-promotion
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify the trusted source and propose only canonical pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha || inputs.source }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python tools/trunk_promotion.py --propose --source "$SOURCE_REVISION" >> "$GITHUB_STEP_SUMMARY"
+          # There is no main push, force-push, auto-merge or check suppression.
+          # GITHUB_TOKEN-created PR checks may require normal human approval.

@@ -15,7 +15,7 @@ const host=()=>({name:'fixture-node',nodeUid:'fixture-node-uid',bootId:'fixture-
     options:[{index:9,label:'512M',sizeMi:512},{index:4,label:'64G',sizeMi:65536}],systemReserveMi:16384,stepMi:1024,minDynamicLimitMi:1024},
   modelCache:{id:'a'.repeat(64),supported:true,blocked:true,message:'Active models protect the cache.',reclaimableBytes:30e9,totalBytes:250e9,freeBytes:50e9,
     caches:[{id:'huggingface',name:'Hugging Face / vLLM',usedBytes:20e9,clearable:true},{id:'ollama',name:'Ollama',usedBytes:10e9,clearable:true}]},
-  software:{supported:true,id:'a'.repeat(64),channel:{kind:'branch',value:'main'},hostCommit:'b'.repeat(40)},
+  software:{supported:true,releaseCatalogVersion:1,id:'a'.repeat(64),channel:{kind:'branch',value:'main'},hostCommit:'b'.repeat(40)},
   updates:{id:'a'.repeat(64),supported:true,busy:false,rebootRequired:false,
     policy:{mode:'security',windowStart:'03:00',windowMinutes:120,automaticReboot:false},pendingCount:0,securityCount:0,blockedCount:0,packages:[]},
 });
@@ -40,6 +40,11 @@ const sharing={providers:['amd','nvidia'].map(provider=>({provider,backend:provi
 async function mount(page:Page,route:string,extra:Record<string,unknown>={}) {
   const writes:string[]=[];
   await fixturePage(page,{'/api/session':session,'/api/license':license,'/api/mesh':mesh,
+    '/api/software/releases':{releases:[
+      {version:'v1.2.3',releaseId:1,url:'https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/v1.2.3',publishedAt:'2024-02-29T12:00:00Z',prerelease:false,selectable:true},
+      {version:'v2.0.0-rc.1',releaseId:2,url:'https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/v2.0.0-rc.1',publishedAt:'2024-03-01T12:00:00Z',prerelease:true,selectable:true},
+      {version:'v1.0.0',releaseId:3,url:'https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/v1.0.0',publishedAt:'2024-01-01T12:00:00Z',prerelease:false,selectable:false,reason:'Legacy metadata is unverified.'},
+    ],fetchedAt:'2024-03-01T12:00:00Z',stale:false},
     '/api/host-management':{nodes:[host()]},'/api/users':{users:[],total:0,first:0,max:25},
     '/api/kubernetes-access':{users:[],total:0,configuration:{configured:false,message:'Fixture OIDC configuration is unavailable.'}},
     '/api/federated-sso':{feature:license.features[0],providers:[],issuer:'https://identity.example.local/realms/fixture',callbackUrl:'https://identity.example.local/realms/fixture/broker/{alias}/endpoint'},...extra});
@@ -71,6 +76,31 @@ async function browserProof(page:Page,group:string,id:string) {
   }
   if(group === 'channel') {
     const writes=await mount(page,'system/settings/updates');
+    for(const width of [1440,390]) {
+      await page.setViewportSize({width,height:900});
+      await page.getByRole('combobox',{name:'Software channel',exact:true}).selectOption('release');
+      await expect(page.getByRole('combobox',{name:'Version',exact:true})).toHaveValue('');
+      await expect(page.getByRole('option',{name:'v2.0.0-rc.1 · prerelease',exact:true})).toHaveCount(0);
+      await expect(page.getByRole('option',{name:'v1.0.0 · not verified',exact:true})).toHaveJSProperty('disabled',true);
+      await page.getByRole('combobox',{name:'Version',exact:true}).selectOption('v1.2.3');
+      await page.getByRole('combobox',{name:'Version',exact:true}).press('End');
+      await expect(page.getByRole('combobox',{name:'Version',exact:true})).toHaveValue('v1.2.3');
+      await expect(page.getByRole('button',{name:'Check channel',exact:true})).toBeEnabled();
+      await expect(page.getByRole('button',{name:'Apply channel',exact:true})).toBeDisabled();
+      await page.getByRole('button',{name:'Refresh versions',exact:true}).click();
+      await expect(page.getByRole('combobox',{name:'Version',exact:true})).toHaveValue('v1.2.3');
+      await page.getByLabel('Show prereleases',{exact:true}).check();
+      await page.getByRole('combobox',{name:'Version',exact:true}).selectOption('v2.0.0-rc.1');
+      await page.getByLabel('Show prereleases',{exact:true}).uncheck();
+      await expect(page.getByRole('combobox',{name:'Version',exact:true})).toHaveValue('');
+      await expect(page.getByRole('button',{name:'Check channel',exact:true})).toBeDisabled();
+      await page.getByRole('combobox',{name:'Version',exact:true}).selectOption('v1.2.3');
+      await page.getByRole('heading',{name:'Magic Stick software',exact:true}).scrollIntoViewIfNeeded();
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await page.screenshot({path:test.info().outputPath(`release-selection-${width}.png`)});
+    }
+    await page.reload();
+    await expect(page.getByRole('combobox',{name:'Software channel',exact:true})).toHaveValue('main');
     await page.getByRole('combobox',{name:'Software channel',exact:true}).selectOption('commit');
     await page.getByLabel('Full commit').fill('abc123');
     await expect(page.getByRole('button',{name:'Check channel',exact:true})).toBeDisabled();
