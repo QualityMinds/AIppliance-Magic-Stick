@@ -99,6 +99,14 @@ class CompanionRustDownloadTests(unittest.TestCase):
 
 
 class RepositoryHygieneTests(unittest.TestCase):
+    def test_companion_uses_supported_separate_arm_and_intel_macos_runners(self):
+        matrix = workflow('build-mesh-companion')['jobs']['build']['strategy']['matrix']['include']
+        self.assertEqual(len(matrix), 4)
+        targets = {entry['platform']: entry for entry in matrix}
+        self.assertEqual(set(targets), {'macos-arm64', 'macos-x64', 'linux-x64', 'windows-x64'})
+        self.assertEqual((targets['macos-arm64']['os'], targets['macos-arm64']['machine']), ('macos-15', 'arm64'))
+        self.assertEqual((targets['macos-x64']['os'], targets['macos-x64']['machine']), ('macos-15-intel', 'x86_64'))
+
     def test_companion_public_proof_is_trusted_build_only_and_cannot_publish_client_releases(self):
         definition = workflow('build-mesh-companion')
         job = definition['jobs']['acceptance']
@@ -139,7 +147,7 @@ class RepositoryHygieneTests(unittest.TestCase):
 
     def test_dashboard_build_ignores_docs_but_keeps_shared_runtime_inputs(self):
         push = workflow('build-dashboard-image')['on']['push']
-        self.assertEqual(push['branches'], ['main', 'develop'])
+        self.assertEqual(push['branches'], ['main'])
         for path in ('dashboard/apps/web/src/App.tsx', 'dashboard/apps/api/server.py',
                      'dashboard/pnpm-lock.yaml', 'core/magicstick_core/license.py',
                      'magic-cluster/apps/dashboard/dashboard-api.yaml',
@@ -174,11 +182,12 @@ class RepositoryHygieneTests(unittest.TestCase):
         self.assertLess(license_check, native)
         self.assertNotIn('continue-on-error', steps[license_check])
 
-    def test_development_builds_do_not_publish_production_aliases(self):
+    def test_trunk_builds_preserve_explicit_development_alias_boundaries(self):
         for name in ('build-dashboard-image', 'build-mesh-image', 'build-amd-dra-image',
                      'build-omni-rocm-image', 'build-kdns-image',
                      'build-mesh-companion'):
-            self.assertEqual(workflow(name)['on']['push']['branches'], ['main', 'develop'], name)
+            self.assertEqual(workflow(name)['on']['push']['branches'], ['main'], name)
+            self.assertIn('workflow_dispatch', workflow(name)['on'], name)
         for name in ('build-dashboard-image', 'build-kdns-image'):
             value = (ROOT / '.github/workflows' / (name + '.yml')).read_text()
             raw = [line for line in value.splitlines() if 'type=raw,value=' in line]
@@ -203,7 +212,7 @@ class RepositoryHygieneTests(unittest.TestCase):
         self.assertEqual(value['on']['schedule'][0]['cron'], '23 5 * * 1')
         proposal = next(s for s in value['jobs']['updates']['steps']
                         if s.get('uses', '').startswith('peter-evans/create-pull-request'))
-        self.assertEqual(proposal['with']['base'], 'develop')
+        self.assertEqual(proposal['with']['base'], 'main')
         self.assertIn('runtime-images.json', proposal['with']['add-paths'])
         self.assertIn('licenses/dependency-inventory.json', proposal['with']['add-paths'])
         self.assertNotIn('gh pr merge', json.dumps(value))

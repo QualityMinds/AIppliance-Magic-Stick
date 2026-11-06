@@ -81,7 +81,7 @@ assets can be downloaded without a GitHub login.
 
 | Package | Target | Release asset |
 |---|---|---|
-| `MagicStickMesh-macos-arm64` | Apple Silicon / M-series, including M5; macOS 14 runner | `.zip` with `MagicStickMesh.app` |
+| `MagicStickMesh-macos-arm64` | Apple Silicon / M-series, including M5; macOS 15 runner | `.zip` with `MagicStickMesh.app` |
 | `MagicStickMesh-macos-x64` | Intel Mac; macOS 15 runner | `.zip` with `MagicStickMesh.app` |
 | `MagicStickMesh-linux-x64` | x86-64 Linux; Ubuntu 24.04 runner | `.tar.gz` with the complete executable directory |
 | `MagicStickMesh-windows-x64` | Windows x64; Windows Server 2022 runner | `.zip` with `MagicStickMesh/MagicStickMesh.exe` and the bundled runtime |
