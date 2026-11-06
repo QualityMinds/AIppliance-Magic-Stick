@@ -1,4 +1,7 @@
 ---
+- name: Prepare the reviewed AppArmor profile before the first K3s start
+  ansible.builtin.import_tasks: apparmor.yml
+
 - name: Create the persistent containerd v3 drop-in directory before K3s starts
   ansible.builtin.file:
     path: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d

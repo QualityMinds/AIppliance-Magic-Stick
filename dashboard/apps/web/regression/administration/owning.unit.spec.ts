@@ -61,7 +61,7 @@ const proofs:Record<string,Proof>={
     [mesh,['test_mesh.MeshTests','test_mesh_core.MeshCoreTests']]],components:[['src/pages/MeshPage.test.tsx',[]]]},
   companion:{python:[[mesh,['test_desktop.DesktopBoundaryTests','test_desktop.RuntimeLifecycleTests',
     'test_desktop.NativeEnvironmentTests','test_desktop.FrozenLaunchCheckTests','test_build_companion.CompanionPackagingTests',
-    'test_archive_companion.CompanionArchiveTests']]]},
+    'test_archive_companion.CompanionArchiveTests','test_publish_acceptance.PublicAcceptanceTests']]]},
   realtime:{python:[[api,['test_realtime_api.RealtimeApiTests']],[operator,['test_realtime_runtime.RealtimeRuntimeTests']]],
     components:[['src/RealtimeModelForm.test.tsx',[]],['src/LocalModelConfigurationCore.test.ts',[]]]},
   security:{python:[[api,['test_dashboard_api.UserAdministrationTests','test_model_logs.ModelLogsTests',

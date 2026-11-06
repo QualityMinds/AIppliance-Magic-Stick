@@ -89,6 +89,52 @@ def cache_path_overlap(path):
                for _kind, _label, root in CACHES)
 
 
+GPU_HOST_OBSERVERS = frozenset(("nvidia-container-toolkit-daemonset", "nvidia-device-plugin-daemonset", "nvidia-operator-validator"))
+
+
+def readonly_gpu_host_roots(pod, daemons):
+    """Recognize only the operator-owned /host observer, not arbitrary ancestors.
+
+    Labels alone are insufficient: bind the live DaemonSet UID and its exact
+    root volume/container image/mount template. Direct cache mounts, writable
+    roots, injected consumers and unknown host workloads remain blockers.
+    """
+    meta, spec = pod.get("metadata", {}), pod.get("spec", {})
+    app = meta.get("labels", {}).get("app")
+    if meta.get("namespace") != "gpu-operator" or app not in GPU_HOST_OBSERVERS or not meta.get("uid") or \
+            meta.get("labels", {}).get("app.kubernetes.io/managed-by") != "gpu-operator":
+        return set()
+    owners = [ref for ref in meta.get("ownerReferences", []) if ref.get("controller") is True]
+    matches = [item for item in daemons if item.get("metadata", {}).get("namespace") == "gpu-operator" and
+               item.get("metadata", {}).get("name") == app and not item.get("metadata", {}).get("deletionTimestamp")]
+    if len(owners) != 1 or len(matches) != 1 or owners[0].get("kind") != "DaemonSet" or \
+            owners[0].get("name") != app or not owners[0].get("uid") or owners[0]["uid"] != matches[0]["metadata"].get("uid"):
+        return set()
+    template = matches[0].get("spec", {}).get("template", {}).get("spec", {})
+    roots = [v for v in spec.get("volumes", []) if v.get("hostPath", {}).get("path") == "/"]
+    safe = set()
+    for volume in roots:
+        name = volume.get("name")
+        if not name or volume not in template.get("volumes", []):
+            continue
+        def consumers(value):
+            result = []
+            for kind in ("containers", "initContainers", "ephemeralContainers"):
+                for container in value.get(kind, []):
+                    for mount in container.get("volumeMounts", []):
+                        if mount.get("name") == name:
+                            if mount.get("mountPath") != "/host" or mount.get("readOnly") is not True or \
+                                    mount.get("subPath") or mount.get("subPathExpr") or \
+                                    mount.get("mountPropagation", "None") not in ("None", "HostToContainer"):
+                                return None
+                            result.append([kind, container.get("name"), container.get("image"), mount])
+            return result
+        actual, expected = consumers(spec), consumers(template)
+        if actual and actual == expected:
+            safe.add(name)
+    return safe
+
+
 def blockers(kube, node_name):
     # Enabled unpinned models can be scheduled on this node later, including
     # scale-to-zero KubeAI models. Conservatively keep their shared cache.
@@ -97,6 +143,13 @@ def blockers(kube, node_name):
     models = kube(["get", "models.kubeai.org", "-A", "-o", "json"])
     if any(not isinstance(value, dict) or not isinstance(value.get("items"), list) for value in (activations, pods, models)):
         raise ValueError("Model workload inventory is unavailable.")
+    daemons = []
+    if any(p.get("metadata", {}).get("namespace") == "gpu-operator" and
+           p.get("metadata", {}).get("labels", {}).get("app") in GPU_HOST_OBSERVERS for p in pods["items"]):
+        inventory = kube(["get", "daemonsets.apps", "-n", "gpu-operator", "-o", "json"])
+        if not isinstance(inventory, dict) or not isinstance(inventory.get("items"), list):
+            raise ValueError("GPU infrastructure ownership inventory is unavailable.")
+        daemons = inventory["items"]
     busy = False
     for model in activations["items"]:
         spec = model.get("spec", {})
@@ -112,7 +165,8 @@ def blockers(kube, node_name):
         if spec.get("nodeName") not in (None, "", node_name):
             continue
         labels = meta.get("labels", {})
-        uses_cache = any(cache_path_overlap(v.get("hostPath", {}).get("path", ""))
+        observers = readonly_gpu_host_roots(pod, daemons)
+        uses_cache = any(v.get("name") not in observers and cache_path_overlap(v.get("hostPath", {}).get("path", ""))
                          for v in spec.get("volumes", []))
         if labels.get("app") == "model" or labels.get("app.kubernetes.io/name") == "freetoken" or uses_cache:
             # Terminated Pods are kept protected until Kubernetes removes them.

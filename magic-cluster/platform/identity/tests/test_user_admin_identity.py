@@ -340,7 +340,7 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertIn("if [ -z \"$user_admin_client_uuid\" ]; then", script)
         self.assertIn("kcadm.sh create clients", script)
         self.assertIn('kcadm.sh update "clients/$user_admin_client_uuid"', script)
-        self.assertIn("sync_user_admin_client\n", script)
+        self.assertIn("sync_user_admin_client || { echo 'Keycloak client sync: USER_ADMIN failed'", script)
         self.assertEqual(
             re.search(r'user_admin_allowed_roles="([^"]+)"', script).group(1).split(),
             ["manage-users", "query-users", "view-users", "view-realm"],
@@ -369,16 +369,14 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertIn("client_uuid magicstick-cli", script)
         self.assertIn("publicClient=true", script)
         self.assertIn("oauth2.device.authorization.grant.enabled", script)
-        self.assertIn("sync_dashboard_cli_client\n", script)
+        self.assertIn("sync_dashboard_cli_client || { echo 'Keycloak client sync: DASHBOARD_CLI failed'", script)
 
     def test_upgrade_reconciliation_sets_exact_dashboard_logout_redirects(self):
         script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
 
-        self.assertIn(
-            "-s 'attributes.\"post.logout.redirect.uris\"="
-            f"{EXPECTED_POST_LOGOUT_REDIRECT_URIS}'",
-            script,
-        )
+        self.assertIn(f"'{EXPECTED_POST_LOGOUT_REDIRECT_URIS}'", script)
+        self.assertIn('-s "attributes.\\"post.logout.redirect.uris\\"=$logout"',
+                      (IDENTITY_DIR / "keycloak-callback-policy.sh").read_text())
 
     def test_dashboard_callbacks_and_origins_match_on_install_and_upgrade(self):
         client = next(client for client in realm_import()["clients"]
@@ -386,7 +384,10 @@ class UserAdminIdentityTests(unittest.TestCase):
         script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
         for field in ("redirectUris", "webOrigins"):
             configured = json.dumps(client[field], separators=(",", ":"))
-            self.assertIn(f"-s '{field}={configured}'", script)
+            self.assertIn(f"'{configured}'", script)
+            argument = "redirects" if field == "redirectUris" else "origins"
+            self.assertIn(f'-s "{field}=${argument}"',
+                          (IDENTITY_DIR / "keycloak-callback-policy.sh").read_text())
             self.assertFalse(any("dashboard2." in value for value in client[field]))
         self.assertIn("https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
                       client["redirectUris"])
@@ -400,7 +401,8 @@ class UserAdminIdentityTests(unittest.TestCase):
 
         expected_attempts = probe["failureThreshold"]
         self.assertEqual(probe["periodSeconds"], 5)
-        self.assertIn(f'while [ "$attempt" -lt {expected_attempts} ]; do', script)
+        self.assertIn(f'while [ "$attempt" -lt {expected_attempts} ] && [ "$(date +%s)" -lt "$deadline" ]; do', script)
+        self.assertIn(f'deadline=$(( $(date +%s) + {expected_attempts * 5} ))', script)
         self.assertIn("sleep 5", script)
 
     def test_keycloak_poststart_does_not_require_realm_admin_for_recovery_marking(self):

@@ -24,8 +24,20 @@ UI mutation waits use the configured request timeout (normally 15 seconds),
 not the enclosing hour-long test timeout. A cancelled page proves a write was
 not submitted only when its guarded route never forwarded it. Lost responses
 after submission remain ambiguous. Normal interruption forwards the signal and
-allows two minutes for teardown; cleanup itself has a ten-minute ceiling and
+allows twelve minutes for leaf teardown before forced process-group termination;
+outer coordinators allow fourteen minutes and Kubernetes grants fifteen minutes.
+Cleanup itself has a ten-minute ceiling and
 attempts independently owned resources even if a borrowed-setting restore fails.
+
+`phase4` keeps its public invocation. Its sharing step discovers and validates
+the existing scenario/variant/layer matrix, then executes each scenario exactly
+once in its own sequential process (no parallel GPU work). Preparation, test and
+teardown have separate 10/60/10-minute budgets, with a hard 90-minute scenario
+process limit including shutdown/reporting. The 24-hour Kubernetes campaign
+deadline reserves its last thirty minutes for cancellation, cleanup and export.
+The private coordinator ledger records selected, started and completed scenarios;
+`HAR-10 / DEADLINE` at `runner-execution` identifies a global deadline even after
+an earlier prerequisite block. Unreached checks retain that failure cause.
 
 Guarded foundation and recovery operations verify the bound Dashboard user.
 Only an unauthenticated `/api/session` GET triggers one serialized renewal
@@ -66,6 +78,16 @@ and independent resource absence must still be proved. Ambiguous ownership or
 unfinished unsupported transactions keep subsequent live writes Blocked;
 independent isolated tests continue. The report records the recovery attempt.
 
+Cleanup clearance is derived from the exact root and all worker/model journals,
+borrowed settings, backend readiness and confirmed Lease release, not a report
+boolean or process exit. An independent absence/restoration check writes a private
+fingerprinted verification receipt; later journal writes invalidate it. Parent
+sessions finish only after their writer process group stops. Open/unreadable
+evidence retains the fence. The optional public `cleanup` state is separate from
+test outcome and account removal; old reports remain unchanged and missing fields
+are not a positive proof. Runner ledgers, journals and verification receipts stay
+private and are not added to downloadable archives.
+
 ## JUnit steps and portable report archives
 
 `junit.xml` contains three deliberately separate suites:
@@ -81,19 +103,90 @@ has no universal attachment format, so unsupported CI viewers can use the
 property/path or open `summary.html`. Step counts are diagnostics, not additional
 catalogue acceptance or a replacement for the scenario/evidence counts.
 
+Each step is represented once as XML fields/properties, not repeated as a second
+escaped JSON payload. Its complete filtered trace remains an archive attachment.
+The generated download bound stays 64 MiB. An export/storage failure adds
+`HAR-10 / REPORT_EXPORT` at `report-export`, retains completed campaign counts,
+phase results and original private artifacts, and sets `reportAvailable: false`.
+It never substitutes a one-row HAR-02 setup report or invents a cleanup failure.
+Actual unproved cleanup still retains its original credential/recovery fence.
+
 Each canonical phase, `all`, `selftest` and `phaseN-fast` / `phaseN-fixtures`
 produces `report-artifacts.tar.gz`, including after a failed isolated check. It includes
 only summaries, JUnit, its manifest and re-validated trace/component attachments.
 The aggregate copies child attachments into its own archive, so extracting one
 archive is sufficient; sibling private run directories are not required.
 
-Filtered traces retain literal source-reviewed `test.step` labels, generic
+Filtered traces retain literal source-reviewed `test.step` labels (including
+shared core helpers and their owning scenario), generic
 browser-operation labels, outcome, duration, allowlisted reason/stage and source
 line. Expected negative assertions that are handled by a passing scenario are
 marked `handledError`, not a failing scenario. Each trace has a 2,000-step limit;
-any excess is explicitly counted as `omittedSteps`, never advertised as complete.
+the bounded history preserves initial context, failures and recent steps instead
+of discarding everything after the limit. Any excess is explicitly counted as
+`omittedSteps`, never advertised as complete. Dynamic step titles remain generic
+and are marked `titleFiltered`; this does not suppress their source or outcome.
 Component failures retain the source-literal assertion name, original index,
 category and source line when available, not the expected/received values.
+
+Cleanup has a separate optional `cleanupDiagnostics` contract. Each resource
+uses a run-scoped fingerprint, never its raw name or UID. Observations retain
+lookup/removal/verification/persistence stages, identity/revision match results,
+deletion state, remaining Pod/catalog counts, elapsed time and wait budget.
+The API-key adapter additionally records its fixed method/endpoint class, HTTP
+status and whether a request was attempted; that flag is not server acknowledgement.
+Failed reads retain unknown values, not zero or proof of absence. The outer
+`CLEANUP` error can carry fixed `causeReason` / `causeStage`, independently of an
+earlier scenario failure. Raw error strings are never exported.
+
+Entry-scoped private checkpoints retain the first failure and at most 12
+observations/state transitions, compacting repeated polls while retaining their
+latest timestamp and total/omitted counts. A retry preserves the first failure;
+late callbacks from a finished attempt cannot rewrite its observation. The
+reporter checkpoints sanitized pending steps at high-level boundaries and at
+most once per second for noisy browser operations. Interrupted recovery uses
+only that exact run's bounded root/worker captures and pending evidence. An
+unfinished step never becomes a pass, and interruption adds its runner cause.
+At most 16 cleanup scopes enter a trace; `omittedCleanupDiagnostics` and
+`diagnosticsUnavailable` make limits and rejected/unreadable captures explicit.
+
+Dashboard **Cleanup observations**, HTML, text, JSON and JUnit carry the same
+safe facts. JSON keeps the structured fields; the other formats include readable
+observations and the underlying cause. These are diagnostic observations, not
+ownership receipts, confirmed resource absence or permission to release a Lease.
+The cleanup and identity/revision checks, deadlines, account-retention policy and
+historical reports remain unchanged. No unsafe-debug setting is offered.
+
+Pinned-baseline observations have an optional `preflightDiagnostics` field. The
+first failed observation is retained even after convergence; up to 12 state
+transitions and the total observation/omission counts describe the bounded
+history. Object read windows are separate, not an atomic cluster snapshot.
+Deployment/Flux UID and resource-version fingerprints, generation/observed
+generation, desired/ready replicas, source/image matches and Ready predicates
+identify the failed check. Pod state includes terminating old Pods, workload/init
+restarts and current/previous exit codes and fixed reasons. Unknown fields remain
+unknown; arbitrary Kubernetes reasons/messages cannot become public labels.
+
+On the first failure only, collect recent events for the exact observed object
+UIDs (at most 32) and, where available, short current/previous controller log
+excerpts. Event/log reads cannot retry mutations or replace the primary error.
+The read-only Kubernetes observer still cannot read Secrets or any subresource.
+Native runs can use the separately guarded
+[private diagnostic read](../reference/dashboard-api.md#regression-runs) through
+the API's existing permissions, not an administrator fallback. An external runner,
+older endpoint or unavailable permission records that diagnostic gap explicitly.
+No setup steps, API-key privileges or runtime wait limits are added.
+
+Each baseline pass writes a separate `preflight-pins/<scope>.json` beside its
+worker journal; bounded event messages and log excerpts are in that scope's
+private subdirectory. First-failure and final attachments with the same scope are
+merged into one filtered trace diagnostic, including setup-hook failures. HTML
+and text show that safe history; JSON traces and scenario JUnit retain its
+structured fields. A trace retains at most four baseline scopes, preserving its
+first failure and recent scopes; `omittedPreflightDiagnostics` counts additional
+scopes explicitly. Per-sample component and Pod limits also report omissions.
+These diagnostics do not change test outcomes, counting units,
+cleanup proof or old reports. Raw logs and event messages never enter the archive.
 
 Raw Playwright tracing, video and screenshots remain off. These JSON traces do
 **not** work in the native Playwright trace viewer. Selectors, input values,
@@ -387,6 +480,8 @@ commit**, with the required jobs/artifact names. A private `tokenFile` in an
 existing profile may supply read-only GitHub access. API/network failures remain
 missing prerequisites; old or other-commit CI success is not substituted.
 Actual artifact/protocol verification still belongs to the tests.
+For anonymous companion checks, the selected run must have the matching public
+native proof; a newer PR artifact build cannot displace a readable trusted build.
 
 No model, key, module, user, license, sharing setting or host operation is changed.
 The separate preparation service can write **only private input files**. Normal
@@ -603,15 +698,27 @@ reads, workload creation or cluster-admin authority are required by observers.
 
 ### Phase 5 prerequisites
 
+Product-service/application **live** workflows are currently deferred to a
+separate suite: `MOD-03/04/10`, `APP-02/05/06/07/09/10`, `ACL-01/02/04/06`.
+Their U/C/B contracts stay selected. Setup discards retained service/app fixture
+choices for new runs rather than letting them reactivate deferred writes. Old
+resource journals retain exact cleanup and ownership checks; an unverified old
+receipt is not silently cleared. The application/service prerequisites below
+document retained adapters for future separate acceptance, not current standard
+run requirements. User, key, license, Kubernetes and GPU-profile prerequisites
+still apply; `MOD-06` is independent of app fixtures. Reports use three fixed
+`phase5/*-live (deferred to separate regression)` labels and never credit excluded
+live evidence. Historical reports keep their original scope and failures.
+
 - `identity.approveDisposableUsers`: creates only run-prefixed actors. Real
   sessions check user/viewer/operator/admin, reset/disable/enable, old-session
   demotion and self-disable protection. The recovery/last admin is never demoted.
-- `applications`: all five advertised app types must install. Review each HTTPS
+- `applications` (**deferred live adapter**): review the selected advertised app types. Review each HTTPS
   hostname template, accessible prompt/send controls and response selector for
   its shipped UI. Supply the narrow app cleaner. Tests create owned apps and a
   small CPU model, invoke the actual app UI, inspect catalog/context propagation,
   test selected-user and explicitly public access, then remove owned instances.
-- `modules`: select a non-critical optional module with a pre-created **disabled**
+- `modules` (**deferred live adapter**): select a non-critical optional module with a pre-created **disabled**
   intent and exact parameters. UI enable/Ready/API disable restores that intent;
   dashboard, identity, inference, GPU and Mesh are never optional fixtures.
   `moduleProfile` separately permits an advertised alternate AMD runtime profile
@@ -719,8 +826,18 @@ and clean only owned membership and models.
 
 `companion` consumes fresh native four-platform matrix evidence from the fixed
 repository's `build-mesh-companion.yml`. Pin the current installed commit and run
-ID; optional read-only API credentials stay in a token file. Archive acceptance
-JSON binds source/hash/platform and is retained 30 days. A Linux container does
+ID. Successful trusted builds publish the bounded public
+`magicstick-companion-acceptance` check using the workflow's own token; no GitHub
+credential is installed on the Appliance. Regression verifies the GitHub Actions
+issuer, exact commit, run/attempt and every native platform's source/hash and
+launch boundaries. The fixed workflow itself must also have finished successfully.
+Automatic preparation selects the matching readable trusted build, not a newer
+PR run that merely has acceptance artifacts. It retains the unexpired
+four-platform artifact check; legacy artifact-only selection needs the companion
+profile's own read-only token.
+Older artifact-only builds may use an existing scoped Actions-read token file;
+otherwise `CI_ACCESS` names the missing prerequisite, not a product API failure.
+The exact build proof must be no older than 30 days. A Linux container does
 not execute Windows/macOS binaries. Launcher/loopback/authority proof expressly
 reports `meshInferenceVerified: false`; inference is the separate Mesh workflow.
 

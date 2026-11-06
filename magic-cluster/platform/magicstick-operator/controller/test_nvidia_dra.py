@@ -127,7 +127,12 @@ class NvidiaDraTests(unittest.TestCase):
         self.models = [self.model()]
         self.claims = []
         self.applied, self.patches, self.deleted, self.retired = [], [], [], []
-        self.release = {"metadata": {"generation": 1}, "status": {"observedGeneration": 1, "conditions": [{"type": "Ready", "status": "True"}]}}
+        self.release = {"metadata": {"generation": 1}, "spec": {"targetNamespace": "nvidia-dra-driver",
+            "chart": {"spec": {"chart": "dra-driver-nvidia-gpu", "version": "0.5.0",
+                "sourceRef": {"kind": "HelmRepository", "name": "nvidia-dra", "namespace": "flux-system"}}},
+            "valuesFrom": [{"kind": "ConfigMap", "name": "magicstick-nvidia-dra-values", "valuesKey": "values.json"}],
+            "values": {"kubeletPlugin": {"nodeSelector": {"nvidia.com/dra-kubelet-plugin": "true"}}}},
+            "status": {"observedGeneration": 1, "conditions": [{"type": "Ready", "status": "True"}]}}
         self.mocks = {"model_activations": lambda: self.models,
             "get_json": lambda _: {"spec": {"devicePlugin": {"config": {"name": "time-slicing-config"}}}},
             "get_core_resource": lambda *_: {"data": {"values.json": json.dumps({"nvidiaDriverRoot": "/", "resources": {"gpus": {"enabled": True}}}, sort_keys=True)}},
@@ -309,6 +314,144 @@ class NvidiaDraTests(unittest.TestCase):
         self.assertEqual(self.reconcile()["phase"], "Switching")
         self.assertEqual(self.deleted[0][1]["preconditions"], {"uid": "claim-uid", "resourceVersion": "9"})
         self.assertFalse(self.patches)
+
+    def interrupted_reverse_handoff(self):
+        self.config.update(allocationBackend="device-plugin", mode="exclusive")
+        self.models = []
+        labels = self.node["metadata"]["labels"]
+        labels.pop("appliance.magicstick.dev/nvidia-dra-config", None)
+        labels.update({"nvidia.com/device-plugin.config": "magicstick-exclusive",
+                       "appliance.magicstick.dev/nvidia-dra-ready": "false"})
+        values = {"nvidiaDriverRoot": "/", "resources": {"gpus": {"enabled": True}}}
+        def read_config(_version, _kind, _namespace, name):
+            return {"data": {"values.json": json.dumps(values)}} if name == "magicstick-nvidia-dra-values" else {
+                "data": {"magicstick-exclusive": json.dumps(self.c["nvidia_sharing_plugin_config"]("exclusive", 2))}}
+        def apply_patch(path, body):
+            self.patches.append((path, copy.deepcopy(body)))
+            if path.startswith("/api/v1/nodes/"):
+                for key, value in body["metadata"]["labels"].items():
+                    if value is None:
+                        labels.pop(key, None)
+                    else:
+                        labels[key] = value
+            elif path.endswith("/magicstick-nvidia-dra-values"):
+                values.update(json.loads(body["data"]["values.json"]))
+        self.mocks.update(get_core_resource=read_config, patch_json=apply_patch)
+        return labels, values
+
+    def test_reverse_handoff_without_completion_marker_converges_after_each_interruption(self):
+        labels, values = self.interrupted_reverse_handoff()
+        # Restarting reconciliation must work from observations alone; no
+        # successful DRA marker or in-memory transition state is available.
+        state = self.reconcile()
+        self.assertEqual(state["phase"], "Switching")
+        self.assertEqual(labels["nvidia.com/dra-kubelet-plugin"], "false")
+        self.assertEqual(labels["nvidia.com/gpu.deploy.device-plugin"], "false")
+        self.pods[0]["metadata"]["deletionTimestamp"] = "2026-01-01T00:00:00Z"
+        for _ in range(2):
+            self.c = load_controller()
+            self.assertEqual(self.reconcile()["phase"], "Switching")
+            self.assertEqual(labels["nvidia.com/gpu.deploy.device-plugin"], "false")
+            self.assertTrue(values["resources"]["gpus"]["enabled"])
+        self.pods[0]["status"]["phase"] = "Failed"
+        self.assertEqual(self.reconcile()["phase"], "Switching")
+        self.assertEqual(labels["nvidia.com/gpu.deploy.device-plugin"], "false")
+        self.pods.clear()
+        self.assertEqual(self.reconcile()["phase"], "Starting")
+        self.assertFalse(values["resources"]["gpus"]["enabled"])
+        self.assertEqual(labels["nvidia.com/gpu.deploy.device-plugin"], "true")
+        self.assertNotIn("appliance.magicstick.dev/nvidia-dra-config", labels)
+        for _ in range(2):
+            self.assertEqual(self.reconcile()["phase"], "Starting")
+        self.pods.append({"metadata": {"namespace": "gpu-operator", "ownerReferences": [
+            {"kind": "DaemonSet", "name": "nvidia-device-plugin-daemonset"}]},
+            "spec": {"nodeName": "fixture-node"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}})
+        self.node["status"]["allocatable"]["nvidia.com/gpu"] = "3"
+        labels["nvidia.com/gpu.replicas"] = "1"
+        self.assertEqual(self.reconcile()["phase"], "Starting")
+        self.node["status"]["allocatable"]["nvidia.com/gpu"] = "4"
+        labels["nvidia.com/gpu.replicas"] = "2"
+        self.assertEqual(self.reconcile()["phase"], "Starting")
+        labels["nvidia.com/gpu.replicas"] = "1"
+        writes = len(self.patches)
+        for _ in range(2):
+            state = self.reconcile()
+            self.assertEqual(state["phase"], "Ready")
+            self.assertEqual(state["slotLimit"], 4)
+        self.assertEqual(len(self.patches), writes)
+        self.assertFalse(self.applied)
+
+    def test_missing_marker_reverse_handoff_still_checks_foreign_claims_and_consumers(self):
+        for kind in ("allocated-claim", "reserved-claim", "external-pod", "wrong-node", "wrong-claim-uid"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                labels, _ = self.interrupted_reverse_handoff()
+                if kind in ("allocated-claim", "reserved-claim"):
+                    self.claims = [{"metadata": {"namespace": "other", "name": "foreign"},
+                        "spec": {"devices": {"requests": [{"exactly": {"deviceClassName": "gpu.nvidia.com"}}]}},
+                        "status": {"allocation": {"devices": {"results": [{"driver": "gpu.nvidia.com"}]}}}
+                        if kind == "allocated-claim" else {"reservedFor": [{"uid": "foreign-pod"}]}}]
+                elif kind == "external-pod":
+                    self.pods.append({"metadata": {"namespace": "other"}, "spec": {"containers": [
+                        {"resources": {"requests": {"nvidia.com/gpu": "1"}}}]}, "status": {"phase": "Running"}})
+                else:
+                    claim = self.c["nvidia_dra_claim"](self.config, self.devices[2])
+                    claim["metadata"].update(uid="fixture-claim", resourceVersion="7")
+                    if kind == "wrong-node":
+                        claim["metadata"]["annotations"]["appliance.magicstick.dev/node-uid"] = "replaced-node"
+                    else:
+                        claim["metadata"].pop("uid")
+                    self.claims = [claim]
+                self.assertEqual(self.reconcile()["phase"], "Blocked")
+                self.assertFalse(self.patches)
+                self.assertFalse(self.deleted)
+                self.assertEqual(labels["nvidia.com/dra-kubelet-plugin"], "true")
+
+    def test_missing_marker_reverse_handoff_keeps_owned_claims_until_independent_absence(self):
+        labels, _ = self.interrupted_reverse_handoff()
+        claim = self.c["nvidia_dra_claim"](self.config, self.devices[2])
+        claim["metadata"].update(uid="fixture-claim", resourceVersion="7")
+        claim["status"] = {"reservedFor": [{"uid": "fixture-consumer"}]}
+        self.claims = [claim]
+        self.assertEqual(self.reconcile()["phase"], "Switching")
+        self.assertFalse(self.deleted)
+        claim["status"] = {}
+        self.assertEqual(self.reconcile()["phase"], "Switching")
+        self.assertEqual(self.deleted[-1][1]["preconditions"], {"uid": "fixture-claim", "resourceVersion": "7"})
+        claim["metadata"]["deletionTimestamp"] = "2026-01-01T00:00:00Z"
+        self.assertEqual(self.reconcile()["phase"], "Switching")
+        self.assertEqual(labels["nvidia.com/dra-kubelet-plugin"], "true")
+        self.assertFalse(self.patches)
+        self.claims.clear()
+        self.assertEqual(self.reconcile()["phase"], "Switching")
+        self.assertEqual(labels["nvidia.com/dra-kubelet-plugin"], "false")
+
+    def test_reverse_handoff_detects_each_partial_state_but_never_adopts_external_configuration(self):
+        for kind in ("label", "pod", "values", "external-chart", "external-selector", "external-config", "wrong-node"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                labels, values = self.interrupted_reverse_handoff()
+                if kind in ("pod", "values"):
+                    labels["nvidia.com/gpu.deploy.device-plugin"] = "true"
+                    labels["nvidia.com/dra-kubelet-plugin"] = "false"
+                if kind in ("label", "values"):
+                    self.pods.clear()
+                if kind in ("label", "pod"):
+                    values["resources"]["gpus"]["enabled"] = False
+                if kind == "external-chart":
+                    self.release["spec"]["chart"]["spec"]["sourceRef"]["name"] = "external"
+                if kind == "external-selector":
+                    self.release["spec"]["values"]["kubeletPlugin"]["nodeSelector"] = {"external": "true"}
+                if kind == "external-config":
+                    labels["nvidia.com/device-plugin.config"] = "external-profile"
+                if kind == "wrong-node":
+                    self.node["metadata"]["uid"] = "replacement-node"
+                state = self.reconcile()
+                self.assertEqual(state["phase"], "Blocked" if kind.startswith("external") or kind == "wrong-node" else
+                                 "Starting" if kind == "values" else "Switching")
+                if state["phase"] == "Blocked":
+                    self.assertFalse(self.patches)
+                    self.assertFalse(self.deleted)
 
     def test_native_adapter_is_narrow_and_fail_closed(self):
         policy, binding = self.c["nvidia_dra_policies"]()

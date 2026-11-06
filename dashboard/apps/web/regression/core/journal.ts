@@ -1,17 +1,19 @@
 import {randomUUID} from 'node:crypto';
 import {HarnessError, requireSafe,reasons,stages,type ReasonCode,type Stage} from './errors.ts';
 import {readPrivate, writePrivate} from './private-files.ts';
+import {CleanupRecorder,cleanupOperations,type CleanupObservation,type CleanupDiagnostic} from './cleanup-diagnostic.ts';
 
 export type ResourceKind = 'model' | 'app' | 'key' | 'identity';
-const cleanupOperations=['guard','lookup','remove','verify','persist'] as const;
 export interface CleanupFailure {operation:typeof cleanupOperations[number];reason:ReasonCode;stage?:Stage}
 export interface JournalEntry {kind: ResourceKind; name: string; uid: string | null; state: 'requested' | 'owned' | 'removed' | 'blocked'; generation?: number;
   cleanupFailure?:CleanupFailure}
 interface JournalData {version: 1; runId: string; targetUid: string; prefix: string; entries: JournalEntry[]}
 
 function cleanupFailure(operation:CleanupFailure['operation'],error:unknown):CleanupFailure {
-  const reason=error instanceof HarnessError && Object.hasOwn(reasons,error.code) ? error.code : 'UNEXPECTED';
-  const stage=error instanceof HarnessError && error.stage && stages.includes(error.stage) ? error.stage : undefined;
+  const cause=error instanceof HarnessError ? error.causeReason??error.code : undefined;
+  const at=error instanceof HarnessError ? error.causeStage??error.stage : undefined;
+  const reason=cause&&Object.hasOwn(reasons,cause)?cause:'UNEXPECTED';
+  const stage=at&&stages.includes(at)?at:undefined;
   return {operation,reason,...(stage?{stage}:{})};
 }
 function validCleanupFailure(value:unknown):value is CleanupFailure {
@@ -21,10 +23,10 @@ function validCleanupFailure(value:unknown):value is CleanupFailure {
     Object.hasOwn(reasons,item.reason) && (item.stage===undefined || stages.includes(item.stage));
 }
 export interface CleanupAdapter {
-  lookup(entry: JournalEntry): Promise<{uid: string} | null>;
+  lookup(entry: JournalEntry,observe?:(value:Omit<CleanupObservation,'at'|'elapsedMs'>)=>Promise<void>): Promise<{uid: string;generation?:number;deleting?:boolean} | null>;
   /** Must reject UID replacement atomically, not GET-then-DELETE by name. */
-  removeIfUid(entry: JournalEntry, uid: string): Promise<void>;
-  verifyRemoved(entry: JournalEntry): Promise<boolean>;
+  removeIfUid(entry: JournalEntry, uid: string,observe?:(value:Omit<CleanupObservation,'at'|'elapsedMs'>)=>Promise<void>): Promise<void>;
+  verifyRemoved(entry: JournalEntry,observe?:(value:Omit<CleanupObservation,'at'|'elapsedMs'>)=>Promise<void>): Promise<boolean>;
 }
 
 /** AppInstance names have a catalog-type prefix before the run prefix. It is
@@ -49,6 +51,7 @@ export class ResourceJournal {
   readonly filename: string;
   private data: JournalData;
   private writes:Promise<void> = Promise.resolve();
+  private diagnosticRecorders=new Map<string,CleanupRecorder>();
   private constructor(filename: string, data: JournalData) { this.filename = filename; this.data = data; }
   get entries(): ReadonlyArray<JournalEntry> { return this.data.entries.map(item => ({...item,
     ...(item.cleanupFailure?{cleanupFailure:{...item.cleanupFailure}}:{})})); }
@@ -57,6 +60,7 @@ export class ResourceJournal {
     return this.data.entries.flatMap(item=>item.cleanupFailure?[{kind:item.kind,...item.cleanupFailure}]:[]);
   }
   get runId() { return this.data.runId; }
+  get diagnostics():CleanupDiagnostic[] {return [...this.diagnosticRecorders.values()].flatMap(r=>{const d=r.snapshot();return d?[d]:[];});}
   get prefix() { return this.data.prefix; }
 
   static async create(filename: string, runId: string, targetUid: string) {
@@ -139,6 +143,13 @@ export class ResourceJournal {
     automaticallyRemovable: (item.state === 'owned' || item.state === 'blocked') && item.uid !== null &&
       (!['model','app'].includes(item.kind) || item.generation !== undefined)})); }
 
+  async verifyCleanup(adapters:Record<ResourceKind,CleanupAdapter>,assertHeld:()=>Promise<void>) {
+    requireSafe(this.recoveryPlan().length===0,'CLEANUP');
+    for(const entry of this.entries) {
+      await assertHeld();requireSafe(await adapters[entry.kind].verifyRemoved(entry),'CLEANUP');
+    }
+  }
+
   async cleanup(adapters: Record<ResourceKind, CleanupAdapter>, assertHeld: () => Promise<void>,
     only?: {kind: ResourceKind; name: string}) {
     if (only) requireSafe(this.data.entries.some(entry => entry.kind === only.kind && entry.name === only.name), 'OWNERSHIP');
@@ -147,32 +158,47 @@ export class ResourceJournal {
       if (entry.state === 'removed') continue;
       if (only && (entry.kind !== only.kind || entry.name !== only.name)) continue;
       let operation:CleanupFailure['operation']='guard';
+      const diagnosticKey=entry.kind+':'+entry.name;
+      let diagnostic=this.diagnosticRecorders.get(diagnosticKey);
+      if(!diagnostic){diagnostic=new CleanupRecorder(this,entry);this.diagnosticRecorders.set(diagnosticKey,diagnostic);}
+      const observe=diagnostic.begin();
       try {
+        await diagnostic.record({operation,state:'running'});
         await assertHeld();
         operation='lookup';
+        await diagnostic.record({operation,state:'running'});
         requireSafe((entry.state === 'owned' || entry.state === 'blocked') && entry.uid, 'OWNERSHIP');
         const adapter = adapters[entry.kind];
         requireSafe(adapter, 'CLEANUP');
-        const current = await adapter.lookup({...entry});
+        const current = await adapter.lookup({...entry},observe);
+        await diagnostic.record({operation,state:'passed',exists:current!==null,uidMatches:current?current.uid===entry.uid:null,
+          ...(entry.generation!==undefined?{expectedGeneration:entry.generation,generationMatches:current?.generation===undefined?null:current.generation===entry.generation}:{}),
+          ...(current?.generation!==undefined?{observedGeneration:current.generation}:{}),...(current?.deleting!==undefined?{deleting:current.deleting}:{})});
         if (current) {
           requireSafe(current.uid === entry.uid, 'OWNERSHIP');
           operation='guard';
           await assertHeld();
           operation='remove';
-          await adapter.removeIfUid({...entry}, entry.uid);
+          await diagnostic.record({operation,state:'running'});
+          await adapter.removeIfUid({...entry}, entry.uid,observe);
+          await diagnostic.record({operation,state:'passed'});
         }
         operation='verify';
-        requireSafe(await adapter.verifyRemoved({...entry}), 'CLEANUP');
+        await diagnostic.record({operation,state:'running'});
+        requireSafe(await adapter.verifyRemoved({...entry},observe), 'CLEANUP');
         entry.state = 'removed'; delete entry.cleanupFailure;operation='persist';await this.persist();
+        await diagnostic.complete();
       } catch(error) {
         entry.state = 'blocked';entry.cleanupFailure=cleanupFailure(operation,error);
         // Diagnostic storage can fail too. Keep the in-memory fence and the
         // fixed persist reason; a later attempt still re-observes exact UID.
         try{await this.persist();}catch(persistError){entry.cleanupFailure=cleanupFailure('persist',persistError);}
         failures.push({...entry.cleanupFailure});
+        await diagnostic.failure(operation,error);
       }
     }
-    if (failures.length) throw new HarnessError('CLEANUP', 'Failed',failures[0]!.stage ?? 'cleanup');
+    if (failures.length) throw new HarnessError('CLEANUP', 'Failed',failures[0]!.stage ?? 'cleanup',
+      {reason:failures[0]!.reason,stage:failures[0]!.stage});
   }
 }
 

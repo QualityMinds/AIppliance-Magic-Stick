@@ -1,5 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {parseLabConfig} from '../core/config.ts';
 import {allowedPreparationRequest,estimateInput,preparationApi} from '../core/preparation-api.ts';
 import {automaticInputRecovery,catalogFixture,inputHash,inputReadiness,pinChanges,preparationArguments,prepareInputs,preparedProfile,
@@ -31,12 +33,12 @@ function snapshot():PreparationSnapshot {
     readableFiles:['/inputs/username.txt','/inputs/password.txt','/inputs/observer.yaml','/inputs/locker.yaml','/inputs/model-cleaner.yaml']};
 }
 
-test('MOD-03 automatic optional-module fixture is a real service, never an operator or empty instance-provider base',()=>{
+test('MOD-03 deferred optional-service fixtures are never prepared, including retained profiles and enabled services',()=>{
   const observed=snapshot();
   observed.modules={modules:{'agent-sandbox':{enabled:false},service:{enabled:false}},catalogJson:{modules:{
     'agent-sandbox':{group:'operators',activationMode:'moduleactivation'},service:{group:'apps',activationMode:'moduleactivation'}}}};
   const lab=prepareInputs(source(),observed,options,{}).parsed;
-  expect(automaticProfile(observed,{},lab).modules?.id).toBe('service');
+  expect(automaticProfile(observed,{},lab)).not.toHaveProperty('modules');
   observed.modules.modules.service!.enabled=true;
   expect(automaticProfile(observed,{},lab).modules?.id).toBeUndefined();
   observed.modules.catalogJson!.modules!.provider={group:'apps',activationMode:'moduleactivation'};
@@ -45,7 +47,11 @@ test('MOD-03 automatic optional-module fixture is a real service, never an opera
   expect(automaticProfile(observed,{},lab).modules?.id).toBeUndefined();
   observed.status.httpRoutes=[{name:'service',accepted:true,hostnames:['service.example.local']}];
   observed.modules.modules.service!.parameters={workspace:'existing-value'};
-  expect(automaticProfile(observed,{},lab).modules).toEqual({approveOptionalModule:true,id:'service',parameters:{workspace:'existing-value'}});
+  const previous={modules:{approveOptionalModule:true,id:'service',parameters:{workspace:'existing-value'}}};
+  const original=structuredClone(observed.modules);
+  expect(automaticProfile(observed,previous,lab)).not.toHaveProperty('modules');
+  expect(preparedProfile(previous,observed,{...options,approve:['modules']})).not.toHaveProperty('modules');
+  expect(observed.modules).toEqual(original);expect(previous.modules.id).toBe('service');
 });
 
 test('K8S-05 export readiness is independent of exec-plugin and cluster-admin prerequisites',()=>{
@@ -134,6 +140,29 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD teleme
   delete prepared.parsed.gpu!.devices.amd;
   expect(profile.identity.approveDisposableUsers).toBe(true);expect(profile.license.approveLicenseReplacement).toBe(true);
   expect(profile.unmanagedKey.createDisposableFixture).toBe(true);
+  observed.modules.catalogJson??={};observed.modules.catalogJson.applications??={};
+  for(const type of ['hermes','openclaw','paperclip','kubeopencode','odysseus'])observed.modules.catalogJson!.applications[type]={};
+  expect(automaticProfile(observed,{},prepared.parsed)).not.toHaveProperty('applications');
+  const previous={applications:{cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:[
+    {type:'hermes',adapter:'hermes-terminal-v1',originTemplate:'https://{name}.hermes.example.local/',responseMarker:'REGRESSION'},
+    {type:'kubeopencode',adapter:'opencode-chat-v1',originTemplate:'https://{name}.kubeopencode.example.local/',responseMarker:'REGRESSION'}]}};
+  const refreshed=preparedProfile(previous,observed,options);
+  expect(refreshed).not.toHaveProperty('applications');
+  expect(previous.applications.fixtures[0]!.type).toBe('hermes');
+  expect(suiteInventory(observed.models,observed.modules,observed.status,observed.hosts).applications).toEqual([]);
+  expect(observed.modules.catalogJson!.applications).toHaveProperty('hermes');
+  observed.readableFiles.push('/inputs/app-cleaner.kubeconfig');
+  const appReadiness=inputReadiness(prepared.parsed,{...profile,...previous},observed,{...options,phases:[5],automatic:true})[0]!;
+  expect(appReadiness.measures.some(item=>String(item.id).startsWith('app-'))).toBe(false);
+  expect(appReadiness.measures.some(item=>item.id==='app-hermes')).toBe(false);
+  expect(appReadiness.measures.some(item=>item.id==='optional-module')).toBe(false);
+  for(const id of ['APP-02','MOD-03','MOD-04','MOD-10','ACL-01','ACL-02','ACL-04','ACL-06'])
+    expect(appReadiness.cases!.some(item=>item.id===id),id).toBe(false);
+  expect(appReadiness.cases!.find(item=>item.id==='MOD-06')!.state).toBe('Blocked');
+  const gpuReady=inputReadiness(prepared.parsed,{...profile,moduleProfile:{profileId:'strix-halo',allowExperimental:true,approveTemporaryProfile:true}},
+    observed,{...options,phases:[5],automatic:true})[0]!;
+  expect(gpuReady.cases!.find(item=>item.id==='MOD-06')!.state).toBe('InputsReady');
+  expect(gpuReady.cases!.find(item=>item.id==='USER-02')!.state).toBe('InputsReady');
   const report=inputReadiness(prepared.parsed,profile,observed,{...options,automatic:true,approve:[...labPolicy.scopes] as any});
   const guidance=readinessLines(report).join('\n');
   expect(guidance).not.toMatch(/--approve|ACCEPT|answer .*questions|accept .*proposal/i);
@@ -149,6 +178,41 @@ test('HAR-10 automatic base identity tests remain selectable when no inference r
   expect(recipes.cases['BOOT-02']?.recipe.action).toBe('reboot');
   expect(recipes.cases['BOOT-03']).toBeUndefined();
   expect(recipes.cases['NET-07']).toBeUndefined();
+});
+
+test('MOD-06 HAR-10 one selected AMD profile still has the real upstream-rules alternative',()=>{
+  const observed=snapshot(),host=observed.hosts[0]!,lab=prepareInputs(source(),observed,options,{}).parsed;
+  const device={id:'node-uid/0000:02:00.0',pciAddress:'0000:02:00.0',vendor:'amd',node:host.name,
+    nodeUid:host.nodeUid,name:'Synthetic AMD',eligible:true};
+  const compatibility={selectedProfile:'strix-halo',profiles:[{id:'strix-halo',displayName:'AMD',experimental:true,memoryArchitecture:'unified'}]};
+  observed.status.hardwareOperators={'amd-gpu':{devices:[device],compatibility}} as any;
+  lab.gpu={selection:'available-providers',acknowledgeSharingTransitions:true,nodeName:host.name,nodeUid:host.nodeUid,
+    bootId:host.bootId,sharedSlots:2,devices:{amd:{id:device.id,pciAddress:device.pciAddress}},models:{}};
+  const profile=automaticProfile(observed,{},lab);
+  expect(profile.moduleProfile).toEqual({approveTemporaryProfile:true,profileId:'',allowExperimental:false});
+  const readiness=inputReadiness(lab,profile,observed,{...options,phases:[5],automatic:true})[0]!;
+  expect(readiness.measures.some(item=>item.id==='amd-profile')).toBe(false);
+  device.eligible=false;expect(automaticProfile(observed,{},lab).moduleProfile).toBeUndefined();
+  device.eligible=true;compatibility.selectedProfile='not-advertised';
+  expect(automaticProfile(observed,{},lab).moduleProfile).toBeUndefined();
+});
+
+test('MOD-06 HAR-10 AMD profile readiness distinguishes upstream rules from a missing or unchanged choice',()=>{
+  const observed=snapshot(),lab=prepareInputs(source(),observed,options,{}).parsed;
+  observed.status.hardwareOperators={'amd-gpu':{compatibility:{selectedProfile:'strix-halo',profiles:[
+    {id:'strix-halo',displayName:'AMD',experimental:true,memoryArchitecture:'unified'}]}}} as any;
+  const blocked=(moduleProfile:unknown)=>inputReadiness(lab,{moduleProfile},observed,{...options,phases:[5],automatic:true})[0]!
+    .measures.some(item=>item.id==='amd-profile');
+  expect(blocked({approveTemporaryProfile:true,profileId:'',allowExperimental:false})).toBe(false);
+  for(const plan of [undefined,{approveTemporaryProfile:true},
+    {approveTemporaryProfile:true,profileId:'strix-halo',allowExperimental:true},
+    {approveTemporaryProfile:true,profileId:'not-advertised',allowExperimental:true},
+    {approveTemporaryProfile:false,profileId:'',allowExperimental:false}])expect(blocked(plan)).toBe(true);
+  observed.status.hardwareOperators!['amd-gpu']!.compatibility!.selectedProfile='';
+  expect(blocked({approveTemporaryProfile:true,profileId:'',allowExperimental:false})).toBe(true);
+  expect(blocked({approveTemporaryProfile:true,profileId:'strix-halo',allowExperimental:true})).toBe(false);
+  observed.status.hardwareOperators!['amd-gpu']!.compatibility!.selectedProfile='not-advertised';
+  expect(blocked({approveTemporaryProfile:true,profileId:'',allowExperimental:false})).toBe(true);
 });
 
 test('HAR-10 automatic discovery prepares NVIDIA fixtures for four identical physical cards',()=>{
@@ -200,6 +264,17 @@ test('HAR-10 preparation selection is bounded; no ambient or blanket approval',(
   for(const args of [['--phases','8-0'],['--phases','9'],['--approve','all'],['--approve','reboot'],['--drill','NET-07'],
     ['--accept','../../lab.json'],['--independent-recovery'],['--phases','0','--phases','1']])
     expect(()=>preparationArguments(args)).toThrow();
+  // Playwright transpiles imported helpers; Kubernetes invokes this entrypoint
+  // with plain Node. Reach argument validation without inputs, a browser or writes.
+  const env=Object.fromEntries(Object.entries(process.env).filter(([name])=>!name.startsWith('REGRESSION_')&&name!=='NODE_OPTIONS'));
+  for(const worker of [false,true]) {
+    const result=spawnSync(process.execPath,[fileURLToPath(new URL('../prepare.mjs',import.meta.url)),
+      ...(worker?['--worker']:[]),'--not-a-preparation-option'],{env,encoding:'utf8',timeout:15_000});
+    expect(result.error).toBeUndefined();expect(result.status).toBe(1);
+    expect(result.stderr).toContain('[CONFIG]');
+    expect(result.stderr).toContain('[SETUP_STAGE:input-discovery]');
+    expect(result.stderr).not.toContain('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX');
+  }
 });
 
 test('HAR-10 initial candidate uses independent identities, exact runtime pins and catalog CPU fixtures',()=>{
@@ -225,7 +300,8 @@ test('HAR-10 repeated prepare preserves reviewed models, endpoints, budgets and 
   const previous={version:1,applications:{fixtures:[{type:'openclaw',promptLabel:'Reviewed prompt'}]},
     identity:{approveDisposableUsers:false},repeat:{cycles:5,maximumMemoryGrowthMi:512,maximumNonCacheDiskGrowthBytes:1234}};
   const profile=preparedProfile(previous,observed,options);
-  expect(profile.applications.fixtures).toEqual(previous.applications.fixtures);
+  expect(profile).not.toHaveProperty('applications');
+  expect(previous.applications.fixtures[0]!.promptLabel).toBe('Reviewed prompt');
   expect(profile.repeat.cycles).toBe(5);expect(profile.identity.approveDisposableUsers).toBe(false);
   expect(profile.license.approveLicenseReplacement).toBe(false);expect(profile.kubernetes.approveAdminGrant).toBe(false);
   expect(profile.cache).toEqual({});

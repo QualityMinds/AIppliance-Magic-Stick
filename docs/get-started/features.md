@@ -2,6 +2,12 @@
 
 ## What you can do
 
+- Install new Ubuntu 26.04 appliances through the normal host bootstrap with a
+  reviewed, enforcing containerd AppArmor compatibility profile loaded before
+  K3s. No global AppArmor disablement or kernel downgrade is used; existing
+  unowned clusters are not silently changed. See
+  [host bootstrap boundaries](../administration/host-management.md#container-runtime-apparmor-bootstrap).
+  Fresh VM/physical installation acceptance remains separate from local checks.
 - Run local models with Ollama or vLLM on eligible CPU/GPU targets.
 - Create and edit Ollama, vLLM and experimental vLLM-Omni in one local-model
   configuration form, with shared runtime/CPU controls and engine-specific
@@ -48,24 +54,55 @@
 - Run the existing P0 suite from **System → System Status → Regression tests** on a dedicated,
   registered test Appliance **without a license**; see progress, Passed/Failed/Blocked results and
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
+  Filtered diagnostics retain the first failed baseline check and its observation
+  history, including safe Kubernetes events and container restart/exit states;
+  raw event messages and optional bounded controller logs remain private.
   Run all phases by default or select one or more, such as Phase 3 only; progress
   and reports retain that selection without crediting unselected phases.
+  Phase 4 also offers fixed diagnostic subsets for slot races, reload and exact
+  restoration, individually or together. These retain automatic preparation and
+  cleanup and never certify the whole phase.
   Choose **Non-destructive only** (default) for isolated tests and live read-only
   inventory, or **Include destructive tests** for model/service/configuration
   workflows. The limited mode creates only test infrastructure and a temporary
   viewer account; excluded live steps are named, not counted as passed.
+  Product-service/application live workflows, including Hermes, service
+  credentials and app access, are currently deferred to separate regression.
+  Isolated checks and core identity/license/Kubernetes/model/GPU coverage stay
+  active; reports name exclusions without claiming service/application acceptance.
+  Fixed diagnostic selections can repeat existing external-provider, GPU-verification,
+  two-card independent-copy Ollama, two-/four-card shared split and sharing scenarios without claiming that
+  the complete phase was tested.
   Clean up the previous run separately, including retained setup access when its
   lock is already free; disabled actions explain their blocking condition.
   Distinguish missing prerequisites from checks blocked by an earlier failure,
   with the original blocking check and trace when recorded.
-  Automatic preparation failures show their setup stage and next action; fixture
-  and live evidence counts are displayed separately.
+  Automatic preparation failures show their setup stage and next action.
+  **All checks** includes isolated and live evidence, including runner and cleanup
+  errors; **Executable scenarios** has separate, initially closed details.
+  Live evidence stays separately labelled. Missing final totals are not shown as
+  zero failures; 100% progress means execution finished, not passed.
+  Expand **Cleanup observations** for the original cause, remaining resources
+  and observed wait budget. Sanitized traces retain useful reviewed step names,
+  including shared helpers; credentials and raw responses stay excluded.
+  Kubernetes cleanup details distinguish revision conflicts, access denial and
+  unavailable responses; safe conflict retries retain ownership checks.
+  A report-download export failure retains completed results and does not by
+  itself require cleanup or repeating the tests.
   Each full start cleans up the previous run and begins again with a fresh test ID.
   Non-destructive starts require any previous-run cleanup to be completed separately.
   **Clean up previous test run** is also available for diagnosis; cleanup
   verifies the retained resource identities and revisions.
+  Interrupted Kubernetes executions require exact termination evidence as well;
+  ended Linux zombies are distinguished from live workers, and original runner
+  failures remain visible after cleanup.
+  Test completion, verified resource cleanup and test-account removal are shown
+  separately; an old report without cleanup evidence is not labelled clean.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
+- Optionally select **Remember me** on the local login page to stay signed in
+  across browser restarts: seven days idle, thirty days maximum. Unchecked
+  sessions keep the thirty-minute idle limit. [Signing in](../user-guide/dashboard.md#signing-in).
 
 ## What is not automatic
 

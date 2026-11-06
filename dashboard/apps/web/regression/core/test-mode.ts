@@ -1,6 +1,7 @@
 import type {RegressionTestMode} from '@magicstick/dashboard-contracts';
 import {phaseSteps} from '../profiles/selections.ts';
 import {requireSafe} from './errors.ts';
+import {deferredApplicationSteps} from './engine-policy.ts';
 
 export function testMode(value: unknown = 'full'): RegressionTestMode {
   requireSafe(value === 'full' || value === 'non-destructive', 'CONFIG');
@@ -15,10 +16,11 @@ export function selectedSteps(phase: number, mode: RegressionTestMode): string[]
   return mode === 'full' ? [...steps] : [...steps.filter(isolatedStep), 'non-destructive-live'];
 }
 export function excludedSteps(mode: RegressionTestMode, phases: readonly number[]): string[] {
-  return mode === 'full' ? [] : [...new Set(phases.flatMap(phase => {
+  const modeExclusions=mode === 'full' ? [] : phases.flatMap(phase => {
     selectedSteps(phase, mode);
     return phaseSteps[`phase${phase}` as keyof typeof phaseSteps].filter(step => !isolatedStep(step)).map(step => `phase${phase}/${step}`);
-  }))];
+  });
+  return [...new Set([...modeExclusions,...deferredApplicationSteps(phases)])];
 }
 export function requireSafeStep(step: string, mode: RegressionTestMode) {
   requireSafe(mode === 'full' || isolatedStep(step) || step === 'non-destructive-live' || step === 'all' || /^phase[0-8]$/.test(step) || step === 'typecheck', 'MUTATION');

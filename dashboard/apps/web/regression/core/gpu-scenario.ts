@@ -132,7 +132,7 @@ export class GpuScenario {
       requireSafe(!activeJobs.some(unfinishedJob),'BUSY');
       await writePrivate(join(directory,'gpu-baseline.json'),{version:1,runId:journal.runId,
         applianceUid:config.expected.applianceUid,nodeUid:config.gpu!.nodeUid,bootId:config.gpu!.bootId,models:scenario.originalModels},true);
-      for (const provider of ['amd','nvidia'] as const) if(config.gpu!.devices[provider])await sharing.borrow(provider);
+      for (const provider of ['amd','nvidia'] as const) if(config.gpu!.devices[provider])await atStage('gpu-backend',()=>sharing.borrow(provider));
       return scenario;
     } catch (error) {await live.close(); throw error;}
   }
@@ -183,7 +183,7 @@ export class GpuScenario {
     }
     return this.waitBackend(provider,mode,count,allocationBackend);
   }
-  async waitBackend(provider:Provider,mode:GpuSharingState['mode'],count=2,allocationBackend:'dra'|'device-plugin'='device-plugin') {
+  async waitBackend(provider:Provider,mode:GpuSharingState['mode'],count=2,allocationBackend:'dra'|'device-plugin'='device-plugin',unmanagedDefaults=false) {
     const physicalCount=await this.physicalCount(provider);
     const state = await poll(async () => {
       await this.live.guard(); const current = await this.state(provider);
@@ -194,7 +194,8 @@ export class GpuScenario {
       if (provider === 'nvidia' && allocationBackend === 'dra') backend = current.backend === 'dra' &&
         node.metadata.labels?.['appliance.magicstick.dev/nvidia-dra-ready'] === 'true' && !Number(node.status?.allocatable?.['nvidia.com/gpu']);
       else if (provider === 'nvidia') backend = Number(node.status?.allocatable?.['nvidia.com/gpu']) === gpuSlotCapacity(physicalCount,mode,count) &&
-        node.metadata.labels?.['nvidia.com/device-plugin.config'] === (mode === 'exclusive' ? 'magicstick-exclusive' : `magicstick-shared-${count}`) &&
+        (node.metadata.labels?.['nvidia.com/device-plugin.config'] === (mode === 'exclusive' ? 'magicstick-exclusive' : `magicstick-shared-${count}`) ||
+          unmanagedDefaults && !node.metadata.labels?.['nvidia.com/device-plugin.config']) &&
         Number(node.metadata.labels?.['nvidia.com/gpu.replicas'] ?? 1) === expected;
       else if (mode === 'exclusive') backend = Number(node.status?.allocatable?.['amd.com/gpu']) === 1;
       else {
@@ -213,7 +214,7 @@ export class GpuScenario {
       const target = models.computeTargets.targets.find(item=>item.id === `${provider}-gpu`);
       return {current,backend,slots:target?.slots,physicalCount};
     },value => value.current.phase === 'Ready' && value.current.mode === mode && value.current.maxModels === count &&
-      value.backend && value.slots?.total === (mode === 'exclusive' ? 1 : count) * value.physicalCount,
+      (!unmanagedDefaults || !value.current.managed) && value.backend && value.slots?.total === (mode === 'exclusive' ? 1 : count) * value.physicalCount,
     {timeoutMs:600_000,intervalMs:1000,stage:'gpu-backend'});
     return state.current;
   }
@@ -404,7 +405,9 @@ export class GpuScenario {
       requireSafe(!jobs.some(unfinishedJob),'BUSY');
     });
     await atStage('recovery-sharing',()=>this.sharing.restore());
-    for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount,entry.originalBackend ?? 'device-plugin');
+    for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount,
+      entry.originalBackend ?? 'device-plugin',Boolean(entry.originalDefaults));
+    await this.sharing.verifyRestored();
     const current = await this.live.api.models();
     for (const original of this.originalModels) {
       const item = activation(current,original.name);
@@ -423,7 +426,13 @@ export function sharingAdapter(live:LiveFoundation):SharingAdapter {
           live.config.expected.applianceNamespace,provider === 'amd' ? 'amd-gpu' : 'gpu');
         const state = states.providers.find(item=>item.provider === provider);
         requireSafe(state,'CAPABILITY');
-        if (state.expectedRevision === object.metadata.resourceVersion) return {state,object};
+        if (state.expectedRevision === object.metadata.resourceVersion) {
+          if (!state.managed) {
+            const node=await live.observer.get('nodes',undefined,live.config.gpu!.nodeName);
+            requireDefaultGpuBackend(state,node,live.config.gpu!.nodeUid,live.config.gpu!.bootId);
+          }
+          return {state,object};
+        }
       }
       throw new HarnessError('CONFLICT');
     },
@@ -448,6 +457,21 @@ export function sharingAdapter(live:LiveFoundation):SharingAdapter {
       requireSafe(result.accepted === true && result.mode === request.mode,'API');
     },
   };
+}
+
+/** An unset ModuleActivation alone is not proof of installation defaults: an
+ * externally selected shared/MIG/DRA backend must not be silently adopted. */
+export function requireDefaultGpuBackend(state:GpuSharingState,node:KubeObject,nodeUid:string,bootId?:string) {
+  // Ordinary scenarios retain their boot pin. Old-run recovery has a current
+  // installation/node guard but deliberately no pre-reboot acceptance pin.
+  requireSafe(node.metadata.uid === nodeUid && (bootId === undefined || node.status?.nodeInfo?.bootID === bootId),'IDENTITY');
+  const labels=node.metadata.labels ?? {},physical=state.provider === 'nvidia' ? Number(labels['nvidia.com/gpu.count']) : 1;
+  requireSafe(!state.managed && state.available && state.mode === 'exclusive' && Number.isSafeInteger(physical) && physical > 0 &&
+    Number(node.status?.allocatable?.[`${state.provider}.com/gpu`]) === physical &&
+    (state.provider !== 'nvidia' || state.backend === 'time-slicing' &&
+      ['', 'magicstick-exclusive'].includes(labels['nvidia.com/device-plugin.config'] ?? '') &&
+      Number(labels['nvidia.com/gpu.replicas'] ?? 1) === 1 && !labels['appliance.magicstick.dev/nvidia-dra-config'] &&
+      labels['nvidia.com/dra-kubelet-plugin'] !== 'true'),'CAPABILITY');
 }
 
 export function physicalDevice(devices:HardwareGpuDevice[],provider:Provider) {return devices.find(device=>device.vendor === provider)!;}

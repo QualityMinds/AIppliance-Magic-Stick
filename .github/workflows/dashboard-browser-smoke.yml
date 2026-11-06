@@ -12,6 +12,7 @@ on:
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py
       - magic-cluster/apps/dashboard/dashboard-api.yaml
+      - magic-cluster/platform/identity/**
       - '!dashboard/**/*.md'
       - magic-host/roles/host-management/files/network_contract.py
       - magic-host/roles/host-management/files/updates_contract.py
@@ -37,6 +38,7 @@ on:
       - dashboard/**
       - magic-cluster/apps/dashboard/regression_api.py
       - magic-cluster/apps/dashboard/dashboard-api.yaml
+      - magic-cluster/platform/identity/**
       - '!dashboard/**/*.md'
       - magic-host/roles/host-management/files/network_contract.py
       - magic-host/roles/host-management/files/updates_contract.py
@@ -58,6 +60,29 @@ concurrency:
   group: browser-smoke-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  identity-sessions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install isolated identity test dependencies
+        working-directory: dashboard
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          python -m pip install PyYAML==6.0.3
+          pnpm --filter @magicstick/dashboard-web exec playwright install --with-deps chromium
+      - name: Verify real Keycloak and Envoy session lifecycle with synthetic credentials
+        working-directory: dashboard
+        run: |
+          REGRESSION_MODE=auth-sessions pnpm --filter @magicstick/dashboard-web exec playwright test \
+            --config regression/playwright.config.ts --reporter=line
   chromium:
     runs-on: ubuntu-24.04
     steps:

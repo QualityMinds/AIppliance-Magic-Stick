@@ -15,18 +15,22 @@ import {LabLease, leaseHolderReason, type LeaseStore, type Lease} from '../core/
 import {readPrivate, writePrivate} from '../core/private-files.ts';
 import {poll, currentReady} from '../core/poll.ts';
 import {summarize, saveReport, liveReportScope, redact, stepCases, type CaseResult} from '../core/report.ts';
-import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
+import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle, verifyDeploymentPins, waitForDeploymentPins, DeploymentPinError} from '../core/preflight.ts';
+import type {PreflightDiagnostic} from '../core/preflight-diagnostic.ts';
 import {allowedExactDashboardRequest, allowedOwnedContextEdit, allowedOwnedEstimate, allowedOwnedStart, allowedOwnedStop, allowedOwnedKeyChange, realLogin,openInferenceSession} from '../core/auth.ts';
 import {failureOutcome} from '../reporter.ts';
 import {readOnlyApi, readOnlyFetch} from '../core/transport.ts';
 import {KubernetesLeaseStore, verifyObserverRules, type KubeObject} from '../core/observer.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
+import type {CleanupObservation} from '../core/cleanup-diagnostic.ts';
 import {KubernetesModelCleaner, verifyModelCleanerRules} from '../core/model-cleanup.ts';
+import {KubernetesCommandError} from '../core/kubernetes-command.ts';
 import {ModelCreateRejected, OwnedModelClient, activation, editRevision, fixtureIsAdvertised, hasRuntimeCrashLoop, ownedRuntimePods} from '../core/owned-model.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {phase0Ids, phase0Variants, phase0Coverage, requirePhase0Profile, type Phase0Variant} from '../profiles/phase0-p0.ts';
 import {phase1Ids, phase1Variants, phase1Requirements, phase1Coverage} from '../profiles/phase1-p0.ts';
+import {selections, phaseSteps} from '../profiles/selections.ts';
 import {phase2Coverage, phase2Ids, phase2ModelCases, phase2ModelIds, phase2Requirements, phase2Variants, requirePhase2Profile} from '../profiles/phase2-p0.ts';
 import {fileLayer} from '../core/evidence.ts';
 import {typeScriptWorkerArgs} from '../core/node-worker.ts';
@@ -108,6 +112,64 @@ function node(): KubeObject {
   return {metadata: {name: 'fixture-node', uid: 'node-uid'}, status: {nodeInfo: {bootID: 'boot-uid', kernelVersion: '7.0.0-test'}, conditions: [{type: 'Ready', status: 'True'}]}};
 }
 function models(): ModelsPayload { return {activations: [], presets: {}, computeTargets: {targets: [{id: 'cpu', available: true, engines: ['OLlama', 'VLLM']}]}}; }
+
+test('HAR-02 MGPU-02 baseline refreshes readiness-only pin misses, never wrong pins or identities',async()=>{
+  const lab=phase2Config();lab.expected.images=lab.expected.images.slice(0,1);
+  const digest=lab.expected.images[0]!.digest;
+  const deployment=():KubeObject=>({metadata:{uid:'deployment-uid',generation:2},status:{observedGeneration:2,readyReplicas:1}});
+  const replicaSet:KubeObject={metadata:{uid:'rs-uid',ownerReferences:[{uid:'deployment-uid',kind:'Deployment'}]}};
+  const snapshot=(ready=true)=>({
+    pods:[{metadata:{namespace:'fixture',uid:'pod-uid',ownerReferences:[{uid:'rs-uid',kind:'ReplicaSet'}]},
+      status:{containerStatuses:[{name:'web',ready:true,imageID:'containerd://'+digest}]}}] as KubeObject[],
+    flux:[{metadata:{namespace:'flux-system',name:'flux-system',uid:'flux-uid',generation:1},
+      status:{lastAppliedRevision:lab.expected.flux!.revision,conditions:[{type:'Ready',status:ready?'True':'Unknown',observedGeneration:1}]}}] as KubeObject[],
+  });
+  let observed=deployment(),reads=0,time=0;
+  const observer={get:async()=>observed,list:async()=>[replicaSet]};
+  const diagnostics:PreflightDiagnostic[]=[];
+  const options=()=>({timeoutMs:2000,now:()=>time,wait:async(ms:number)=>{time+=ms;},
+    diagnostic:async(value:PreflightDiagnostic)=>{diagnostics.push(value);}});
+  // The former single sample rejects this ordinary same-revision reconcile.
+  await expect(verifyDeploymentPins(lab,observer,snapshot(false).pods,snapshot(false).flux)).rejects.toMatchObject({code:'REVISION'});
+  const fresh=await waitForDeploymentPins(lab,observer,async()=>{reads++;return {...snapshot(reads>1),sample:reads};},options());
+  expect(fresh.sample).toBe(2);expect(reads).toBe(2);
+  expect(diagnostics.map(d=>({attempt:d.attempts,checks:d.history.at(-1)!.checks.map(({component,index,condition})=>({component,index,condition}))}))).toEqual([
+    {attempt:1,checks:[{component:'flux',index:0,condition:'readiness'},{component:'deployment',index:0,condition:'ready'}]},
+    {attempt:2,checks:[{component:'flux',index:0,condition:'ready'},{component:'deployment',index:0,condition:'ready'}]},
+  ]);
+  expect(diagnostics.at(-1)).toMatchObject({state:'converged',attempts:2,firstFailure:{attempt:1}});
+  reads=0;time=0;
+  await waitForDeploymentPins(lab,observer,async()=>{reads++;return snapshot(reads>1);},{...options(),
+    diagnostic:async()=>{throw new Error('unavailable-private-storage');},firstFailure:async()=>{throw new Error('unavailable-diagnostics');}});
+  expect(reads).toBe(2); // Diagnostics cannot turn a recovered baseline into an API/configuration failure.
+  // A temporarily unready pinned Pod also needs a fresh read, not reuse of
+  // the frozen Pod array from before Deployment/ReplicaSet observation.
+  reads=0;time=0;
+  await waitForDeploymentPins(lab,observer,async()=>{
+    reads++;const value=snapshot();value.pods[0]!.status!.containerStatuses![0]!.ready=reads>1;return value;
+  },options());
+  expect(reads).toBe(2);
+  for(const mismatch of ['source','image','identity','generation','observer','node-identity','permanent'] as const) {
+    reads=0;time=0;observed=deployment();
+    const task=waitForDeploymentPins(lab,{...observer,get:async()=>{
+      if(mismatch==='observer')throw new HarnessError('OBSERVER');return observed;
+    }},async()=>{
+      reads++;const value=snapshot(mismatch==='source'||mismatch==='image');
+      if(mismatch==='source')value.flux[0]!.status!.lastAppliedRevision='sha1:'+'f'.repeat(40);
+      if(mismatch==='image')value.pods[0]!.status!.containerStatuses![0]!.imageID='containerd://sha256:'+'f'.repeat(64);
+      if(mismatch==='identity'&&reads>1)observed.metadata.uid='foreign-deployment';
+      if(mismatch==='generation'&&reads>1)observed.metadata.generation=3;
+      if(mismatch==='node-identity')throw new HarnessError('IDENTITY');
+      return value;
+    },options());
+    if(mismatch==='observer'||mismatch==='node-identity')await expect(task).rejects.toMatchObject({code:mismatch==='observer'?'OBSERVER':'IDENTITY'});
+    else {
+      await expect(task).rejects.toBeInstanceOf(DeploymentPinError);
+      await expect(task).rejects.toMatchObject({code:'REVISION',stage:mismatch==='permanent'||mismatch==='source'?'flux-ready':'preflight'});
+    }
+    expect(reads).toBe(mismatch==='permanent'?3:['identity','generation'].includes(mismatch)?2:1);
+  }
+});
 // Exercise the real create orchestration with inert adapters, without opening a
 // browser session or granting any cluster credentials to an isolated test.
 function creationFoundation(request: APIRequestContext, journal: ResourceJournal,
@@ -248,6 +310,19 @@ test('KEY-01 browser key adoption requires the exact requested name and immutabl
 });
 
 test('HAR-10 Phase 1 requires every Test-ID variant and canonical layer and fails incomplete JUnit', async () => {
+  expect(phase1Requirements.filter(item=>item.variant==='remember-me-policy-contract').map(item=>
+    ({id:item.id,layer:item.layer,environment:item.environment})))
+    .toEqual([{id:'AUTH-01',layer:'C',environment:'fixture'}]);
+  expect(selections['auth-sessions']).toEqual(['auth/remember-me.browser.spec.ts']);
+  for(const steps of Object.values(phaseSteps)) {
+    expect(steps).not.toContain('auth-sessions');
+    expect(steps.flatMap(mode=>selections[mode]??[])).not.toContain('auth/remember-me.browser.spec.ts');
+  }
+  expect(selections['smoke-fixtures']).toContain('navigation/history.browser.spec.ts');
+  const historyVariants=['status-history-desktop','status-history-mobile','status-history-desktop-slow','status-history-mobile-slow'];
+  expect(phase1Requirements.filter(item=>historyVariants.includes(item.variant)).map(item=>
+    ({id:item.id,variant:item.variant,layer:item.layer,environment:item.environment})))
+    .toEqual(historyVariants.map(variant=>({id:'NAV-02',variant,layer:'B',environment:'fixture'})));
   for (const [suffix, layer] of [['unit', 'U'], ['contract', 'C'], ['browser', 'B'], ['api', 'A'], ['e2e', 'E']]) {
     expect(fileLayer(`domain/behavior.${suffix}.spec.ts`)).toBe(layer);
   }
@@ -525,7 +600,7 @@ test('HAR-05 journal records only owned UIDs; changed-UID same-prefix resource s
 test('HAR-05 API-key adapter revokes only an exact run-owned immutable ID', async () => {
   const prefix = 'reg-' + newRunId().slice(4, 16) + '-';
   const id = 'a'.repeat(64), existingId = 'b'.repeat(64), name = prefix + 'key';
-  const items = [{id: existingId, name: 'existing-key'}];
+  const items = [{id: existingId, name: 'existing-key'}];let failDelete=false;
   const response = (status: number, value: unknown) => ({status: () => status,
     headers: () => ({'content-type': 'application/json'}), body: async () => Buffer.from(JSON.stringify(value))});
   const request = {fetch: async (url: string, options: {method: string; data?: string; headers: Record<string, string>}) => {
@@ -540,6 +615,7 @@ test('HAR-05 API-key adapter revokes only an exact run-owned immutable ID', asyn
     }
     expect(options.method).toBe('DELETE');
     expect(new URL(url).pathname).toBe('/api/api-access/' + id);
+    if(failDelete)return response(503,{message:'Bearer synthetic-private-token'});
     items.splice(items.findIndex(item => item.id === id), 1);
     return response(200, {deleted: id});
   }} as unknown as APIRequestContext;
@@ -548,10 +624,20 @@ test('HAR-05 API-key adapter revokes only an exact run-owned immutable ID', asyn
   await expect(client.adapter().removeIfUid(entry, id)).rejects.toMatchObject({code: 'OWNERSHIP'});
   await expect(client.create('unrelated-key')).rejects.toMatchObject({code: 'OWNERSHIP'});
   expect(await client.create(name)).toBe(id);
-  expect(await client.adapter().lookup(entry)).toEqual({uid: id});
-  await client.adapter().removeIfUid(entry, id);
-  expect(await client.adapter().verifyRemoved(entry)).toBe(true);
+  const diagnostics:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+  const observe=async(value:Omit<CleanupObservation,'at'|'elapsedMs'>)=>{diagnostics.push(value);};
+  expect(await client.adapter().lookup(entry,observe)).toEqual({uid: id});
+  await client.adapter().removeIfUid(entry, id,observe);
+  expect(await client.adapter().verifyRemoved(entry,observe)).toBe(true);
+  expect(diagnostics).toMatchObject([{operation:'lookup',method:'GET',endpoint:'api-key',httpStatus:200,requestAttempted:true},
+    {operation:'remove',method:'DELETE',endpoint:'api-key',httpStatus:200,requestAttempted:true},
+    {operation:'verify',method:'GET',endpoint:'api-key',httpStatus:200,requestAttempted:true}]);
   expect(items).toEqual([{id: existingId, name: 'existing-key'}]);
+  await client.create(name);failDelete=true;
+  await expect(client.adapter().removeIfUid(entry,id,observe)).rejects.toMatchObject({code:'API'});
+  expect(diagnostics.at(-1)).toMatchObject({method:'DELETE',httpStatus:503,requestAttempted:true});
+  expect(JSON.stringify(diagnostics)).not.toMatch(/synthetic-private-token|dashboard\.example|existing-key|sk-synthetic/);
+  expect(JSON.stringify(diagnostics)).not.toContain(id);expect(items).toHaveLength(2);
 });
 
 test('HAR-06 failed scenario cleans only its owned fixtures; cleanup remains a separate gate', async () => {
@@ -753,13 +839,110 @@ test('HAR-05 model cleaner denies excess RBAC and uses atomic UID plus resourceV
   const cleaner = new FakeCleaner('unused', 'ai-system');
   const entry = {kind: 'model' as const, name, uid, generation: 3, state: 'owned' as const};
   const adapter = cleaner.adapter('reg-aabbccddeeff-', async () => ({podCount: 0, catalogCount: 0}));
-  expect(await adapter.lookup(entry)).toEqual({uid});
+  expect(await adapter.lookup(entry)).toEqual({uid,generation:3,deleting:false});
   await expect(adapter.removeIfUid({...entry, generation: 2}, uid)).rejects.toMatchObject({code: 'OWNERSHIP'});
   await adapter.removeIfUid(entry, uid);
   expect(await adapter.verifyRemoved(entry)).toBe(true);
   cleaner.current.spec = {type: 'external', targetNamespace: 'ai'}; cleaner.deleted = false;
-  expect(await adapter.lookup(entry)).toEqual({uid});
+  expect(await adapter.lookup(entry)).toEqual({uid,generation:3,deleting:false});
   await adapter.removeIfUid(entry, uid); expect(await adapter.verifyRemoved(entry)).toBe(true);
+});
+
+function conflictCleaner() {
+  const name='reg-aabbccddeeff-cpu',uid='owned-model-uid';
+  class Cleaner extends KubernetesModelCleaner {
+    current:KubeObject|null={metadata:{name,namespace:'ai-system',uid,generation:3,resourceVersion:'28',
+      labels:{'app.kubernetes.io/managed-by':'ai-appliance-dashboard'}},
+      spec:{type:'local',targetNamespace:'ai',local:{url:'ollama://synthetic-model',memoryRequiredMi:2048}}};
+    requests:Array<{uid:string;resourceVersion:string}>=[];
+    conflicts=1;mutate=()=>{this.current!.metadata.resourceVersion=String(Number(this.current!.metadata.resourceVersion)+1);};
+    error:Error=new KubernetesCommandError({commandFailure:'api',httpStatus:409,kubernetesReason:'Conflict',exitCode:1});
+    override async find(){return structuredClone(this.current);}
+    protected override async command(args:string[],input?:string) {
+      expect(args).toEqual(['delete','--raw',`/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/modelactivations/${name}`,'-f','-']);
+      this.requests.push(JSON.parse(input!).preconditions);
+      if(this.requests.length<=this.conflicts){this.mutate();throw this.error;}
+      this.current=null;return '{}';
+    }
+  }
+  const cleaner=new Cleaner('unused','ai-system');
+  const entry={kind:'model' as const,name,uid,generation:3,state:'owned' as const};
+  return {cleaner,entry};
+}
+
+test('HAR-03 HAR-05 status-only delete conflicts re-read identity and keep fresh atomic UID/RV preconditions',async()=>{
+  const {cleaner,entry}=conflictCleaner();let guards=0;
+  const observations:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+  const adapter=cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}),async()=>{guards++;});
+  await adapter.removeIfUid(entry,entry.uid,async value=>{observations.push(value);});
+  expect(cleaner.requests).toEqual([{uid:entry.uid,resourceVersion:'28'},{uid:entry.uid,resourceVersion:'29'}]);
+  expect(guards).toBeGreaterThanOrEqual(4);
+  expect(observations).toContainEqual(expect.objectContaining({operation:'remove',state:'failed',httpStatus:409,
+    kubernetesReason:'Conflict',attempt:1,retrying:true}));
+  expect(observations).toContainEqual(expect.objectContaining({attempt:2,resourceVersionChanged:true,intentMatches:true,uidMatches:true,generationMatches:true}));
+  expect(await adapter.verifyRemoved(entry)).toBe(true);
+
+  // A competing actor already completed the same removal: no blind second DELETE.
+  const absent=conflictCleaner();absent.cleaner.mutate=()=>{absent.cleaner.current=null;};
+  await absent.cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0})).removeIfUid(absent.entry,absent.entry.uid);
+  expect(absent.cleaner.requests).toHaveLength(1);
+  const twice=conflictCleaner();twice.cleaner.conflicts=2;
+  await twice.cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0})).removeIfUid(twice.entry,twice.entry.uid);
+  expect(twice.cleaner.requests.map(p=>p.resourceVersion)).toEqual(['28','29','30']);
+});
+
+test('HAR-05 HAR-07 delete retries cannot adopt a replacement, changed intent, stale read or lost Lease',async()=>{
+  for(const change of ['uid','generation','spec','namespace','name','manager','same-rv','deleting','lease'] as const) {
+    const {cleaner,entry}=conflictCleaner();let lost=false;
+    cleaner.mutate=()=>{
+      cleaner.current!.metadata.resourceVersion='29';
+      if(change==='uid')cleaner.current!.metadata.uid='foreign-model-uid';
+      if(change==='generation')cleaner.current!.metadata.generation=4;
+      if(change==='spec')cleaner.current!.spec!.local={url:'ollama://someone-elses-model'};
+      if(change==='namespace')cleaner.current!.metadata.namespace='other';
+      if(change==='name')cleaner.current!.metadata.name='foreign-name';
+      if(change==='manager')cleaner.current!.metadata.labels!['app.kubernetes.io/managed-by']='other';
+      if(change==='same-rv')cleaner.current!.metadata.resourceVersion='28';
+      if(change==='deleting')cleaner.current!.metadata.deletionTimestamp='2026-01-01T00:00:00Z';
+      if(change==='lease')lost=true;
+    };
+    const adapter=cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}),async()=>{if(lost)throw new HarnessError('LOCK_LOST');});
+    if(change==='deleting')await adapter.removeIfUid(entry,entry.uid);
+    else await expect(adapter.removeIfUid(entry,entry.uid)).rejects.toBeInstanceOf(HarnessError);
+    expect(cleaner.requests,change).toHaveLength(1);
+    expect(cleaner.current,change).not.toBeNull();
+  }
+  // Losing the Lease during an awaited diagnostic write also fences transport.
+  const checkpoint=conflictCleaner();let lost=false;
+  const adapter=checkpoint.cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}),async()=>{if(lost)throw new HarnessError('LOCK_LOST');});
+  await expect(adapter.removeIfUid(checkpoint.entry,checkpoint.entry.uid,async o=>{if(o.requestAttempted)lost=true;}))
+    .rejects.toMatchObject({code:'LOCK_LOST'});
+  expect(checkpoint.cleaner.requests).toHaveLength(0);
+});
+
+test('HAR-07 only confirmed API conflicts retry, bounded to three attempts with failure diagnostics',async()=>{
+  for(const diagnostic of [
+    {commandFailure:'api',httpStatus:403,kubernetesReason:'Forbidden',exitCode:1},
+    {commandFailure:'api',httpStatus:401,kubernetesReason:'Unauthorized',exitCode:1},
+    {commandFailure:'api',httpStatus:500,kubernetesReason:'InternalError',exitCode:1},
+    {commandFailure:'api',httpStatus:409,kubernetesReason:'AlreadyExists',exitCode:1},
+    {commandFailure:'timeout',httpStatus:null},
+    {commandFailure:'signal',httpStatus:null,processSignal:'SIGKILL'},
+    {commandFailure:'unknown',httpStatus:null,exitCode:1},
+  ] as const) {
+    const {cleaner,entry}=conflictCleaner(),observations:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+    cleaner.error=new KubernetesCommandError(diagnostic);
+    await expect(cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}))
+      .removeIfUid(entry,entry.uid,async value=>{observations.push(value);})).rejects.toMatchObject({code:'CLEANUP',outcome:'Failed'});
+    expect(cleaner.requests).toHaveLength(1);
+    expect(observations).toContainEqual(expect.objectContaining({operation:'remove',state:'failed',...diagnostic,requestAttempted:true}));
+  }
+  const {cleaner,entry}=conflictCleaner(),observations:Array<Omit<CleanupObservation,'at'|'elapsedMs'>>=[];
+  cleaner.conflicts=10;
+  await expect(cleaner.adapter('reg-aabbccddeeff-',async()=>({podCount:0,catalogCount:0}))
+    .removeIfUid(entry,entry.uid,async value=>{observations.push(value);})).rejects.toMatchObject({code:'CLEANUP',causeReason:'CONFLICT'});
+  expect(cleaner.requests).toHaveLength(3);
+  expect(observations.at(-1)).toMatchObject({attempt:3,retrying:false,httpStatus:409,kubernetesReason:'Conflict',state:'failed'});
 });
 
 test('HAR-07 blocked model cleanup can resume only at the journaled generation', async () => {

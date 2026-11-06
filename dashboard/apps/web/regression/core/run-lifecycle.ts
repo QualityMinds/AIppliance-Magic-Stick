@@ -40,12 +40,12 @@ export class HeartbeatLoop {
 
 /** The caller cancels the underlying operation on deadline; racing a timer
  * alone would leave a delayed write running behind cleanup. */
-export async function bounded<T>(action:()=>Promise<T>,timeoutMs:number,stage:Stage,
+export async function bounded<T>(action:()=>Promise<T>,timeoutMs:number,stage:Stage|(()=>Stage),
   cancel:()=>Promise<void>):Promise<T> {
   let timer:ReturnType<typeof setTimeout>|undefined;
   let expired:HarnessError|undefined,cancellation:Promise<void>|undefined;
   const deadline=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{
-    expired=new HarnessError('DEADLINE','Failed',stage);
+    expired=new HarnessError('DEADLINE','Failed',typeof stage==='function'?stage():stage);
     // Closing a broken page/context must not create a second unbounded wait.
     let cancellationTimer:ReturnType<typeof setTimeout>|undefined;
     cancellation=Promise.race([Promise.resolve().then(cancel).catch(()=>{}),new Promise<void>(resolve=>{

@@ -69,7 +69,11 @@ checks the handoff automatically. Once the setup route has been removed and the
 normal dashboard route is answering, the button becomes available. If this takes
 longer than expected, check the dashboard Deployment, OIDC SecurityPolicy, and
 local dashboard and identity HTTPRoutes rather than repeatedly reloading the
-setup page. The setup claim and session are invalidated at completion; the
+setup page. If you changed the local name, wait for the verified identity
+callback synchronization and open the newly configured dashboard address;
+reusing an old login URL is not a fresh handoff. See
+[identity callback readiness](../concepts/identity.md#hostname-changes-and-callback-readiness).
+The setup claim and session are invalidated at completion; the
 temporary certificate, gateway, and routes are removed after the handoff. The
 physical console is cleared again and no longer displays the claim code.
 

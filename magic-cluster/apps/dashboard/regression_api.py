@@ -2,6 +2,8 @@
 
 Workloads belong to the operator. No user-supplied image, command, URL, Secret
 name or Kubernetes manifest crosses this API. Private inputs never leave it.
+The generated active-run identity alone can read bounded, exact-owner preflight
+log excerpts into its private directory; these are never report attachments.
 The runner lifecycle is a core function: never gate it on license status or
 activate a license here. Individual suite cases verify their own prerequisites.
 """
@@ -20,15 +22,39 @@ CORE = "/api/v1/namespaces/" + NAMESPACE
 OWNER = "regression.magicstick.dev/run-uid"
 TERMINAL = {"Passed", "Failed", "Blocked", "Cancelled"}
 MUTATION_LOCK = threading.RLock()
+CLEANUP_STATES = {"unknown", "required", "running", "verified", "blocked"}
+CLEANUP_REASONS = {"CLEANUP", "RECOVERY", "OWNERSHIP", "CONFLICT", "DEADLINE", "UNEXPECTED", "PROCESS_STATE", "PRIVATE_FILE", "LOCK_LOST", "LOCK_BUSY", "LOCK_STALE", "LAB", "API", "AUTH", "IDENTITY", "CAPABILITY", "HOST", "REVISION", "TLS"}
+CLEANUP_STAGES = {"cleanup", "recovery-barrier", "recovery-journal", "recovery-resource", "recovery-module", "recovery-sharing", "runner-execution", "gpu-backend", "gpu-validation", "license-restore"}
 ARTIFACTS = {"archive": ("report-artifacts.tar.gz", "application/gzip"),
              "html": ("summary.html", "text/html; charset=utf-8"),
              "junit": ("junit.xml", "application/xml")}
+# Security allowlist, not a second module/capability catalog. No arbitrary
+# namespace, workload, container, log URL or Kubernetes subresource is accepted.
+PREFLIGHT_LOG_TARGETS = {("dashboard", "ai-appliance-dashboard", "web"),
+                         ("identity-system", "ai-appliance-dashboard-api", "api"),
+                         ("flux-system", "kustomize-controller", "manager")}
 LEASE = "/apis/coordination.k8s.io/v1/namespaces/" + NAMESPACE + "/leases/lab-lock"
 
 
 def credential_owner(run):
     spec, meta = run.get("spec", {}), run["metadata"]
     return spec.get("accountRunName", meta["name"]), spec.get("accountRunUid", meta["uid"])
+
+
+def cleanup_view(value):
+    if not isinstance(value, dict) or not isinstance(value.get("state"), str) or value["state"] not in CLEANUP_STATES:
+        return None
+    result = {"state": value["state"]}
+    if isinstance(value.get("checkedAt"), str) and len(value["checkedAt"]) <= 40:
+        try:
+            if datetime.fromisoformat(value["checkedAt"].replace("Z", "+00:00")).tzinfo:
+                result["checkedAt"] = value["checkedAt"]
+        except ValueError:
+            pass
+    for key, allowed in (("reason", CLEANUP_REASONS), ("stage", CLEANUP_STAGES)):
+        if isinstance(value.get(key), str) and value[key] in allowed:
+            result[key] = value[key]
+    return result
 
 
 class RegressionApi:
@@ -95,6 +121,31 @@ class RegressionApi:
                                  and status.get("updatedReplicas", 0) == spec.get("replicas", 1))
         return available, image, revision
 
+    def diagnostics(self):
+        runtime = self.get(CORE + "/configmaps/magicstick-regression-runtime") or {}
+        if runtime.get("data", {}).get("diagnosticSelectionVersion") != "2":
+            return []
+        try:
+            catalog = json.loads((self.get(CORE + "/configmaps/magicstick-regression-diagnostics") or {}).get("data", {})["diagnostics.json"])
+            profiles = catalog["profiles"]
+            if not (catalog["version"] == 2 and isinstance(profiles, list) and 0 < len(profiles) <= 16):
+                raise ValueError("Invalid diagnostic catalog")
+            valid = all(isinstance(p, dict) and {"id", "title", "caseIds", "grep", "phase"} <= set(p) <= {"id", "title", "caseIds", "grep", "phase", "variants"}
+                       and type(p["phase"]) is int and p["phase"] in (2, 3, 4)
+                       and isinstance(p["id"], str) and re.fullmatch(r"[a-z][a-z0-9-]{0,39}", p["id"])
+                       and isinstance(p["title"], str) and 0 < len(p["title"]) <= 160
+                       and isinstance(p["caseIds"], list) and 0 < len(p["caseIds"]) <= 32
+                       and all(isinstance(case, str) and re.fullmatch(r"[A-Z][A-Z0-9]+-[0-9]{2}", case) for case in p["caseIds"])
+                       and p["grep"] == "|".join(p["caseIds"])
+                       and ("variants" not in p or isinstance(p["variants"], list) and 0 < len(p["variants"]) <= 32
+                            and all(isinstance(v, str) and re.fullmatch(r"(?:p[234]-[a-z0-9-]+|external-route)", v) for v in p["variants"])
+                            and len(set(p["variants"])) == len(p["variants"])) for p in profiles)
+            if not valid or len({p["id"] for p in profiles}) != len(profiles):
+                raise ValueError("Invalid diagnostic profiles")
+        except (KeyError, ValueError, TypeError):
+            self.error(503, "The installed diagnostic selection catalog is unavailable. Update the runner before retrying.")
+        return [{"id": p["id"], "title": p["title"], "caseIds": p["caseIds"], "phase": p["phase"]} for p in profiles]
+
     def view(self, run):
         meta, spec, status = run.get("metadata", {}), run.get("spec", {}), run.get("status", {})
         result = {"id": meta.get("name"), "uid": meta.get("uid"), "createdAt": meta.get("creationTimestamp"),
@@ -106,6 +157,11 @@ class RegressionApi:
                   "result": status.get("result"), "reportAvailable": status.get("reportAvailable", False),
                   "startedAt": status.get("startedAt"), "finishedAt": status.get("finishedAt"),
                   "credentialsCleaned": status.get("credentialsCleaned", False)}
+        cleanup = cleanup_view(status.get("cleanup"))
+        if "diagnosticSelection" in spec:
+            result["diagnosticSelection"] = spec["diagnosticSelection"]
+        if cleanup:
+            result["cleanup"] = cleanup
         return result
 
     def recovery_candidate(self, runs):
@@ -144,6 +200,7 @@ class RegressionApi:
             lock = self.lock_status(runs, registration)
         return {"registered": registration is not None, "applianceUid": self.target()[0],
                 "runtimeAvailable": available, "sourceRevision": revision,
+                "diagnosticSelections": self.diagnostics() if available else [],
                 "message": "" if available else "Enable the regression runner and wait for a CI-published, digest-pinned image.",
                 "runs": [self.view(r) for r in runs[:30]],
                 "recoveryAvailable": self.recovery_candidate(runs) is not None,
@@ -157,6 +214,10 @@ class RegressionApi:
         if lock["state"] != "free":
             return {**lock, "available": lock["canRecover"]}
         candidate = self.recovery_candidate(runs)
+        resources_pending = [r for r in runs if isinstance(r.get("status", {}).get("cleanup"), dict)
+                             and r["status"]["cleanup"].get("state") != "verified"]
+        if not candidate and resources_pending:
+            candidate = self.latest_family(resources_pending)
         if not candidate:
             pending = any(not r.get("status", {}).get("credentialsCleaned", False) for r in runs)
             return {"available": False, "message": "The previous account cleanup or its ownership verification is still pending." if pending
@@ -256,9 +317,86 @@ class RegressionApi:
             self.error(404, "Regression run not found.")
         return run
 
+    def preflight_logs(self, principal, query):
+        keys = {"runUid", "namespace", "deployment", "container", "deploymentUid", "generation", "podUid"}
+        if set(query) != keys or any(not isinstance(v, list) or len(v) != 1 or not isinstance(v[0], str) for v in query.values()):
+            self.error(400, "Invalid private preflight diagnostic request.")
+        p = {k: v[0] for k, v in query.items()}
+        uuid = r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
+        if (any(not re.fullmatch(uuid, p[k]) for k in ("runUid", "deploymentUid", "podUid"))
+                or not re.fullmatch(r"[1-9][0-9]{0,8}", p["generation"])
+                or (p["namespace"], p["deployment"], p["container"]) not in PREFLIGHT_LOG_TARGETS):
+            self.error(400, "Invalid private preflight diagnostic target.")
+        registration = self.registration()
+        matches = [r for r in self.f["list_resource"](RUNS) if r.get("metadata", {}).get("uid") == p["runUid"]]
+        if not registration or len(matches) != 1:
+            self.error(403, "Private diagnostics require the exact registered active test run.")
+        run = matches[0]
+        spec, status = run.get("spec", {}), run.get("status", {})
+        if (status.get("phase") != "Running" or status.get("credentialsCleaned") is True or spec.get("cancelRequested")
+                or run["metadata"].get("deletionTimestamp") or spec.get("operation", "tests") != "tests"
+                or spec.get("testMode", "full") != "full" or spec.get("applianceUid") != registration["applianceUid"]
+                or sorted(spec.get("nodeUids", [])) != registration["nodeUids"]):
+            self.error(403, "Private diagnostics require the exact registered active test run.")
+        runtime = (self.get(CORE + "/configmaps/magicstick-regression-runtime") or {}).get("data", {})
+        if (not re.fullmatch(r"[a-f0-9]{40}", str(runtime.get("sourceRevision", "")))
+                or not re.fullmatch(r"ghcr.io/qualityminds/magicstick-regression:[a-z0-9-]+@sha256:[a-f0-9]{64}", str(runtime.get("image", "")))
+                or spec.get("image") != runtime.get("image") or spec.get("sourceRevision") != runtime.get("sourceRevision")):
+            self.error(409, "The active diagnostic source changed.")
+        _, account = self.owned_account(run)
+        if not account or not account.get("userId") or principal.get("subject") != account["userId"]:
+            self.error(403, "Only this run's generated test identity can read private diagnostics.")
+        self.owned_user(account, credential_owner(run)[1], required=True)
+        ns = urllib.parse.quote(p["namespace"], safe="")
+        deployment_path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + p["deployment"]
+
+        def exact_target():
+            deployment = self.get(deployment_path) or {}
+            meta = deployment.get("metadata", {})
+            if meta.get("uid") != p["deploymentUid"] or meta.get("generation") != int(p["generation"]):
+                self.error(409, "The diagnostic workload identity changed.")
+            sets = self.f["list_resource"]("/apis/apps/v1/namespaces/" + ns + "/replicasets")
+            owned_sets = {s.get("metadata", {}).get("uid") for s in sets
+                          if s.get("metadata", {}).get("uid") and any(o.get("uid") == p["deploymentUid"] and o.get("controller") is True and o.get("kind") == "Deployment"
+                                 for o in s.get("metadata", {}).get("ownerReferences", []))}
+            pods = self.f["list_resource"]("/api/v1/namespaces/" + ns + "/pods")
+            pods = [pod for pod in pods if pod.get("metadata", {}).get("uid") == p["podUid"]
+                    and any(o.get("uid") in owned_sets and o.get("controller") is True and o.get("kind") == "ReplicaSet"
+                            for o in pod.get("metadata", {}).get("ownerReferences", []))
+                    and any(c.get("name") == p["container"] for c in pod.get("spec", {}).get("containers", []))]
+            if len(pods) != 1 or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,252}", pods[0].get("metadata", {}).get("name", "")):
+                self.error(409, "The diagnostic Pod identity changed.")
+            return pods[0]
+
+        pod = exact_target()
+        streams = []
+        statuses = pod.get("status", {}).get("containerStatuses", [])
+        previous = any(c.get("name") == p["container"] and c.get("restartCount", 0) > 0 for c in statuses)
+        for old in ([False, True] if previous else [False]):
+            params = {"container": p["container"], "tailLines": "80", "timestamps": "true", "limitBytes": "16384", "sinceSeconds": "120"}
+            if old:
+                params["previous"] = "true"
+            path = "/api/v1/namespaces/" + ns + "/pods/" + urllib.parse.quote(pod["metadata"]["name"], safe="") + "/log?" + urllib.parse.urlencode(params)
+            try:
+                text = self.f["request_text"]("GET", path, max_bytes=16384, timeout=2)
+                streams.append({"previous": old, "text": text.encode("utf-8")[:16384].decode("utf-8", errors="ignore")})
+            except Exception:
+                # Log availability is not the primary REVISION failure. Never
+                # return Kubernetes errors, tokens or a different Pod's output.
+                continue
+        current = exact_target()
+        current_run = self.get(RUNS + "/" + run["metadata"]["name"]) or {}
+        if (current.get("metadata", {}).get("name") != pod["metadata"]["name"]
+                or current_run.get("metadata", {}).get("uid") != p["runUid"]
+                or current_run.get("status", {}).get("phase") != "Running" or current_run.get("spec", {}).get("cancelRequested")):
+            self.error(409, "The active diagnostic identity changed during collection.")
+        if not streams:
+            self.error(503, "Bounded private diagnostic logs are unavailable.")
+        return {"version": 1, "streams": streams}
+
     def start(self, principal, payload):
         self.f["live_admin_actor"](principal)
-        if (not {"requestId", "acknowledgeDisruption"} <= set(payload) <= {"requestId", "acknowledgeDisruption", "phases", "testMode"}
+        if (not {"requestId", "acknowledgeDisruption"} <= set(payload) <= {"requestId", "acknowledgeDisruption", "phases", "testMode", "diagnosticSelection"}
                 or payload.get("acknowledgeDisruption") is not True
                 or not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", "")))):
             self.error(400, "A unique request and disruption confirmation are required.")
@@ -270,6 +408,15 @@ class RegressionApi:
         test_mode = payload.get("testMode", "full")
         if test_mode not in ("non-destructive", "full"):
             self.error(400, "Select non-destructive or full tests.")
+        if "diagnosticSelection" in payload:
+            selection = payload["diagnosticSelection"]
+            if not isinstance(selection, str) or len(phases) != 1 or test_mode != "full":
+                self.error(400, "A diagnostic selection requires full mode and exactly its advertised phase.")
+            selected = next((p for p in self.diagnostics() if p["id"] == selection), None)
+            if not selected:
+                self.error(409, "This diagnostic selection is not supported by the installed runner. Update before retrying.")
+            if phases != [selected["phase"]]:
+                self.error(400, "Select only the phase advertised for this diagnostic selection.")
         return self.enqueue(principal, {**payload, "phases": sorted(phases), "testMode": test_mode}, "tests")
 
     def recover_lock(self, principal, payload):
@@ -298,11 +445,15 @@ class RegressionApi:
                     self.error(409, "This request ID already selects different phases. Use a new request ID for a new run.")
                 if operation == "tests" and existing.get("spec", {}).get("testMode", "full") != payload["testMode"]:
                     self.error(409, "This request ID already selects a different test mode. Use a new request ID for a new run.")
+                if existing.get("spec", {}).get("diagnosticSelection") != payload.get("diagnosticSelection"):
+                    self.error(409, "This request ID already selects different diagnostic tests. Use a new request ID for a new run.")
                 return self.view(existing)
             runs = self.f["list_resource"](RUNS)
             recovery = self.recovery_candidate(runs)
             non_destructive = operation == "tests" and payload["testMode"] == "non-destructive"
-            if non_destructive and any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs):
+            resources_pending = any(isinstance(r.get("status", {}).get("cleanup"), dict)
+                                    and r["status"]["cleanup"].get("state") != "verified" for r in runs)
+            if non_destructive and (resources_pending or any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs)):
                 self.error(409, "Clean up the previous run separately before non-destructive tests. This mode never restores or changes previous test resources.")
             if any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs) and not recovery:
                 self.error(409, "Another regression run is still queued, running or cleaning up.")
@@ -348,10 +499,15 @@ class RegressionApi:
                 "spec": {"applianceUid": registration["applianceUid"], "nodeUids": registration["nodeUids"],
                     "phases": [] if operation == "recover-lock" else payload["phases"], "requestedBy": principal["subject"], "image": image,
                     **({"testMode": payload["testMode"]} if operation == "tests" else {}),
+                    **({"diagnosticSelection": payload["diagnosticSelection"]} if "diagnosticSelection" in payload else {}),
                     "sourceRevision": revision, "cancelRequested": False, **recovery_spec}})
-            if non_destructive and run.get("spec", {}).get("testMode") != "non-destructive":
-                message = "The installed regression schema does not support non-destructive tests yet. Update the operator/schema before retrying; no test account or Job was created."
-                self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "credentialRecoveryRequired": False, "message": message}})
+            self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {
+                "cleanup": {"state": "verified" if non_destructive else "unknown"}}})
+            if (non_destructive and run.get("spec", {}).get("testMode") != "non-destructive"
+                    or "diagnosticSelection" in payload and run.get("spec", {}).get("diagnosticSelection") != payload["diagnosticSelection"]):
+                message = "The installed regression schema does not support the requested test selection yet. Update the operator/schema before retrying; no test account or Job was created."
+                self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "credentialRecoveryRequired": False,
+                    "cleanup": {"state": "verified", "checkedAt": datetime.now(timezone.utc).isoformat()}, "message": message}})
                 self.cleanup(run)
                 self.error(503, message)
             try:
@@ -363,7 +519,7 @@ class RegressionApi:
                 # Old operators must not interpret recovery intent as a test
                 # suite during a rolling upgrade: only the new reconciler
                 # understands this distinct readiness key/entrypoint.
-                ready = "recovery-credentials-ready" if operation == "recover-lock" else "non-destructive-credentials-ready" if non_destructive else "credentials-ready"
+                ready = "recovery-credentials-ready" if operation == "recover-lock" else "diagnostic-credentials-ready" if "diagnosticSelection" in payload else "non-destructive-credentials-ready" if non_destructive else "credentials-ready"
                 self.f["patch_json"](RUNS + "/" + name, {"metadata": {"annotations": {"regression.magicstick.dev/" + ready: run["metadata"]["uid"]}}})
             except Exception:
                 self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "message": "Automatic test-account provisioning failed; no tests were started."}})
@@ -503,6 +659,13 @@ class RegressionApi:
             if member["metadata"]["uid"] != run["metadata"]["uid"] and member.get("status", {}).get("phase") not in TERMINAL:
                 self.error(409, "A recovery run still uses the retained setup account.")
         used = any(r.get("metadata", {}).get("annotations", {}).get("regression.magicstick.dev/credentials-used") == r["metadata"]["uid"] for r in family)
+        resource_cleanup = run.get("status", {}).get("cleanup")
+        unused_cleanup = {"cleanup": {"state": "verified", "checkedAt": datetime.now(timezone.utc).isoformat()}} if not used else {}
+        verified_cleanup = {"cleanup": cleanup_view(resource_cleanup)} if used and cleanup_view(resource_cleanup) else unused_cleanup
+        if used and run.get("spec", {}).get("testMode", "full") != "non-destructive" and (cleanup_view(resource_cleanup) or {}).get("state") != "verified":
+            self.f["patch_json"](RUNS + "/" + run["metadata"]["name"] + "/status", {"status": {
+                "credentialRecoveryRequired": True, "message": "Resource cleanup is not verified. The generated test account is retained for exact journal recovery."}})
+            self.error(409, "Resource cleanup is not verified; test credentials were retained.")
         if used and run.get("status", {}).get("credentialRecoveryRequired") is not False:
             self.f["patch_json"](RUNS + "/" + run["metadata"]["name"] + "/status", {"status": {
                 "credentialRecoveryRequired": True, "message": "Setup recovery is required. Start the next run to restore the retained access receipt with the same generated test identity."}})
@@ -513,7 +676,7 @@ class RegressionApi:
             if users:
                 self.error(409, "Test account credentials are missing; automatic cleanup cannot prove ownership.")
             for member in family:
-                self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True}})
+                self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True, **verified_cleanup}})
             return
         user = self.owned_user(account, uid)
         if user:
@@ -521,7 +684,7 @@ class RegressionApi:
         self.write("DELETE", CORE + "/secrets/" + name, {"apiVersion": "v1", "kind": "DeleteOptions",
             "preconditions": {"uid": secret["metadata"]["uid"], "resourceVersion": secret["metadata"]["resourceVersion"]}})
         for member in family:
-            self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True, "credentialRecoveryRequired": False}})
+            self.f["patch_json"](RUNS + "/" + member["metadata"]["name"] + "/status", {"status": {"credentialsCleaned": True, "credentialRecoveryRequired": False, **verified_cleanup}})
 
     def cleanup_finished(self):
         with MUTATION_LOCK:

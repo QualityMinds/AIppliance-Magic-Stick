@@ -9,10 +9,12 @@ import {bounded} from './run-lifecycle.ts';
 import {readPrivate} from './private-files.ts';
 import {ownedJournalName,type JournalEntry} from './journal.ts';
 import {poll,currentReady} from './poll.ts';
+import type {ApplicationAdapter} from './application-adapters.ts';
+import {waitOpenCodeBackend} from './opencode-backend.ts';
 
 export const appTypes=['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const;
 export type AppType=typeof appTypes[number];
-export interface AppFixture {type:AppType; originTemplate:string; adapter?:'semantic-chat-v1'; promptLabel?:string; sendButton?:string; responseSelector?:string; responseMarker:string}
+export interface AppFixture {type:AppType; originTemplate:string; adapter?:ApplicationAdapter; promptLabel?:string; sendButton?:string; responseSelector?:string; responseMarker:string}
 const resource='appinstances.appliance.magicstick.dev';
 
 /** The HelmRelease is a control-plane object. Its targetNamespace describes
@@ -172,13 +174,16 @@ export class OwnedAppClient {
   }
   async ready(name:string) {
     const owned=this.owned.get(name);requireSafe(owned,'OWNERSHIP');
-    return atStage('app-ready',()=>poll(async()=>{await this.live.guard();const item=await this.read(name);const observed=await this.cleaner.find(name);
+    const ready=await atStage('app-ready',()=>poll(async()=>{await this.live.guard();const item=await this.read(name);const observed=await this.cleaner.find(name);
       requireSafe(item && observed,'OWNERSHIP');
       const target=appReleaseTarget(item,name,this.live.config.expected.applianceNamespace);
       const children=await this.live.observer.list('helmreleases.helm.toolkit.fluxcd.io',target.namespace);
       return {item,observed,target,children:children.filter(child=>child.metadata.name===target.name)};
     },value=>appReleaseReady(value.item,value.observed,value.children,owned,value.target.namespace),
     {timeoutMs:900_000,intervalMs:1500,stage:'app-ready'}));
+    if(ready.item.spec?.application==='kubeopencode')await atStage('app-ready',()=>
+      waitOpenCodeBackend(this.live,name,String(ready.item.spec?.targetNamespace)));
+    return ready;
   }
   async remove(name:string) {await this.live.cleanup(this.live.journal,{kind:'app',name});}
   async removeInUi(page:Page,name:string) {

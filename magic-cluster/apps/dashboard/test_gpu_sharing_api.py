@@ -81,6 +81,129 @@ class GpuSharingApiTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.api['module_activation_payload']('gpu', True, {'parameters': {'gpuSharing': sharing}})
 
+    def default_reset(self, provider='nvidia'):
+        self.state.update(managed=True, phase='Ready', backend='time-slicing', maxModels=2)
+        if provider == 'amd':
+            self.state['backend'] = 'dra'
+        config={'mode': 'exclusive', 'maxModels': 2, 'nodeName': 'example-node', 'nodeUid': 'example-uid',
+                'namespace': 'ai', 'allowExperimental': False}
+        activation={'metadata': {'resourceVersion': '7'}, 'spec': {'enabled': True,
+                    'parameters': {'gpuSharing': json.dumps(config), 'unrelated': 'keep'}}}
+        node={'metadata': {'name': 'example-node', 'uid': 'example-uid', 'labels': {
+              'nvidia.com/gpu.count': '4', 'nvidia.com/device-plugin.config': 'magicstick-exclusive'}},
+              'status': {'allocatable': {'nvidia.com/gpu': '4'}}}
+        payload={**self.payload, 'provider': provider, 'mode': 'exclusive', 'maxModels': 2, 'acknowledgeSharing': False,
+                 'restoreDefaults': {'parameters': 'present', 'gpuSharing': 'absent'}}
+        if provider == 'amd':
+            payload['restoreDefaults']['validationRequest'] = 'absent'
+            activation['spec']['parameters']['validationRequest'] = ''
+            node['status']['allocatable'] = {'amd.com/gpu': '1'}
+        else:
+            payload['allocationBackend'] = 'device-plugin'
+        return activation, node, payload
+
+    def configure_reset(self, activation, node, payload):
+        with patch.dict(self.api, {'module_activation': lambda _: activation, 'get_resource': lambda _: node}):
+            return self.configure(payload)
+
+    def test_restore_fresh_defaults_removes_only_borrowed_fields_after_exclusive_convergence(self):
+        activation, node, payload = self.default_reset()
+        self.assertTrue(self.configure_reset(activation, node, payload)['accepted'])
+        self.assertEqual(self.writes[0][2], {'metadata': {'resourceVersion': '7'}, 'spec': {'parameters': {'gpuSharing': None}}})
+        self.assertEqual(self.writes[0][3], 'application/merge-patch+json')
+
+    def test_default_reset_preserves_absent_empty_maps_strings_and_unrelated_parameters(self):
+        import copy
+
+        def merge(target, patch):
+            if not isinstance(patch, dict):
+                return copy.deepcopy(patch)
+            target = copy.deepcopy(target) if isinstance(target, dict) else {}
+            for key, value in patch.items():
+                if value is None:
+                    target.pop(key, None)
+                else:
+                    target[key] = merge(target.get(key), value)
+            return target
+
+        for provider in ('amd', 'nvidia'):
+            for original in (None, {}, {'gpuSharing': ''}, {'unrelated': 'keep'},
+                             *([{'validationRequest': ''}, {'gpuSharing': '', 'validationRequest': ''}] if provider == 'amd' else [])):
+                with self.subTest(provider=provider, original=original):
+                    self.writes.clear()
+                    activation, node, payload = self.default_reset(provider)
+                    owned = {key: value for key, value in activation['spec']['parameters'].items()
+                             if key in ('gpuSharing', 'validationRequest')}
+                    activation['spec']['parameters'] = {**(original or {}), **owned}
+                    defaults = payload['restoreDefaults']
+                    defaults['parameters'] = 'absent' if original is None else 'present'
+                    for key in ('gpuSharing', *(['validationRequest'] if provider == 'amd' else [])):
+                        defaults[key] = 'empty' if key in (original or {}) else 'absent'
+                    expected = {'enabled': True, **({'parameters': original} if original is not None else {})}
+                    self.configure_reset(activation, node, payload)
+                    actual = merge(activation, self.writes[0][2])
+                    self.assertEqual(actual['spec'], expected)
+
+    def test_default_reset_is_not_an_unfenced_module_patch_or_direct_backend_switch(self):
+        import copy
+        activation, node, payload = self.default_reset()
+        for defaults in (None, {}, True, {'parameters': 'absent', 'gpuSharing': 'empty'},
+                         {'parameters': 'present', 'gpuSharing': 'arbitrary-json'},
+                         {**payload['restoreDefaults'], 'unrelated': 'replace'},
+                         {**payload['restoreDefaults'], 'validationRequest': 'empty'}):
+            with self.subTest(defaults=defaults), self.assertRaises((ValueError, self.api['RequestError'])):
+                self.configure_reset(activation, node, {**payload, 'restoreDefaults': defaults})
+        for change in ({'expectedRevision': 'old'}, {'nodeUid': 'old'}, {'nodeName': 'another-node'},
+                       {'acknowledgeRestart': False}, {'acknowledgeSharing': True}, {'mode': 'shared'},
+                       {'allocationBackend': 'dra'}, {'maxModels': 3}):
+            with self.subTest(change=change), self.assertRaises((ValueError, self.api['RequestError'])):
+                self.configure_reset(activation, node, {**payload, **change})
+        for change in ({'managed': False}, {'phase': 'Starting'}, {'mode': 'shared'}, {'available': False}, {'backend': 'dra'}):
+            original = copy.deepcopy(self.state)
+            with self.subTest(state=change), self.assertRaises(self.api['RequestError']):
+                self.state.update(change)
+                self.configure_reset(activation, node, payload)
+            self.state = original
+        for changes in ({'uid': 'foreign'}, {'resourceVersion': '8'}, {'deletionTimestamp': 'now'}):
+            stale = copy.deepcopy(activation)
+            stale['metadata'].update(changes)
+            # The UID is part of the runner's journal fence; the API rejects
+            # replacement via its never-reused resourceVersion, not a name.
+            if 'uid' in changes:
+                stale['metadata']['resourceVersion'] = 'replacement-revision'
+            with self.subTest(metadata=changes), self.assertRaises(self.api['RequestError']):
+                self.configure_reset(stale, node, payload)
+        for labels in ({'nvidia.com/device-plugin.config': 'custom'}, {'nvidia.com/gpu.replicas': '2'},
+                       {'nvidia.com/dra-kubelet-plugin': 'true'}, {'appliance.magicstick.dev/nvidia-dra-config': 'retained'}):
+            foreign = copy.deepcopy(node)
+            foreign['metadata']['labels'].update(labels)
+            with self.subTest(labels=labels), self.assertRaises(self.api['RequestError']):
+                self.configure_reset(activation, foreign, payload)
+        for change in ({'uid': 'foreign'}, {'allocatable': {'nvidia.com/gpu': '8'}}):
+            foreign = copy.deepcopy(node)
+            foreign['metadata' if 'uid' in change else 'status'].update(change)
+            with self.subTest(node=change), self.assertRaises(self.api['RequestError']):
+                self.configure_reset(activation, foreign, payload)
+        with self.assertRaises(self.api['RequestError']):
+            self.configure_reset(activation, node, {**payload, 'restoreDefaults': {'parameters': 'absent', 'gpuSharing': 'absent'}})
+        for config in ('invalid', '{}', json.dumps({'mode': 'exclusive'}),
+                       json.dumps({**json.loads(activation['spec']['parameters']['gpuSharing']), 'custom': 'retained'})):
+            custom = copy.deepcopy(activation)
+            custom['spec']['parameters']['gpuSharing'] = config
+            with self.subTest(config=config), self.assertRaises(self.api['RequestError']):
+                self.configure_reset(custom, node, payload)
+        activation['spec']['parameters']['validationRequest'] = 'active-probe'
+        with self.assertRaises(self.api['RequestError']):
+            self.configure_reset(activation, node, payload)
+        self.assertEqual(self.writes, [])
+
+    def test_amd_reset_requires_current_node_identity_too(self):
+        activation, node, payload = self.default_reset('amd')
+        for change in ({'nodeUid': 'old'}, {'nodeName': 'wrong'}, {'allocationBackend': 'device-plugin'}):
+            with self.subTest(change=change), self.assertRaises((ValueError, self.api['RequestError'])):
+                self.configure_reset(activation, node, {**payload, **change})
+        self.assertEqual(self.writes, [])
+
     def nvidia_status(self, node_changes=None, config=None, observed=None):
         node = {'metadata': {'name': 'example-node', 'uid': 'example-uid', 'labels': {
             'nvidia.com/gpu.count': '1', 'nvidia.com/gpu.replicas': '2', 'nvidia.com/mig.strategy': 'none',

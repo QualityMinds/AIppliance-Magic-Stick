@@ -130,6 +130,28 @@ imports. Existing K3s binaries are left untouched; updating an older cluster
 and checking custom containerd templates is a separate migration step before
 adopting NVIDIA Operator 26.7.
 
+On **new Ubuntu 26.04 installations**, the same role prepares the reviewed
+containerd AppArmor profile **before K3s can start**. Ubuntu's stacked profile
+label can otherwise block gosu's own thread signals and leave PostgreSQL stuck
+before initialization, followed by Keycloak HTTP 503 and no first-run console.
+Only the exact `cri-containerd.apparmor.d//&unconfined` signal peer is added;
+AppArmor stays enforcing, upstream filesystem/mount denials and ptrace rules
+remain, and no kernel downgrade or global sysctl exception is applied.
+
+`magicstick-k3s-apparmor.service` loads the host-owned profile after
+`apparmor.service` on every boot. The K3s drop-in requires that unit and performs
+a read-only `apparmor_profile.py --check` before each K3s start. Repeated
+convergence does not reload an owned profile already verified in the current
+boot. A separate `/run` attestation is recreated only after successful loading
+and enforcement checks. An initial
+ownership record allows interrupted bootstrap to resume but is **not** a
+successful-policy attestation. Unknown K3s versions, changed profile bytes,
+disabled AppArmor, missing signal mediation and an unowned existing profile
+fail closed. Existing clusters without that ownership record are not adopted
+or restarted. Ubuntu 24.04's existing path is unchanged. See
+[AppArmor bootstrap and recovery](../docs/administration/host-management.md#container-runtime-apparmor-bootstrap)
+for scope, provenance and verification.
+
 Install the versioned collection dependencies when using a minimal
 `ansible-core` environment. The Ubuntu `ansible` package already includes the
 community collections, but running this command is safe and keeps development

@@ -6,30 +6,36 @@ import {phase2Coverage, phase2Variants, phase2Requirements, type Phase2Variant} 
 import {gpuCoverage,gpuRequirements,phase3Variants,phase4Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
 import {remainingCoverage,remainingRequirements,remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
 import {writePrivate} from './private-files.ts';
+import {preflightDiagnosticText} from './preflight-diagnostic.ts';
 import {join} from 'node:path';
 import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from './evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
-import {disabledExperimentalEngines} from './engine-policy.ts';
+import {deferredApplicationSteps,disabledExperimentalEngines} from './engine-policy.ts';
 import {preparationDiagnostic, preparationDescription, parsePreparationDiagnostic, type PreparationDiagnostic} from './preparation-diagnostic.ts';
 import {collectReportArtifacts,archiveReport} from './report-artifacts.ts';
 import {junitReport} from './junit.ts';
 import {blockerDescription} from './blocker-description.ts';
-import type {RegressionBlocker, RegressionBlockedKind} from '@magicstick/dashboard-contracts';
+import type {RegressionBlocker, RegressionBlockedKind,RegressionCleanup} from '@magicstick/dashboard-contracts';
+import {cleanupStatus} from './cleanup-state.ts';
 import {regressionBlockedKind,regressionBlockedLabel, regressionBlockedSummary} from '../../../../packages/core/src/regression-blocking.ts';
 import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses,recoveryCause} from './blocking.ts';
 import {testMode,excludedSteps,isolatedStep} from './test-mode.ts';
 import {nonDestructiveVariants} from './non-destructive.ts';
+import {diagnosticForMode,diagnosticMetadata} from './diagnostic-selection.ts';
+import {diagnosticRequirements} from './scenario-selection.ts';
+import {parseCleanupDiagnostic,cleanupDiagnosticText,type CleanupDiagnostic} from './cleanup-diagnostic.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
   executionId?:string; executionOutcome?:'Passed'|'Failed'|'Blocked';
   traceRunId?:string;recoveryRequired?:true;
   blockedBy?:RegressionBlocker;
+  causeReason?:ReasonCode;causeStage?:Stage;cleanupDiagnostic?:CleanupDiagnostic;
   stage?: Stage; variant?: Phase0Variant | Phase1Variant | Phase2Variant | GpuVariant | `p${5|6|7|8}-${string}` | `p${0|1|2|3|4}-non-destructive-${'tls'|'read'}`}
 export interface RecoveryAttempt {runId:string;state:'restored'|'blocked';reason?:ReasonCode}
 export function needsRecovery(cases:CaseResult[]) {
   return cases.some(item=>item.recoveryRequired===true||item.reason&&
-    ['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason));
+    ['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY','PROCESS_STATE'].includes(item.reason));
 }
 
 export const reportVariants: Record<string, string> = {...phase0Variants, ...phase1Variants,...nonDestructiveVariants,
@@ -54,16 +60,26 @@ export function summarizeExecutions(cases:Array<{executionId?:string;executionOu
 /** Fill the finite matrix, not just one row per catalogue family. A missing
  * prerequisite or interrupted serial group must remain visible in JSON/JUnit. */
 export function completeCases(mode:string|undefined,cases:CaseResult[],required:string[],reason:ReasonCode='PREREQUISITE',
-  recoveryFenceAtStart=false):CaseResult[] {
+  recoveryFenceAtStart=false,preparation?:PreparationDiagnostic):CaseResult[] {
   const result=cases.map(item=>({...item,outcome:terminalOutcome(item.outcome)}));
   const missingCause=(id:string,variant?:string):RegressionBlocker=>{
     const peers=cases.filter(item=>variant?item.variant===variant:item.id===id);
-    const root=peers.find(item=>['Failed','Flaky'].includes(item.outcome)) ?? peers.find(item=>item.outcome==='Blocked');
+    const root=peers.find(item=>['Failed','Flaky'].includes(item.outcome)) ?? peers.find(item=>item.outcome==='Blocked') ??
+      cases.find(item=>item.id==='HAR-10'&&item.stage==='runner-execution'&&item.outcome!=='Passed');
     return reason==='PREREQUISITE' ? root ? checkedBlocker(root.blockedBy) ?? blockerFrom(root) : {kind:'unknown'} : {kind:regressionBlockedKind(reason),reason};
   };
   const missingEnvironments=new Set<TestEnvironment>();
   const absent=(id:string,variant:string|undefined,environment:TestEnvironment)=>{
     const cause=missingCause(id,variant);
+    if(reason==='PREREQUISITE'&&cause.caseId==='HAR-10'&&cause.stage==='runner-execution')return {reason:'DEPENDENCY' as const,blockedBy:cause};
+    // A validated failed/blocked preparation is an explicit execution barrier,
+    // not missing live evidence. Isolated coverage still has to prove itself.
+    if(environment==='live'&&reason==='PREREQUISITE'&&cause.kind==='unknown'&&preparation&&preparation.outcome!=='Passed') {
+      const failed=preparation.outcome==='Failed',rootReason=preparation.reason??'PREREQUISITE';
+      return {reason:failed?'PREPARATION_FAILED' as const:rootReason,blockedBy:failed?
+        {kind:'failure' as const,caseId:'HAR-02',reason:rootReason}:
+        {kind:regressionBlockedKind(rootReason),reason:rootReason}};
+    }
     // This phase entered with a recorded recovery fence, so its live steps
     // were refused before mutation. Do not infer this from a fence introduced
     // later in the phase, or attribute absent fixture layers to that fence.
@@ -78,7 +94,9 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
     return {reason,blockedBy:cause};
   };
   const limited=testMode(process.env.REGRESSION_TEST_MODE??'full')==='non-destructive';
+  const diagnostic=diagnosticForMode(mode);
   const matrix=limited?[]:mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
+    diagnostic&&!process.env.REGRESSION_SCENARIO_ID?diagnosticRequirements(diagnostic):
     mode === 'phase3' || mode === 'phase4' ? gpuRequirements(Number(mode[5]) as 3|4) :
     mode && remainingPhase(mode) ? remainingRequirements(mode) ?? [] : [];
   for(const item of matrix)if(!result.some(proof=>proof.id === item.id && proof.variant === item.variant &&
@@ -120,9 +138,13 @@ export function reportExitCode(cases:Array<{outcome:Outcome}>) {
     !cases.length || cases.some(item=>terminalOutcome(item.outcome) === 'Blocked') ? 2 : 0;
 }
 export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionBlockedKind) {
+  if(reason==='CACHE_RACE_WINDOW')return 'Repeat CACHE-06 with its automatically populated owned model cache. Cleanup finished before overlapping intent was observed; no concurrency proof was credited. Do not slow the production worker or bypass its safety checks.';
+  if(reason==='CI_ACCESS')return 'Run build-mesh-companion.yml for the exact installed commit and wait for its public native acceptance check. Legacy builds can use an existing scoped Actions-read token; do not grant Appliance administrator access or silently pass the check.';
+  if(reason==='REPORT_EXPORT')return 'Inspect report size, storage and export permissions. Keep the original campaign and cleanup receipts; do not rerun tests or force recovery just to recreate a download.';
   if(reason==='MISSING_EVIDENCE')return 'Repair the runner selection/evidence mapping or interrupted child report. Do not configure a prerequisite or reuse an older result to fill this gap.';
   if(kind==='unknown'&&reason==='PREREQUISITE')return 'Inspect the missing evidence and preceding runner steps; no causal prerequisite or failure was recorded.';
   if(reason === 'UNEXPECTED')return 'Inspect the filtered scenario/step trace and runner status, correct the failing assertion or harness error, then repeat the suite.';
+  if(reason === 'PROCESS_STATE')return 'Inspect the retained private process-state diagnostic. After the exact old Kubernetes Pod has terminated, use Clean up previous test run for identity-bound recovery. Do not force-release its Lease or mark a running session finished.';
   if(reason === 'COMPONENT')return 'Inspect the archived owning component diagnostic and its source test, then repeat the isolated component check.';
   if(reason === 'CONFIG' || reason === 'PRIVATE_FILE')return 'Repeat automatic setup with the same retained storage; verify runner version, file permissions and available storage. Do not manually delete recovery receipts.';
   if(reason === 'REVISION')return 'Verify the selected source revision, image promotion and healthy Flux/Deployment convergence, then repeat automatic preparation. Do not accept stale images or bypass revision checks.';
@@ -181,8 +203,10 @@ export function liveReportScope(mode?: string) {
     return 'Phase 3 diagnostic subset: AMD/NVIDIA vLLM inference, logs, browser Stop/Start and exact restoration; not complete installed Phase 3 acceptance';
   if(mode === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'nvidia-lifecycle')
     return 'Phase 3 diagnostic subset: three independent NVIDIA Ollama and vLLM inference/logs/Stop/Start cycles each; AMD sharing unchanged; not complete installed Phase 3 acceptance';
-  if(mode === 'phase4-sharing' && process.env.REGRESSION_GPU_CASE === 'remaining')
-    return 'Phase 4 diagnostic subset: verification consumer, provider/CPU independence, last-slot races, reload and exact restoration; not complete installed Phase 4 acceptance';
+  const diagnostic=diagnosticForMode(mode);
+  if(diagnostic) {
+    return `Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}); normal identity, lock and cleanup rules; not complete installed Phase ${diagnostic.phase} acceptance`;
+  }
   if(mode === 'gpu-recover') return 'explicit recovery of one reviewed GPU journal; same node/boot/source/image pins; no Lease takeover, resource adoption or new inference workloads';
   if (mode?.startsWith('phase3')) return 'Phase 3 P0 installed AMD/NVIDIA Ollama/vLLM exclusive runtimes, physical inventory, memory, logs and scoped validation; borrowed sharing restored; Intel and reboot acceptance separate';
   if (mode?.startsWith('phase4')) return 'Phase 4 P0 installed AMD DRA/NVIDIA time-slicing transitions, mixed/same-engine pairs, full/released slots, races and cross-provider independence; borrowed sharing restored; reboot/CDI recovery acceptance separate';
@@ -205,16 +229,19 @@ export function liveReportScope(mode?: string) {
 
 /** Allowlisted output only. Never serialize a Playwright response, error or attachment. */
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
-  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean}) {
+  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),limited=runTestMode==='non-destructive';
-  const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='all'?
+  const diagnostic=diagnosticForMode(mode);
+  const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='phase5-live'?[5]:mode==='all'?
     (process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number):[];
   const omittedSteps=excludedSteps(runTestMode,selectionPhases);
-  const selectionText=limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.';
-  const portableArchive=mode==='all'||mode==='selftest'||mode==='recover'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
+  const deferredApplications=deferredApplicationSteps(selectionPhases);
+  const deferredText=deferredApplications.length?' Product-service/application live workflows deferred to separate regression: '+deferredApplications.join(', ')+'. Full Phase 5 service/application acceptance is not assessed.':'';
+  const selectionText=(diagnostic?`Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.')+deferredText;
+  const portableArchive=Boolean(diagnostic)||mode==='all'||mode==='selftest'||mode==='recover'||mode==='phase4-sharing'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
-  const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true).map(item => {
+  const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true,prepared).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
     requireSafe(['Passed', 'Failed', 'Blocked', 'Skipped', 'Not run', 'Flaky'].includes(item.outcome) &&
       testLayers.includes(item.layer) && Number.isFinite(item.durationMs) && item.durationMs >= 0, 'CONFIG');
@@ -226,13 +253,20 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     const variant = item.variant && Object.hasOwn(reportVariants, item.variant) && reportVariants[item.variant] === item.id ? item.variant : undefined;
     const executionId=item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) ? item.executionId : undefined;
     const executionOutcome=executionId && ['Passed','Failed','Blocked'].includes(item.executionOutcome ?? '') ? item.executionOutcome : undefined;
+    const cleanupDiagnostic=item.cleanupDiagnostic?parseCleanupDiagnostic(item.cleanupDiagnostic):undefined;
+    if(cleanupDiagnostic)requireSafe(cleanupDiagnostic.runId===(item.traceRunId??runId),'CONFIG');
     return {id: item.id, description: caseDescription(item.id), outcome: item.outcome, layer: item.layer, environment, durationMs: Math.max(0, Math.round(item.durationMs)),
+      ...(item.causeReason&&Object.hasOwn(reasons,item.causeReason)?{causeReason:item.causeReason}:{}),
+      ...(item.causeStage&&stages.includes(item.causeStage)?{causeStage:item.causeStage}:{}),
+      ...(cleanupDiagnostic?{cleanupDiagnostic}:{}),
       ...(reason ? {reason} : {}), ...(stage ? {stage} : {}), ...(variant ? {variant} : {}),...(executionId ? {executionId} : {}),
       ...(executionOutcome ? {executionOutcome} : {}),
       ...(item.outcome==='Blocked' && environment==='live' && prepared?.outcome==='Failed' && ['PREPARATION_FAILED','PREREQUISITE'].includes(reason ?? '') ?
         {blockedBy:checkedBlocker({kind:'failure',caseId:'HAR-02',reason:prepared.reason ?? 'PREPARATION_FAILED'})} :
         item.outcome==='Blocked' && environment==='live' && prepared?.outcome==='Blocked' && reason==='PREREQUISITE' ?
         {blockedBy:checkedBlocker({kind:regressionBlockedKind(prepared.reason ?? 'PREREQUISITE'),reason:prepared.reason ?? 'PREREQUISITE'})} :
+        item.outcome==='Blocked'&&reason==='RECOVERY'&&checkedBlocker(item.blockedBy)?
+          {blockedBy:checkedBlocker(item.blockedBy)}:
         item.outcome==='Blocked'&&reason==='RECOVERY'&&recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)?
           {blockedBy:recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)}:
         item.outcome==='Blocked' && checkedBlocker(item.blockedBy) ? {blockedBy:checkedBlocker(item.blockedBy)} :
@@ -241,7 +275,12 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       ...(item.recoveryRequired===true?{recoveryRequired:true as const}:{})};
   }));
   const artifacts=await collectReportArtifacts(directory,runId,safe);
-  const recoveryFenceActive=lifecycle?.recoveryFenceActive??needsRecovery(safe);
+  for(const {trace} of artifacts)for(const row of safe)if(row.outcome==='Failed'&&row.executionId===trace.executionId&&row.traceRunId===trace.runId&&!row.cleanupDiagnostic) {
+    const d=trace.cleanupDiagnostics?.find(d=>d.state==='failed')??trace.cleanupDiagnostics?.find(d=>d.state==='running');
+    if(d)row.cleanupDiagnostic=parseCleanupDiagnostic(d);
+  }
+  const cleanup=cleanupStatus(lifecycle?.cleanup);
+  const recoveryFenceActive=limited?false:cleanup?cleanup.state!=='verified':lifecycle?.recoveryFenceActive??needsRecovery(safe);
   const recoveryAttempts=(lifecycle?.recoveryAttempts??[]).map(item=>{
     requireSafe(/^reg-[0-9a-f-]{36}$/.test(item.runId)&&['restored','blocked'].includes(item.state),'CONFIG');
     return {runId:item.runId,state:item.state,...(item.reason&&Object.hasOwn(reasons,item.reason)?{reason:item.reason}:{})};
@@ -261,7 +300,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     (limited || mode !== 'phase3' || phase3Coverage.complete) && (limited || mode !== 'phase4' || phase4Coverage.complete) &&
     (!laterCoverage || laterCoverage.complete)};
   const revision = /^[0-9a-f]{40,64}$/.test(sourceRevision) ? sourceRevision : 'unknown';
-  const liveScope = liveReportScope(mode);
+  const liveScope = liveReportScope(mode)+deferredText;
   const fullPhase0Accepted = !limited && mode === 'phase0' && summary.acceptable && coverage.complete;
   const fullPhase1Accepted = !limited && mode === 'phase1' && summary.acceptable && smokeCoverage.complete;
   const fullPhase2Accepted = !limited && mode === 'phase2' && summary.acceptable && controlCoverage.complete;
@@ -270,40 +309,50 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   // The installed profile never performs a host reboot. Keep historic CDI
   // maintenance gates visible rather than silently calling all Phase 4 P0 done.
   const fullPhase4Accepted = false;
+  const remainingAcceptance=Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,
+    !limited && mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true && !(phase===5&&deferredApplications.length)]));
   const openGates = limited?[]:laterCoverage ? [...new Set(laterCoverage.missingLayers.map(item=>`${item.id}/${item.layer}: ${item.gate ?? item.group} evidence required`))] : mode?.startsWith('phase4') ? ['BOOT-04: separately authorized live driver restart/CDI recovery'] :
     mode?.startsWith('phase3') ? ['Intel: unavailable lab hardware'] : [];
+  openGates.push(...deferredApplications);
   await writePrivate(join(directory, 'summary.json'), {version: 2, runId, sourceRevision: revision,testMode:runTestMode,excludedSteps:omittedSteps,
+    ...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{}),
     ...(prepared ? {automaticPreparation: prepared} : {}),
     scope: limited?selectionText:safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning-layer tests; no appliance acceptance',
     fullPhase0Accepted,
     fullPhase1Accepted,
     fullPhase2Accepted,
     fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,openGates,
-    ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,!limited && mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true])),
+    ...remainingAcceptance,
     ...(laterCoverage ? {[`phase${laterPhase}Coverage`]:laterCoverage} : {}),
     ...(mode === 'phase0' ? {phase0Coverage: coverage} : {}),
     ...(mode === 'phase1' ? {phase1Coverage: smokeCoverage} : {}),
     ...(mode === 'phase2' ? {phase2Coverage: controlCoverage} : {}),
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
-    ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
-  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps}));
-  await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
-    '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
+    ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,
+    ...(cleanup?{cleanup}:{}),excludedEngineTests:disabledExperimentalEngines, cases: safe});
+  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts,disabledExperimentalEngines,{testMode:runTestMode,excludedSteps:omittedSteps,cleanup,...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{})}));
+  await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+    '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem;overflow-wrap:anywhere}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
     '.Passed{color:#087343}.Failed{color:#b42030}.Blocked{color:#906100}</style><h1>Regression results</h1>'+
     `<p>${xml(selectionText)}</p>`+(omittedSteps.length?`<details><summary>Not selected in this mode (${omittedSteps.length} steps)</summary><ul>${omittedSteps.map(step=>`<li>${xml(step)}</li>`).join('')}</ul></details>`:'')+
     (prepared ? `<p>${xml(preparationDescription(prepared))}${prepared.outcome==='Passed'?'':' '+xml(reasons[prepared.reason ?? 'PREREQUISITE'])}</p>` : '')+
     `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
-    `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
-    `<p>Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}.</p>`+
+    '<h2>All checks</h2><p>Case / variant / layer evidence · isolated + live</p>'+
     `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+
     `<p>Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}.</p>`+
+    '<details><summary>Executable scenarios</summary>'+
+    `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (runner/cleanup errors, missing or legacy evidence).</p>`+
+    `<p>Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}.</p></details>`+
     `<p>Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.</p>`+
+    (cleanup?`<p>Resource cleanup: ${xml(cleanup.state)}${cleanup.reason?' ('+xml(cleanup.reason)+')':''}${cleanup.stage?' ['+xml(cleanup.stage)+']':''}. Test-account removal is separate and follows runner termination.</p>`:'')+
     recoveryAttempts.map(item=>`<p>Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.</p>`).join('')+
     '<table><tr><th>Case / variant</th><th>Layer</th><th>Result</th><th>Goal / reason</th></tr>'+
     safe.map(item=>`<tr><td>${xml(item.id+(item.variant ? '/'+item.variant : ''))}</td><td>${item.layer} / ${item.environment}</td>`+
       `<td class="${item.blockedBy?.kind==='failure'?'Failed':item.outcome}">${item.blockedBy ? regressionBlockedLabel(item.blockedBy.kind) : item.outcome}</td><td>${xml(item.description)}`+
       (item.reason ? `<br>${item.reason}: ${xml(blockerDescription(item.reason,item.id,item.variant,item.layer))}` : '')+
+      (item.causeReason?`<br>Underlying cause: ${item.causeReason}${item.causeStage?' · '+item.causeStage:''}`:'')+
+      (item.cleanupDiagnostic?'<details><summary>Cleanup observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(cleanupDiagnosticText(item.cleanupDiagnostic).join('\n'))+'</pre></details>':'')+
       (item.blockedBy?.caseId ? `<br>Blocking check: ${xml(item.blockedBy.caseId)}${item.blockedBy.reason ? ` (${xml(item.blockedBy.reason)})` : ''}${item.blockedBy.stage ? ` · Stage: ${xml(item.blockedBy.stage)}` : ''}` : '')+
       (item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason,item.blockedBy?.kind))}` : '')+'</td></tr>').join('')+'</table>'+
     '<h2>Execution steps and diagnostics</h2><p>Filtered call traces omit credentials, selectors, URLs and raw responses.</p>'+
@@ -312,35 +361,54 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       `<p><a href="${path}">Filtered trace JSON</a>${componentPath?` · <a href="${componentPath}">Component diagnostic</a>`:''}</p><ol>`+
       trace.steps.map(step=>`<li class="${step.outcome}">${xml(step.title)} — ${step.outcome} · ${durationDescription(step.durationMs)}`+
         (step.reason?` · ${step.reason}`:'')+(step.stage?` · ${step.stage}`:'')+
+        (step.causeReason?` · underlying cause ${step.causeReason}${step.causeStage?' / '+step.causeStage:''}`:'')+
+        (step.titleFiltered?' · title filtered (unapproved or dynamic)':'')+
         (step.source?` · ${xml(step.source.file)}:${step.source.line}`:'')+'</li>').join('')+'</ol>'+
-      (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+'</details>').join('')+'</html>');
+      (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+
+      (trace.preflightDiagnostics??[]).map(d=>'<details><summary>Preflight observations — '+d.state+'</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(preflightDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
+      (trace.omittedPreflightDiagnostics?`<p>${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.</p>`:'')+
+      (trace.cleanupDiagnostics??[]).map(d=>'<details><summary>Cleanup observations — '+d.state+'</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(cleanupDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
+      (trace.runtimeDiagnostics??[]).map(d=>'<details><summary>Runtime observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(JSON.stringify(d,null,2))+'</pre></details>').join('')+
+      (trace.omittedCleanupDiagnostics?`<p>${trace.omittedCleanupDiagnostics} cleanup scopes omitted.</p>`:'')+
+      (trace.diagnosticsUnavailable?`<p>${trace.diagnosticsUnavailable} diagnostic captures unavailable or rejected by validation.</p>`:'')+'</details>').join('')+'</html>');
   await writePrivate(join(directory, 'summary.txt'), `Magic Stick selected regression cases: ${summary.acceptable ? 'PASSED' : 'NOT ACCEPTED'}\n` +
     selectionText+'\n'+(omittedSteps.length?'Not selected in this mode: '+omittedSteps.join(', ')+'\n':'')+
     (prepared ? preparationDescription(prepared)+'\n' : '')+
+    'All checks\nCase / variant / layer evidence · isolated + live\n'+
+    `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
+    `Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}\n`+
+    'Executable scenarios\n'+
+    `Recorded executable scenarios: ${executionCounts.Passed} passed; ${executionCounts.Failed} failed; ${executionCounts.Blocked} blocked.\n`+
+    `Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}\n`+
+    `Evidence rows without executable scenario ID (runner/cleanup errors, missing or legacy evidence): ${safe.filter(item=>!item.executionId).length}\n`+
     `Full Phase 0 P0 gate: ${!limited && mode === 'phase0' ? fullPhase0Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Full Phase 1 P0 gate: ${!limited && mode === 'phase1' ? fullPhase1Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Full Phase 2 P0 gate: ${!limited && mode === 'phase2' ? fullPhase2Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Installed Phase 3 P0 gate: ${!limited && mode === 'phase3' ? fullPhase3Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Installed Phase 4 P0 gate: ${!limited && mode === 'phase4' ? installedPhase4Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
-    [5,6,7,8].map(phase=>`Full Phase ${phase} P0 gate: ${!limited && mode === `phase${phase}` ? summary.acceptable ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n`).join('') +
+    [5,6,7,8].map(phase=>`Full Phase ${phase} P0 gate: ${!limited && mode === `phase${phase}` && !(phase===5&&deferredApplications.length) ? remainingAcceptance[`fullPhase${phase}Accepted`] ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n`).join('') +
     (openGates.length ? `Separate open gates: ${openGates.join('; ')}\n` : '') +
     `Scope: ${safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning layers only'}\n` +
     'Catalogue goals describe case families; Passed applies only to the recorded variant, layer and environment.\n' +
     `Excluded experimental engine tests: ${disabledExperimentalEngines.join(', ')}. Product engines are unchanged.\n`+
-    `Recorded executable scenarios: ${executionCounts.Passed} passed; ${executionCounts.Failed} failed; ${executionCounts.Blocked} blocked.\n`+
-    `Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}\n`+
-    `Evidence rows without executable scenario ID (missing or legacy evidence): ${safe.filter(item=>!item.executionId).length}\n`+
-    `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
-    `Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}\n`+
     `Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.\n`+
+    (cleanup?`Resource cleanup: ${cleanup.state}${cleanup.reason?' ('+cleanup.reason+')':''}${cleanup.stage?' ['+cleanup.stage+']':''}. Test-account removal is separate and follows runner termination.\n`:'')+
     recoveryAttempts.map(item=>`Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.\n`).join('')+
     safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.blockedBy ? regressionBlockedLabel(item.blockedBy.kind) : item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
       `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${blockerDescription(item.reason,item.id,item.variant,item.layer)}` : ''}`+
+      (item.causeReason?`\n  Underlying cause: ${item.causeReason}${item.causeStage?' / '+item.causeStage:''}`:'')+
+      (item.cleanupDiagnostic?'\n  Cleanup observations:\n'+cleanupDiagnosticText(item.cleanupDiagnostic).map(line=>'    '+line).join('\n'):'')+
       (item.blockedBy?.caseId ? `\n  Blocking check: ${item.blockedBy.caseId}${item.blockedBy.reason ? ` (${item.blockedBy.reason})` : ''}${item.blockedBy.stage ? ` [${item.blockedBy.stage}]` : ''}` : '')+
-      (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n');
+      (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n'+
+    artifacts.flatMap(({trace})=>[...(trace.preflightDiagnostics??[]).map(d=>`\nPreflight / ${trace.executionId}\n${preflightDiagnosticText(d).join('\n')}\n`),
+      ...(trace.omittedPreflightDiagnostics?[`${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.\n`]:[]),
+      ...(trace.cleanupDiagnostics??[]).flatMap(d=>[`\nCleanup / ${trace.executionId}\n`,...cleanupDiagnosticText(d).map(line=>line+'\n')]),
+      ...(trace.runtimeDiagnostics??[]).map(d=>`\nRuntime / ${trace.executionId}\n${JSON.stringify(d)}\n`),
+      ...(trace.diagnosticsUnavailable?[`${trace.diagnosticsUnavailable} diagnostic captures unavailable or rejected by validation.\n`]:[]),
+      ...(trace.omittedCleanupDiagnostics?[`${trace.omittedCleanupDiagnostics} cleanup scopes omitted.\n`]:[])]).join(''));
   await archiveReport(directory,runId,artifacts,portableArchive);
-  return {...summary, executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
-    ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};
+  return {...summary, executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,...(cleanup?{cleanup}:{}), fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
+    ...remainingAcceptance};
 }
 
 /** Defense in depth for explicitly reviewed text; reports use allowlisting instead. */

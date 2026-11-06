@@ -6,6 +6,10 @@ import {blockedCounts,checkedBlocker,withBlockedCauses} from './blocking.ts';
 import {emptyBlockedCounts,regressionBlockedKind} from '../../../../packages/core/src/regression-blocking.ts';
 import {parsePreparationDiagnostic,preparationDescription} from './preparation-diagnostic.ts';
 import {testMode,excludedSteps} from './test-mode.ts';
+import {cleanupStatus} from './cleanup-state.ts';
+import {diagnosticSelection,diagnosticMetadata} from './diagnostic-selection.ts';
+import {deferredApplicationStep} from './engine-policy.ts';
+import {parseCleanupDiagnostic,cleanupDiagnosticText} from './cleanup-diagnostic.ts';
 
 const count=(n:unknown)=>Number.isSafeInteger(n)&&Number(n)>=0&&Number(n)<=100_000 ? Number(n):0;
 const outcomes=['Passed','Failed','Blocked'] as const;
@@ -53,6 +57,8 @@ export class KubernetesProgress {
 export function publicResult(summary:Record<string,any>,campaign:Record<string,any>) {
   const rows=withBlockedCauses(Array.isArray(summary.cases)?summary.cases:[]);
   const cases=rows.filter((r:Record<string,any>)=>r.outcome!=='Passed').slice(0,200).map((r:Record<string,any>)=>{
+    let diagnostics:string[]|undefined;
+    if(r.cleanupDiagnostic)try{diagnostics=cleanupDiagnosticText(parseCleanupDiagnostic(r.cleanupDiagnostic));}catch{diagnostics=['Cleanup diagnostic unavailable: validation rejected the capture.'];}
     const reason:ReasonCode=Object.hasOwn(reasons,r.reason)?r.reason:'PREREQUISITE';
     const traceRunId=/^reg-[a-f0-9-]{36}$/.test(r.traceRunId)?r.traceRunId:undefined,
       executionId=/^[a-f0-9]{24}$/.test(r.executionId)?r.executionId:undefined,
@@ -62,6 +68,8 @@ export function publicResult(summary:Record<string,any>,campaign:Record<string,a
       description:caseDescription(r.id).slice(0,1000),reason,message:blockerDescription(reason,r.id,r.variant,r.layer),action:blockedAction(reason,r.blockedBy?.kind),durationMs:Number.isSafeInteger(r.durationMs)&&r.durationMs>=0&&r.durationMs<=86_400_000?r.durationMs:0,
       ...(r.outcome==='Blocked'&&checkedBlocker(r.blockedBy)?{blockedBy:checkedBlocker(r.blockedBy)}:{}),
       ...(phase!==undefined?{phase}:{}),...(stages.includes(r.stage)?{stage:r.stage}:{}),
+      ...(Object.hasOwn(reasons,r.causeReason??'')?{causeReason:r.causeReason}:{}),
+      ...(stages.includes(r.causeStage)?{causeStage:r.causeStage}:{}),...(diagnostics?{diagnostics}:{}),
       ...(traceRunId&&executionId?{traceRunId,executionId,tracePath:`report-artifacts/${traceRunId}/traces/${executionId}.json`}:{})};
   });
   const counts=(value:Record<string,any>)=>Object.fromEntries(outcomes.map(key=>[key,count(value?.[key])]));
@@ -78,10 +86,21 @@ export function publicResult(summary:Record<string,any>,campaign:Record<string,a
     Object.fromEntries(['fixture','live'].map(environment=>[environment,Object.fromEntries(outcomes.map(outcome=>
       [outcome,rows.filter(r=>r.environment===environment&&r.outcome===outcome).length]))])):undefined;
   const runTestMode=testMode(summary.testMode??'full');
-  return {testMode:runTestMode,excludedSteps:excludedSteps(runTestMode,phases.map(p=>p.phase)),counts:counts(summary.counts),executionCounts:counts(summary.executionCounts),
+  const diagnostic=summary.diagnosticSelection===undefined?undefined:
+    diagnosticSelection(summary.diagnosticSelection?.id,phases.map(p=>p.phase),runTestMode);
+  // Never retroactively declare a historical application failure unselected.
+  // Only fixed policy labels actually recorded by that report are admitted.
+  const exclusions=[...new Set([
+    ...excludedSteps(runTestMode,phases.map(p=>p.phase)).filter(step=>!deferredApplicationStep(step)),
+    ...(phases.some(p=>p.phase===5)&&Array.isArray(summary.excludedSteps)?
+      summary.excludedSteps.filter((step:unknown):step is string=>typeof step==='string'&&deferredApplicationStep(step)):[]),
+  ])];
+  return {testMode:runTestMode,excludedSteps:exclusions,counts:counts(summary.counts),executionCounts:counts(summary.executionCounts),
+    ...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{}),
     blockedCounts:publicBlockedCounts(blockedCounts(rows),count(summary.counts?.Blocked)),
     executionBlockedCounts:publicBlockedCounts(blockedCounts(rows,true),count(summary.executionCounts?.Blocked)),phases,cases,
     omittedCases:Math.max(0,rows.filter((r:any)=>r.outcome!=='Passed').length-cases.length),recoveryRequired:summary.recoveryFenceActive===true,
+    ...(cleanupStatus(summary.cleanup)?{cleanup:cleanupStatus(summary.cleanup)}:{}),
     ...(evidenceCounts?{evidenceCounts}:{}),...(preparation?{preparation:{...preparation,message:preparationDescription(preparation),
       ...(preparation.outcome!=='Passed'?{action:blockedAction(preparation.reason??'PREREQUISITE')}:{} )}}:{})};
 }

@@ -37,13 +37,22 @@ export class LabLease {
   private fenced = false;
   private lastHeartbeat = 0;
   private operation:Promise<unknown>=Promise.resolve();
+  private receipt?:{journal:import('./journal.ts').ResourceJournal};
+  private async record(state:'requested'|'released',lease:Lease) {
+    if(!this.receipt)return;
+    const {journalFile,writePrivate}=await import('./private-files.ts');
+    requireSafe(typeof lease.metadata.uid==='string'&&/^reg-[0-9a-f-]{36}$/.test(this.owner),'OWNERSHIP');
+    await writePrivate(journalFile(this.receipt.journal,`lease-${this.owner}.json`),{version:1,runId:this.receipt.journal.runId,
+      targetUid:this.targetUid,leaseUid:lease.metadata.uid,owner:this.owner,state});
+  }
   private exclusive<T>(action:()=>Promise<T>) {
     const next=this.operation.catch(()=>{}).then(action);this.operation=next;return next;
   }
   constructor(store: LeaseStore, owner: string, targetUid: string,
-    now: () => number = Date.now, durationSeconds = 60) {
+    now: () => number = Date.now, durationSeconds = 60,receipt?:{journal:import('./journal.ts').ResourceJournal}) {
     this.store = store; this.owner = owner; this.targetUid = targetUid;
     this.now = now; this.durationSeconds = durationSeconds; this.ordinaryDurationSeconds = durationSeconds;
+    this.receipt=receipt;
   }
 
   private validate(lease: Lease) {
@@ -63,7 +72,15 @@ export class LabLease {
       'regression.magicstick.dev/run-id':recoveryRunId??this.owner}},spec: {...lease.spec, holderIdentity: this.owner,
       renewTime: leaseTime(this.now()), leaseDurationSeconds: this.durationSeconds}};
     if(/^[a-f0-9-]{36}$/.test(process.env.REGRESSION_RUN_UID??''))changed.metadata.annotations!['regression.magicstick.dev/kubernetes-run-uid']=process.env.REGRESSION_RUN_UID!;
-    try { await this.store.replace(changed); } catch { throw new HarnessError('LOCK_BUSY'); }
+    await this.record('requested',lease);
+    try { await this.store.replace(changed); } catch {
+      // A lost reply is not a rejected CAS. Clear only after an independent
+      // read proves this exact owner does not hold the same Lease.
+      try {const current=await this.store.read();this.validate(current);
+        if(current.metadata.uid===lease.metadata.uid&&current.spec.holderIdentity!==this.owner)await this.record('released',current);
+      }catch{}
+      throw new HarnessError('LOCK_BUSY');
+    }
     this.held = true; this.lastHeartbeat = this.now();
     await this.assertHeldInternal();
   }
@@ -154,6 +171,9 @@ export class LabLease {
       const lease = await this.store.read(); this.validate(lease);
       requireSafe(lease.spec.holderIdentity === this.owner, 'LOCK_LOST');
       await this.store.replace({...lease, spec: {...lease.spec, holderIdentity: '', renewTime: leaseTime(this.now())}});
+      const released=await this.store.read();this.validate(released);
+      requireSafe(released.metadata.uid===lease.metadata.uid&&!released.spec.holderIdentity,'LOCK_LOST');
+      await this.record('released',released);
     }
     catch { this.held = false; this.fenced = true; throw new HarnessError('LOCK_LOST'); }
     this.held = false;

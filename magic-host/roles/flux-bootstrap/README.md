@@ -6,6 +6,12 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 
 1. **Install Flux CLI** — installs the versioned, SHA-256-verified Linux binary when `/usr/local/bin/flux` is absent. The reviewed default is `2.9.5`; existing binaries are retained.
 2. **Wait for K3s API** — first waits for port `6443` on `127.0.0.1` (max `120s`), then waits for both the API readiness endpoint (`/readyz`) and API discovery (`/apis`) with retry logic (default: `24` retries with `5s` delay each, so up to ~2 minutes per check). Together the two API checks can take up to ~4 minutes; including the port wait the maximum combined wait time is ~6 minutes.
+   Before source reconciliation, migrate the existing Flux-owned setup Deployment
+   to `Recreate` with an atomic UID/resourceVersion-bound strategy patch. This
+   removes legacy server-defaulted `rollingUpdate` fields without replacing the
+   Deployment or changing its Pod template. Missing/already migrated objects are
+   no-ops; unexpected ownership or concurrent changes fail explicitly. See
+   [identity recovery](../../../docs/administration/troubleshooting/identity.md).
 3. **Bootstrap Flux** — supports two modes:
    - `github`: runs `flux bootstrap github` against a CLI-owned seed path, then applies the deployment-owned `magicstick-sync.yaml`.
    - `readonly-public`: installs controllers when absent, creates a public Git source for this repository, applies cluster-local settings, and reconciles the public profile without writing to Git. Existing controllers are not reinstalled on every convergence run.

@@ -634,7 +634,7 @@ data:
             "apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyProxy",
             "metadata": {"name": "magicstick-setup", "namespace": ns, "labels": labels},
             "spec": {"provider": {"type": "Kubernetes", "kubernetes": {
-                "envoyDeployment": {"container": {"image": "docker.io/envoyproxy/envoy:distroless-v1.38.6"}},
+                "envoyDeployment": {"container": {"image": "docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"}},
                 "envoyService": {
                     "type": "LoadBalancer", "externalTrafficPolicy": "Local", "loadBalancerSourceRanges": PRIVATE_CIDRS,
                 },

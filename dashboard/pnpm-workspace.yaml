@@ -3,14 +3,14 @@ packages:
   - packages/*
 
 overrides:
-  undici: 8.10.2
+  undici: 8.12.2
   source-map-js: 1.2.2
 
 catalog:
   react: 19.2.8
   react-dom: 19.2.8
   typescript: 7.0.2
-  zod: 4.5.4
+  zod: 4.6.6
 
 minimumReleaseAgeExclude:
   - '@types/react-dom@19.2.7'

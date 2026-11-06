@@ -123,6 +123,65 @@ class ModelReplicationTests(unittest.TestCase):
         self.assertEqual(state[1], "ReplacingReplicas"); self.assertFalse(self.models)
         self.pods.clear(); self.reconcile(); self.assertEqual(len(self.models), 4)
 
+    def test_single_and_split_dra_edits_drain_the_old_model_and_all_pods_before_replacement(self):
+        mocks = {**self.mocks, "crd_exists": lambda *_: True, "ensure_model_finalizer": lambda *_: None,
+            "model_required_modules": lambda *_args, **_kwargs: [], "ensure_model_module_activations": lambda *_: None,
+            "compute_target_capacity": lambda *_: 4}
+        self.c["NVIDIA_SHARING_STATE"]["allocationBackend"] = "dra"
+        self.c["NVIDIA_SHARING_STATE"]["managed"] = True
+        for engine in ("VLLM", "OLlama"):
+            for count in (1, 2, 4):
+                with self.subTest(engine=engine, count=count), patch.dict(self.c, mocks):
+                    self.models, self.pods, self.deletes = {}, [], []
+                    self.parent["metadata"]["generation"] = 1
+                    local = self.parent["spec"]["local"]
+                    local.update(engine=engine, url="hf://fixture/small" if engine == "VLLM" else "ollama://fixture:small",
+                        gpuDeployment="single" if count == 1 else "split", contextWindow=2048,
+                        gpuDevices=[{"uuid": u, "nodeName": "fixture-node", "nodeUid": "fixture-uid"} for u in UUIDS[:count]])
+                    devices = [{"uuid": u, "node": "fixture-node", "nodeUid": "fixture-uid", "claimName": "card-" + str(i),
+                        "totalMi": 49152} for i, u in enumerate(UUIDS[:count])]
+                    self.c["NVIDIA_SHARING_STATE"]["assignments"]["public-model"] = {**devices[0], "devices": devices}
+                    self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)
+                    self.assertIn("public-model", self.models)
+                    self.ready_pods()
+                    before = copy.deepcopy(self.models["public-model"])
+                    self.parent["metadata"]["generation"] = 2
+                    local["contextWindow"] = 4096
+                    saved = copy.deepcopy(self.parent["spec"])
+                    phase, payload = self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)
+                    self.assertEqual(phase, "Starting")
+                    self.assertEqual(self.statuses[-1]["status"]["conditions"][0]["reason"], "ReplacingGpuRuntime")
+                    self.assertEqual(self.models["public-model"], before, "The old Model must not receive the new Pod template")
+                    self.assertEqual(len(self.deletes), 1)
+                    self.assertEqual(self.deletes[0][1], {"apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Foreground",
+                        "preconditions": {"uid": before["metadata"]["uid"], "resourceVersion": before["metadata"]["resourceVersion"]}})
+                    self.models.clear()
+                    self.pods[0]["metadata"]["deletionTimestamp"] = "2026-10-25T08:00:00Z"
+                    self.pods[0]["status"]["phase"] = "Succeeded"
+                    self.assertEqual(self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)[0], "Starting")
+                    self.assertFalse(self.models, "Terminating/completed old Pods must fence the replacement")
+                    self.pods.clear()
+                    self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)
+                    self.assertIn("public-model", self.models)
+                    self.assertNotEqual(self.models["public-model"]["spec"], before["spec"])
+                    # Server defaults and live autoscaling replicas do not turn
+                    # unchanged desired intent into another replacement.
+                    self.models["public-model"]["spec"]["replicas"] = 1
+                    self.models["public-model"]["spec"]["loadBalancing"] = {"strategy": "LeastLoad"}
+                    # KubeAI's typed Model update serializes Args with
+                    # omitempty. An unchanged Ollama runtime therefore loses
+                    # its explicit empty list on the first controller write.
+                    if engine == "OLlama":
+                        self.models["public-model"]["spec"].pop("args")
+                    self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)
+                    self.assertEqual(len(self.deletes), 1)
+                    self.assertEqual(self.parent["spec"], saved)
+                    # A real argument change must still use exact retirement;
+                    # omitted/empty equivalence must never hide nonempty args.
+                    self.models["public-model"]["spec"]["args"] = ["--unexpected-runtime-argument"]
+                    self.c["reconcile_model_activation"](self.parent, {}, {}, self.catalog)
+                    self.assertEqual(len(self.deletes), 2)
+
     def test_removal_waits_for_owned_terminating_pods_and_preserves_foreign_resources(self):
         self.reconcile(); self.ready_pods()
         foreign = copy.deepcopy(next(iter(self.models.values())))

@@ -10,9 +10,12 @@ export const selections: Record<string, string[]> = {
   'smoke-fast': ['auth/session.contract.spec.ts', 'api-access/keys.contract.spec.ts',
     'models/lifecycle.contract.spec.ts', 'navigation/status.unit.spec.ts', 'navigation/status.contract.spec.ts',
     'observability/logs.contract.spec.ts', 'components/installed.unit.spec.ts'],
-  'smoke-fixtures': ['navigation/status.browser.spec.ts', 'navigation/navigation.browser.spec.ts',
+  'smoke-fixtures': ['navigation/status.browser.spec.ts', 'navigation/navigation.browser.spec.ts','navigation/history.browser.spec.ts',
     'auth/session.browser.spec.ts', 'api-access/keys.browser.spec.ts', 'models/forms.browser.spec.ts',
     'observability/logs.browser.spec.ts'],
+  // Explicit Docker-host CI/developer gate, not an appliance phase. Native
+  // Kubernetes runners neither need nor receive a Docker socket.
+  'auth-sessions': ['auth/remember-me.browser.spec.ts'],
   'phase2-fast': ['components/phase2.unit.spec.ts', 'models/control.contract.spec.ts'],
   'phase2-fixtures': ['models/control.browser.spec.ts'],
   'phase2-readonly': ['models/discovery.e2e.spec.ts'],
@@ -20,7 +23,7 @@ export const selections: Record<string, string[]> = {
   'phase2-models': ['models/cpu-model-control.e2e.spec.ts'],
   'phase2-faults': ['models/failure.e2e.spec.ts'],
   'phase3-fast': ['hardware/owning.unit.spec.ts','hardware/borrowed-settings.unit.spec.ts','hardware/safety.unit.spec.ts','hardware/validation-session.unit.spec.ts'],
-  'phase4-fast': ['hardware/owning.unit.spec.ts','hardware/borrowed-settings.unit.spec.ts','hardware/safety.unit.spec.ts','hardware/validation-session.unit.spec.ts'],
+  'phase4-fast': ['harness/execution-lifecycle.unit.spec.ts','hardware/owning.unit.spec.ts','hardware/borrowed-settings.unit.spec.ts','hardware/safety.unit.spec.ts','hardware/validation-session.unit.spec.ts'],
   'phase3-fixtures': ['hardware/configuration.browser.spec.ts'],
   'phase4-fixtures': ['hardware/configuration.browser.spec.ts'],
   'phase3-gpu': ['hardware/runtime.e2e.spec.ts','hardware/multi-gpu.e2e.spec.ts'],
@@ -34,6 +37,11 @@ export const selections: Record<string, string[]> = {
   preflight: ['harness/preflight.e2e.spec.ts'], smoke: ['models/cpu-ollama.e2e.spec.ts'],
   'model-edit': ['models/cpu-ollama.e2e.spec.ts'], 'core-smoke': ['models/cpu-ollama.e2e.spec.ts'],
 };
+
+selections.selftest!.unshift('harness/execution-lifecycle.unit.spec.ts');
+selections.selftest!.unshift('harness/diagnostic-selection.unit.spec.ts');
+selections['phase4-fast']!.unshift('harness/diagnostic-selection.unit.spec.ts');
+selections['phase4-fixtures']!.push('harness/regression.browser.spec.ts');
 
 export const phaseSteps = {
   phase0: ['selftest', 'preflight', 'locktest', 'foundations', 'preflight'],

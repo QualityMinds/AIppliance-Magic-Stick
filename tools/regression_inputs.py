@@ -41,7 +41,8 @@ PREPARATION_STAGES = {'request', 'tls', 'login', 'discovery', 'kubernetes-access
 RECOVERED_RUN_IDS = []
 PREPARATION_DETAILS = {'ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
                        'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED',
-                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'}
+                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND',
+                       'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'}
 
 
 class SetupError(Exception):
@@ -794,9 +795,10 @@ def suite_consent(facts, previous=None):
         ('unmanaged-key', [5, 8], 'Create a one-hour disposable unmanaged LiteLLM key for the denied-delete probe, then remove ONLY that fixture; master key stays in memory'),
         ('host-drills', [6], 'DESTRUCTIVE host drills: reboots, GPU memory, network rollback, updates, channel changes and model-cache deletion'),
     ]
-    # The Node inventory applies the repository's experimental-engine policy.
-    # Do not ask for or reuse permission for an excluded/unavailable Omni fixture.
-    descriptions = [row for row in descriptions if row[0] != 'realtime' or inventory.get('realtime')]
+    # Node inventory applies the shared engine/service test-selection policy.
+    # Do not ask for or reuse permission for excluded/unavailable live fixtures.
+    descriptions = [row for row in descriptions if (row[0] != 'realtime' or inventory.get('realtime'))
+                    and (row[0] != 'modules' or inventory.get('optionalModules'))]
     scopes = []
     old_scopes = previous.get('scopes', []) if matching else []
     reuse = matching and yes_no('Reuse previously reviewed per-scope answers for this unchanged installation?', True)
@@ -1080,9 +1082,12 @@ def run_preparation(directory, arguments):
         # ESM import failures happen before the worker's own catch block. Name
         # the fixed error type only, never its module name or filesystem path.
         if not codes:
-            imports = re.findall(r"\bcode:\s*['\"](ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND)['\"]", worker_output)
+            imports = re.findall(r"\bcode:\s*['\"](ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX)['\"]|"
+                                 r"\b(?:SyntaxError|Error)\s*\[(ERR_MODULE_NOT_FOUND|ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX)\]", worker_output)
             if imports:
-                detail = imports[-1]
+                detail = next(value for value in imports[-1] if value)
+                if detail == 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX':
+                    code = 'CONFIG'
         raise SetupError('Verified input preparation failed (' + code + ') at ' + stage +
                          ('. Detail: ' + detail if detail else '') +
                          '. Check the reported prerequisite or failed step; accepted inputs and recovery receipts were not bypassed.',
@@ -1139,8 +1144,12 @@ def complete_fixtures(directory, seed, facts, consent):
                 reset(item)
     reset(profile)
     if 5 in phases:
-        print('Application tests need the actual controls shipped by each application; selectors are never guessed.')
-        if yes_no('Configure/reuse the five application UI adapters now?', True):
+        if not inventory['applications']:
+            profile.pop('applications', None)
+        if not inventory['optionalModules']:
+            profile.pop('modules', None)
+        print('Application fixtures selected by the runner need their actual shipped controls; unselected adapters are not prepared.')
+        if inventory['applications'] and yes_no('Configure/reuse the selected application UI adapters now?', True):
             old = {item['type']: item for item in profile.get('applications', {}).get('fixtures', [])}
             fixtures = []
             for kind in ['openclaw', 'hermes', 'paperclip', 'kubeopencode', 'odysseus']:
@@ -1177,7 +1186,7 @@ def complete_fixtures(directory, seed, facts, consent):
                     sha = oidc_plugin(source, directory / 'kubectl-oidc_login')
                     plugin = {'filename': '/inputs/kubectl-oidc_login', 'sha256': sha}
             profile['kubernetes'] = {'approveAdminGrant': False, 'plugin': plugin}
-        if 'modules' in scopes:
+        if 'modules' in scopes and inventory['optionalModules']:
             choices = [item['id'] for item in inventory['optionalModules'] if item['disabled']]
             print('Advertised non-critical disabled modules: ' + (', '.join(choices) or 'none'))
             identifier = question('Optional module fixture ID', profile.get('modules', {}).get('id', choices[0] if len(choices) == 1 else ''), optional=True)

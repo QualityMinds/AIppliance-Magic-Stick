@@ -14,6 +14,10 @@ import {parseExecutionTrace,saveExecutionTrace,type ExecutionTrace} from '../cor
 import {privateDirectory,writePrivate} from '../core/private-files.ts';
 import {saveReport,type CaseResult} from '../core/report.ts';
 import {staticDiagnosticTitles} from '../core/case-descriptions.ts';
+import {junitReport} from '../core/junit.ts';
+import {newPreflightDiagnostic,recordPinObservation} from '../core/preflight-diagnostic.ts';
+import type {CleanupDiagnostic} from '../core/cleanup-diagnostic.ts';
+import {publicResult} from '../core/kubernetes-progress.ts';
 
 const source={file:'regression/harness/artifacts.unit.spec.ts',line:1};
 const secret='synthetic-credential-never-archive';
@@ -29,6 +33,38 @@ function trace(runId=newRunId()):ExecutionTrace {
         outcome:'Failed',reason:'DEADLINE',stage:'model-estimate',source},
       {index:3,category:'hook',title:secret,durationMs:0,outcome:'Blocked',source}]};
 }
+function preflight() {
+  const d=newPreflightDiagnostic(),at={startedAt:'2026-10-27T12:00:00.000Z',finishedAt:'2026-10-27T12:00:00.100Z'};
+  recordPinObservation(d,{...at,attempt:1,checks:[{component:'deployment',index:0,condition:'generation',observed:at,generation:2,observedGeneration:1}]});
+  d.state='failed';d.logs={state:'captured',streams:2};return d;
+}
+function cleanup(runId:string):CleanupDiagnostic {
+  const observed={operation:'verify' as const,state:'failed' as const,at:'2026-11-01T00:00:00.000Z',elapsedMs:300000,
+    reason:'DEADLINE' as const,stage:'cleanup' as const,exists:false,uidMatches:null,generationMatches:null,podCount:1,catalogCount:0,timeoutMs:300000};
+  return {version:1,runId,scope:'a'.repeat(64),kind:'model',state:'failed',observations:300,omittedObservations:299,
+    history:[observed],firstFailure:observed,collection:'captured'};
+}
+
+test('HAR-10 full-size JUnit keeps every step once without duplicating its JSON payload',()=>{
+  // A complete campaign records thousands of scenarios. Repeating every step
+  // as both XML properties and escaped JSON exceeded the 64 MiB download bound.
+  const artifacts=Array.from({length:3500},(_,index)=>{
+    const executionId=index.toString(16).padStart(24,'0'),runId='reg-11111111-2222-3333-4444-555555555555';
+    const recorded:ExecutionTrace={version:1,runId,executionId,outcome:'Passed',durationMs:1000,source,
+      steps:Array.from({length:25},(_,step)=>({index:step+1,category:'pw:api',title:'Browser/API operation',
+        durationMs:10,outcome:'Passed',source,...(step?{parentIndex:1}:{})}))};
+    return {trace:recorded,path:`report-artifacts/${runId}/traces/${executionId}.json`};
+  });
+  const cases:CaseResult[]=Array.from({length:5000},(_,index)=>({id:'LIFE-02',variant:'local-create-vllm',layer:'A',
+    environment:'live',outcome:'Passed',durationMs:1000,executionId:(index%3500).toString(16).padStart(24,'0'),executionOutcome:'Passed'}));
+  const xml=junitReport(cases,artifacts);
+  expect(xml).toContain('name="magicstick-executable-scenarios" tests="3500"');
+  expect(xml).toContain('name="magicstick-test-steps" tests="87500"');
+  expect(Buffer.byteLength(xml)).toBeLessThan(64*1024*1024);
+  expect(xml).toContain('name="parentStep" value="1"');expect(xml).toContain('line="1"');
+  expect(xml).not.toContain('&quot;category&quot;');
+  expect(xml).toContain('[[ATTACHMENT|'+artifacts[3499]!.path+']]');
+});
 
 test('HAR-11 traces retain reviewed step labels and safe outcomes but never dynamic values or raw error bodies',()=>{
   const value=trace();
@@ -43,6 +79,13 @@ test('HAR-11 traces retain reviewed step labels and safe outcomes but never dyna
   expect(()=>parseExecutionTrace({...value,steps:[{...value.steps[0]!,parentIndex:2}]})).toThrow('[CONFIG]');
   expect(()=>parseExecutionTrace({...value,steps:[value.steps[0]!,value.steps[0]!]})).toThrow('[CONFIG]');
   expect(()=>parseExecutionTrace({...value,durationMs:NaN})).toThrow('[CONFIG]');
+  const wrapper={file:'regression/core/run-lifecycle.ts',line:7};
+  const helper=parseExecutionTrace({...value,source:{file:'regression/harness/safety.api.spec.ts',line:1},
+    steps:[{...value.steps[0]!,title:'Verify owned foundation cleanup',source:wrapper}]});
+  expect(helper.steps[0]?.title).toBe('Verify owned foundation cleanup');
+  expect(parseExecutionTrace({...value,steps:[{...value.steps[0]!,title:secret,source:wrapper}]}).steps[0])
+    .toMatchObject({title:'Test step',titleFiltered:true});
+  expect(()=>parseExecutionTrace({...value,cleanupDiagnostics:[cleanup(newRunId())]})).toThrow('[CONFIG]');
 });
 
 test('HAR-11 diagnostic title parsing rejects interpolation concatenation and escaped literals',()=>{
@@ -66,18 +109,19 @@ test('HAR-10 HAR-11 component diagnostics preserve the original assertion index 
   expect(()=>safeComponentDiagnostic({...diagnostic,suite:'src/../private.test.tsx'})).toThrow('[CONFIG]');
 });
 
-test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with portable sanitized trace attachments',async()=>isolated(async directory=>{
+test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with portable sanitized trace attachments',async({browser})=>isolated(async directory=>{
   const output=join(directory,'runs'),leafId=newRunId(),rootId=newRunId(),leaf=join(output,leafId),root=join(output,rootId);
   await privateDirectory(leaf);await privateDirectory(root);
-  const recorded=trace(leafId);await saveExecutionTrace(leaf,recorded);
+  const recorded={...trace(leafId),preflightDiagnostics:[preflight()],cleanupDiagnostics:[{...cleanup(leafId),password:secret}],diagnosticsUnavailable:1};await saveExecutionTrace(leaf,recorded);
   await writePrivate(join(leaf,'journal.json'),{password:secret});
+  await writePrivate(join(leaf,'preflight-pins','private','preflight-private-logs.json'),{text:secret});
   await writePrivate(join(leaf,'browser-temp','error-context.json'),{cookie:secret});
   await writePrivate(join(leaf,'component-failure.json'),{version:2,suite:'src/LicensePage.test.tsx',status:1,raw:secret,
     failedAssertions:[{index:4,status:'failed',title:componentTitle,category:'assertion',failureMessages:[secret]}]});
   const cases:CaseResult[]=[{id:'HAR-10',layer:'U',environment:'fixture',durationMs:100,outcome:'Passed',
     executionId:recorded.executionId,traceRunId:leafId,executionOutcome:'Failed'},
   {id:'HAR-11',layer:'U',environment:'fixture',durationMs:100,outcome:'Failed',reason:'COMPONENT',stage:'model-estimate',
-    executionId:recorded.executionId,traceRunId:leafId,executionOutcome:'Failed'}];
+    executionId:recorded.executionId,traceRunId:leafId,executionOutcome:'Failed',causeReason:'DEADLINE',causeStage:'cleanup'}];
   await test.step('Verify archive attachment portability',async()=>{
     await saveReport(root,rootId,cases,['HAR-10','HAR-11'],'unknown','all');
     const xml=await readFile(join(root,'junit.xml'),'utf8');
@@ -87,6 +131,8 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
     expect(xml).toContain('name="stage" value="model-estimate"');
     expect(xml).toContain('name="parentStep" value="1"');
     expect(xml).toContain('time="1.337"');
+    expect(xml).toContain('preflightDiagnosticCount');expect(xml).toContain('&quot;generation&quot;');
+    expect(xml).toContain('cleanupDiagnosticCount');expect(xml).toContain('name="causeReason" value="DEADLINE"');expect(xml).toContain('pods 1');
     expect(xml).toContain('[[ATTACHMENT|report-artifacts/'+leafId+'/traces/'+recorded.executionId+'.json]]');
     const archive=join(root,'report-artifacts.tar.gz');expect((await lstat(archive)).mode&0o077).toBe(0);
     const members=execFileSync('tar',['-tzf',archive],{encoding:'utf8'}).trim().split('\n');
@@ -101,6 +147,37 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
     expect(manifest).toMatchObject({traceFormat:'filtered-call-trace',rawPlaywrightTrace:false});
     const html=await readFile(join(root,'summary.html'),'utf8');
     expect(html).toContain('Verify archive attachment portability');expect(html).toContain('report-artifacts.tar.gz');
+    expect(html).toContain('First failed observation');expect(html).toContain('generation 2/1');expect(html).toContain('private logs: captured');
+    expect(await readFile(join(root,'summary.txt'),'utf8')).toContain('generation 2/1');
+    for(const name of ['summary.html','summary.txt']) {
+      const body=await readFile(join(root,name),'utf8');expect(body).toContain('pods 1');expect(body).toContain('Underlying cause: DEADLINE');
+      expect(body).toContain('1 diagnostic captures unavailable');
+    }
+    const exported=JSON.parse(await readFile(join(root,'report-artifacts',leafId,'traces',recorded.executionId+'.json'),'utf8'));
+    expect(exported.preflightDiagnostics).toEqual([preflight()]);
+    expect(exported.cleanupDiagnostics).toEqual([cleanup(leafId)]);
+    const summary=JSON.parse(await readFile(join(root,'summary.json'),'utf8')),status=publicResult(summary,{});
+    expect(status.cases[0]).toMatchObject({causeReason:'DEADLINE',causeStage:'cleanup'});
+    expect(status.cases[0]?.diagnostics).toContain('Last observation: verify: failed · DEADLINE · cleanup · 300000 ms / 300000 ms budget · object absent · UID unknown · revision unknown · pods 1 · catalog 0');
+    expect(JSON.stringify(status)).not.toContain(secret);
+    const page=await browser.newPage();
+    try{
+      await page.route('https://report.example/**',route=>route.fulfill({status:200,contentType:'text/html',body:html}));
+      for(const width of [1280,390]){
+        await page.setViewportSize({width,height:844});await page.goto('https://report.example/');
+        await page.getByText('Cleanup observations',{exact:true}).click();
+        await expect(page.locator('table').getByText('Last observation: verify: failed',{exact:false})).toBeVisible();
+        await page.locator('summary').filter({hasText:recorded.executionId}).click();
+        await page.getByText('Preflight observations — failed',{exact:true}).click();
+        await page.getByText('Cleanup observations — failed',{exact:true}).click();
+        await expect(page.getByText('Last observation: verify: failed',{exact:false}).last()).toBeVisible();
+        await expect(page.getByText('First failed observation',{exact:false})).toBeVisible();
+        expect(await page.locator('body').innerText()).not.toContain(secret);
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+        await page.reload();await expect(page.getByRole('heading',{name:'All checks',exact:true})).toBeVisible();
+        await expect(page.getByText('Preflight observations — failed',{exact:true})).not.toBeVisible();
+      }
+    }finally{await page.close();}
     expect(cases.map(item=>item.outcome)).toEqual(['Passed','Failed']);
   });
 }));
@@ -139,8 +216,11 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
   try {
     const reporter=new SafeReporter(),selected={title:'HAR-10 reporter records handled negative steps truncation and secondary cleanup failures separately',
       annotations:[],location:{file:fileURLToPath(import.meta.url),line:1,column:1}} as unknown as TestCase;
-    const passed={status:'passed',retry:0,duration:4321,errors:[]} as unknown as TestResult;
-    reporter.onBegin({} as FullConfig,{allTests:()=>[selected]} as Suite);reporter.onTestBegin(selected);
+    const pending=preflight(),finished=preflight();pending.state='observing';finished.state='converged';finished.attempts=2;
+    const body=(diagnostic:unknown)=>({name:'magicstick-preflight-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({scope:'a'.repeat(16),diagnostic}))});
+    const passed={status:'passed',retry:0,duration:4321,errors:[],attachments:[body(pending),body({...finished,rawLogs:secret}),body({version:1,rawLogs:secret})]} as unknown as TestResult;
+    const failedSelected={...selected,id:'fixture-failed'},blockedSelected={...selected,id:'fixture-blocked'};
+    reporter.onBegin({} as FullConfig,{allTests:()=>[selected,failedSelected,blockedSelected]} as Suite);reporter.onTestBegin(selected);
     for(let index=0;index<2003;index++) {
       const step={category:'expect',title:secret,duration:1,error:index===0?{message:secret}:undefined} as TestStep;
       reporter.onStepBegin(selected,passed,step);reporter.onStepEnd(selected,passed,step);
@@ -149,15 +229,35 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     const recorded=(reporter as unknown as {traces:ExecutionTrace[]}).traces[0]!;
     expect(recorded.steps).toHaveLength(2000);expect(recorded.omittedSteps).toBe(3);expect(recorded.durationMs).toBe(4321);
     expect(recorded.steps[0]).toMatchObject({outcome:'Passed',handledError:true});expect(JSON.stringify(recorded)).not.toContain(secret);
+    expect(recorded.preflightDiagnostics).toEqual([finished]); // Latest same-scope observation replaces only its pending attachment.
     const failed={...passed,status:'failed',errors:[{message:'Raw timeout '+secret},{message:new HarnessError('CLEANUP','Failed','cleanup').message}]} as TestResult;
-    reporter.onTestEnd(selected,failed);
+    failed.attachments=[...passed.attachments,...Array.from({length:5},(_,i)=>({name:'magicstick-preflight-diagnostic',contentType:'application/json',
+      body:Buffer.from(JSON.stringify({scope:i.toString(16).padStart(16,'0'),diagnostic:{...newPreflightDiagnostic(),state:'converged'}}))})),
+      {name:'magicstick-preflight-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({scope:'f'.repeat(16),diagnostic:preflight()}))}];
+    failed.attachments.push({name:'magicstick-cleanup-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({...cleanup(process.env.REGRESSION_RUN_ID!),token:secret}))},
+      {name:'magicstick-cleanup-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({token:secret}))});
+    reporter.onTestBegin(failedSelected);
+    for(let index=0;index<2003;index++) {
+      const step={category:'test.step',title:secret,duration:1,error:index>=16?{message:new HarnessError('CLEANUP','Failed','cleanup',{reason:'DEADLINE',stage:'model-stopped'}).message}:undefined} as TestStep;
+      reporter.onStepBegin(failedSelected,failed,step);reporter.onStepEnd(failedSelected,failed,step);
+    }
+    reporter.onTestEnd(failedSelected,failed);
     const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
     expect(rows.at(-1)).toMatchObject({outcome:'Failed',reason:'UNEXPECTED',recoveryRequired:true,executionOutcome:'Failed'});
+    const bounded=(reporter as unknown as {traces:ExecutionTrace[]}).traces.at(-1)!;
+    expect(bounded.preflightDiagnostics).toHaveLength(4);expect(bounded.omittedPreflightDiagnostics).toBe(3);
+    expect(bounded.preflightDiagnostics?.[0]).toEqual(finished);expect(bounded.preflightDiagnostics?.at(-1)).toEqual(preflight());
+    expect(bounded.steps).toHaveLength(2000);expect(bounded.steps.at(-1)).toMatchObject({index:2003,reason:'CLEANUP',causeReason:'DEADLINE',causeStage:'model-stopped'});
+    expect(bounded.steps.find(step=>step.index===17)).toMatchObject({reason:'CLEANUP',causeReason:'DEADLINE'});
+    expect(bounded.cleanupDiagnostics).toEqual([cleanup(process.env.REGRESSION_RUN_ID!)]);expect(bounded.diagnosticsUnavailable).toBe(1);
+    expect(parseExecutionTrace(bounded).steps.at(-1)?.causeReason).toBe('DEADLINE');
+    expect(rows.at(-1)?.cleanupDiagnostic).toEqual(cleanup(process.env.REGRESSION_RUN_ID!));
     expect(JSON.stringify(rows)).not.toContain(secret);
     const blocked={...passed,status:'failed',errors:[{message:new HarnessError('PREREQUISITE').message}]} as TestResult,
       prerequisite={category:'test.step',title:secret,duration:1,error:blocked.errors[0]} as TestStep;
-    reporter.onStepBegin(selected,blocked,prerequisite);reporter.onStepEnd(selected,blocked,prerequisite);
-    reporter.onTestEnd(selected,blocked);
+    reporter.onTestBegin(blockedSelected);
+    reporter.onStepBegin(blockedSelected,blocked,prerequisite);reporter.onStepEnd(blockedSelected,blocked,prerequisite);
+    reporter.onTestEnd(blockedSelected,blocked);
     expect((reporter as unknown as {traces:ExecutionTrace[]}).traces.at(-1)?.steps[0])
       .toMatchObject({outcome:'Blocked',reason:'PREREQUISITE'});
   }finally{if(previous===undefined)delete process.env.REGRESSION_RUN_ID;else process.env.REGRESSION_RUN_ID=previous;}

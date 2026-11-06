@@ -1,5 +1,6 @@
 import {test, expect, type BrowserContext} from '@playwright/test';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
+import {attestCleanup} from '../core/cleanup-state.ts';
 import type {LabConfig} from '../core/config.ts';
 import {loadLabConfig} from '../core/config.ts';
 import {ensureDashboardSession, realLogin} from '../core/auth.ts';
@@ -48,7 +49,7 @@ test.describe.serial('live owned API-key cleanup subset', () => {
       guard);
     baselineIds = new Set((await keys.list()).items.map(item => item.id));
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
-      journal.runId, config.expected.applianceUid, Date.now, 120);
+      journal.runId, config.expected.applianceUid, Date.now, 120,{journal});
     await lock.acquire(process.env.REGRESSION_RUN_ID);
     lockAcquired = true;
   });
@@ -63,8 +64,10 @@ test.describe.serial('live owned API-key cleanup subset', () => {
         const current = new Set((await keys.list()).items.map(item => item.id));
         requireSafe([...baselineIds].every(id => current.has(id)) &&
           journal.entries.filter(item => item.kind === 'key').every(item => item.uid && !current.has(item.uid)), 'CLEANUP');
-        cleaned = true;
+        await journal.verifyCleanup({key:adapter,model:adapter,app:adapter,identity:adapter},guard);
         await lock.release();
+        await attestCleanup(dirname(journal.filename),{applianceUid:config.expected.applianceUid,nodeUids:config.expected.nodes.map(n=>n.uid)});
+        cleaned = true;
       }
     } finally { await context?.close(); }
     if (lockAcquired) requireSafe(cleaned, 'CLEANUP');

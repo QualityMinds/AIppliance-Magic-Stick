@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).parent))
-from regression_api import RegressionApi, RUNS, CORE, OWNER, LEASE
+from regression_api import RegressionApi, RUNS, CORE, OWNER, LEASE, cleanup_view
 from test_dashboard_api import load_server
 
 UID = "11111111-2222-3333-4444-555555555555"
@@ -24,6 +24,12 @@ class RequestError(Exception):
 
 
 class RegressionApiTests(unittest.TestCase):
+    def test_cleanup_retains_process_failure_but_never_private_diagnostics(self):
+        value = {"state": "blocked", "reason": "PROCESS_STATE", "stage": "recovery-barrier",
+                 "processes": [{"pid": 123}], "privatePath": "/private/synthetic-receipt"}
+        self.assertEqual(cleanup_view(value), {"state": "blocked", "reason": "PROCESS_STATE", "stage": "recovery-barrier"})
+        self.assertEqual(cleanup_view({**value, "reason": "synthetic-secret"}), {"state": "blocked", "stage": "recovery-barrier"})
+
     def setUp(self):
         self.objects = {"/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/appliances/local": {"metadata": {"uid": UID}},
             "/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/moduleactivations/regression": {"spec": {"enabled": True}},
@@ -101,6 +107,215 @@ class RegressionApiTests(unittest.TestCase):
 
     def start(self, request="1"*32):
         return self.service.start(ACTOR, {"requestId": request, "acknowledgeDisruption": True})
+
+    def preflight_fixture(self):
+        started = self.start()
+        run = self.objects[RUNS + "/" + started["id"]]
+        run["status"] = {"phase": "Running"}
+        ns, deployment, container = "identity-system", "ai-appliance-dashboard-api", "api"
+        pod_uid = "22222222-2222-3333-4444-555555555555"
+        rs_uid = "33333333-2222-3333-4444-555555555555"
+        deployment_path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + deployment
+        self.objects[deployment_path] = {"metadata": {"uid": UID, "generation": 2}}
+        self.pods = [{"metadata": {"name": "fixture-pod", "uid": pod_uid, "ownerReferences": [{"uid": rs_uid, "kind": "ReplicaSet", "controller": True}]},
+                      "spec": {"containers": [{"name": container}]}, "status": {"containerStatuses": [{"name": container, "restartCount": 2}]}}]
+        rs = {"metadata": {"uid": rs_uid, "ownerReferences": [{"uid": UID, "kind": "Deployment", "controller": True}]}}
+        self.functions["list_resource"] = lambda path: [copy.deepcopy(rs)] if path.endswith("/replicasets") else self.list(path)
+        self.functions["request_text"] = Mock(return_value="synthetic-private-native-log")
+        self.writes.clear()
+        query = {k: [str(v)] for k, v in {"runUid": UID, "namespace": ns, "deployment": deployment, "container": container,
+                                       "deploymentUid": UID, "generation": 2, "podUid": pod_uid}.items()}
+        return query, run, deployment_path
+
+    def test_preflight_logs_are_exact_owner_bounded_generated_identity_only_without_new_permissions_or_mutations(self):
+        query, run, _ = self.preflight_fixture()
+        result = self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.assertEqual(result, {"version": 1, "streams": [{"previous": False, "text": "synthetic-private-native-log"},
+                                                             {"previous": True, "text": "synthetic-private-native-log"}]})
+        for call in self.functions["request_text"].call_args_list:
+            self.assertEqual(call.args[0], "GET")
+            self.assertTrue(call.args[1].startswith("/api/v1/namespaces/identity-system/pods/fixture-pod/log?"))
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(call.args[1]).query)
+            self.assertEqual(params["limitBytes"], ["16384"])
+            self.assertEqual(params["tailLines"], ["80"])
+            self.assertEqual(params["sinceSeconds"], ["120"])
+            self.assertEqual(call.kwargs, {"max_bytes": 16384, "timeout": 2})
+        self.assertEqual(len(self.functions["request_text"].call_args_list), 2)
+        self.assertNotIn("synthetic-private-native-log", json.dumps(self.service.view(run)))
+        self.assertEqual(self.writes, [])
+        for subject in ("fixture-admin", "other-run", ""):
+            with self.assertRaisesRegex(RequestError, "generated test identity"):
+                self.service.preflight_logs({"subject": subject}, query)
+
+    def test_preflight_logs_reject_invalid_queries_inactive_runs_mixed_source_and_foreign_owners(self):
+        query, run, path = self.preflight_fixture()
+        for changes in ({"extra": ["anything"]}, {"container": ["foreign"]}, {"namespace": ["ai"]}, {"generation": ["0"]},
+                        {"deploymentUid": ["../private"]}, {"podUid": [UID, UID]}, {"runUid": ["-"]}, {"generation": ["2", "2"]}):
+            with self.assertRaises(RequestError):
+                self.service.preflight_logs({"subject": "fixture-user"}, {**query, **changes})
+        self.functions["request_text"].assert_not_called()
+        for key, value in (("phase", "Failed"), ("phase", "Cancelled"), ("credentialsCleaned", True)):
+            previous = copy.deepcopy(run["status"])
+            run["status"][key] = value
+            with self.assertRaisesRegex(RequestError, "active test run"):
+                self.service.preflight_logs({"subject": "fixture-user"}, query)
+            run["status"] = previous
+        for key, value in (("testMode", "non-destructive"), ("cancelRequested", True), ("operation", "recover-lock"), ("applianceUid", "foreign"), ("nodeUids", ["foreign"])):
+            previous = copy.deepcopy(run["spec"])
+            run["spec"][key] = value
+            with self.assertRaisesRegex(RequestError, "active test run"):
+                self.service.preflight_logs({"subject": "fixture-user"}, query)
+            run["spec"] = previous
+        original = run["spec"]["sourceRevision"]
+        run["spec"]["sourceRevision"] = "f"*40
+        with self.assertRaisesRegex(RequestError, "source changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        run["spec"]["sourceRevision"] = original
+        self.objects[path]["metadata"]["generation"] = 3
+        with self.assertRaisesRegex(RequestError, "workload identity changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.objects[path]["metadata"]["generation"] = 2
+        self.pods[0]["metadata"]["ownerReferences"][0]["uid"] = "foreign"
+        with self.assertRaisesRegex(RequestError, "Pod identity changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.functions["request_text"].assert_not_called()
+        self.assertEqual(self.writes, [])
+
+    def test_preflight_logs_recheck_identity_after_read_and_never_reflect_private_collection_errors(self):
+        query, _, path = self.preflight_fixture()
+        def replaced(*args, **kwargs):
+            self.objects[path]["metadata"]["uid"] = "foreign"
+            return "synthetic-private-native-log"
+        self.functions["request_text"] = replaced
+        with self.assertRaisesRegex(RequestError, "workload identity changed"):
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.objects[path]["metadata"]["uid"] = UID
+        self.functions["request_text"] = Mock(side_effect=RuntimeError("synthetic-private-native-error"))
+        with self.assertRaisesRegex(RequestError, "Bounded private diagnostic logs are unavailable") as error:
+            self.service.preflight_logs({"subject": "fixture-user"}, query)
+        self.assertNotIn("synthetic-private", str(error.exception))
+        self.assertEqual(self.writes, [])
+
+    def test_http_preflight_logs_keep_admin_gate_and_are_separate_from_report_downloads(self):
+        server = load_server()
+        handler = server["Handler"].__new__(server["Handler"])
+        handler.path = "/api/regression/preflight-logs?runUid=" + UID
+        handler.route = lambda: "/api/regression/preflight-logs"
+        handler.require_access = Mock(return_value=ACTOR)
+        handler.send_json, handler.send_error_json = Mock(), Mock()
+        with patch("regression_api.RegressionApi") as service:
+            service.return_value.preflight_logs.return_value = {"version": 1, "streams": []}
+            handler.handle_regression()
+            service.return_value.preflight_logs.assert_called_once_with(ACTOR, {"runUid": [UID]})
+            service.return_value.artifact.assert_not_called()
+            handler.send_json.assert_called_once_with({"version": 1, "streams": []})
+        handler.require_access.assert_called_once_with("admin")
+
+    def test_view_preserves_all_check_and_scenario_totals_without_recounting_cases_or_phases(self):
+        counts = {"Passed": 441, "Failed": 3, "Blocked": 18}
+        scenarios = {"Passed": 345, "Failed": 0, "Blocked": 1}
+        report = {"counts": counts, "executionCounts": scenarios,
+                  "evidenceCounts": {"fixture": {"Passed": 433, "Failed": 0, "Blocked": 0},
+                                     "live": {"Passed": 8, "Failed": 3, "Blocked": 18}},
+                  "cases": [{"id": "HAR-10", "outcome": "Failed", "reason": "CLEANUP",
+                             "causeReason": "DEADLINE", "causeStage": "cleanup",
+                             "diagnostics": ["Resource model · reference aaaaaaaaaaaa · failed · capture captured",
+                                             "Last observation: verify: failed · pods 1 · catalog 0"]}],
+                  "omittedCases": 20, "phases": [{"phase": phase, "counts": counts} for phase in [0, 4]]}
+        saved = {"metadata": {"name": "regression-" + "1"*32, "uid": UID}, "spec": {"phases": [0, 4]},
+                 "status": {"phase": "Failed", "result": report, "progress": {"executionCounts": scenarios}}}
+        original = copy.deepcopy(saved)
+        view = self.service.view(saved)
+        self.assertEqual(view["result"], report)
+        self.assertEqual(view["result"]["counts"], counts)
+        self.assertEqual(view["result"]["executionCounts"], scenarios)
+        self.assertEqual(view["result"]["cases"][0]["causeReason"], "DEADLINE")
+        self.assertEqual(view["result"]["cases"][0]["diagnostics"], report["cases"][0]["diagnostics"])
+        self.assertNotIn("executionId", view["result"]["cases"][0])
+        legacy = copy.deepcopy(saved)
+        for key in ["causeReason", "causeStage", "diagnostics"]:
+            del legacy["status"]["result"]["cases"][0][key]
+        self.assertNotIn("diagnostics", self.service.view(legacy)["result"]["cases"][0])
+        self.assertEqual(saved, original)
+        self.assertEqual(self.writes, [])
+
+    def diagnostic(self):
+        self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]["diagnosticSelectionVersion"] = "2"
+        self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"] = {"data": {"diagnostics.json":
+            (Path(__file__).resolve().parents[3] / "magic-cluster/apps/regression/diagnostics.json").read_text()}}
+        return {"requestId": "1"*32, "acknowledgeDisruption": True, "phases": [4], "testMode": "full", "diagnosticSelection": "remaining"}
+
+    def test_diagnostic_selection_is_catalog_owned_immutable_and_distinct_from_a_full_phase(self):
+        payload = self.diagnostic()
+        offered = self.service.list()["diagnosticSelections"]
+        catalog = json.loads(self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"]["data"]["diagnostics.json"])
+        self.assertEqual({p["id"]: p["phase"] for p in offered}, {p["id"]: p["phase"] for p in catalog["profiles"]})
+        self.assertNotIn("grep", json.dumps(offered))
+        run = self.service.start(ACTOR, payload)
+        self.assertEqual(run["phases"], [4])
+        self.assertEqual(run["diagnosticSelection"], "remaining")
+        saved = self.objects[RUNS + "/" + run["id"]]
+        self.assertEqual(saved["metadata"]["annotations"]["regression.magicstick.dev/diagnostic-credentials-ready"], saved["metadata"]["uid"])
+        self.assertNotIn("regression.magicstick.dev/credentials-ready", saved["metadata"]["annotations"])
+        self.writes.clear()
+        self.assertEqual(self.service.start(ACTOR, payload)["id"], run["id"])
+        for changed in ({**payload, "diagnosticSelection": "reload"}, {k: v for k, v in payload.items() if k != "diagnosticSelection"}):
+            with self.assertRaisesRegex(RequestError, "different diagnostic tests"):
+                self.service.start(ACTOR, changed)
+        self.assertEqual(self.writes, [])
+        for index, selection in enumerate(("external-route", "gpu-validation-single", "ollama-two-card-split", "ollama-four-card-split", "ollama-two-card-copies"), 2):
+            self.setUp()
+            self.diagnostic()
+            profile = next(p for p in offered if p["id"] == selection)
+            result = self.service.start(ACTOR, {**payload, "requestId": str(index)*32, "phases": [profile["phase"]], "diagnosticSelection": selection})
+            self.assertEqual(result["phases"], [profile["phase"]])
+            self.assertEqual(result["diagnosticSelection"], selection)
+
+    def test_invalid_or_unsupported_diagnostics_never_create_identity_or_intent(self):
+        payload = self.diagnostic()
+        for changes in ({"diagnosticSelection": "arbitrary"}, {"diagnosticSelection": None}, {"diagnosticSelection": ""},
+                        {"diagnosticSelection": []}, {"diagnosticSelection": True}, {"phases": [3, 4]}, {"phases": [3]},
+                        {"testMode": "non-destructive"}):
+            with self.subTest(changes=changes), self.assertRaises(RequestError):
+                self.service.start(ACTOR, {**payload, **changes})
+            self.assertEqual(self.writes, [])
+            self.assertEqual(self.users, {})
+        runtime = self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]
+        for version in ("1", None):
+            if version is None:
+                runtime.pop("diagnosticSelectionVersion")
+            else:
+                runtime["diagnosticSelectionVersion"] = version
+            self.assertEqual(self.service.list()["diagnosticSelections"], [])
+            with self.assertRaises(RequestError):
+                self.service.start(ACTOR, payload)
+        self.assertEqual(self.writes, [])
+
+    def test_old_schema_cannot_silently_expand_diagnostic_to_whole_phase(self):
+        payload = self.diagnostic()
+        original = self.functions["request_json"]
+        def old_schema(method, path, value):
+            if path == RUNS:
+                value = copy.deepcopy(value)
+                value["spec"].pop("diagnosticSelection", None)
+            return original(method, path, value)
+        self.functions["request_json"] = old_schema
+        with self.assertRaises(RequestError):
+            self.service.start(ACTOR, payload)
+        self.assertEqual(self.users, {})
+        self.assertFalse(any("/secrets" in path for _, path, _ in self.writes))
+        self.assertFalse(any("credentials-ready" in json.dumps(data) for _, _, data in self.writes))
+        saved = self.objects[RUNS + "/regression-" + payload["requestId"]]
+        self.assertEqual(saved["status"]["cleanup"]["state"], "verified")
+        self.assertTrue(saved["status"]["credentialsCleaned"])
+
+    def test_diagnostic_catalog_malformed_fails_closed_without_exposing_data(self):
+        payload = self.diagnostic()
+        self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"]["data"]["diagnostics.json"] = '{"version":1,"profiles":[{"id":"synthetic-private"}]}'
+        with self.assertRaises(RequestError) as error:
+            self.service.start(ACTOR, payload)
+        self.assertNotIn("synthetic-private", str(error.exception))
+        self.assertEqual(self.writes, [])
 
     def test_non_destructive_mode_is_saved_uses_only_viewer_and_distinct_readiness(self):
         roles = Mock()
@@ -600,11 +815,45 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(self.objects[CORE + "/secrets/" + original["id"]], secret)
         self.service.cleanup_finished()
         self.assertEqual(len(self.users), 1, "A queued recovery job still owns the original identity")
-        successor["status"] = {"phase": "Passed", "credentialRecoveryRequired": False}
+        successor["status"] = {"phase": "Passed", "credentialRecoveryRequired": False, "cleanup": {"state": "verified"}}
         self.service.cleanup_finished()
         self.assertEqual(self.users, {})
         self.assertTrue(obj["status"]["credentialsCleaned"])
         self.assertTrue(successor["status"]["credentialsCleaned"])
+        self.assertEqual(obj["status"]["cleanup"]["state"], "verified")
+
+    def test_finished_job_or_removed_account_never_replaces_resource_cleanup_evidence(self):
+        run = self.start()
+        obj = self.objects[RUNS + "/" + run["id"]]
+        obj["metadata"]["annotations"]["regression.magicstick.dev/credentials-used"] = obj["metadata"]["uid"]
+        for cleanup in (None, {"state": "unknown"}, {"state": "required"}, {"state": "blocked"}, {"state": "running"}):
+            obj["status"] = {"phase": "Failed", "credentialsCleaned": True, "credentialRecoveryRequired": False}
+            if cleanup:
+                obj["status"]["cleanup"] = cleanup
+            with self.assertRaisesRegex(RequestError, "Resource cleanup is not verified"):
+                self.service.cleanup(obj)
+            self.assertEqual(len(self.users), 1)
+            self.assertIn(CORE + "/secrets/" + run["id"], self.objects)
+        obj["status"].update(cleanup={"state": "verified", "checkedAt": "2026-10-22T12:00:00Z"}, credentialRecoveryRequired=False)
+        self.service.cleanup(obj)
+        self.assertEqual(self.users, {})
+
+    def test_unused_provisioning_failure_proves_no_test_resources_were_created(self):
+        run = self.start()
+        obj = self.objects[RUNS + "/" + run["id"]]
+        obj["status"] = {"phase": "Failed", "cleanup": {"state": "unknown"}}
+        self.service.cleanup(obj)
+        self.assertEqual(obj["status"]["cleanup"]["state"], "verified")
+        self.assertTrue(obj["status"]["credentialsCleaned"])
+
+    def test_removed_account_with_open_resources_still_blocks_non_destructive_start(self):
+        run = self.start()
+        obj = self.objects[RUNS + "/" + run["id"]]
+        obj["status"] = {"phase": "Failed", "credentialsCleaned": True, "cleanup": {"state": "required"}}
+        before = len(self.writes)
+        with self.assertRaisesRegex(RequestError, "Clean up the previous run separately"):
+            self.service.start(ACTOR, {"requestId": "2"*32, "testMode": "non-destructive", "phases": [4], "acknowledgeDisruption": True})
+        self.assertEqual(len(self.writes), before)
 
     def test_recovery_never_adopts_a_replaced_identity_or_running_predecessor(self):
         original = self.start()

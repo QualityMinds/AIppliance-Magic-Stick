@@ -2,6 +2,29 @@
 
 ## Identity Pilot Checks
 
+If `identity-pilot` rejects `magicstick-setup` with
+`spec.strategy.rollingUpdate: Forbidden` while selecting `Recreate`, the live
+Deployment still contains fields defaulted under its old `RollingUpdate`
+strategy. An explicit YAML null does not clear those fields with Flux's
+server-side apply. On managed hosts, check and apply the corrected software
+channel through the [normal update workflow](../updates-rollback.md); its Flux
+bootstrap performs a repeatable, UID/resourceVersion-bound strategy migration
+before reconciliation. It preserves the Deployment UID, Pod template and setup
+credentials/state. Do not delete the Deployment, reissue setup or remove update
+safety markers to get past this error.
+
+For an external GitOps installation, use the same scoped migration from a
+reviewed checkout, with the deployment's authorized kubeconfig:
+
+```bash
+python3 magic-host/roles/flux-bootstrap/files/setup_strategy.py \
+  --kubectl kubectl --subcommand '' --kubeconfig /path/to/authorized-kubeconfig
+```
+
+It refuses an unexpected owner, selector, replica count, UID or revision. Inspect
+such a refusal before retrying; never broaden its checks to match another workload.
+Then reconcile the normal identity source and inspect its dependent modules.
+
 ```bash
 kubectl -n flux-system get kustomizations envoy-gateway identity-pilot
 kubectl -n envoy-gateway-system get helmrelease,pods

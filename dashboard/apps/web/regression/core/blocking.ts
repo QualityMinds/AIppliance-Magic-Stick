@@ -36,7 +36,8 @@ export function inheritRecoveryCause(environment:Record<string,string|undefined>
   if(!active){delete environment.REGRESSION_RECOVERY_FENCE;delete environment.REGRESSION_RECOVERY_CAUSE;return;}
   environment.REGRESSION_RECOVERY_FENCE='1';
   if(recoveryCause(environment.REGRESSION_RECOVERY_CAUSE))return;
-  const root=cases.find(item=>item.outcome==='Failed'&&['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason??'')) ??
+  const root=cases.find(item=>item.outcome==='Failed'&&item.id==='HAR-10'&&item.stage==='runner-execution') ??
+    cases.find(item=>item.outcome==='Failed'&&['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY','PROCESS_STATE'].includes(item.reason??'')) ??
     cases.find(item=>item.outcome==='Failed');
   if(root)environment.REGRESSION_RECOVERY_CAUSE=JSON.stringify(blockerFrom(root));
 }

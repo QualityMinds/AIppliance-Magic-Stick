@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {HarnessError, requireSafe} from './errors.ts';
 import {readPrivate} from './private-files.ts';
 import type {Lease, LeaseStore} from './lease.ts';
+import {KubernetesCommandError,kubernetesCommandFailure} from './kubernetes-command.ts';
 
 interface ContainerStatus {
   name: string; image?: string; imageID?: string; containerID?: string; ready?: boolean; restartCount?: number;
@@ -17,7 +18,7 @@ export interface KubeObject {
     ownerReferences?: Array<{uid: string; kind: string; name?: string; controller?: boolean}>};
   spec?: Record<string, unknown>;
   status?: {nodeInfo?: {bootID?: string; kernelVersion?: string}; observedGeneration?: number;
-    conditions?: Array<{type: string; status: string; reason?: string; observedGeneration?: number}>; phase?: string;
+    conditions?: Array<{type: string; status: string; reason?: string; observedGeneration?: number}>; phase?: string; message?: string;
     readyReplicas?: number; replicas?: number; lastAppliedRevision?: string;
     allocatable?: Record<string, string>; capacity?: Record<string, string>;
     allocation?: Record<string, unknown>; devices?: Record<string, unknown>; active?: number; succeeded?: number; failed?: number;
@@ -52,16 +53,30 @@ export class KubectlObserver {
     return new Promise((resolve, reject) => {
       const child = spawn('kubectl', ['--kubeconfig', this.kubeconfig, `--request-timeout=${this.timeoutMs}ms`, ...arguments_],
         {stdio: ['pipe', 'pipe', 'pipe'], env: {...process.env, KUBECONFIG: this.kubeconfig}});
-      let stdout = '', stderrBytes = 0, settled = false;
-      const finish = (error?: Error) => { if (settled) return; settled = true; clearTimeout(timer); error ? reject(error) : resolve(stdout); };
-      const timer = setTimeout(() => { child.kill('SIGKILL'); finish(new HarnessError('OBSERVER')); }, this.timeoutMs + 1000);
+      let stdout = '', stderr = '', stderrBytes = 0, settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return; settled = true; clearTimeout(timer);
+        error ? reject(error) : resolve(stdout);
+        // Only fixed diagnostic fields leave this subprocess boundary.
+        stdout = ''; stderr = '';
+      };
+      const failure=(commandFailure:'timeout'|'spawn'|'input'|'output-limit')=>new KubernetesCommandError({commandFailure,httpStatus:null});
+      const timer = setTimeout(() => { child.kill('SIGKILL'); finish(failure('timeout')); }, this.timeoutMs + 1000);
       child.stdout.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString(); if (stdout.length > 8 * 1024 * 1024) { child.kill('SIGKILL'); finish(new HarnessError('OBSERVER')); }
+        if(settled)return;
+        stdout += chunk.toString(); if (stdout.length > 8 * 1024 * 1024) { child.kill('SIGKILL'); finish(failure('output-limit')); }
       });
-      child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.length; if (stderrBytes > 1024 * 1024) child.kill('SIGKILL'); });
-      child.on('error', () => finish(new HarnessError('OBSERVER')));
-      child.stdin.on('error', () => finish(new HarnessError('OBSERVER')));
-      child.on('close', code => finish(code === 0 ? undefined : new HarnessError('OBSERVER')));
+      child.stderr.on('data', (chunk: Buffer) => {
+        if(settled)return;
+        stderrBytes += chunk.length;
+        // Keep just enough bounded in-memory prefix to classify kubectl errors.
+        if(stderr.length<64*1024)stderr=(stderr+chunk.toString()).slice(0,64*1024);
+        if(stderrBytes>1024*1024){child.kill('SIGKILL');finish(failure('output-limit'));}
+      });
+      child.on('error', () => finish(failure('spawn')));
+      child.stdin.on('error', () => finish(failure('input')));
+      child.on('close', (code,signal) => finish(code === 0 && !signal ? undefined :
+        new KubernetesCommandError(kubernetesCommandFailure(stdout,stderr,code,signal))));
       child.stdin.end(input);
     });
   }
@@ -89,7 +104,8 @@ export class KubectlObserver {
     requireSafe(/^[a-z][a-z0-9.]*$/.test(resource) && !resource.includes('secret') &&
       (!namespace || /^[a-z0-9-]+$/.test(namespace)) && (!name || /^[a-z0-9.-]+$/.test(name)), 'OBSERVER');
     const args = ['get', resource, ...(name ? [name] : []), ...(namespace ? ['-n', namespace] : ['-A']), '-o', 'json'];
-    try { return JSON.parse(await this.command(args)); } catch { throw new HarnessError('OBSERVER'); }
+    try { return JSON.parse(await this.command(args)); }
+    catch(error) { if(error instanceof KubernetesCommandError)throw error;throw new HarnessError('OBSERVER'); }
   }
   async list(resource: string, namespace?: string): Promise<KubeObject[]> {
     const value = await this.get(resource, namespace) as unknown as {items: KubeObject[]};

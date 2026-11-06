@@ -213,6 +213,29 @@ def wait_for_guest(work, port, vm, command_text, timeout, label):
     raise TimeoutError(f"Timed out waiting for {label}")
 
 
+def bootstrap_readiness_checks():
+    """Independent, read-only checks of the first-install failure boundary.
+
+    A Running DB Pod or parser exit zero does not prove a usable database or
+    enforcing policy. No credentials, setup claim or raw responses are returned.
+    """
+    return (
+        ("sudo /usr/bin/python3 /usr/local/lib/magicstick/k3s/apparmor_profile.py --check",
+         "reviewed enforcing AppArmor profile"),
+        ("sudo systemctl is-active --quiet magicstick-k3s-apparmor.service",
+         "boot-ordered AppArmor loader"),
+        ("sudo k3s kubectl -n identity-system exec keycloak-postgresql-0 -- pg_isready -q",
+         "Keycloak PostgreSQL accepting connections"),
+        ("sudo k3s kubectl -n ai exec litellm-postgresql-0 -- pg_isready -q",
+         "LiteLLM PostgreSQL accepting connections"),
+        ("sudo curl --fail --silent --show-error --max-time 5 "
+         "--cacert /etc/rancher/k3s/magicstick-oidc-ca.crt "
+         "https://id.magicstick.local/realms/magicstick/.well-known/openid-configuration "
+         "--output /dev/null",
+         "trusted Keycloak OIDC discovery"),
+    )
+
+
 def terminate(vm):
     if vm is None or vm.poll() is not None:
         return
@@ -320,6 +343,10 @@ def run(args):
             raise RuntimeError("Installed system is not Ubuntu 26.04")
         command(*ssh_args(work, ssh_port, "sudo systemctl is-active --quiet k3s"), timeout=30)
         status["stages"].append("cloud-init complete; Ubuntu 26.04 and K3s active")
+        report(work, status)
+        for check, label in bootstrap_readiness_checks():
+            wait_for_guest(work, ssh_port, vm, check, args.platform_timeout, label)
+        status["stages"].append("AppArmor enforcing; both PostgreSQL databases ready; trusted OIDC ready")
         report(work, status)
         print("[platform] waiting for Node, Flux and first-run setup", flush=True)
         wait_for_guest(work, ssh_port, vm,

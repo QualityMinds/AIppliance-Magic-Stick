@@ -1,9 +1,11 @@
 import {expect,type Page,type Locator} from '@playwright/test';
 import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {canonical} from './borrowed-sharing.ts';
-import {HarnessError,requireSafe} from './errors.ts';
+import {HarnessError,requireSafe,atStage,type Stage} from './errors.ts';
 import {parseMemoryMi} from '../../../../packages/core/src/local-model-configuration.ts';
 import {poll} from './poll.ts';
+import {browserMutation} from './browser-action.ts';
+import {editRevision} from './owned-model.ts';
 
 export function modelCard(page:Page,name:string) {
   return page.locator('.panel').filter({has:page.getByRole('heading',{name,exact:true})}).last();
@@ -36,6 +38,24 @@ export function modelLifecycleReceipt(before:ModelActivation,value:unknown,actio
     after.metadata.namespace===before.metadata.namespace && after.metadata.generation===Number(before.metadata.generation)+1 &&
     canonical(after.spec)===canonical(expected),'API');
   return {uid:before.metadata.uid,generation:Number(after.metadata.generation)};
+}
+
+/** Keep UI convergence separate from the request deadline, and retain only
+ * the exact acknowledged lifecycle generation before a later action can fail. */
+export async function modelLifecycleMutation(page:Page,options:{origin:string;before:ModelActivation;action:'start'|'stop'|'restart';
+  timeoutMs:number;stage?:Stage;guard:()=>Promise<void>;
+  acknowledge:(receipt:ReturnType<typeof modelLifecycleReceipt>)=>Promise<void>}) {
+  const name=options.before.metadata?.name;
+  requireSafe(name&&/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)&&options.before.metadata?.uid&&Number.isSafeInteger(options.before.metadata.generation),'OWNERSHIP');
+  const stage=options.stage??(options.action==='stop'?'model-stopped':'model-ready');
+  await options.guard();
+  const button=await atStage(stage,()=>modelActionButton(page,name,options.action));
+  return browserMutation(page,{url:options.origin+`/api/models/${name}/${options.action}`,
+    body:{expectedRevision:editRevision(options.before)},timeoutMs:options.timeoutMs,guard:options.guard,
+    stage,acknowledge:async response=>{
+      const receipt=modelLifecycleReceipt(options.before,await response.json(),options.action);
+      await options.acknowledge(receipt);
+    }},()=>button.click());
 }
 
 /** Stored budgets are per card, while split Edit displays their group total.

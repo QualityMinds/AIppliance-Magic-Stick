@@ -171,8 +171,15 @@ For quota-limited CPU vLLM, the startup wrapper bounds default OpenMP threads to
 the container's actual CFS quota, leaving one core-equivalent for serving when
 possible. It uses `VLLM_CPU_OMP_THREADS_BIND=nobind` with `OMP_NUM_THREADS`, not
 the host-wide automatic binding. Explicit thread/binding settings are preserved;
-unlimited containers retain upstream defaults. This follows the selected
+unlimited containers retain upstream defaults. With vLLM 0.31 or newer, these
+automatically generated startup threads carry the native
+`VLLM_OMP_NUM_THREADS_SET_BY_VLLM=1` marker. This lets vLLM reduce the worker and
+EngineCore Torch pools to one thread for serving rather than treating the
+startup count as an operator override and exhausting the quota through spin waits.
+Explicit thread/binding settings never receive this marker from the wrapper.
+This follows the selected
 [vLLM CPU runtime's thread-control contract](https://docs.vllm.ai/en/v0.31.0/getting_started/installation/cpu/#related-runtime-environment-variables).
+See also its [native startup/serving distinction](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/utils/torch_utils.py).
 It prevents quota oversubscription; actual inference still needs a live check.
 
 For KubeAI the final profile is derived after UMA, offloading and sharing

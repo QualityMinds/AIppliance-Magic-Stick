@@ -24,6 +24,11 @@ After **Ready**, send a request through [API Access](../api-access.md). Increase
 or concurrency gradually and test your actual workload. The memory estimator is
 planning assistance, not protection from every GPU allocator or attention-kernel failure.
 
+The current 0.31.0 CPU runtime uses its classic model runner by default to avoid
+the newer runner's slow first response on older CPUs. This does not change model
+precision, the selected memory budget or GPU execution. A cold first request
+can still include native kernel compilation; verify a real response after Ready.
+
 Explicit CPU offloading, where offered, uses RAM on the same node. It can slow
 responses and needs enough host memory in addition to the GPU budget.
 

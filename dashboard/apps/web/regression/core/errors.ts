@@ -26,7 +26,11 @@ export const reasons = {
   CONFLICT: 'An intervening revision prevents automatic restoration.',
   DEADLINE: 'The stage deadline expired without matching current-generation evidence.',
   UNEXPECTED: 'The harness failed unexpectedly; private diagnostics require review.',
+  PROCESS_STATE: 'The previous runner did not prove that all worker processes stopped. Exact process or Kubernetes termination evidence is required before recovery; this is not another run owning the lease.',
   MISSING_EVIDENCE: 'The runner did not record a required test/layer result or a causal prerequisite. This is a harness reporting failure, not a missing lab prerequisite.',
+  REPORT_EXPORT: 'Execution finished, but a sanitized report download could not be published. The recorded test results were retained; this does not imply a cleanup failure.',
+  CI_ACCESS: 'The exact native companion build has no public acceptance proof and its legacy Actions artifacts require authentication. Publish the workflow acceptance check; no Appliance administrator credential can replace it.',
+  CACHE_RACE_WINDOW: 'Cache cleanup finished before the competing model intent was observed. No overlapping race was proved; repeat this existing case with a populated cache.',
   LAB: 'This target is not the registered disposable regression appliance. Live writes were refused.',
   RECOVERY: 'A previous test did not prove restoration. Dependent live writes are fenced; independent tests continue.',
   CANCELLED: 'The run was stopped by the operator. Remaining tests were not executed.',
@@ -37,19 +41,20 @@ export type ReasonCode = keyof typeof reasons;
 /** Absence of a lab prerequisite is not a product failure. API/authentication,
  * invalid generated configuration, timeouts and assertions are failures. */
 export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY', 'APPLICATION_MODEL', 'GPU_PROVIDER', 'GPU_VALIDATION',
-  'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER'];
+  'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER', 'CI_ACCESS', 'CACHE_RACE_WINDOW'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
   'kubernetes-access', 'kubernetes-revoke', 'kubeconfig-export', 'kubeconfig-copy', 'kubeconfig-download',
   'model-estimate', 'model-create', 'model-ready', 'module-ready', 'app-ready', 'gateway-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
   'cleanup', 'license-review', 'license-activate', 'license-reject', 'license-restart', 'license-restore',
-  'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence',
+  'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence', 'report-export',
   'baseline-models', 'baseline-pods', 'baseline-intents', 'baseline-claims', 'baseline-routes', 'baseline-host', 'baseline-keys',
-  'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-route', 'model-inference', 'model-update'] as const;
+  'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-route', 'model-inference', 'model-update', 'companion-evidence','runner-execution'] as const;
 
 /** Fixed stage names expose which bounded operation failed, never its raw body. */
 export async function atStage<T>(stage:Stage,action:()=>Promise<T>):Promise<T> {
   try{return await action();}catch(error){throw new HarnessError(error instanceof HarnessError?error.code:'UNEXPECTED',
-    error instanceof HarnessError?error.outcome:'Failed',error instanceof HarnessError&&error.stage?error.stage:stage);}
+    error instanceof HarnessError?error.outcome:'Failed',error instanceof HarnessError&&error.stage?error.stage:stage,
+    error instanceof HarnessError&&error.causeReason?{reason:error.causeReason,stage:error.causeStage}:undefined);}
 }
 export type Stage = typeof stages[number];
 
@@ -58,13 +63,20 @@ export class HarnessError extends Error {
   readonly code: ReasonCode;
   readonly outcome: 'Blocked' | 'Failed';
   readonly stage?: Stage;
+  readonly causeReason?:ReasonCode;
+  readonly causeStage?:Stage;
 
-  constructor(code: ReasonCode, outcome: 'Blocked' | 'Failed' = blockedReasons.includes(code) ? 'Blocked' : 'Failed', stage?: Stage) {
-    super(`[${code}] ${reasons[code]} [outcome:${outcome}]${stage && stages.includes(stage) ? ` [stage:${stage}]` : ''}`);
+  constructor(code: ReasonCode, outcome: 'Blocked' | 'Failed' = blockedReasons.includes(code) ? 'Blocked' : 'Failed', stage?: Stage,
+    cause?:{reason:ReasonCode;stage?:Stage}) {
+    const safeCause=cause&&Object.hasOwn(reasons,cause.reason)?cause:undefined;
+    super(`[${code}] ${reasons[code]} [outcome:${outcome}]${stage && stages.includes(stage) ? ` [stage:${stage}]` : ''}`+
+      (safeCause?` [cause:${safeCause.reason}]${safeCause.stage&&stages.includes(safeCause.stage)?` [cause-stage:${safeCause.stage}]`:''}`:''));
     this.name = 'HarnessError';
     this.code = code;
     this.outcome = outcome;
     this.stage = stage;
+    this.causeReason=safeCause?.reason;
+    this.causeStage=safeCause?.stage&&stages.includes(safeCause.stage)?safeCause.stage:undefined;
   }
 }
 

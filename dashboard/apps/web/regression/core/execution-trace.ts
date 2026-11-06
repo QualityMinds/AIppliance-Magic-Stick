@@ -4,6 +4,8 @@ import {publicDiagnosticTitle,publicScenarioTitle,webSource} from './case-descri
 import {reasons,stages,type ReasonCode,type Stage,requireSafe} from './errors.ts';
 import {readPrivate,writePrivate} from './private-files.ts';
 import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './runtime-diagnostic.ts';
+import {parsePreflightDiagnostic,type PreflightDiagnostic} from './preflight-diagnostic.ts';
+import {parseCleanupDiagnostic,type CleanupDiagnostic} from './cleanup-diagnostic.ts';
 
 export const traceCategories=['test.step','expect','pw:api','fixture','hook','test.attach','test.skip'] as const;
 const operations=['click','fill','check','uncheck','selectOption','press','goto','reload','waitForResponse','waitForURL',
@@ -11,9 +13,12 @@ const operations=['click','fill','check','uncheck','selectOption','press','goto'
 export type TraceOutcome='Passed'|'Failed'|'Blocked';
 export interface TraceSource {file:string;line:number;column?:number}
 export interface TraceStep {index:number;parentIndex?:number;category:typeof traceCategories[number];title:string;
-  durationMs:number;outcome:TraceOutcome;handledError?:true;reason?:ReasonCode;stage?:Stage;source?:TraceSource}
+  durationMs:number;outcome:TraceOutcome;handledError?:true;reason?:ReasonCode;stage?:Stage;source?:TraceSource;
+  causeReason?:ReasonCode;causeStage?:Stage;titleFiltered?:true}
 export interface ExecutionTrace {version:1;runId:string;executionId:string;outcome:TraceOutcome;scenario?:string;
-  durationMs:number;source?:TraceSource;steps:TraceStep[];omittedSteps?:number;recoveryRequired?:true;runtimeDiagnostics?:RuntimeDiagnostic[]}
+  durationMs:number;source?:TraceSource;steps:TraceStep[];omittedSteps?:number;recoveryRequired?:true;runtimeDiagnostics?:RuntimeDiagnostic[];
+  preflightDiagnostics?:PreflightDiagnostic[];omittedPreflightDiagnostics?:number;
+  cleanupDiagnostics?:CleanupDiagnostic[];omittedCleanupDiagnostics?:number;diagnosticsUnavailable?:number}
 export function safeTraceSource(location:{file:string;line:number;column?:number}|undefined):TraceSource|undefined {
   try {
     if(!location||!Number.isInteger(location.line)||location.line<1||location.line>100_000)return;
@@ -23,10 +28,16 @@ export function safeTraceSource(location:{file:string;line:number;column?:number
   }catch{return;}
 }
 /** Never retain selectors, fill values, URLs, HTTP bodies or error text. */
-export function safeStepTitle(title:string,category:TraceStep['category'],source?:TraceSource) {
+export function safeStepTitle(title:string,category:TraceStep['category'],source?:TraceSource,scenarioSource?:TraceSource) {
   if(category==='test.step'&&source) {
     const approved=publicDiagnosticTitle(title,resolve(webSource,source.file),'step');
     if(approved)return approved;
+    // Playwright attributes callback errors to a core wrapper. Only literal
+    // titles in the owning scenario are trusted, never arbitrary runtime text.
+    if(source.file.startsWith('regression/core/')&&scenarioSource) {
+      const owning=publicDiagnosticTitle(title,resolve(webSource,scenarioSource.file),'step');
+      if(owning)return owning;
+    }
   }
   const operation=/^(?:[A-Za-z]+\.)?([A-Za-z]+)(?:\(|$|\s)/.exec(title)?.[1];
   return category==='pw:api'&&operations.includes(operation as typeof operations[number])?`Browser/API ${operation}`:
@@ -39,7 +50,12 @@ export function parseExecutionTrace(value:unknown):ExecutionTrace {
     ['Passed','Failed','Blocked'].includes(trace.outcome)&&Number.isFinite(trace.durationMs)&&trace.durationMs>=0&&
     Array.isArray(trace.steps)&&trace.steps.length<=2000&&
     (trace.runtimeDiagnostics===undefined||Array.isArray(trace.runtimeDiagnostics)&&trace.runtimeDiagnostics.length<=4)&&
+    (trace.preflightDiagnostics===undefined||Array.isArray(trace.preflightDiagnostics)&&trace.preflightDiagnostics.length<=4)&&
+    (trace.omittedPreflightDiagnostics===undefined||Number.isSafeInteger(trace.omittedPreflightDiagnostics)&&trace.omittedPreflightDiagnostics>0)&&
     (trace.omittedSteps===undefined||Number.isSafeInteger(trace.omittedSteps)&&trace.omittedSteps>0),'CONFIG');
+  requireSafe((trace.cleanupDiagnostics===undefined||Array.isArray(trace.cleanupDiagnostics)&&trace.cleanupDiagnostics.length<=16)&&
+    (trace.omittedCleanupDiagnostics===undefined||Number.isSafeInteger(trace.omittedCleanupDiagnostics)&&trace.omittedCleanupDiagnostics>0)&&
+    (trace.diagnosticsUnavailable===undefined||Number.isSafeInteger(trace.diagnosticsUnavailable)&&trace.diagnosticsUnavailable>0),'CONFIG');
   const source=trace.source?safeTraceSource({...trace.source,file:resolve(webSource,trace.source.file)}):undefined;
   const scenario=source&&typeof trace.scenario==='string'?publicScenarioTitle(trace.scenario,resolve(webSource,source.file)):undefined;
   const seen=new Set<number>();
@@ -49,7 +65,7 @@ export function parseExecutionTrace(value:unknown):ExecutionTrace {
       (item.parentIndex===undefined||Number.isInteger(item.parentIndex)&&seen.has(item.parentIndex)),'CONFIG');
     seen.add(item.index);
     const at=item.source?safeTraceSource({...item.source,file:resolve(webSource,item.source.file)}):undefined;
-    const title=safeStepTitle(typeof item.title==='string'?item.title:'',item.category,at);
+    const title=safeStepTitle(typeof item.title==='string'?item.title:'',item.category,at,source);
     // Already reduced browser labels are stable across aggregate imports.
     const reduced=/^Browser\/API ([A-Za-z]+)$/.exec(String(item.title));
     const approvedReduced=item.category==='pw:api'&&operations.includes(reduced?.[1] as typeof operations[number]);
@@ -57,18 +73,26 @@ export function parseExecutionTrace(value:unknown):ExecutionTrace {
       durationMs:Math.round(item.durationMs),...(item.parentIndex!==undefined?{parentIndex:item.parentIndex}:{}),
       ...(item.handledError===true?{handledError:true as const}:{}),...(at?{source:at}:{}),
       ...(item.reason&&Object.hasOwn(reasons,item.reason)?{reason:item.reason}:{}),
-      ...(item.stage&&stages.includes(item.stage)?{stage:item.stage}:{} )};
+      ...(item.stage&&stages.includes(item.stage)?{stage:item.stage}:{}),
+      ...(item.causeReason&&Object.hasOwn(reasons,item.causeReason)?{causeReason:item.causeReason}:{}),
+      ...(item.causeStage&&stages.includes(item.causeStage)?{causeStage:item.causeStage}:{}),
+      ...(item.titleFiltered===true||item.category==='test.step'&&title==='Test step'?{titleFiltered:true as const}:{})};
   });
   return {version:1,runId:trace.runId,executionId:trace.executionId,outcome:trace.outcome,durationMs:Math.round(trace.durationMs),steps,
     ...(trace.omittedSteps?{omittedSteps:trace.omittedSteps}:{}),...(source?{source}:{}),
     ...(scenario?{scenario}:{}),...(trace.recoveryRequired===true?{recoveryRequired:true as const}:{}),
-    ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics.map(parseRuntimeDiagnostic)}:{})};
+    ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics.map(parseRuntimeDiagnostic)}:{}),
+    ...(trace.preflightDiagnostics?.length?{preflightDiagnostics:trace.preflightDiagnostics.map(parsePreflightDiagnostic)}:{}),
+    ...(trace.omittedPreflightDiagnostics?{omittedPreflightDiagnostics:trace.omittedPreflightDiagnostics}:{}),
+    ...(trace.cleanupDiagnostics?.length?{cleanupDiagnostics:trace.cleanupDiagnostics.map(value=>{const d=parseCleanupDiagnostic(value);requireSafe(d.runId===trace.runId,'CONFIG');return d;})}:{}),
+    ...(trace.omittedCleanupDiagnostics?{omittedCleanupDiagnostics:trace.omittedCleanupDiagnostics}:{}),
+    ...(trace.diagnosticsUnavailable?{diagnosticsUnavailable:trace.diagnosticsUnavailable}:{})};
 }
 export async function saveExecutionTrace(directory:string,trace:ExecutionTrace) {
   await writePrivate(join(directory,'traces',trace.executionId+'.json'),parseExecutionTrace(trace));
 }
 export async function readExecutionTrace(directory:string,runId:string,executionId:string) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId)&&/^[a-f0-9]{24}$/.test(executionId),'CONFIG');
-  const trace=parseExecutionTrace(JSON.parse(await readPrivate(join(directory,'traces',executionId+'.json'))));
+  const trace=parseExecutionTrace(JSON.parse(await readPrivate(join(directory,'traces',executionId+'.json'),4*1024*1024)));
   requireSafe(trace.runId===runId&&trace.executionId===executionId,'CONFIG');return trace;
 }

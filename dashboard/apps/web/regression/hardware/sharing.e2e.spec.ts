@@ -1,4 +1,5 @@
-import {test,expect,type Page} from '@playwright/test';
+import type {Page} from '@playwright/test';
+import {test,expect} from './gpu-fixtures.ts';
 import type {GpuSharingRequest} from '@magicstick/dashboard-contracts';
 import {GpuScenario,type GpuCreated} from '../core/gpu-scenario.ts';
 import {ModelCreateRejected,activation} from '../core/owned-model.ts';
@@ -18,13 +19,12 @@ function proof(keys:GpuVariant[],layers:TestLayer[]=['A','E','O']) {
 }
 test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
   let s:GpuScenario|undefined;let page:Page;
-  test.beforeAll(async ({browser},info)=>{
-    s=await GpuScenario.open(browser,info.workerIndex);page=await s.live.context.newPage();
+  test.beforeEach(async ({gpu})=>{
+    s=gpu;page=await s.live.context.newPage();
     if(process.env.REGRESSION_GPU_CASE === 'remaining') {
       for(const provider of ['amd','nvidia'] as const)if(s.config.gpu!.devices[provider])await s.transition(provider,'shared',2);
     }
   });
-  test.afterAll(async ()=>{if(s) await s.close();});
   async function module(provider:Provider) {requireGpuProvider(s!.config,provider);return s!.live.observer.get('moduleactivations.appliance.magicstick.dev',s!.config.expected.applianceNamespace,provider === 'amd' ? 'amd-gpu' : 'gpu');}
   async function rejectedSharing(body:GpuSharingRequest) {
     const before=await module(body.provider);await s!.live.guard();
@@ -218,18 +218,27 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
     });
 
   test('SHR-12 reload shows the persisted backend counts in Hardware and Models',proof(['p4-reload']),async ()=>{
-    const scenario=s!;await page.goto(scenario.config.dashboardUrl+'/#/system/hardware');await page.reload();
+    const scenario=s!,counts=new Map<Provider,number>();
+    requireSafe(['amd','nvidia'].some(provider=>scenario.config.gpu!.devices[provider as Provider]),'GPU_PROVIDER');
     for(const provider of ['amd','nvidia'] as const) {
       if(!scenario.config.gpu!.devices[provider])continue;
-      await scenario.transition(provider,'shared',2);
-      await scenario.waitBackend(provider,'shared',2);const vendor=provider === 'amd' ? 'AMD' : 'NVIDIA';
+      const before=await scenario.state(provider),count=before.mode==='shared'&&before.maxModels===2?3:2;
+      counts.set(provider,count);await scenario.transition(provider,'shared',count);
+    }
+    await page.goto(scenario.config.dashboardUrl+'/#/system/hardware');await page.reload();
+    for(const [provider,count]of counts) {
+      await scenario.waitBackend(provider,'shared',count);const vendor=provider === 'amd' ? 'AMD' : 'NVIDIA';
       const section=await sharingSection(provider);
       await expect(section.getByLabel(`${vendor} allocation mode`)).toHaveValue('shared');
-      await expect(section.getByLabel(`${vendor} maximum simultaneous models`)).toHaveValue('2');
+      await expect(section.getByLabel(`${vendor} maximum simultaneous models`)).toHaveValue(String(count));
     }
     await scenario.openModels(page);for(const provider of ['amd','nvidia'] as const)if(scenario.config.gpu!.devices[provider])await scenario.slots(`${provider}-gpu`,0,await scenario.slotCapacity(provider));
   });
   test('HAR-08 restores exact borrowed settings, all run-owned resources and unaffected model definitions',proof(['p4-restoration']),async ()=>{
+    requireSafe(['amd','nvidia'].some(provider=>s!.config.gpu!.devices[provider as Provider]),'GPU_PROVIDER');
+    for(const provider of ['amd','nvidia'] as const)if(s!.config.gpu!.devices[provider]) {
+      const before=await s!.state(provider);await s!.transition(provider,before.mode==='shared'?'exclusive':'shared',2);
+    }
     await s!.close();s=undefined;
   });
 });

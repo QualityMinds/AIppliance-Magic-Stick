@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,lstat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import type {User} from '@magicstick/dashboard-contracts';
@@ -17,6 +17,8 @@ import {readPrivate,journalFile,privateDirectory,writePrivate} from '../core/pri
 import {workloadPodInventory,repeatInventoryChanges} from '../core/repeat-inventory.ts';
 import {absentLicenseDocumentPatch} from '../core/license-baseline.ts';
 import {SharedWorkflow,executionIdentity} from '../core/shared-workflow.ts';
+import {unmanagedKeyWorkflow} from './security-live.ts';
+import {assessCleanup,attestCleanup} from '../core/cleanup-state.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
 test('APP-02 dependent cases retain their exact shared failure across worker restarts without rerunning writes',annotation,async()=>{
@@ -79,6 +81,7 @@ test('PERF-02 catalog-driven Pod replacement is not a leak; extra replicas, repl
 });
 test('HAR-07 transaction receipts from restarted workers cannot overwrite or collide with previous workers',annotation,async()=>{
   const root=await mkdtemp(join(tmpdir(),'worker-receipts-'));
+  const previousProfile=process.env.REGRESSION_REMAINING_PROFILE,previousRun=process.env.REGRESSION_RUN_DIR;
   try {
     const first={filename:join(root,'worker-1','journal.json')},second={filename:join(root,'worker-2','journal.json')};
     for(const item of [first,second])await privateDirectory(dirname(item.filename));
@@ -87,7 +90,39 @@ test('HAR-07 transaction receipts from restarted workers cannot overwrite or col
     expect(JSON.parse(await readPrivate(journalFile(first,'license-transaction.json'))).state).toBe('applied');
     expect(JSON.parse(await readPrivate(journalFile(second,'license-transaction.json'))).state).toBe('reviewed');
     for(const name of ['../journal.json','nested/receipt.json','..','/tmp/receipt.json'])expect(()=>journalFile(first,name)).toThrow('[PRIVATE_FILE]');
-  }finally{await rm(root,{recursive:true,force:true});}
+    // KEY-04 can run only after a failed app has restarted the browser worker.
+    // Exercise its real workflow: a completed worker transaction must not
+    // invalidate the already verified original worker's restoration receipt.
+    const directory=join(root,'campaign'),identity={applianceUid:'appliance',nodeUids:['node']};
+    await ResourceJournal.create(join(directory,'journal.json'),newRunId(),identity.applianceUid);
+    await attestCleanup(directory,identity);
+    const journal=await ResourceJournal.create(join(directory,'worker-1','journal.json'),newRunId(),identity.applianceUid);
+    const profile=join(root,'profile.json');await writePrivate(profile,{unmanagedKey:{approveDisposableProbe:true,createDisposableFixture:true}});
+    process.env.REGRESSION_REMAINING_PROFILE=profile;process.env.REGRESSION_RUN_DIR=directory;
+    let info:any=null;
+    const response=(body:unknown,status=200)=>({status:()=>status,headers:()=>({'content-type':'application/json'}),
+      body:async()=>Buffer.from(JSON.stringify(body)),json:async()=>body});
+    const request={fetch:async(url:string,options:any)=>{
+      if(url.endsWith('/credentials'))return response({credentials:[{key:'master_key',value:'synthetic-opaque-master'}]});
+      if(url.endsWith('/key/generate')){info={...options.data};return response({key:options.data.key});}
+      if(url.endsWith('/key/delete')){info=null;return response({});}
+      return response({info},info?200:404);
+    },delete:async()=>response({},404)};
+    const context={request,newPage:async()=>({goto:async()=>response({}),url:()=> 'https://inference.example.invalid/',close:async()=>{}})};
+    const live={journal,guard:async()=>{},keys:{list:async()=>({items:[]})},context,
+      config:{dashboardUrl:'https://dashboard.example.invalid',inferenceUrl:'https://inference.example.invalid',
+        loginTimeoutMs:1000,requestTimeoutMs:1000,expected:{applianceUid:identity.applianceUid}}} as unknown as LiveFoundation;
+    await unmanagedKeyWorkflow(live);
+    await expect(lstat(journalFile(journal,'unmanaged-key-fixture.json'))).resolves.toBeDefined();
+    expect(JSON.parse(await readPrivate(journalFile(journal,'unmanaged-key-fixture.json')))).toMatchObject({state:'removed',runId:journal.runId});
+    await expect(lstat(join(directory,'unmanaged-key-fixture.json'))).rejects.toMatchObject({code:'ENOENT'});
+    await attestCleanup(dirname(journal.filename),identity);
+    expect((await assessCleanup(directory,true)).state).toBe('verified');
+  }finally{
+    if(previousProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=previousProfile;
+    if(previousRun===undefined)delete process.env.REGRESSION_RUN_DIR;else process.env.REGRESSION_RUN_DIR=previousRun;
+    await rm(root,{recursive:true,force:true});
+  }
 });
 test('HAR-07 GPU restoration failure still cleans independent journals, stops heartbeat and retains its precise stage',annotation,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'restoration-fence-'));

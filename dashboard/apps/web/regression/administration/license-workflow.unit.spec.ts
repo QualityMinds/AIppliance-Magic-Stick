@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {LicenseTransaction,assertLicenseReceiptsRestored,type LicenseSnapshot,type LicenseReceipt} from '../core/license-transaction.ts';
@@ -12,6 +12,9 @@ import {saveReport,type CaseResult} from '../core/report.ts';
 import {readPrivate} from '../core/private-files.ts';
 import {rejectLicenseDocument} from './license-live.ts';
 import {AdministrationRejected,type AdministrationApi} from '../core/administration-api.ts';
+import {apiRestartReplacement,restartDashboardApi,ServiceRestarter} from '../core/service-restart.ts';
+import type {KubeObject} from '../core/observer.ts';
+import type {LiveFoundation} from '../core/live-foundation.ts';
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
 function fixture(document:string|null='original-document') {
   const original:LicenseSnapshot={uid:'original-uid',revision:'1',installationId:'installation',document,otherData:{installationId:'aW5zdGFsbGF0aW9u',preserved:'unchanged'}};
@@ -42,6 +45,52 @@ test('LIC-04 cleanup reconciles confirmed and lost activation replies, including
     await f.transaction.restore();await f.transaction.restore();
     expect(f.writes()).toBe(1);expect(f.current().document).toBe(original);
     expect(f.current().otherData).toEqual(f.original.otherData);expect(f.receipts.at(-1)?.state).toBe('restored');
+  }
+  const digest='sha256:'+'a'.repeat(64),pin={container:'api',digest},replicas=new Set(['owned-rs']);
+  const replacement:KubeObject={metadata:{name:'replacement',uid:'new',namespace:'fixture',ownerReferences:[{uid:'owned-rs',kind:'ReplicaSet'}]},
+    status:{phase:'Running',containerStatuses:[{name:'api',ready:true,imageID:'registry.example.invalid/api@'+digest}]}};
+  const old:KubeObject={...structuredClone(replacement),metadata:{...replacement.metadata,name:'old',uid:'old',deletionTimestamp:new Date().toISOString()}};
+  // Reproduce the final-baseline race: the new API already serves requests,
+  // while the old terminating Pod still contributes a non-Ready container.
+  old.status!.containerStatuses![0]!.ready=false;
+  expect(apiRestartReplacement([old,replacement],'old',replicas,pin)).toBeUndefined();
+  expect(apiRestartReplacement([replacement],'old',replicas,pin)?.metadata.uid).toBe('new');
+  for(const patch of [
+    {metadata:{...replacement.metadata,deletionTimestamp:new Date().toISOString()}},
+    {metadata:{...replacement.metadata,ownerReferences:[{uid:'foreign-rs',kind:'ReplicaSet'}]}},
+    {status:{...replacement.status,phase:'Succeeded'}},
+    {status:{...replacement.status,containerStatuses:[{name:'api',ready:false,imageID:'registry.example.invalid/api@'+digest}]}},
+    {status:{...replacement.status,containerStatuses:[{name:'api',ready:true,imageID:'registry.example.invalid/api@sha256:'+'b'.repeat(64)}]}},
+  ])expect(apiRestartReplacement([{...replacement,...patch}],'old',replicas,pin)).toBeUndefined();
+  expect(apiRestartReplacement([replacement,{...replacement,metadata:{...replacement.metadata,uid:'extra'}}],'old',replicas,pin)).toBeUndefined();
+  expect(apiRestartReplacement([replacement,{...replacement,metadata:{...replacement.metadata,uid:'extra-unready'},
+    status:{phase:'Pending'}}],'old',replicas,pin)).toBeUndefined();
+  // Exercise the real restart workflow as well as the predicate. With the old
+  // implementation it writes its final receipt after the first post-delete
+  // read, while the old Pod still exists; this counterexample then fails.
+  const directory=await mkdtemp(join(tmpdir(),'api-restart-')),previous=process.env.REGRESSION_RUN_DIR;
+  const verify=ServiceRestarter.prototype.verifyNamespace,remove=ServiceRestarter.prototype.deletePod;
+  let deleted=false,reads=0;
+  try {
+    process.env.REGRESSION_RUN_DIR=directory;
+    ServiceRestarter.prototype.verifyNamespace=async()=>{};
+    ServiceRestarter.prototype.deletePod=async pod=>{expect(pod.metadata.uid).toBe('old');deleted=true;};
+    const live={config:{requestTimeoutMs:1000,expected:{images:[{...pin,namespace:'fixture',deployment:'ai-appliance-dashboard-api'}]}},
+      guard:async()=>{},api:{session:async()=>({roles:['magicstick-admin']})},observer:{
+        get:async()=>({metadata:{uid:'deployment'}}),list:async(resource:string)=>{
+          if(resource==='replicasets.apps')return [{metadata:{uid:'owned-rs',ownerReferences:[{uid:'deployment'}]}}];
+          if(!deleted)return [{...old,metadata:{...old.metadata,deletionTimestamp:undefined},status:replacement.status}];
+          return ++reads===1?[old,replacement]:[replacement];
+        },
+      }} as unknown as LiveFoundation;
+    await restartDashboardApi(live,{approveApiRestart:true,kubeconfig:'synthetic-unused'});
+    expect(reads).toBe(2);
+    const files=await readdir(directory);expect(files).toHaveLength(1);
+    expect(JSON.parse(await readPrivate(join(directory,files[0]!)))).toMatchObject({state:'verified',podUid:'old',replacementUid:'new'});
+  }finally{
+    ServiceRestarter.prototype.verifyNamespace=verify;ServiceRestarter.prototype.deletePod=remove;
+    if(previous===undefined)delete process.env.REGRESSION_RUN_DIR;else process.env.REGRESSION_RUN_DIR=previous;
+    await rm(directory,{recursive:true,force:true});
   }
 });
 test('LIC-04 an idempotent equal-document PUT need not advance resourceVersion and needs no restore write',annotation,async()=>{

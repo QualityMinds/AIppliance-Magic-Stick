@@ -1,0 +1,14 @@
+[Unit]
+Description=Load the reviewed Magic Stick K3s AppArmor profile
+Requires=apparmor.service
+After=apparmor.service
+Before=k3s.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/magicstick/k3s/apparmor_profile.py --load
+RemainAfterExit=yes
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -100,17 +100,22 @@ export async function settingsDrafts(page:Page,origin:string,nodeName:string,{do
 
 export async function gpuSharingDrafts(page:Page,nodeName:string,providers=['AMD','NVIDIA']) {
   const node=page.getByRole('article',{name:`GPU node ${nodeName}`,exact:true});
+  await expect(node).toBeVisible();
   for(const provider of providers) {
-    const region=node.locator('.gpu-configuration').filter({hasText:`GPU Configuration ${provider}`});
-    requireSafe(await region.count() === 1,'PREREQUISITE');
-    const root=region.locator(':scope > details'),summary=root.locator(':scope > summary');
+    // Each physical card has a section, but node-wide sharing controls belong
+    // to exactly one card. Wait for the advertised form, not a transient count
+    // during loading; missing/duplicate controls are a UI failure, not hardware.
+    const region=node.locator('.gpu-configuration').filter({has:page.getByRole('combobox',{name:`${provider} allocation mode`,exact:true,includeHidden:true})});
+    await expect(region).toHaveCount(1);
+    const root=region.locator(':scope > details'),summary=root.locator(':scope > summary').getByRole('heading');
     if(await root.getAttribute('open') === null)await summary.click();
     const sharing=region.locator('details.gpu-sharing');
-    if(await sharing.count() && await sharing.getAttribute('open') === null)await sharing.locator(':scope > summary').click();
+    if(await sharing.count() && await sharing.getAttribute('open') === null)
+      await sharing.locator(':scope > summary').getByText('GPU sharing',{exact:true}).click();
     const mode=region.getByRole('combobox',{name:`${provider} allocation mode`,exact:true}),saved=await mode.inputValue();
     const apply=region.getByRole('button',{name:`Apply ${provider} sharing`,exact:true});
     const alternative=saved === 'shared' ? 'exclusive' : 'shared';
-    requireSafe(!await mode.getByRole('option',{name:alternative === 'shared' ? 'Shared · multiple models' : 'Exclusive · one model per GPU',exact:true}).isDisabled(),'PREREQUISITE');
+    await expect(mode.getByRole('option',{name:alternative === 'shared' ? 'Shared · multiple models' : 'Exclusive · one model per GPU',exact:true})).toBeEnabled();
     await expect(apply).toBeDisabled();await mode.selectOption(alternative);
     await expect(apply).toBeEnabled();await mode.selectOption(saved);await expect(apply).toBeDisabled();
     await summary.click();await expect(root).not.toHaveAttribute('open');

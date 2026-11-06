@@ -52,14 +52,21 @@ test('ENG-01 ENG-03 ENG-09 ENG-10 server admission is engine-specific, compatibl
   {id: 'ENG-01', variant: 'engine-create-contract', layer: 'C'},
   {id: 'ENG-03', variant: 'kv-contract', layer: 'C'},
   {id: 'ENG-09', variant: 'legacy-default-contract', layer: 'C'},
-  {id: 'ENG-10', variant: 'injection-contract', layer: 'C'}), () => pythonSuite(dashboard, [
-  'test_dashboard_api.LocalRuntimeTests.test_local_model_payload_is_compute_target_aware_and_sanitized',
-  'test_dashboard_api.LocalRuntimeTests.test_cpu_vllm_payload_derives_cache_server_side_and_enforces_minimum',
-  'test_dashboard_api.LocalRuntimeTests.test_incompatible_cache_type_is_rejected_against_target_contract',
-  'test_dashboard_api.LocalRuntimeTests.test_unknown_local_engine_is_rejected',
-  'test_vllm_deployment.VllmDeploymentApiTests.test_legacy_creation_does_not_add_a_deployment_override',
-  'test_vllm_deployment.VllmDeploymentApiTests.test_validation_is_engine_and_target_specific_and_fail_closed',
-]));
+  {id: 'ENG-10', variant: 'injection-contract', layer: 'C'}), () => {
+  pythonSuite(dashboard, [
+    'test_dashboard_api.LocalRuntimeTests.test_local_model_payload_is_compute_target_aware_and_sanitized',
+    'test_dashboard_api.LocalRuntimeTests.test_cpu_vllm_payload_derives_cache_server_side_and_enforces_minimum',
+    'test_dashboard_api.LocalRuntimeTests.test_incompatible_cache_type_is_rejected_against_target_contract',
+    'test_dashboard_api.LocalRuntimeTests.test_unknown_local_engine_is_rejected',
+    'test_vllm_deployment.VllmDeploymentApiTests.test_legacy_creation_does_not_add_a_deployment_override',
+    'test_vllm_deployment.VllmDeploymentApiTests.test_validation_is_engine_and_target_specific_and_fail_closed',
+  ]);
+  pythonSuite('../../../magic-cluster/platform/ai/kubeai/base', [
+    'test_vllm_wrapper.VllmWrapperTests.test_cpu_runner_default_is_version_bound_and_preserves_native_arguments_and_budgets',
+    'test_vllm_wrapper.VllmWrapperTests.test_cpu_runner_preserves_explicit_policy_and_does_not_guess_for_other_versions',
+    'test_vllm_wrapper.VllmWrapperTests.test_gpu_targets_never_apply_the_cpu_runner_default',
+  ]);
+});
 
 test('ENG-02 Ollama alias blocks publication until the downloaded source is callable by activation name', evidenceAnnotations(
   {id: 'ENG-02', variant: 'ollama-alias-contract', layer: 'C'}), () => pythonSuite(controller, [

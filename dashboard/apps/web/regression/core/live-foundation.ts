@@ -1,4 +1,5 @@
-import type {Browser, BrowserContext} from '@playwright/test';
+import {test,type Browser,type BrowserContext} from '@playwright/test';
+import {randomBytes} from 'node:crypto';
 import type {LabConfig, RuntimeModelFixture} from './config.ts';
 import {ensureDashboardSession, realLogin, type RealLoginOptions} from './auth.ts';
 import {readOnlyApi} from './transport.ts';
@@ -8,7 +9,7 @@ import {LabLease} from './lease.ts';
 import {ResourceJournal, type CleanupAdapter} from './journal.ts';
 import {OwnedKeyClient} from './owned-key.ts';
 import {ModelCreateRejected, OwnedModelClient, activation, ownedRuntimePods, remainingModelResources} from './owned-model.ts';
-import {verifyIdentity, verifyCapabilities, verifyIdle, verifyDeploymentPins} from './preflight.ts';
+import {verifyIdentity, verifyCapabilities, verifyIdle, waitForDeploymentPins} from './preflight.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {poll} from './poll.ts';
 import {requireSafe,HarnessError} from './errors.ts';
@@ -17,6 +18,12 @@ import {writePrivate} from './private-files.ts';
 import {registeredLab} from './lab-policy.ts';
 import {HeartbeatLoop,bounded} from './run-lifecycle.ts';
 import {assertLicenseReceiptsRestored} from './license-transaction.ts';
+import {attestCleanup,verifyReservationReleased} from './cleanup-state.ts';
+import {recoveryInventory} from './recovery-inventory.ts';
+import {progressEvent} from './progress.ts';
+import {collectPreflightFailure,privatePreflightLogReader} from './preflight-capture.ts';
+import {newPreflightDiagnostic,parsePreflightDiagnostic,recordPinObservation,type ObservationWindow,type PreflightDiagnostic} from './preflight-diagnostic.ts';
+import {cleanupForTrace} from './cleanup-diagnostic.ts';
 
 /** Shared foundation adapter: no GPU, host-maintenance or product-setting writes. */
 export class LiveFoundation {
@@ -55,27 +62,52 @@ export class LiveFoundation {
     this.observer = snapshot.observer;
     this.cleaner = new KubernetesModelCleaner(config.modelCleanupKubeconfig!, config.expected.applianceNamespace, config.requestTimeoutMs);
     this.store = new KubernetesLeaseStore(config.lock!.kubeconfig, config.lock!.namespace, config.lock!.name);
-    this.lease = new LabLease(this.store, journal.runId, config.expected.applianceUid, Date.now, 120);
+    this.lease = new LabLease(this.store, journal.runId, config.expected.applianceUid, Date.now, 120,{journal});
     this.api = snapshot.api;
     this.journals = [journal];
     this.keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries, this.guard);
     this.baselineKeyIds = baselineKeyIds;
   }
 
-  static async snapshot(context: BrowserContext, config: LabConfig) {
+  static async snapshot(context: BrowserContext, config: LabConfig, diagnosticDirectory?:string) {
     const observer = new KubectlObserver(config.observerKubeconfig, config.requestTimeoutMs);
-    await observer.verifyConfiguration();
     const api = readOnlyApi(context.request, config.dashboardUrl, config.requestTimeoutMs);
-    const [appliance, hosts, models, observed, nodes, pods, flux] = await Promise.all([
-      api.appliance(), api.hostManagement(), api.models(),
-      observer.get('appliances.appliance.magicstick.dev', config.expected.applianceNamespace, config.expected.applianceName),
-      observer.list('nodes'), observer.list('pods'), observer.list('kustomizations.kustomize.toolkit.fluxcd.io', 'flux-system'),
-    ]);
-    verifyIdentity(config, appliance, observed, nodes, hosts.nodes);
-    await registeredLab(config,observer);
-    verifyCapabilities(config, models);
-    await verifyDeploymentPins(config, observer, pods, flux);
-    return {observer, api, appliance, hosts, models, observed, nodes, pods, flux};
+    const scope=randomBytes(8).toString('hex');let attachedState='';
+    const diagnosticSink=async(value:PreflightDiagnostic)=>{
+      if(!diagnosticDirectory)return;
+      const diagnostic=parsePreflightDiagnostic(value);
+      await writePrivate(join(diagnosticDirectory,'preflight-pins',scope+'.json'),diagnostic);
+      const state=JSON.stringify([diagnostic.state,diagnostic.events.state,diagnostic.logs.state]);
+      if(state!==attachedState&&(diagnostic.firstFailure||diagnostic.state!=='observing')){
+        attachedState=state;
+        try{await test.info().attach('magicstick-preflight-diagnostic',{contentType:'application/json',body:Buffer.from(JSON.stringify({scope,diagnostic}))});}
+        catch{/* CLI preparation can run outside Playwright; its private file remains. */}
+      }
+    };
+    const verificationStarted=new Date().toISOString();
+    try{await observer.verifyConfiguration();}catch(error){
+      const d=newPreflightDiagnostic();recordPinObservation(d,{attempt:1,startedAt:verificationStarted,finishedAt:new Date().toISOString(),checks:[],readFailure:'OBSERVER'});d.state='failed';
+      try{await diagnosticSink(d);}catch{/* Preserve the original permission/identity error. */}
+      throw error;
+    }
+    const timed=async<T>(read:()=>Promise<T>):Promise<{value:T;observed:ObservationWindow}>=>{
+      const startedAt=new Date().toISOString();const value=await read();return {value,observed:{startedAt,finishedAt:new Date().toISOString()}};
+    };
+    return waitForDeploymentPins(config,observer,async()=>{
+      const [appliance, hosts, models, observed, nodes, pods, flux] = await Promise.all([
+        api.appliance(), api.hostManagement(), api.models(),
+        observer.get('appliances.appliance.magicstick.dev', config.expected.applianceNamespace, config.expected.applianceName),
+        observer.list('nodes'), timed(()=>observer.list('pods')), timed(()=>observer.list('kustomizations.kustomize.toolkit.fluxcd.io', 'flux-system')),
+      ]);
+      verifyIdentity(config, appliance, observed, nodes, hosts.nodes);
+      await registeredLab(config,observer);
+      verifyCapabilities(config, models);
+      return {observer, api, appliance, hosts, models, observed, nodes,pods:pods.value,flux:flux.value,pinReadWindows:{pods:pods.observed,flux:flux.observed}};
+    },{timeoutMs:90_000,...(diagnosticDirectory?{
+      diagnostic:diagnosticSink,
+      firstFailure:(sample,references)=>collectPreflightFailure(new KubectlObserver(config.observerKubeconfig,2000),config,sample,references,
+        join(diagnosticDirectory,'preflight-pins',scope),privatePreflightLogReader(context.request,config.dashboardUrl)),
+    }:{})});
   }
 
   static async open(browser: Browser, config: LabConfig, journal: ResourceJournal, loginOptions: RealLoginOptions = {}) {
@@ -84,7 +116,7 @@ export class LiveFoundation {
     const context = await realLogin(browser, config, loginOptions);
     let live: LiveFoundation | undefined;
     try {
-      const snapshot = await LiveFoundation.snapshot(context, config);
+      const snapshot = await LiveFoundation.snapshot(context, config,dirname(journal.filename));
       verifyIdle(snapshot.hosts.nodes, snapshot.models, config);
       const readKeys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries,
         async () => { throw new Error('Read-only baseline'); });
@@ -110,7 +142,7 @@ export class LiveFoundation {
     requireSafe(journal.entries.length <= 64 && journal.entries.every(e=>['model','key'].includes(e.kind)),'OWNERSHIP');
     const context=await realLogin(browser,config);let live:LiveFoundation|undefined;
     try {
-      const snapshot=await LiveFoundation.snapshot(context,config);
+      const snapshot=await LiveFoundation.snapshot(context,config,dirname(journal.filename));
       const ownedNames=new Set(journal.entries.filter(e=>e.kind === 'model' && e.state !== 'removed').map(e=>e.name));
       for(const item of snapshot.models.activations.filter(a=>ownedNames.has(a.metadata?.name ?? ''))) {
         const entry=journal.entries.find(e=>e.kind === 'model' && e.name === item.metadata?.name);
@@ -200,8 +232,14 @@ export class LiveFoundation {
     const model = this.cleaner.adapter(journal.prefix, name => remainingModelResources(this.observer, this.api, name), this.guard);
     const unavailable:CleanupAdapter={lookup:async()=>{throw new Error('Unregistered cleanup domain');},
       removeIfUid:async()=>{throw new Error('Unregistered cleanup domain');},verifyRemoved:async()=>false};
-    await journal.cleanup({key, model, app: this.domainCleanup.app ?? unavailable,
-      identity: this.domainCleanup.identity ?? unavailable}, this.guard, only);
+    try {await journal.cleanup({key, model, app: this.domainCleanup.app ?? unavailable,
+      identity: this.domainCleanup.identity ?? unavailable}, this.guard, only);}
+    finally {
+      for(const diagnostic of journal.diagnostics)try {
+        const exported=cleanupForTrace(diagnostic,process.env.REGRESSION_RUN_ID??diagnostic.runId);
+        await test.info().attach('magicstick-cleanup-diagnostic',{contentType:'application/json',body:Buffer.from(JSON.stringify(exported))});
+      }catch{/* The exact private checkpoint remains available outside Playwright. */}
+    }
   }
 
   /** Only for a no-resource fault proof, after the exact test replacement owner
@@ -210,16 +248,23 @@ export class LiveFoundation {
     requireSafe(this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');
     const current = await this.store.read();
     requireSafe(!current.spec.holderIdentity && current.metadata.labels['regression.magicstick.dev/appliance-uid'] === this.config.expected.applianceUid, 'CONFLICT');
+    await verifyReservationReleased(dirname(this.journal.filename),{applianceUid:this.config.expected.applianceUid,
+      nodeUids:this.config.expected.nodes.map(n=>n.uid)},()=>this.store.read());
     this.acquired = false;
   }
 
   async close() {
     try {
       if (this.acquired) {
+        progressEvent({event:'cleanup-state',cleanup:{state:'running',checkedAt:new Date().toISOString(),stage:'cleanup'}});
         await bounded(async()=>{
           const failures:Array<{reason:string;stage:string}>=[];
-          const record=(error:unknown)=>failures.push({reason:error instanceof HarnessError?error.code:'UNEXPECTED',
-            stage:error instanceof HarnessError?error.stage??'cleanup':'cleanup'});
+          let firstCause:{reason:import('./errors.ts').ReasonCode;stage?:import('./errors.ts').Stage}|undefined;
+          const record=(error:unknown)=>{
+            firstCause??={reason:error instanceof HarnessError?error.causeReason??error.code:'UNEXPECTED',
+              stage:error instanceof HarnessError?error.causeStage??error.stage:'cleanup'};
+            failures.push({reason:error instanceof HarnessError?error.code:'UNEXPECTED',stage:error instanceof HarnessError?error.stage??'cleanup':'cleanup'});
+          };
           // Owned workloads must be gone before borrowed modules/sharing can
           // return to their disabled/idle baseline. Still attempt every cleanup
           // domain when another domain fails; each retains its identity guard.
@@ -231,12 +276,23 @@ export class LiveFoundation {
           if(failures.length) {
             await writePrivate(join(dirname(this.journal.filename),'cleanup-failure.json'),{version:1,runId:this.journal.runId,failures,
               cleanupFailures:this.journals.flatMap(journal=>journal.cleanupFailures)}).catch(()=>{});
-            throw new HarnessError('CLEANUP','Failed',failures[0]!.stage as import('./errors.ts').Stage);
+            throw new HarnessError('CLEANUP','Failed',failures[0]!.stage as import('./errors.ts').Stage,firstCause);
           }
           await this.guard();
           const currentIds = new Set((await this.keys.list()).items.map(item => item.id));
           requireSafe([...this.baselineKeyIds].every(id => currentIds.has(id)) && this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');
+          for(const journal of this.journals) {
+            const adapters={model:this.cleaner.adapter(journal.prefix,name=>remainingModelResources(this.observer,this.api,name),this.guard),
+              key:this.keys.adapter(),...this.domainCleanup};
+            for(const entry of journal.entries) {
+              const adapter=adapters[entry.kind];requireSafe(adapter&&await adapter.verifyRemoved(entry),'CLEANUP');
+            }
+          }
+          const identity={applianceUid:this.config.expected.applianceUid,nodeUids:this.config.expected.nodes.map(node=>node.uid)};
+          requireSafe((await recoveryInventory(dirname(this.journal.filename),identity)).open===0,'CLEANUP');
           await this.lease.release(); this.acquired = false;
+          this.retired=true;
+          await attestCleanup(dirname(this.journal.filename),identity);
         },600_000,'cleanup',async()=>{this.retired=true;await this.context.close();});
       }
     } finally {this.retired=true;await this.heartbeat?.stop();await this.context.close();}

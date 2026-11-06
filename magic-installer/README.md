@@ -271,6 +271,16 @@ driver series or patch version. That host-owned path disables only the Operator
 driver on the node. Actual console, kernel and inference compatibility still
 require hardware acceptance; selecting a package is not that acceptance.
 
+New Ubuntu 26.04 hosts also fetch the K3s role's reviewed AppArmor compatibility
+profile before any K3s workload starts. This handles the known stacked-label
+signal failure without turning off AppArmor or selecting an older kernel.
+The loader is persistent across boots; existing unowned clusters are not
+silently changed. See [the host contract](../docs/administration/host-management.md#container-runtime-apparmor-bootstrap).
+This is another **host-only** correction: an existing stick following the
+updated `MAGICSTICK_PUBLIC_REF` does not need rewriting for it. A stick following
+`main` does not receive a fix published only on a feature branch. Publication
+and local/CI checks are not a completed fresh USB installation acceptance.
+
 ### Network configuration
 
 The network screen remains interactive. During installation, a supported Wi-Fi

@@ -99,11 +99,65 @@ client ID. Unattended machine integrations still need their own policy and
 credential lifecycle; a renewable human device session is not a service
 account.
 
+## Browser session lifetime
+
+Local Keycloak login offers its native **Remember me** checkbox. Normal SSO
+sessions retain a 1,800-second idle timeout and a 36,000-second maximum.
+Opted-in sessions use 604,800 seconds idle and 2,592,000 seconds maximum.
+Access tokens remain 300 seconds; Envoy renews them using the existing refresh
+flow. Browser restart and standby do not revoke the remembered session, but
+explicit logout and the absolute maximum still end it. Use a fresh login to
+opt in after an upgrade. See [Keycloak session timeouts](https://www.keycloak.org/docs/latest/server_admin/#_timeouts).
+
+The realm import contains these defaults. Existing realms are reconciled once
+by `keycloak-session-policy.sh` in both Keycloak startup paths. Migration version
+`magicstickRememberMePolicyVersion=1` is stored in the realm attributes. Only
+the unchanged original policy (`rememberMe=true`, 300/1,800/36,000-second token
+and normal limits, both remember-me limits zero) is upgraded. Custom/disabled
+policies are retained and marked as reviewed, with a sanitized message. A repeat
+does not reapply defaults or overwrite later administrator changes.
+
+Reads use the existing scoped setup client; writes authenticate separately with
+the already provisioned bootstrap administrator. No Dashboard service account
+receives `manage-realm`. Authentication, read, version, concurrent-change, write
+and verification failures stop this migration with a fixed diagnostic code; they
+never enable an unauthenticated fallback. Other realm attributes, ordinary
+session policy, API keys and API token validation are unchanged. See the
+[isolated session checks](../development/identity-validation.md#session-policy-and-remember-me).
+
+## Hostname changes and callback readiness
+
+The first-run wizard and Settings save the configured local and public hosts.
+Flux updates the identity routes and runs the existing Keycloak startup
+reconciliation. Importing a changed realm file alone does not replace clients
+already stored in Keycloak's database.
+
+The startup hook now completes in the foreground, without opening process 1's
+file descriptors. The existing scoped setup client updates only the configured
+human gateway redirect URIs, web origins and logout callbacks. Readback verifies
+the same client identity and exact redirect/origin sets before startup succeeds;
+failed writes, stale data or failed companion-client synchronization fail the
+hook instead of leaving a Ready server with old callbacks. Existing users,
+credentials, roles and unrelated client attributes are preserved. Callback
+paths for instances remain scoped to the explicit configured hosts; no wildcard
+host, additional realm permission or AppArmor ptrace grant is introduced.
+The existing administrative clients reconcile only role differences: an exact
+direct mapping is verified without posting the same grant again. Missing or
+unexpected mappings still require the existing authority and exact final
+readback; denied changes do not become success. Retry decisions are bounded by
+both the attempt limit and a ten-minute elapsed-time budget. Fixed step codes
+identify a failed companion-client reconciliation without exposing raw errors.
+
+After an approved name change, wait for identity reconciliation to finish and
+open the new dashboard URL again. A saved authorization URL can contain stale
+login state; it is not a new login attempt. See the
+[callback validation procedure](../development/identity-validation.md#hostname-and-callback-reconciliation).
+
 ## Implemented Scope
 
 The current implementation provides:
 
-- Envoy Gateway `v1.8.5` with Envoy Proxy `v1.38.6` as the primary `LoadBalancer` data plane
+- Envoy Gateway `v1.8.5` with Envoy Proxy `v1.38.7` as the primary `LoadBalancer` data plane
 - Keycloak with PostgreSQL in namespace `identity-system`
 - runtime-generated database, bootstrap-admin, and OIDC client secrets
 - a first-run wizard that creates the first human and recovery administrators
@@ -127,8 +181,8 @@ The current implementation provides:
   forwarded in the `Authorization` header
 - per-instance callback routes on the shared dashboard hosts, so the same
   Keycloak client and browser session protect dynamically created instances
-- a non-blocking Keycloak startup reconciliation that adds the callback path
-  patterns needed by existing installations
+- a verified foreground Keycloak startup reconciliation for configured callback
+  hosts and the instance callback paths needed by existing installations
 - dashboard API token validation, a minimal user launchpad and viewer/operator/admin authorization
 - a public `magicstick-cli` device-flow client and the JWT-protected,
   mDNS-published `api.<mDNS-domain>` route used by the CLI and TUI

@@ -22,6 +22,8 @@ import {savedSetupOptions} from './core/setup-suite.ts';
 import {automaticGpuProfile,automaticProfile,automaticHostRecipes} from './core/automatic-fixtures.ts';
 import {labPolicy,registeredLab} from './core/lab-policy.ts';
 import {setupDetails} from './core/preparation-diagnostic.ts';
+import {companionAcceptanceCheck,discoverCompanionRun} from './administration/companion-live.ts';
+import {latestSecurityCiRun} from './core/security-ci.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..',import.meta.url)));
@@ -226,10 +228,11 @@ async function ciCandidates(source,snapshot,options) {
     headers.Authorization='Bearer '+(await readPrivate(full)).trim();
   }
   const root='https://api.github.com/repos/QualityMinds/AIppliance-Magic-Stick/actions';
-  const get=async(path)=>{
-    const response=await context.request.get(root+path,{headers,timeout:source.parsed.requestTimeoutMs,maxRedirects:0});
+  const getUrl=async(url)=>{
+    const response=await context.request.get(url,{headers,timeout:source.parsed.requestTimeoutMs,maxRedirects:0});
     requireSafe(response.status() === 200 && (await response.body()).length < 2*1024*1024,'API');return response.json();
   };
+  const get=path=>getUrl(root+path);
   const proofs={};
   for(const [field,workflow,job,days] of [
     ['dependenciesRunId','dependency-security.yml','advisories',8],['publicationRunId','public-release-checks.yml','release-checks',8],
@@ -237,18 +240,24 @@ async function ciCandidates(source,snapshot,options) {
   ]) {
     if(field === 'runId' ? !options.phases.includes(7) : !options.phases.includes(8))continue;
     try {
-      const listing=await get('/workflows/'+workflow+'/runs?per_page=100');
-      const candidates=(listing.workflow_runs ?? []).filter(run=>run.repository?.full_name === 'QualityMinds/AIppliance-Magic-Stick' &&
+      const listing=await get('/workflows/'+workflow+'/runs?head_sha='+revision+'&per_page=100');
+      const selected=field==='runId' ? listing.workflow_runs ?? [] :
+        [latestSecurityCiRun(listing.workflow_runs ?? [],'.github/workflows/'+workflow,revision)].filter(Boolean);
+      const candidates=selected.filter(run=>run.repository?.full_name === 'QualityMinds/AIppliance-Magic-Stick' &&
         run.path === '.github/workflows/'+workflow && run.head_sha === revision && run.status === 'completed' && run.conclusion === 'success' &&
         Date.now() >= Date.parse(run.updated_at) && Date.now()-Date.parse(run.updated_at) <= days*86400_000);
+      if(field==='runId') {
+        const checks=await getUrl('https://api.github.com/repos/QualityMinds/AIppliance-Magic-Stick/commits/'+revision+
+          '/check-runs?check_name='+companionAcceptanceCheck+'&filter=all&per_page=100');
+        const run=await discoverCompanionRun(candidates,checks,revision,
+          id=>get('/runs/'+id+'/artifacts?per_page=100'),Boolean(source.profile.companion?.tokenFile));
+        if(run)proofs[field]=run.id;
+        continue;
+      }
       for(const run of candidates) {
         if(job) {
           const jobs=await get('/runs/'+run.id+'/jobs?per_page=100');
           if(!jobs.jobs?.some(item=>item.name === job && item.conclusion === 'success' && item.status === 'completed'))continue;
-        } else {
-          const artifacts=await get('/runs/'+run.id+'/artifacts?per_page=100');
-          if(!['macos-arm64','macos-x64','linux-x64','windows-x64'].every(platform=>
-            artifacts.artifacts?.some(item=>item.name === 'companion-acceptance-'+platform && !item.expired)))continue;
         }
         proofs[field]=run.id;break;
       }

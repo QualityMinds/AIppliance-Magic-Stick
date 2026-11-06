@@ -6,7 +6,7 @@ export const setupStages = ['request', 'tls', 'login', 'discovery', 'kubernetes-
   'input-discovery', 'input-validation', 'input-acceptance'] as const;
 export const setupDetails = ['ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
   'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED', 'ERR_CERT_AUTHORITY_INVALID',
-  'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'] as const;
+  'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'] as const;
 /** Read only the fixed marker emitted by our setup worker; raw stderr is
  * neither a public explanation nor a report attachment. */
 export function setupWorkerMarker(line: string) {

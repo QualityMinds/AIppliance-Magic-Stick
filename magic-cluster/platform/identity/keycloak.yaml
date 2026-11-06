@@ -98,6 +98,8 @@ spec:
                   - /bin/sh
                   - -ec
                   - |
+                    # Keep startup gated on verified stored clients. Background
+                    # success or PID-1 log redirection can hide a denied hook.
                     (
                       umask 077
                       config=/tmp/kcadm-client-sync.config
@@ -339,6 +341,9 @@ spec:
                           esac
                         done
                         for role in $user_admin_allowed_roles; do
+                          if printf '%s\n' "$current_user_admin_roles" | grep -Fxq -- "$role"; then
+                            continue
+                          fi
                           /opt/keycloak/bin/kcadm.sh add-roles \
                             --config "$config" \
                             --target-realm magicstick \
@@ -430,6 +435,9 @@ spec:
                           esac
                         done
                         for role in $federation_admin_allowed_roles; do
+                          if printf '%s\n' "$current_federation_admin_roles" | grep -Fxq -- "$role"; then
+                            continue
+                          fi
                           /opt/keycloak/bin/kcadm.sh add-roles \
                             --config "$config" \
                             --target-realm magicstick \
@@ -461,23 +469,24 @@ spec:
                           --secret "$MAGICSTICK_SETUP_CLIENT_SECRET" >/dev/null 2>&1 || return 1
                         human_gateway_client_uuid="$(client_uuid magicstick-human-gateway-local)"
                         [ -n "$human_gateway_client_uuid" ] || return 1
-                        /opt/keycloak/bin/kcadm.sh update "clients/$human_gateway_client_uuid" \
-                          --config "$config" \
-                          --realm magicstick \
-                          -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
-                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
-                          -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
-                        sync_user_admin_client
-                        sync_federation_admin_client
-                        sync_kubernetes_client_and_groups
-                        sync_dashboard_cli_client
+                        /bin/sh /opt/magicstick/keycloak-callback-policy.sh \
+                          "$config" "$human_gateway_client_uuid" \
+                          '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
+                          '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
+                          'https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' || return 1
+                        sync_user_admin_client || { echo 'Keycloak client sync: USER_ADMIN failed' >&2; return 1; }
+                        sync_federation_admin_client || { echo 'Keycloak client sync: FEDERATION_ADMIN failed' >&2; return 1; }
+                        sync_kubernetes_client_and_groups || { echo 'Keycloak client sync: KUBERNETES failed' >&2; return 1; }
+                        sync_dashboard_cli_client || { echo 'Keycloak client sync: DASHBOARD_CLI failed' >&2; return 1; }
                       }
                       attempt=0
+                      deadline=$(( $(date +%s) + 600 ))
                       # Match the ten-minute startup-probe budget. First-start
                       # Quarkus augmentation on ARM can outlive the previous
                       # three-minute reconciliation window.
-                      while [ "$attempt" -lt 120 ]; do
+                      while [ "$attempt" -lt 120 ] && [ "$(date +%s)" -lt "$deadline" ]; do
                         if sync_callbacks; then
+                          /bin/sh /opt/magicstick/keycloak-session-policy.sh "$config" || exit 1
                           echo "Synchronized scoped Keycloak clients"
                           exit 0
                         fi
@@ -542,6 +551,7 @@ spec:
                               --rolename view-users \
                               --rolename view-realm >/dev/null 2>&1 || true
                             if sync_callbacks; then
+                              /bin/sh /opt/magicstick/keycloak-session-policy.sh "$config" || exit 1
                               echo "Provisioned and synchronized scoped Keycloak clients"
                               exit 0
                             fi
@@ -551,7 +561,8 @@ spec:
                         sleep 5
                       done
                       echo "Keycloak client synchronization did not complete; existing realm settings require administrator review" >&2
-                    ) >/proc/1/fd/1 2>/proc/1/fd/2 &
+                      exit 1
+                    )
           ports:
             - name: http
               containerPort: 8080
@@ -590,10 +601,16 @@ spec:
                 - ALL
             runAsNonRoot: true
           volumeMounts:
+            - name: session-policy
+              mountPath: /opt/magicstick
+              readOnly: true
             - name: realm
               mountPath: /opt/keycloak/data/import
               readOnly: true
       volumes:
+        - name: session-policy
+          configMap:
+            name: keycloak-session-policy
         - name: realm
           configMap:
             name: keycloak-realm

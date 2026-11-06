@@ -1,6 +1,8 @@
 import {expect,test} from '@playwright/test';
 import {moduleResourceLinks,gpuCompatibilityParameters} from '@magicstick/dashboard-core';
 import type {LiveFoundation} from '../core/live-foundation.ts';
+import type {GpuCompatibility} from '@magicstick/dashboard-contracts';
+import type {KubeObject} from '../core/observer.ts';
 import {AdministrationApi,AdministrationRejected} from '../core/administration-api.ts';
 import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
@@ -13,6 +15,7 @@ import {requireGpuProvider} from '../hardware/prerequisites.ts';
 import {gatewaySnapshot,assertGatewayStable} from '../core/gateway-stability.ts';
 import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
 import {moduleProbeLinks,probeModuleServices} from '../core/service-probes.ts';
+import {liveWorkflowEnabled} from '../core/engine-policy.ts';
 const moduleSettings=(value:{enabled?:boolean;parameters?:unknown}|undefined)=>canonical({enabled:value?.enabled,parameters:value?.parameters??{}});
 const sharingSettings=(value:{providers:Array<{provider:string;mode:string;maxModels:number;backend:string;nodeUid:string}>})=>
   canonical(value.providers.map(({provider,mode,maxModels,backend,nodeUid})=>({provider,mode,maxModels,backend,nodeUid})).sort((a,b)=>a.provider.localeCompare(b.provider)));
@@ -20,6 +23,7 @@ const sharingSettings=(value:{providers:Array<{provider:string;mode:string;maxMo
 /** An idle optional catalog-owned service is borrowed and restored exactly.
  * Never disable identity/dashboard/runtime/GPU or a module used by an app. */
 export async function modulesWorkflow(live:LiveFoundation) {
+  requireSafe(liveWorkflowEnabled('modules'),'CONFIG');
   const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!)),fixture=profile.modules;
   requireSafe(fixture?.approveOptionalModule === true && /^[a-z0-9-]{1,63}$/.test(fixture.id) && fixture.parameters && typeof fixture.parameters === 'object','PREREQUISITE');
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
@@ -105,6 +109,24 @@ export async function modulesWorkflow(live:LiveFoundation) {
   return new Set(['MOD-03','MOD-04']);
 }
 
+/** A confirmed intent write can precede its controller projection. Reload only
+ * after that exact revision is observed, never after an arbitrary sleep or by
+ * accepting another writer's profile. Read/API errors remain errors. */
+export async function waitModuleProfileReadback(read:()=>Promise<{intent:KubeObject;compatibility?:GpuCompatibility}>,
+  expected:KubeObject,options:{timeoutMs?:number;stage?:'module-ready'|'recovery-module'}={}) {
+  requireSafe(expected.metadata.uid&&expected.metadata.generation&&expected.spec?.parameters,'OWNERSHIP');
+  const parameters=expected.spec.parameters as Record<string,string>;
+  return poll(async()=>{
+    const observed=await read();
+    requireSafe(!observed.intent.metadata.deletionTimestamp&&observed.intent.metadata.uid===expected.metadata.uid&&observed.intent.metadata.generation===expected.metadata.generation&&
+      canonical(observed.intent.spec)===canonical(expected.spec),'CONFLICT');
+    return observed;
+  },value=>value.intent.status?.observedGeneration===expected.metadata.generation&&
+    typeof value.compatibility?.selectedProfile==='string'&&value.compatibility.selectedProfile===(parameters.compatibilityProfile??'')&&
+    value.compatibility.allowExperimental===(parameters.allowExperimental==='true'),
+  {timeoutMs:options.timeoutMs??120_000,intervalMs:1000,stage:options.stage??'module-ready'});
+}
+
 /** Test the real generic profile write that originally discarded gpuSharing.
  * The alternative is explicit; no kernel/host operation or validation is run.
  * Only an idle managed AMD intent is borrowed, then restored exactly. */
@@ -119,6 +141,10 @@ export async function moduleProfileWorkflow(live:LiveFoundation) {
   const read=async()=>{
     const matches=(await live.observer.list('moduleactivations.appliance.magicstick.dev','ai-system')).filter(item=>item.spec?.module === 'amd-gpu');
     requireSafe(matches.length === 1,'OWNERSHIP');return matches[0]!;
+  };
+  const readback=async()=>{
+    await live.guard();
+    return {intent:await read(),compatibility:(await live.api.status()).hardwareOperators?.['amd-gpu']?.compatibility};
   };
   const original=await read(),parameters=original.spec?.parameters as Record<string,string>;
   requireSafe(original.metadata.uid && original.metadata.generation && original.spec?.enabled === true && parameters?.gpuSharing &&
@@ -148,6 +174,7 @@ export async function moduleProfileWorkflow(live:LiveFoundation) {
         {timeoutMs:30_000,intervalMs:500,stage:'model-update'});
       requireSafe(canonical(applied.spec) === canonical(expected) && (applied.spec?.parameters as Record<string,string>).gpuSharing === parameters.gpuSharing,'API');
       await writePrivate(receipt,{version:1,uid:applied.metadata.uid,generation:applied.metadata.generation,originalSpec:original.spec,appliedSpec:applied.spec,state:'applied'});
+      await test.step('Wait for the saved module profile status',()=>waitModuleProfileReadback(readback,applied!));
       await page.reload();await node.getByText('GPU Configuration AMD',{exact:true}).click();await node.getByText('AMD runtime profile',{exact:true}).click();
       await expect(node.getByRole('combobox',{name:'AMD compatibility profile',exact:true})).toHaveValue(plan.profileId);
     }finally{await page.close();}
@@ -159,6 +186,7 @@ export async function moduleProfileWorkflow(live:LiveFoundation) {
       const restored=await poll(read,item=>item.metadata.generation === Number(applied!.metadata.generation)+1,{timeoutMs:30_000,intervalMs:500,stage:'cleanup'});
       requireSafe(restored.metadata.uid === original.metadata.uid && canonical(restored.spec) === canonical(original.spec),'CLEANUP');
       await writePrivate(receipt,{version:1,uid:restored.metadata.uid,generation:restored.metadata.generation,state:'restored'});
+      await test.step('Wait for the restored module profile status',()=>waitModuleProfileReadback(readback,restored,{stage:'recovery-module'}));
     }
   }
 }
