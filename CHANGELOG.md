@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Preserve an explicitly selected product version when the installer publication
+  job restores its build plan. Execute both workflow planning steps in the owning
+  counterexample, so fixed-version media cannot acquire a development-channel
+  fingerprint between build and upload. No old installer or product tag is reused.
+
 - Adopt trunk-based main PRs and coordinated immutable image-promotion PRs, with
   an exact-source product-release workflow, independent CodeQL/finding acceptance
   and immutable annotated version tags. Add administrator version discovery and
@@ -700,6 +705,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Carry the selected product version through both installer build and publication
+  planning, retaining the same tag, manifest, license record and artifact identity.
 - Prepare enforcing container confinement before the first K3s start on new
   Ubuntu 26.04 hosts, and verify trusted identity readiness independently of
   container readiness.

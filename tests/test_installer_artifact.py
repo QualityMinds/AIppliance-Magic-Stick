@@ -3,6 +3,7 @@ import copy
 import fnmatch
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -289,6 +290,43 @@ class InstallerArtifactTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, 'never overwrite'):
             artifact.publish(artifact.REPOSITORY, self.value, self.directory, '123')
         self.assertEqual(command.call_count, 1)  # Only the read-only jobs lookup.
+
+    def test_workflow_build_and_publication_retain_the_same_product_identity(self):
+        workflow = yaml.load((ROOT / artifact.WORKFLOW).read_text(), Loader=yaml.BaseLoader)
+        stages = [next(step for step in workflow['jobs'][job]['steps']
+                       if step.get('name') == name) for job, name in (
+                           ('build', 'Fingerprint build inputs'),
+                           ('publish', 'Restore exact build identity'))]
+        proof = {'version': 'v1.2.3', 'commit': 'b' * 40, 'tagObject': 'c' * 40,
+                 'manifestDigest': 'sha256:' + 'd' * 64,
+                 'license': product_manifest()['license']}
+        for version in ('', proof['version']):
+            with self.subTest(product_version=version):
+                plans = []
+                for step in stages:
+                    env = {'PATH': os.defpath, 'GITHUB_REF_NAME': 'main',
+                           'GITHUB_SHA': REVISION, 'RUNNER_TEMP': str(self.root)}
+                    for key, value in step.get('env', {}).items():
+                        self.assertEqual(value, '${{ inputs.product_version }}')
+                        env[key] = version
+                    # Execute the real workflow shell, capturing only argv. A
+                    # shell function needs no executable fixture on /tmp and
+                    # cannot contact GitHub or publish an installer.
+                    script = 'python() { printf \'%s\\0\' "$@"; }\n' + step['run']
+                    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script],
+                                            cwd=self.root, env=env, check=True, capture_output=True)
+                    arguments = result.stdout.decode().split('\0')[:-1]
+                    self.assertEqual(arguments[:2], ['tools/installer_artifact.py', 'plan'])
+                    self.assertEqual(len(arguments) % 2, 0)
+                    options = dict(zip(arguments[2::2], arguments[3::2]))
+                    selected = options.get('--product-version')
+                    if selected:
+                        self.assertEqual(selected, version)
+                    plans.append(artifact.plan(self.root, options['--channel'],
+                                               options['--revision'], proof if selected else None))
+                self.assertEqual(plans[0]['fingerprint'], plans[1]['fingerprint'])
+                self.assertEqual(plans[0].get('productRelease'), proof if version else None)
+                self.assertEqual(plans[1].get('productRelease'), plans[0].get('productRelease'))
 
     def test_workflow_filters_inputs_and_separates_build_from_publication(self):
         workflow = yaml.load((ROOT / artifact.WORKFLOW).read_text(), Loader=yaml.BaseLoader)

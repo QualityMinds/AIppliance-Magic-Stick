@@ -1208,6 +1208,16 @@ process scenarios remained blocked on macOS. These are isolated implementation
 checks, not product publication, native Linux runner acceptance, a USB/VM
 installation or an installed-appliance upgrade. Historical evidence is unchanged.
 
+7 November 2026 fixed-installer release follow-up: the owning installer-artifact
+counterexample executes the actual build and publication planning shell steps
+with both an explicit product version and a development selection. The original
+workflow failed the fixed-version fingerprint comparison because publication
+discarded `product_version`; both stages now retain the same verified release
+identity and original license dates. This existing installer suite is selected
+by the installer workflow; no registered appliance-regression case is added.
+Local shell/identity checks are not a published image, USB/VM boot, installed
+upgrade or physical-hardware acceptance.
+
 20 October 2026 release-CI follow-up: HAR-02/10 and SEC-02/03 report-server
 counterexamples reject noncanonical identities, private/traversal filenames,
 symlinks, oversized files and blocking special files. A directory-swap test

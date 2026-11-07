@@ -161,9 +161,13 @@ jobs:
         with:
           python-version: '3.13'
       - name: Restore exact build identity
+        env:
+          PRODUCT_VERSION: ${{ inputs.product_version }}
         run: |
+          args=()
+          if [ -n "$PRODUCT_VERSION" ]; then args+=(--product-version "$PRODUCT_VERSION"); fi
           python tools/installer_artifact.py plan --channel "$GITHUB_REF_NAME" \
-            --revision "$GITHUB_SHA" --plan "$RUNNER_TEMP/installer-plan.json"
+            --revision "$GITHUB_SHA" --plan "$RUNNER_TEMP/installer-plan.json" "${args[@]}"
       - uses: actions/download-artifact@v4
         with:
           name: installer-${{ needs.build.outputs.fingerprint }}

@@ -141,6 +141,11 @@ public CIDATA configuration. It packages reports and original source notices.
 These integrity checks are not a boot test or a completed installation.
 
 A separate publication job can write releases, but does not build media. It
+restores the plan with the same explicit `product_version` input as the build,
+including the verified product tag, commit, manifest and original license record;
+omitting that input must not turn fixed media into a development-channel plan.
+An owning test executes both workflow planning shell steps and compares their
+actual artifact fingerprints for fixed-version and development media. It
 verifies the exact successful build run, downloaded asset bytes and remote
 upload checksums. It uploads to a draft first and publishes the prerelease only
 after all four assets match. There is no overwrite or mutable `latest.img` alias.
