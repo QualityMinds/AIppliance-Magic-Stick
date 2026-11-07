@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Preserve an explicitly selected product version when the installer publication
+  job restores its build plan. Execute both workflow planning steps in the owning
+  counterexample, so fixed-version media cannot acquire a development-channel
+  fingerprint between build and upload. No old installer or product tag is reused.
+
 - Adopt trunk-based main PRs and coordinated immutable image-promotion PRs, with
   an exact-source product-release workflow, independent CodeQL/finding acceptance
   and immutable annotated version tags. Add administrator version discovery and
@@ -672,6 +677,78 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   by OpenClaw 2026.9.8.
 - Preserve KubeOpenCode instance model choices during catalog synchronization,
   remove withdrawn provider routes and roll updated configuration automatically.
+
+## v1.0.0 - 2026-11-07
+
+### Added
+
+- Discover verified stable product releases and optional release candidates in
+  **System → Settings → Updates**, then use the existing checked, confirmed host
+  update workflow to select an exact version.
+- Bind normal fresh installations to one verified product tag, tag object and
+  Git commit. Ansible, host management and Flux use the same approved revision;
+  subsequent releases do not move an existing installation automatically.
+- Publish product provenance and mandatory license assets alongside immutable
+  annotated release tags. Release qualification checks the final GitOps commit,
+  original tested image sources, registry hashes and supported image platforms.
+
+### Changed
+
+- Use `main` as the integration trunk with short-lived pull requests and a
+  separate, coordinated image-pin PR. Automation does not approve or merge its
+  own proposals, and a main merge is not a stable product release.
+- Keep dashboard Web, API and CLI images coordinated across Linux AMD64 and
+  ARM64, with a separately tested Linux AMD64 regression runner. Fixed-version
+  installer media include the selected release identity in their fingerprint.
+- Preserve explicit development-branch installations, saved settings, existing
+  authentication and the same source/images for all licensing editions.
+
+### Fixed
+
+- Carry the selected product version through both installer build and publication
+  planning, retaining the same tag, manifest, license record and artifact identity.
+- Prepare enforcing container confinement before the first K3s start on new
+  Ubuntu 26.04 hosts, and verify trusted identity readiness independently of
+  container readiness.
+- Reconcile the configured Keycloak callbacks and origins after a hostname
+  change instead of reporting success with stale login redirects.
+- Preserve bounded, sanitized regression diagnostics, original failure causes
+  and separate all-check, executable-scenario and live-evidence totals. Model
+  finalizers and cleanup retain UID/resource-version, ownership and Lease guards.
+
+### Security and licensing
+
+- Retain required source/dependency checks, independent CodeQL acceptance,
+  protected main PRs, immutable product tags and immutable published releases.
+- Magic Stick-owned source remains under BUSL-1.1 with the existing Additional
+  Use Grant. For `v1.0.0`, the first-public-distribution date is **2026-11-07** and
+  the MIT Change Date is **2029-11-07**. Historical version records are unchanged.
+- Third-party licenses, notices and source obligations remain separate. Version
+  discovery and updates require no entitlement; the existing Federated SSO
+  entitlement boundary is unchanged.
+
+### Installation and known limits
+
+See the [installation guide](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v1.0.0/docs/installation/README.md)
+and [updates and rollback](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v1.0.0/docs/administration/updates-rollback.md)
+for the version-bound procedures.
+
+- Select `v1.0.0` explicitly or let a normal fresh installation resolve the
+  highest verified stable release once. If release verification is unavailable,
+  installation does not silently fall back to a moving branch.
+- Older branch-following installer downloads remain development media, not
+  fixed-version `v1.0.0` installers. A separately verified fixed-version media
+  build does not replace physical installation acceptance.
+- CI, browser fixtures and native packaged-launch checks are distinct from
+  installed-appliance, physical GPU, cross-device Mesh and customer-signing
+  acceptance. Experimental engine/hardware paths retain their documented scope.
+- Standard regression continues to exclude the deferred Hermes/service/
+  application live workflows and experimental Omni/Realtime live cases. Those
+  exclusions are not passing application or hardware evidence.
+- Open distribution-specific license reviews remain visible in the
+  [license audit](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v1.0.0/docs/development/license-audit.md)
+  and `licenses/release-review.json`; no legal
+  approval is inferred from a green build or this release record.
 
 ## v0.1.3 - 2026-10-20
 
