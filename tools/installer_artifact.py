@@ -256,7 +256,12 @@ def bundle(root, value, directory, run_id):
 
 
 def validate_run(run, jobs, info, repo):
-    if (run.get('path') != WORKFLOW or run.get('head_branch') != info['channel']
+    product = info.get('productRelease') or {}
+    product_dispatch = (run.get('event') == 'workflow_dispatch'
+                        and run.get('head_branch') == product.get('version')
+                        and run.get('head_sha') == product.get('commit'))
+    if (run.get('path') != WORKFLOW
+            or not (run.get('head_branch') == info['channel'] or product_dispatch)
             or run.get('head_sha') != info['sourceRevision']
             or run.get('event') not in {'push', 'workflow_dispatch'}
             or (run.get('head_repository') or {}).get('full_name') != repo
@@ -352,6 +357,7 @@ def main():
     parser.add_argument('--channel', choices=('main', 'develop'))
     parser.add_argument('--revision')
     parser.add_argument('--product-version', help='Optional already published verified product tag; never relabel an old branch image')
+    parser.add_argument('--expected-product-commit', help='Require the selected product tag to resolve to this exact commit')
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--repo', default=REPOSITORY)
     parser.add_argument('--directory', type=Path)
@@ -360,8 +366,12 @@ def main():
     try:
         if args.operation == 'plan':
             product_identity = None
+            if args.expected_product_commit and not args.product_version:
+                raise ValueError('An expected product commit requires an explicit product version')
             if args.product_version:
-                proof = release_bootstrap.resolve(args.product_version)
+                if not release_bootstrap.catalog.is_product_version(args.product_version):
+                    raise ValueError('Product media requires an exact published product tag, not a moving selector')
+                proof = release_bootstrap.resolve(args.product_version, args.expected_product_commit)
                 product_identity = {k: proof[k] for k in ('version', 'commit', 'tagObject', 'manifestDigest', 'license')}
             value = plan(args.root, args.channel, args.revision or '', product_identity)
             save(args.plan, value)

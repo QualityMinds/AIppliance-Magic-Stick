@@ -288,9 +288,13 @@ product release before building, embed its tag/approved commit and tag object,
 and verify it again on first boot. No stable release stops without a main
 fallback. Use explicit `--public-ref main --public-ref-kind branch` only for
 integration testing. Existing branch-following downloads remain unchanged.
-For content-addressed CI media, dispatch on main with `product_version`; this
-adds version/SHA/license identity to the fingerprint and never relabels an old
-main image. See [trunk-based releases](../docs/development/releases.md).
+Product publication automatically dispatches content-addressed CI media on the
+exact product tag and requires a verified public image/checksum/evidence download
+before reporting release delivery complete. A reviewed manual main run with
+`product_version` remains available for older published versions. Both paths add
+version/SHA/license identity to the fingerprint and never relabel an old main
+image. The product tag can be visible before installer completion. See
+[trunk-based releases](../docs/development/releases.md).
 
 ### Network configuration
 

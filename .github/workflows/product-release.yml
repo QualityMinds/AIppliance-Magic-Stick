@@ -48,6 +48,7 @@ jobs:
           python-version: '3.13'
       - name: Verify release, privacy, license and current CI counterexamples
         run: |
+          python -m pip install PyYAML==6.0.2
           python -m unittest tests.test_release tests.test_license_release tests.test_release_catalog tests.test_product_release tests.test_release_codeql
           python tools/license_audit.py --review
       - name: Qualify the exact source, both client platforms and published runner
@@ -70,10 +71,10 @@ jobs:
     if: inputs.publish && github.ref == 'refs/heads/main'
     environment: product-release
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 120
     permissions:
       contents: write
-      actions: read
+      actions: write
       checks: read
     steps:
       - uses: actions/checkout@v4
@@ -97,6 +98,17 @@ jobs:
           RELEASE_REVISION: ${{ inputs.revision }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          python tools/product_release.py --publish --version "$RELEASE_VERSION" \
+          python tools/product_release.py --publish --product-only --version "$RELEASE_VERSION" \
             --revision "$RELEASE_REVISION" --output-directory "$RUNNER_TEMP/product-release"
-          echo 'Product release published. No appliance was switched, updated or tested by this workflow.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Product tag published. Installer delivery is not complete until the following download verification succeeds.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and verify the exact product installer before completing delivery
+        env:
+          # Explicit dispatch works for GITHUB_TOKEN-created releases as well;
+          # no extra user token or release-event recursion is required.
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ inputs.revision }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python tools/release_delivery.py complete --version "$RELEASE_VERSION" \
+            --revision "$RELEASE_REVISION"
+          echo 'Release delivery complete: public installer bytes, SHA-256 and product identity verified. No appliance was installed, switched or tested.' >> "$GITHUB_STEP_SUMMARY"

@@ -221,6 +221,31 @@ class InstallerArtifactTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifact.validate_run(run, [{'name': 'build', 'conclusion': 'failure'}], info, artifact.REPOSITORY)
 
+    def test_product_dispatch_requires_the_matching_product_tag_and_commit(self):
+        info = self.make_bundle()
+        info['productRelease'] = {'version': 'v1.2.3', 'commit': REVISION}
+        run = {**self.valid_run(), 'event': 'workflow_dispatch', 'head_branch': 'v1.2.3'}
+        jobs = [{'name': 'build', 'conclusion': 'success'}]
+        artifact.validate_run(run, jobs, info, artifact.REPOSITORY)
+        for change in ({'head_branch': 'v1.2.4'}, {'head_sha': 'b' * 40}, {'event': 'push'}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                artifact.validate_run({**run, **change}, jobs, info, artifact.REPOSITORY)
+
+    def test_planning_passes_an_expected_product_commit_to_public_resolution(self):
+        proof = {'version': 'v1.2.3', 'commit': REVISION, 'tagObject': 'c' * 40,
+                 'manifestDigest': 'sha256:' + 'd' * 64, 'license': product_manifest()['license']}
+        argv = ['installer_artifact.py', 'plan', '--root', str(self.root), '--channel', 'main',
+                '--revision', REVISION, '--plan', str(self.root / 'plan.json'),
+                '--product-version', 'v1.2.3', '--expected-product-commit', REVISION]
+        with mock.patch('sys.argv', argv), mock.patch.object(artifact, 'output'), \
+                mock.patch.object(artifact.release_bootstrap, 'resolve', return_value=proof) as resolve:
+            artifact.main()
+        resolve.assert_called_once_with('v1.2.3', REVISION)
+        with mock.patch('sys.argv', argv[:-4] + argv[-2:]), mock.patch.object(artifact.release_bootstrap, 'resolve') as resolve, \
+                mock.patch('sys.stderr'), self.assertRaises(SystemExit):
+            artifact.main()
+        resolve.assert_not_called()
+
     def test_publish_draft_then_verify_then_publish_without_overwrite(self):
         self.make_bundle()
         final = self.remote_release()
@@ -300,11 +325,12 @@ class InstallerArtifactTests(unittest.TestCase):
         proof = {'version': 'v1.2.3', 'commit': 'b' * 40, 'tagObject': 'c' * 40,
                  'manifestDigest': 'sha256:' + 'd' * 64,
                  'license': product_manifest()['license']}
-        for version in ('', proof['version']):
-            with self.subTest(product_version=version):
+        for ref_type, ref_name, version in (('branch', 'main', ''), ('branch', 'main', proof['version']),
+                                            ('tag', proof['version'], proof['version'])):
+            with self.subTest(product_version=version, ref_type=ref_type):
                 plans = []
                 for step in stages:
-                    env = {'PATH': os.defpath, 'GITHUB_REF_NAME': 'main',
+                    env = {'PATH': os.defpath, 'GITHUB_REF_NAME': ref_name, 'GITHUB_REF_TYPE': ref_type,
                            'GITHUB_SHA': REVISION, 'RUNNER_TEMP': str(self.root)}
                     for key, value in step.get('env', {}).items():
                         self.assertEqual(value, '${{ inputs.product_version }}')
@@ -322,11 +348,20 @@ class InstallerArtifactTests(unittest.TestCase):
                     selected = options.get('--product-version')
                     if selected:
                         self.assertEqual(selected, version)
+                    self.assertEqual(options.get('--expected-product-commit'), REVISION if ref_type == 'tag' else None)
                     plans.append(artifact.plan(self.root, options['--channel'],
                                                options['--revision'], proof if selected else None))
                 self.assertEqual(plans[0]['fingerprint'], plans[1]['fingerprint'])
                 self.assertEqual(plans[0].get('productRelease'), proof if version else None)
                 self.assertEqual(plans[1].get('productRelease'), plans[0].get('productRelease'))
+        for version in ('', 'v1.2.4'):
+            for step in stages:
+                script = 'python() { exit 99; }\n' + step['run']
+                env = {'PATH': os.defpath, 'GITHUB_REF_TYPE': 'tag', 'GITHUB_REF_NAME': 'v1.2.3',
+                       'GITHUB_SHA': REVISION, 'RUNNER_TEMP': str(self.root), 'PRODUCT_VERSION': version}
+                result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=self.root,
+                                        env=env, capture_output=True)
+                self.assertNotIn(result.returncode, (0, 99))  # Reject before any planning/publication command.
 
     def test_workflow_filters_inputs_and_separates_build_from_publication(self):
         workflow = yaml.load((ROOT / artifact.WORKFLOW).read_text(), Loader=yaml.BaseLoader)
@@ -340,7 +375,11 @@ class InstallerArtifactTests(unittest.TestCase):
             self.assertFalse(any(fnmatch.fnmatch(path, pattern) for pattern in paths), path)
         self.assertEqual(workflow['permissions'], {'contents': 'read'})
         self.assertEqual(workflow['concurrency']['cancel-in-progress'], 'false')
+        self.assertIn('inputs.product_version', workflow['concurrency']['group'])
+        self.assertEqual(workflow['env']['INSTALLER_DELIVERY_CONTRACT'], '1')
         jobs = workflow['jobs']
+        self.assertIn("github.event_name == 'workflow_dispatch'", jobs['build']['if'])
+        self.assertIn("github.ref == format('refs/tags/{0}', inputs.product_version)", jobs['build']['if'])
         self.assertEqual(jobs['publish']['permissions'], {'contents': 'write', 'actions': 'read'})
         self.assertEqual(jobs['publish']['if'], "needs.build.outputs.reused == 'false'")
         build = jobs['build']['steps']

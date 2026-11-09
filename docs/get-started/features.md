@@ -2,6 +2,12 @@
 
 ## What you can do
 
+- Download a [fixed-version v1.0.0 USB installer](../installation/bare-metal.md)
+  with a public checksum and build evidence. Future release delivery includes an
+  automatic exact-version installer build and full public-download verification;
+  the product tag can appear before that completion. Media integrity is not
+  physical installation or hardware acceptance.
+
 - Choose fixed released versions under **System → Settings → Updates**, review
   release notes and original license dates, then check/apply the same host/Flux
   revision. Prereleases are opt-in; unavailable legacy releases/offline catalogs
