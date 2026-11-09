@@ -1229,6 +1229,19 @@ Release CodeQL acceptance and product-release qualification workflows. No case,
 variant, layer or scenario registration changes; these are isolated U/C checks,
 not product publication or installed-appliance acceptance.
 
+9 November 2026 installer-delivery follow-up: existing SEC-03/CHANNEL-01–08
+owning coverage in `tests.test_product_release` exercises exact-tag dispatch,
+single dispatch after missing media, current-attempt/job gates, incomplete or
+foreign API data, public download bytes/hash/size, restricted redirects, retained
+original product identity/license dates and non-destructive release-note links.
+Missing media after success, changed notes, orphan tags and transport/observation
+failures do not become success or automatic rebuilds. The real build/publication
+planning-shell counterexample in `tests.test_installer_artifact` covers matching,
+empty and mismatched tag/version inputs in both stages. The existing product,
+public-release and Phase 8 owning selections already execute the former suite;
+installer/public checks execute the latter. No registered case, variant, layer
+or scenario is added. These are isolated U/C checks, not installed acceptance.
+
 20 October 2026 release-CI follow-up: HAR-02/10 and SEC-02/03 report-server
 counterexamples reject noncanonical identities, private/traversal filenames,
 symlinks, oversized files and blocking special files. A directory-swap test

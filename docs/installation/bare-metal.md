@@ -20,24 +20,21 @@ Docker or a local image build.** Check [requirements](../get-started/requirement
 
 ## 1. Download the installer
 
-> **Version boundary:** the pinned download below is a historical **development
-> main follower**, not fixed product-version media. Its bytes and provenance are
-> unchanged. For a normal fixed-version installation, use a verified
-> `installer-v…` download when published for the selected product release; do not
-> substitute this main image as if it were that release. Until one is published,
-> use the [existing-host installer](existing-vm.md) with an explicitly verified
-> product version, or treat the download below as an explicit development choice.
-> See [version-bound media](../development/installer-images.md).
+The download below installs **Magic Stick v1.0.0**, not a moving development
+branch. Its embedded product tag, approved source commit, manifest and original
+license dates are verified again at first boot. Later versions require an
+explicit administrator selection; this image does not silently adopt them.
 
 Download these two files into the same folder:
 
-- [Reduced installer image · AMD64 / main](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-main-be5ea39c2b30b3aa291d1e3ae5d7ea0da8dc5e3d72d919d51f196178fefdca10/magicstick-installer-main-amd64-reduced-be5ea39c2b30b3aa.img)
-- [SHA-256 checksum](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-main-be5ea39c2b30b3aa291d1e3ae5d7ea0da8dc5e3d72d919d51f196178fefdca10/magicstick-installer-main-amd64-reduced-be5ea39c2b30b3aa.img.sha256)
+- [Reduced installer image · AMD64 / v1.0.0](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-v1.0.0-237a730d907b84d0eaa7cf3155a4950ca2e7c1a4506c247e7accba6d36fb27f7/magicstick-installer-v1.0.0-amd64-reduced-237a730d907b84d0.img)
+- [SHA-256 checksum](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-v1.0.0-237a730d907b84d0eaa7cf3155a4950ca2e7c1a4506c247e7accba6d36fb27f7/magicstick-installer-v1.0.0-amd64-reduced-237a730d907b84d0.img.sha256)
 
-The [download details and build evidence](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/installer-main-be5ea39c2b30b3aa291d1e3ae5d7ea0da8dc5e3d72d919d51f196178fefdca10)
+The [download details and build evidence](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/installer-v1.0.0-237a730d907b84d0eaa7cf3155a4950ca2e7c1a4506c247e7accba6d36fb27f7)
 identify the exact source and checks. Choose the `.img` asset, **not** GitHub's
 automatically generated “Source code” archives. This image uses Ubuntu Server
-26.04.1 AMD64 and follows Magic Stick's `main` channel at first boot.
+26.04.1 AMD64 and binds both Ansible and Flux to product commit
+`8e244d1c3d99350fa5b8f96a9ac7b254924072d6`.
 
 **Internet access is required during installation.** The image keeps Ubuntu's
 signed `main` package pool so the live installer can configure supported Wi-Fi
@@ -56,7 +53,7 @@ credentials or default user password are embedded.
 Verify the checksum **before** writing the drive. On Linux, in the download folder:
 
 ```bash
-sha256sum -c magicstick-installer-main-amd64-reduced-be5ea39c2b30b3aa.img.sha256
+sha256sum -c magicstick-installer-v1.0.0-amd64-reduced-237a730d907b84d0.img.sha256
 ```
 
 On macOS, use `shasum -a 256 -c` with the same checksum filename. The result must
@@ -64,13 +61,13 @@ be `OK`. On Windows, use `Get-FileHash` in PowerShell and compare its SHA256 val
 with the first value in the downloaded `.sha256` file:
 
 ```powershell
-Get-FileHash .\magicstick-installer-main-amd64-reduced-be5ea39c2b30b3aa.img -Algorithm SHA256
+Get-FileHash .\magicstick-installer-v1.0.0-amd64-reduced-237a730d907b84d0.img -Algorithm SHA256
 ```
 
 Stop if the checksum does not match. Local build scripts are
 [development tools](../development/installer-images.md#local-development-builds),
-not an installation prerequisite. Old develop images and the main candidate
-above are development distributions; neither is an implicit stable fallback.
+not an installation prerequisite. Old develop/main images remain unchanged
+development distributions, not implicit stable fallbacks.
 
 <a id="3-usb-stick-beschreiben"></a>
 
@@ -129,8 +126,8 @@ can take several minutes. Cloud-init hands off to the setup console on virtual
 terminal 9; boot logs remain on terminal 1. On a computer whose monitor is
 connected to an NVIDIA GPU, the fetched host playbook may schedule one additional
 restart after it installs the display driver. Leave the USB stick removed and
-wait for the setup console to return. No new USB image is needed solely for a
-host-playbook update when the stick follows `main`.
+wait for the setup console to return. Fixed-version media retains its approved
+host playbook; only explicitly selected development media follows `main`.
 
 <a id="5-first-run-setup-öffnen"></a>
 <a id="6-installation-prüfen"></a>

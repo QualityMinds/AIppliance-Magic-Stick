@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "0c5342e650ca24d400b9dc6000de302ad7966ba0d8a5db7e58f75b7d5e4ae02e",
+  "deploymentReferencesSha256": "72d7792291b0232a7b1b7a61363ddde0774cb84659bfea1e513ace75596c763a",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1967,17 +1967,17 @@
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 61,
+      "line": 66,
       "reference": "python-version: '3.13'"
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 64,
+      "line": 69,
       "reference": "python -m pip install PyYAML==6.0.2"
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 162,
+      "line": 174,
       "reference": "python-version: '3.13'"
     },
     {
@@ -2217,7 +2217,12 @@
     },
     {
       "file": ".github/workflows/product-release.yml",
-      "line": 86,
+      "line": 51,
+      "reference": "python -m pip install PyYAML==6.0.2"
+    },
+    {
+      "file": ".github/workflows/product-release.yml",
+      "line": 87,
       "reference": "python-version: '3.13'"
     },
     {

@@ -2,8 +2,9 @@
 # Copyright (c) 2026 QualityMinds GmbH. All rights reserved.
 """Qualify an exact main revision; publish only with an explicit --publish.
 
-No version/date guessing, image rebuilds, tag replacement, CI reruns or appliance
-operations. Failed or newer pending attempts cannot inherit an old green run.
+No version/date guessing, runtime-image rebuilds, tag replacement, CI reruns or
+appliance operations. Completed delivery includes a verified installer build;
+failed or newer pending attempts cannot inherit an old green run.
 """
 import argparse
 import datetime as dt
@@ -313,6 +314,23 @@ def publish(root, manifest, notes, directory, *, api=github, command=gh):
     return result
 
 
+def finish(root, manifest, notes, directory, *, product_only=False):
+    """Keep product creation and verified delivery as distinct, explicit gates."""
+    result = publish(root, manifest, notes, directory)
+    if product_only:
+        print("Product published at " + result["html_url"] + ". Installer delivery is still incomplete.")
+        return
+    from tools import release_delivery
+    try:
+        receipt = release_delivery.complete(root, manifest["version"], manifest["commit"])
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        raise ReleaseFailure("Product publication remains intact at " + result["html_url"]
+                             + "; installer delivery is incomplete. Inspect the original installer run, "
+                               "then resume tools/release_delivery.py complete; do not republish the product.") from error
+    print("Release delivery complete at " + result["html_url"] + ". Verified installer: "
+          + receipt["url"] + ". Appliance installation and hardware acceptance remain separate.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
@@ -321,7 +339,10 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--prepare", action="store_true", help="Qualify and retain local evidence only; no remote writes")
     mode.add_argument("--publish", action="store_true", help="Create a new annotated tag and immutable product release after all checks")
+    parser.add_argument("--product-only", action="store_true", help="CI first stage only: publish the product, leaving mandatory installer delivery incomplete")
     args = parser.parse_args()
+    if args.product_only and not args.publish:
+        parser.error('--product-only requires --publish and a separate installer completion step')
     try:
         manifest, notes = prepare(ROOT, args.version, args.revision)
         directory = args.output_directory
@@ -339,8 +360,7 @@ def main():
         for finding in license_audit.publication_checks(ROOT):
             print("REVIEW WARNING: " + finding, file=sys.stderr)
         if args.publish:
-            result = publish(ROOT, manifest, notes, directory)
-            print("Published " + args.version + " at " + result["html_url"] + ". Appliance rollout is separate.")
+            finish(ROOT, manifest, notes, directory, product_only=args.product_only)
         else:
             print("Qualified " + args.version + " at " + args.revision + ". No tag, release or appliance was changed.")
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:

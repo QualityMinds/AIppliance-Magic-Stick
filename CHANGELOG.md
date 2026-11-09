@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Complete product release delivery with an automatic exact-tag installer build
+  and public image/checksum/evidence verification. Preserve the product tag and
+  locked assets; append verified download links only after completion. Missing
+  or failed current jobs remain incomplete, with no automatic rerun or new
+  credential. The USB guide now pins verified v1.0.0 media instead of a moving
+  main follower; physical installation acceptance remains separate.
+
 - Distinguish native CodeQL language jobs from successful standalone checks
   attached to GitHub's workflow job list. Require exact source/run/job identity,
   four unique language executions and current analyses with no open findings;

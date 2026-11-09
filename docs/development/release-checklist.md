@@ -53,6 +53,10 @@ evidence. The strict license review below remains explicitly opt-in.
   present when GitHub Pages is published from `docs/`.
 - CI release checks are present under `.github/workflows/`.
 - Runtime images and chart versions avoid mutable tags such as `latest` where practical.
+- For product release delivery, require the automatic fixed-version installer
+  workflow/current jobs and public image/checksum/evidence verification. Read
+  back the product-page download links; a visible tag or successful container
+  build alone is not completion. Keep physical installation acceptance separate.
 - Dashboard source publication is not appliance rollout: after a successful
   client-image workflow, verify the normal coordinated main pin PR and its checks
   (or explicitly promote a reviewed manual candidate). Web, API and CLI image-index

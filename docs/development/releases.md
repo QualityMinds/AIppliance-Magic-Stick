@@ -51,12 +51,13 @@ organization restriction is not bypassed with a copied personal token.
 ## Images before tags
 
 The sequence is: source PR → exact main build/checks → coordinated immutable-pin
-PR → final exact GitOps checks → annotated product tag and immutable release.
+PR → final exact GitOps checks → annotated product tag and immutable release →
+automatic fixed-version installer build → public download verification.
 See [image promotion](image-promotion.md#automatic-promotion).
 
 Dashboard Web/API/CLI are one tested AMD64+ARM64 source set; the runner is a
 tested AMD64 source. Image sources and the later pin commit are different facts.
-No image is rebuilt or repinned after the product tag. A content-proven pure-pin
+No runtime container image is rebuilt or repinned after the product tag. A content-proven pure-pin
 merge verifies the original image/native publishing evidence instead of starting
 a recursive build/promotion loop. Package identities and legal decisions remain
 unchanged when refreshing generated deployment references.
@@ -137,6 +138,11 @@ Contents write and read access to Actions/checks. Use the repository token where
 allowed, otherwise an approved narrowly scoped identity in the environment secret
 `PRODUCT_RELEASE_TOKEN`. Never paste tokens into Git or logs. Missing access stops
 before tag creation; the workflow does not change permissions or suppress checks.
+Product publication alone is not completed release delivery. The mandatory next
+step dispatches the installer workflow on that exact product tag, using only
+the job-scoped built-in token's Actions-write permission, then verifies the
+public image, checksum, build metadata and evidence bytes. It does not need a
+new personal token or a `release` event to trigger another workflow.
 
 ### Owner-operated publication with an existing GitHub login
 
@@ -167,6 +173,9 @@ native image/source/hash proofs, mandatory license assets and no-replacement
 guards. It is an owner-operated publication, not a successful Actions publish
 job. The Actions workflow does not inherit the owner's workstation login; its
 additional Administration-read requirement remains a separate automation setup.
+The default `--publish` command also waits for verified installer delivery.
+`--product-only` is the Actions first stage, not a completed release: the workflow
+must run the following completion step with its own built-in dispatch access.
 
 Tags/releases/assets are never replaced. GitHub's separate tag/draft/upload/publish
 requests are not atomic: after a partial failure inspect the exact existing
@@ -174,15 +183,40 @@ objects and recover deliberately; do not blindly rerun or delete/recreate a tag.
 The older [draft export](../../.github/workflows/release-draft.yml) remains a
 legacy notes-only tool, not a selectable product publication path.
 
-## Reusable reduced installer images
+## Installer delivery is part of release completion
 
-The [installer pipeline](installer-images.md) retains content-addressed development
-main candidates. For fixed media, dispatch it on main with an already verified
-`product_version`. Its fingerprint additionally includes the exact version, commit,
-tag object, manifest digest and original license record. CIDATA/media checks bind
-that identity; an old main-following image cannot be reused as a fixed-version
-image. It publishes a separate `installer-v…-…` component download, never mutates
-the immutable product release and never implies physical installation acceptance.
+The product tag is visible before its installer because the installer verifies
+the already published product identity. This is an intentional two-stage process,
+not an atomic publication. The release workflow/owner command reports delivery
+complete only after the automatic [installer pipeline](installer-images.md)
+finishes successfully and all four permanent public downloads pass size/SHA-256
+checks, including a full streamed image download. Product/tag/source/run and
+original license identities must match. Missing, failed, cancelled, timed-out,
+action-required or unexpectedly skipped jobs prevent completion; an older green
+attempt cannot replace them. Verified identical media can be reused without a
+new build. An observation timeout does not cancel or restart the original build.
+
+The installer publishes a separate immutable `installer-v…-…` component release.
+Completion appends verified download links to the product's editable release
+body, preserving existing notes and locked tag/assets. It never replaces the
+original `release-notes.md` asset, repins runtime images or changes license dates.
+The USB guide deliberately pins a verified baseline; it does not guess the next
+image URL. No automated build proves VM, USB, Wi-Fi or GPU installation acceptance.
+
+If delivery fails after product publication, leave the product intact and inspect
+the exact installer run. After an authorized correction/recovery, resume from a
+clean checkout of the same product commit, rather than republishing the product:
+
+```sh
+python tools/release_delivery.py complete --version v1.2.3 --revision "$RELEASE_REVISION"
+```
+
+The read-only `verify` operation checks existing public media without dispatching
+or changing release notes. Legacy versions without tag-dispatch support require
+the reviewed manual main workflow with `product_version`; they are not blindly
+redispatched through an incompatible old tag. The v1.0.0 baseline was published
+and publicly byte-verified on 9 November 2026; its original product source and
+six locked release/license assets remain unchanged.
 
 ## Weekly runtime image proposals
 

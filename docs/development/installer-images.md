@@ -26,6 +26,8 @@ each new candidate remains separate from CI. Successful manual tests do not rewr
 published build manifests or imply compatibility with every GPU.
 
 For installation, use the [prebuilt image in the USB guide](../installation/bare-metal.md).
+The [v1.0.0 delivery record](reports/release-v1.0.0-installer-2026-11-09.md)
+separates its public download verification from physical installation acceptance.
 The build scripts are developer tools. Users do not need to clone this repository
 or install Docker to prepare the standard USB installer.
 
@@ -60,7 +62,10 @@ writers and the media layout, see the [developer tool reference](../../magic-ins
 A push to `main` starts the workflow only when an installer input or its focused
 tests change. Old develop downloads remain historical. A manual main run may set
 `product_version` to an already verified product tag, generating fixed-version
-media rather than a main follower. Local wrappers default to stable resolution.
+media rather than a main follower. The product-release completion step dispatches
+on the exact matching product tag automatically. Both planning stages require
+that tag's expected commit and retain the same product identity. A mismatched or
+empty version on a tag dispatch stops before planning. Local wrappers default to stable resolution.
 Before building, the workflow computes a SHA-256 fingerprint from:
 
 - the build scripts, media helper, Containerfile, optional Docker ignore file,
@@ -96,7 +101,7 @@ checksum-verified, and eviction cannot make CI lose a published image.
 ## Downloads and channels
 
 New candidates are stored as GitHub prerelease assets under
-`installer-<channel>-<full-input-fingerprint>`. They are not marked as the latest
+`installer-<channel-or-product-version>-<full-input-fingerprint>`. They are not marked as the latest
 product release. The workflow summary links to the download containing:
 
 | Asset | Purpose |
@@ -114,11 +119,21 @@ Published assets do not use Actions' temporary artifact retention. The 14-day
 Actions artifact is only the handoff between build and publication jobs. Original
 tags, image bytes, source revision and notices are preserved when reused. Product
 release notes can link an existing installer without rebuilding or relabeling it.
-The user-facing USB guide pins a verified `main` candidate. After publishing a
+The user-facing USB guide pins verified **v1.0.0** media. After publishing a
 new baseline, verify its download and checksums, then deliberately update that
 guide's image/checksum/evidence links together. Documentation-only changes do not
 rebuild the image. Do not use GitHub's generic “latest release” URL: product and
 installer releases have different lifecycles, and installer candidates are prereleases.
+
+Product release delivery is complete only after the exact installer workflow and
+current build/publication jobs are successful, all four public asset URLs and
+bytes are verified, and the product page's download links are read back. The
+image is streamed in bounded chunks and checked against its published SHA-256;
+API asset metadata or an Actions artifact alone is not public delivery. Explicit
+`workflow_dispatch` works even when product creation used `GITHUB_TOKEN`; no
+new publisher credential or recursive release-event trigger is needed.
+The product tag may be visible earlier. A failed/active newer attempt blocks
+completion, rather than inheriting old green media or starting an automatic rerun.
 
 Explicit development main media follows main; historical develop media follows
 develop. Product-version media embeds its tag/approved SHA and verifies them again
