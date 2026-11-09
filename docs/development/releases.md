@@ -115,6 +115,11 @@ only. It requires current successful exact-main public, browser, dependency,
 license and runner checks and the independent **Release CodeQL acceptance** job.
 The latter checks the latest managed native CodeQL attempt, all four exact-commit
 language analyses and zero open CodeQL findings on the unchanged main head.
+GitHub's job response can also contain standalone integration checks. Only exact
+project/source/run-bound native job URLs count as language executions; successful
+standalone check URLs with no execution steps do not become a fifth language.
+The complete response and four unique expected native jobs are still required.
+Failed, skipped, pending, duplicated or unattributable rows block acceptance.
 Native PR CodeQL alone is not a post-merge acceptance result; uploads alone do
 not prove that findings passed. Newer failed/pending attempts cannot inherit old
 green results. Unexplained skips, missing permissions and partial data fail closed.
@@ -132,6 +137,36 @@ Contents write and read access to Actions/checks. Use the repository token where
 allowed, otherwise an approved narrowly scoped identity in the environment secret
 `PRODUCT_RELEASE_TOKEN`. Never paste tokens into Git or logs. Missing access stops
 before tag creation; the workflow does not change permissions or suppress checks.
+
+### Owner-operated publication with an existing GitHub login
+
+An explicitly authorized release owner can use the same canonical tool from a
+trusted computer already signed in through `gh`. No new token is needed when
+that existing identity has the same required repository permissions. Do not
+extract the login credential, copy it into Actions or create a broader bypass.
+
+Use a clean checkout of the exact reviewed final main commit. Set
+`RELEASE_REVISION` to that full commit and choose a new private output directory:
+
+```sh
+RELEASE_ASSETS="$(mktemp -d)"
+python tools/product_release.py --prepare --version v1.2.3 \
+  --revision "$RELEASE_REVISION" --output-directory "$RELEASE_ASSETS"
+```
+
+Review the six prepared files and remaining advisory license warnings. Only with
+explicit publication approval, use the same directory and exact identity:
+
+```sh
+python tools/product_release.py --publish --version v1.2.3 \
+  --revision "$RELEASE_REVISION" --output-directory "$RELEASE_ASSETS"
+```
+
+This retains the immutable-settings preflight, current exact-main CI, original
+native image/source/hash proofs, mandatory license assets and no-replacement
+guards. It is an owner-operated publication, not a successful Actions publish
+job. The Actions workflow does not inherit the owner's workstation login; its
+additional Administration-read requirement remains a separate automation setup.
 
 Tags/releases/assets are never replaced. GitHub's separate tag/draft/upload/publish
 requests are not atomic: after a partial failure inspect the exact existing

@@ -32,10 +32,31 @@ def verify(commit, api=product.github):
         raise Pending("Waiting for the latest exact-main CodeQL attempt.")
     if run.get("conclusion") != "success" or not product.catalog._integer(run.get("id")) or not product.catalog._integer(run.get("run_attempt")):
         raise product.ReleaseFailure("The latest exact-main CodeQL attempt is unsuccessful or invalid; no old green fallback.")
-    jobs = api(product.REPO + f'/actions/runs/{run["id"]}/attempts/{run["run_attempt"]}/jobs?per_page=100')
+    data = api(product.REPO + f'/actions/runs/{run["id"]}/attempts/{run["run_attempt"]}/jobs?per_page=100')
     names = {"Analyze (" + language + ")" for language in LANGUAGES}
-    if (jobs.get("total_count") != len(jobs.get("jobs", [])) or {j.get("name") for j in jobs.get("jobs", [])} != names
-            or any(j.get("status") != "completed" or j.get("conclusion") != "success" for j in jobs["jobs"])):
+    jobs = data.get("jobs") if isinstance(data, dict) else None
+    if (not isinstance(jobs, list) or not len(names) <= len(jobs) <= 100
+            or type(data.get("total_count")) is not int or data["total_count"] != len(jobs)):
+        raise product.ReleaseFailure("The complete current CodeQL job list is required; partial or invalid evidence cannot pass.")
+    native, seen = [], set()
+    project_url = "https://github.com/" + product.catalog.REPOSITORY
+    for job in jobs:
+        if (not isinstance(job, dict) or not product.catalog._integer(job.get("id"))
+                or job["id"] in seen or job.get("run_id") != run["id"] or job.get("head_sha") != commit):
+            raise product.ReleaseFailure("A CodeQL job identity differs from the selected source/run or is duplicated.")
+        seen.add(job["id"])
+        if job.get("status") != "completed" or job.get("conclusion") != "success":
+            raise product.ReleaseFailure("Every current CodeQL job and attached check must succeed; incomplete, failed or skipped evidence cannot pass.")
+        if job.get("html_url") == project_url + f'/actions/runs/{run["id"]}/job/{job["id"]}':
+            if not isinstance(job.get("steps"), list) or not job["steps"]:
+                raise product.ReleaseFailure("A native CodeQL language job has no execution steps.")
+            native.append(job)
+        elif job.get("html_url") != project_url + f'/runs/{job["id"]}' or job.get("steps") != []:
+            raise product.ReleaseFailure("CodeQL job/check attribution is unavailable or inconsistent; no acceptance was inferred.")
+        # GitHub also lists successful standalone /runs/<check-id> checks here.
+        # They must not count as native /actions/runs/<run-id>/job/<job-id>
+        # language executions, even if their display name resembles an analysis.
+    if len(native) != len(names) or {job.get("name") for job in native} != names:
         raise product.ReleaseFailure("Every current native CodeQL language job must pass, without missing or skipped languages.")
     query = urllib.parse.urlencode({"ref": "refs/heads/main", "tool_name": "CodeQL", "per_page": 100})
     analyses = api(product.REPO + "/code-scanning/analyses?" + query)
