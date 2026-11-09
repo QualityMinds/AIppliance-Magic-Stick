@@ -1218,6 +1218,17 @@ by the installer workflow; no registered appliance-regression case is added.
 Local shell/identity checks are not a published image, USB/VM boot, installed
 upgrade or physical-hardware acceptance.
 
+9 November 2026 release-CodeQL follow-up: the existing SEC-03 owning suite
+`tests.test_release_codeql` reproduces a successful standalone Companion check
+appearing in GitHub's workflow Jobs response. Native project/source/run/job URLs
+identify the four required unique language executions; standalone check rows
+cannot replace a missing language. Counterexamples retain rejection of failed,
+pending, skipped, duplicate, foreign, partial and unclassifiable evidence, scan
+errors and open findings. The same suite remains selected by the exact-main
+Release CodeQL acceptance and product-release qualification workflows. No case,
+variant, layer or scenario registration changes; these are isolated U/C checks,
+not product publication or installed-appliance acceptance.
+
 20 October 2026 release-CI follow-up: HAR-02/10 and SEC-02/03 report-server
 counterexamples reject noncanonical identities, private/traversal filenames,
 symlinks, oversized files and blocking special files. A directory-swap test

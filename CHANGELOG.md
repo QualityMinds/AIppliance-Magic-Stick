@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Distinguish native CodeQL language jobs from successful standalone checks
+  attached to GitHub's workflow job list. Require exact source/run/job identity,
+  four unique language executions and current analyses with no open findings;
+  missing, duplicated, failed or incomplete evidence still blocks publication.
+
 - Preserve an explicitly selected product version when the installer publication
   job restores its build plan. Execute both workflow planning steps in the owning
   counterexample, so fixed-version media cannot acquire a development-channel
@@ -705,6 +710,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Keep a separately attached successful Companion check from becoming a false
+  fifth CodeQL language job. Native job identity and complete security evidence
+  remain mandatory before release acceptance.
 - Carry the selected product version through both installer build and publication
   planning, retaining the same tag, manifest, license record and artifact identity.
 - Prepare enforcing container confinement before the first K3s start on new
