@@ -5,6 +5,7 @@ import {remainingPhase,remainingVariants,remainingVariantEnabled} from '../profi
 import {gpuMemoryDraft,gpuSharingDrafts,settingsDrafts,selectRange} from './form-checks.ts';
 import type {ModelActivation,ModelsPayload} from '@magicstick/dashboard-contracts';
 import {selectRealtimeCompute} from './realtime-live.ts';
+import {parseGpuMemoryDiagnostic} from '../core/gpu-memory-diagnostic.ts';
 
 const host=()=>({name:'fixture-node',nodeUid:'fixture-node-uid',bootId:'fixture-boot',kernel:'7.0-fixture',available:true,message:'Fixture worker ready.',
   plan:{id:'f'.repeat(64),state:'ready',profileId:'strix-halo-ubuntu-26.04',profileVersion:'1',gpuProfile:'strix-halo',experimental:true,packages:{},rebootRequired:false,message:'Driver is ready.',displayGpus:['1002:1586']},
@@ -208,7 +209,7 @@ async function browserProof(page:Page,group:string,id:string) {
       '/api/settings':{publicDomain:'fixture.example.invalid',mdnsDomain:'fixture.local'},
       '/api/mesh':{...mesh,configured:true,phase:'connected',authority:true,mesh:{id:'fixture-mesh',name:'Fixture Mesh',authority:'fixture-owner'},
         node:{id:'fixture-owner',name:'fixture-node',type:'magic-stick'},nodes:[],shares:{},imports:[],relay:{mode:'auto',url:''},invites:[]}});
-    await settingsDrafts(page,origin,'fixture-node');
+    await settingsDrafts(page,origin,'fixture-node',{gpuMemory:host().gpuMemory});
     // The live GPU-only check enters Hardware directly: its first response can
     // still be loading, and four physical NVIDIA cards share one provider form.
     for(const width of [1440,390]) {
@@ -225,9 +226,34 @@ async function browserProof(page:Page,group:string,id:string) {
     expect(writes).toEqual([]); return;
   }
   if(group === 'gpu-host') {
-    const writes=await mount(page,'system/hardware',{'/api/status':gpuStatus()});
-    await gpuMemoryDraft(page,'fixture-node');
-    expect(writes).toEqual([]); return;
+    for(const width of [1440,390])for(const limit of [102400,62814,112640]) {
+      await page.goto('about:blank');await page.setViewportSize({width,height:900});
+      const worker=host();worker.gpuMemory.currentDynamicLimitMi=limit;
+      const writes=await mount(page,'system/hardware',{'/api/status':gpuStatus(),'/api/hardware/gpu-sharing':sharing,'/api/host-management':{nodes:[worker]}});
+      await gpuMemoryDraft(page,'fixture-node',worker.gpuMemory);
+      const attachment=test.info().attachments.at(-1)!;
+      const diagnostic=parseGpuMemoryDiagnostic(JSON.parse(attachment.body!.toString('utf8')));
+      expect(diagnostic.kernelDynamicLimitMi).toBe(limit);
+      expect(diagnostic.observations).toHaveLength(5);
+      expect(diagnostic.observations.every(o=>o.reviewEnabled===o.expectedReviewEnabled&&o.draftMi===o.expectedDraftMi&&o.fixedPosition===o.expectedFixedPosition)).toBe(true);
+      expect(writes).toEqual([]);
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await page.screenshot({path:test.info().outputPath(`gpu-memory-${width}-${limit}.png`)});
+    }
+    // Neither always-enabled nor always-disabled on restore is an acceptable
+    // oracle. Deliberately mismatched isolated API/UI evidence must fail, with
+    // the final observed control state retained even after the assertion fails.
+    for(const [actual,reported] of [[62464,62814],[62814,62464]]) {
+      await page.goto('about:blank');const worker=host();worker.gpuMemory.currentDynamicLimitMi=actual!;
+      const writes=await mount(page,'system/hardware',{'/api/status':gpuStatus(),'/api/hardware/gpu-sharing':sharing,'/api/host-management':{nodes:[worker]}});
+      await expect(gpuMemoryDraft(page,'fixture-node',{...worker.gpuMemory,currentDynamicLimitMi:reported})).rejects.toThrow('expect(');
+      const attachment=test.info().attachments.at(-1)!;
+      const diagnostic=parseGpuMemoryDiagnostic(JSON.parse(attachment.body!.toString('utf8')));
+      expect(diagnostic.observations.at(-1)).toMatchObject({checkpoint:'dynamic-restored',draftMi:62464,
+        expectedReviewEnabled:actual===62464,reviewEnabled:actual===62814});
+      expect(writes).toEqual([]);
+    }
+    return;
   }
   if(group === 'realtime') {
     for(const viewport of [{width:1440,height:1000},{width:390,height:844}]) {

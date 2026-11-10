@@ -114,10 +114,13 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertIn('git', install.group(1).split())
         workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())
         steps = workflow['jobs']['regression-image']['steps']
-        check = next(index for index, step in enumerate(steps)
-                     if 'bash tools/regression.sh phase6-fast' in step.get('run', ''))
         publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
-        self.assertLess(check, publish)
+        for selection in ('phase6-fast', 'phase6-fixtures', 'phase8-fixtures'):
+            with self.subTest(selection=selection):
+                check = next(index for index, step in enumerate(steps)
+                             if 'bash tools/regression.sh ' + selection in step.get('run', ''))
+                self.assertLess(check, publish)
+                self.assertNotIn('|| true', steps[check]['run'])
 
     def test_ci_checks_reporting_isolation_with_failed_live_preparation_before_publication(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())

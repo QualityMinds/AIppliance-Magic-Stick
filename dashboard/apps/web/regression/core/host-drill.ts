@@ -5,7 +5,7 @@ import {expect} from '@playwright/test';
 import type {LiveFoundation} from './live-foundation.ts';
 import {AdministrationApi,AdministrationRejected} from './administration-api.ts';
 import {HarnessError,requireProof as requireSafe} from './errors.ts';
-import {readPrivate,writePrivate} from './private-files.ts';
+import {readPrivate,writePrivate,journalFile} from './private-files.ts';
 import {poll} from './poll.ts';
 import {InferenceProbe} from './inference.ts';
 import {openInferenceSession} from './auth.ts';
@@ -138,7 +138,7 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
       allowExperimental:false,experimentMode:false,planId:host.software?.id,softwareChannel:channel};
     // Materialization fences the physical identity AND the previously verified boot before any preview write.
     materializeHostDrill(json,id,host,live.config);
-    await writePrivate(join(process.env.REGRESSION_RUN_DIR!,'channel-preview-'+id.toLowerCase()+'.json'),
+    await writePrivate(journalFile(live.journal,'channel-preview-'+id.toLowerCase()+'.json'),
       {version:1,nodeUid:host.nodeUid,bootId:host.bootId,requestId:request.requestId,state:'requested'},true);
     await api.write({method:'POST',path:'/api/host-management/operations',body:request},()=>api.api.requestHostOperation(request));
     host=await poll(async()=>{await live.guard();return (await api.api.hostManagement()).nodes.find(item=>item.nodeUid === request.nodeUid);},
@@ -149,7 +149,7 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
   const drill=parseHostDrill(json.version === 2 ? materializeHostDrill(json,id,host,live.config) : json.cases[id],id,host);
   const restoreNetwork=async()=>restoreNetworkBaseline(live,api,host!);
   const unregisterNetwork=id === 'NET-05' && live.config.registrationFile ? live.registerRestoration(restoreNetwork) : undefined;
-  await writePrivate(join(process.env.REGRESSION_RUN_DIR!,'host-plan-'+id.toLowerCase()+'.json'),drill,true);
+  await writePrivate(journalFile(live.journal,'host-plan-'+id.toLowerCase()+'.json'),drill,true);
   if(id.startsWith('CHANNEL-')) {
     const preview=host.software?.preview;
     requireSafe(preview?.ready && preview.id === drill.request.softwarePreviewId && preview.configurationId === host.software?.id &&
@@ -162,7 +162,10 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
     requireSafe(canonical(drill.expected.images.map(key).sort()) === canonical(live.config.expected.images.map(key).sort()),'CONFIG');
   }
   const request={...drill.request,requestId:randomBytes(16).toString('hex')};
-  const filename=join(process.env.REGRESSION_RUN_DIR!,'host-drill-'+id.toLowerCase()+'.json');
+  // A later Playwright worker must not mutate the already attested root scope.
+  // The launcher-owned post-drill continuation below remains at the root.
+  const filename=journalFile(live.journal,'host-drill-'+id.toLowerCase()+'.json');
+  const owner={runId:live.journal.runId,targetUid:live.config.expected.applianceUid};
   const moduleSpecs=canonical((await live.observer.list('moduleactivations.appliance.magicstick.dev',live.config.expected.applianceNamespace))
     .map(item=>({uid:item.metadata.uid,spec:item.spec})).sort((a,b)=>String(a.uid).localeCompare(String(b.uid))));
   const settings=canonical(await api.api.settings());
@@ -189,8 +192,8 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
   // Persist before the one write. A timeout cannot be retried; recovery is
   // manual and re-reviewed. Never store network credentials in this journal.
   await live.lease.reserveOfflineWindow(2100);
-  const persistRequest=()=>writePrivate(filename,{version:1,caseId:id,nodeUid:host.nodeUid,bootId:host.bootId,requestId:request.requestId,state:'requested'});
-  await writePrivate(filename,{version:1,caseId:id,nodeUid:host.nodeUid,bootId:host.bootId,requestId:request.requestId,state:'requested'},true);
+  const persistRequest=()=>writePrivate(filename,{version:1,...owner,caseId:id,nodeUid:host.nodeUid,bootId:host.bootId,requestId:request.requestId,state:'requested'});
+  await writePrivate(filename,{version:1,...owner,caseId:id,nodeUid:host.nodeUid,bootId:host.bootId,requestId:request.requestId,state:'requested'},true);
   const receipt=['GPUHOST-05','NET-05','CHANNEL-06','CACHE-04'].includes(id) ? await submitThroughUi(live,id,host,request,persistRequest) :
     await api.write({method:'POST',path:'/api/host-management/operations',body:request},()=>api.api.requestHostOperation(request));
   requireSafe(receipt.accepted === true && receipt.requestId === request.requestId,'API');
@@ -206,7 +209,7 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
   // API status alone is not privileged-execution evidence. Bind the independent
   // observed intent before following the worker's current request.
   requireSafe(observed?.metadata.uid && observed.spec?.requestId === request.requestId,'OWNERSHIP');
-  await writePrivate(filename,{version:1,caseId:id,nodeUid:host.nodeUid,bootId:host.bootId,requestId:request.requestId,uid:observed.metadata.uid,state:'accepted'});
+  await writePrivate(filename,{version:1,...owner,caseId:id,nodeUid:host.nodeUid,bootId:host.bootId,requestId:request.requestId,uid:observed.metadata.uid,state:'accepted'});
   if(id === 'HOST-04') {
     const page=await live.context.newPage();try{await page.goto(live.config.dashboardUrl+'/#/system/power');await page.reload();}finally{await page.close();}
     await api.write({method:'POST',path:'/api/host-management/operations',body:request},()=>api.api.requestHostOperation(request));
@@ -324,7 +327,7 @@ export async function runHostDrill(live:LiveFoundation,id:string) {
     await probe!.chat(model.client.name,model.url.split('://')[1]);
   }
   if(unregisterNetwork){await restoreNetwork();unregisterNetwork();}
-  await writePrivate(filename,{version:1,caseId:id,nodeUid:host.nodeUid,requestId:request.requestId,uid:observed.metadata.uid,
+  await writePrivate(filename,{version:1,...owner,caseId:id,nodeUid:host.nodeUid,requestId:request.requestId,uid:observed.metadata.uid,
     bootId:report.bootId,state:'verified',bootChanges:boots.size-1,postInferenceModels:smoke.map(item=>item.client.name)});
   // Save a proposed next-run profile, never edit the owner's input. Any new
   // digest/source pin must have been explicitly reviewed in this drill file.
@@ -358,7 +361,8 @@ async function restoreNetworkBaseline(live:LiveFoundation,api:AdministrationApi,
   const request:HostOperationRequest={action:'configure-network',nodeName:host.name,nodeUid:host.nodeUid,bootId:host.bootId,
     requestId:randomBytes(16).toString('hex'),confirmation:host.name,acknowledgeDisruption:true,allowExperimental:false,experimentMode:false,
     planId:host.network.id,network:baseline};
-  await writePrivate(join(process.env.REGRESSION_RUN_DIR!,'network-baseline-restore.json'),{version:1,nodeUid:host.nodeUid,
+  await writePrivate(journalFile(live.journal,'network-baseline-restore.json'),{version:1,runId:live.journal.runId,
+    targetUid:live.config.expected.applianceUid,nodeUid:host.nodeUid,
     bootId:host.bootId,requestId:request.requestId,network:baseline,state:'requested'});
   const receipt=await api.write({method:'POST',path:'/api/host-management/operations',body:request},()=>api.api.requestHostOperation(request));
   requireSafe(receipt.accepted && receipt.requestId === request.requestId,'CLEANUP');

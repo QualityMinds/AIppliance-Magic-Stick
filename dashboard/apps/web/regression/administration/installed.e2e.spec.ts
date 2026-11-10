@@ -272,7 +272,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
   if(id === 'GPUHOST-01') {
     const hosts=await client.api.hostManagement(),host=hosts.nodes.find(item=>item.available && item.gpuMemory?.supported);
     requireSafe(host,'PREREQUISITE');const page=await live!.context.newPage();
-    try {await page.goto(config.dashboardUrl+'/#/system/hardware');await gpuMemoryDraft(page,host.name);checked(writesBlocked === 0);}
+    try {await page.goto(config.dashboardUrl+'/#/system/hardware');await gpuMemoryDraft(page,host.name,host.gpuMemory!);checked(writesBlocked === 0);}
     finally {await page.close();}return;
   }
   if(definition.gate && ['maintenance','network','channel','cache','reboot'].includes(definition.gate))
