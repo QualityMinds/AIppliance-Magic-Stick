@@ -18,6 +18,7 @@ import {junitReport} from '../core/junit.ts';
 import {newPreflightDiagnostic,recordPinObservation} from '../core/preflight-diagnostic.ts';
 import type {CleanupDiagnostic} from '../core/cleanup-diagnostic.ts';
 import {publicResult} from '../core/kubernetes-progress.ts';
+import {parseGpuMemoryDiagnostic,type GpuMemoryDiagnostic} from '../core/gpu-memory-diagnostic.ts';
 
 const source={file:'regression/harness/artifacts.unit.spec.ts',line:1};
 const secret='synthetic-credential-never-archive';
@@ -43,6 +44,13 @@ function cleanup(runId:string):CleanupDiagnostic {
     reason:'DEADLINE' as const,stage:'cleanup' as const,exists:false,uidMatches:null,generationMatches:null,podCount:1,catalogCount:0,timeoutMs:300000};
   return {version:1,runId,scope:'a'.repeat(64),kind:'model',state:'failed',observations:300,omittedObservations:299,
     history:[observed],firstFailure:observed,collection:'captured'};
+}
+function gpuMemory():GpuMemoryDiagnostic {
+  return {version:1,kernelDynamicLimitMi:62814,initialDraftMi:62464,stepMi:1024,allowedMaximumMi:109245,
+    observations:[{checkpoint:'initial',expectedDraftMi:62464,draftMi:62464,expectedFixedPosition:0,fixedPosition:0,
+      expectedReviewEnabled:false,reviewEnabled:false},
+    {checkpoint:'dynamic-restored',expectedDraftMi:62464,draftMi:62464,expectedFixedPosition:0,fixedPosition:0,
+      expectedReviewEnabled:true,reviewEnabled:false}]};
 }
 
 test('HAR-10 full-size JUnit keeps every step once without duplicating its JSON payload',()=>{
@@ -86,6 +94,23 @@ test('HAR-11 traces retain reviewed step labels and safe outcomes but never dyna
   expect(parseExecutionTrace({...value,steps:[{...value.steps[0]!,title:secret,source:wrapper}]}).steps[0])
     .toMatchObject({title:'Test step',titleFiltered:true});
   expect(()=>parseExecutionTrace({...value,cleanupDiagnostics:[cleanup(newRunId())]})).toThrow('[CONFIG]');
+  const gpu=parseGpuMemoryDiagnostic({...gpuMemory(),host:secret,error:secret,
+    observations:gpuMemory().observations.map(o=>({...o,selector:secret,responseBody:secret}))});
+  expect(gpu).toEqual(gpuMemory());
+  expect(parseExecutionTrace({...value,gpuMemoryDiagnostics:[{...gpu,token:secret}]}).gpuMemoryDiagnostics).toEqual([gpuMemory()]);
+  expect(JSON.stringify(gpu)).not.toContain(secret);
+  const unknown={...gpu,observations:[{...gpu.observations[0]!,draftMi:null,fixedPosition:null,reviewEnabled:null}]};
+  expect(parseGpuMemoryDiagnostic(unknown)).toEqual(unknown);
+  for(const bad of [{...gpu,kernelDynamicLimitMi:secret},{...gpu,stepMi:0},{...gpu,initialDraftMi:Infinity},
+    {...gpu,allowedMaximumMi:2_147_483_648},{...gpu,observations:[]},
+    {...gpu,observations:[{...gpu.observations[0],checkpoint:secret}]},
+    {...gpu,observations:[{...gpu.observations[0],reviewEnabled:secret}]},
+    {...gpu,observations:[gpu.observations[0],gpu.observations[0]]}])expect(()=>parseGpuMemoryDiagnostic(bad)).toThrow('[CONFIG]');
+  expect(()=>parseExecutionTrace({...value,gpuMemoryDiagnostics:Array(9).fill(gpu)})).toThrow('[CONFIG]');
+  expect(parseExecutionTrace({...value,steps:[{...value.steps[0]!,
+    source:{file:'regression/administration/form-checks.ts',line:1},
+    title:'GPUHOST-01 restoring a dynamic draft compares with the actual kernel value'}]}).steps[0]?.title)
+    .toBe('GPUHOST-01 restoring a dynamic draft compares with the actual kernel value');
 });
 
 test('HAR-11 diagnostic title parsing rejects interpolation concatenation and escaped literals',()=>{
@@ -112,7 +137,8 @@ test('HAR-10 HAR-11 component diagnostics preserve the original assertion index 
 test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with portable sanitized trace attachments',async({browser})=>isolated(async directory=>{
   const output=join(directory,'runs'),leafId=newRunId(),rootId=newRunId(),leaf=join(output,leafId),root=join(output,rootId);
   await privateDirectory(leaf);await privateDirectory(root);
-  const recorded={...trace(leafId),preflightDiagnostics:[preflight()],cleanupDiagnostics:[{...cleanup(leafId),password:secret}],diagnosticsUnavailable:1};await saveExecutionTrace(leaf,recorded);
+  const recorded={...trace(leafId),preflightDiagnostics:[preflight()],gpuMemoryDiagnostics:[{...gpuMemory(),rawResponse:secret}],
+    cleanupDiagnostics:[{...cleanup(leafId),password:secret}],diagnosticsUnavailable:1};await saveExecutionTrace(leaf,recorded);
   await writePrivate(join(leaf,'journal.json'),{password:secret});
   await writePrivate(join(leaf,'preflight-pins','private','preflight-private-logs.json'),{text:secret});
   await writePrivate(join(leaf,'browser-temp','error-context.json'),{cookie:secret});
@@ -132,6 +158,7 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
     expect(xml).toContain('name="parentStep" value="1"');
     expect(xml).toContain('time="1.337"');
     expect(xml).toContain('preflightDiagnosticCount');expect(xml).toContain('&quot;generation&quot;');
+    expect(xml).toContain('gpuMemoryDiagnosticCount');expect(xml).toContain('&quot;kernelDynamicLimitMi&quot;:62814');
     expect(xml).toContain('cleanupDiagnosticCount');expect(xml).toContain('name="causeReason" value="DEADLINE"');expect(xml).toContain('pods 1');
     expect(xml).toContain('[[ATTACHMENT|report-artifacts/'+leafId+'/traces/'+recorded.executionId+'.json]]');
     const archive=join(root,'report-artifacts.tar.gz');expect((await lstat(archive)).mode&0o077).toBe(0);
@@ -152,10 +179,13 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
     for(const name of ['summary.html','summary.txt']) {
       const body=await readFile(join(root,name),'utf8');expect(body).toContain('pods 1');expect(body).toContain('Underlying cause: DEADLINE');
       expect(body).toContain('1 diagnostic captures unavailable');
+      expect(body).toContain('kernel 62814 MiB; initial draft 62464 MiB; step 1024 MiB');
+      expect(body).toContain('Review disabled / expected enabled');
     }
     const exported=JSON.parse(await readFile(join(root,'report-artifacts',leafId,'traces',recorded.executionId+'.json'),'utf8'));
     expect(exported.preflightDiagnostics).toEqual([preflight()]);
     expect(exported.cleanupDiagnostics).toEqual([cleanup(leafId)]);
+    expect(exported.gpuMemoryDiagnostics).toEqual([gpuMemory()]);
     const summary=JSON.parse(await readFile(join(root,'summary.json'),'utf8')),status=publicResult(summary,{});
     expect(status.cases[0]).toMatchObject({causeReason:'DEADLINE',causeStage:'cleanup'});
     expect(status.cases[0]?.diagnostics).toContain('Last observation: verify: failed · DEADLINE · cleanup · 300000 ms / 300000 ms budget · object absent · UID unknown · revision unknown · pods 1 · catalog 0');
@@ -170,6 +200,8 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
         await page.locator('summary').filter({hasText:recorded.executionId}).click();
         await page.getByText('Preflight observations — failed',{exact:true}).click();
         await page.getByText('Cleanup observations — failed',{exact:true}).click();
+        await page.getByText('GPU memory draft observations',{exact:true}).click();
+        await expect(page.getByText('Review disabled / expected enabled',{exact:false})).toBeVisible();
         await expect(page.getByText('Last observation: verify: failed',{exact:false}).last()).toBeVisible();
         await expect(page.getByText('First failed observation',{exact:false})).toBeVisible();
         expect(await page.locator('body').innerText()).not.toContain(secret);
@@ -218,7 +250,8 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
       annotations:[],location:{file:fileURLToPath(import.meta.url),line:1,column:1}} as unknown as TestCase;
     const pending=preflight(),finished=preflight();pending.state='observing';finished.state='converged';finished.attempts=2;
     const body=(diagnostic:unknown)=>({name:'magicstick-preflight-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({scope:'a'.repeat(16),diagnostic}))});
-    const passed={status:'passed',retry:0,duration:4321,errors:[],attachments:[body(pending),body({...finished,rawLogs:secret}),body({version:1,rawLogs:secret})]} as unknown as TestResult;
+    const gpuAttachment={name:'magicstick-gpu-memory-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({...gpuMemory(),raw:secret}))};
+    const passed={status:'passed',retry:0,duration:4321,errors:[],attachments:[body(pending),body({...finished,rawLogs:secret}),body({version:1,rawLogs:secret}),gpuAttachment]} as unknown as TestResult;
     const failedSelected={...selected,id:'fixture-failed'},blockedSelected={...selected,id:'fixture-blocked'};
     reporter.onBegin({} as FullConfig,{allTests:()=>[selected,failedSelected,blockedSelected]} as Suite);reporter.onTestBegin(selected);
     for(let index=0;index<2003;index++) {
@@ -230,12 +263,14 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     expect(recorded.steps).toHaveLength(2000);expect(recorded.omittedSteps).toBe(3);expect(recorded.durationMs).toBe(4321);
     expect(recorded.steps[0]).toMatchObject({outcome:'Passed',handledError:true});expect(JSON.stringify(recorded)).not.toContain(secret);
     expect(recorded.preflightDiagnostics).toEqual([finished]); // Latest same-scope observation replaces only its pending attachment.
+    expect(recorded.gpuMemoryDiagnostics).toEqual([gpuMemory()]);
     const failed={...passed,status:'failed',errors:[{message:'Raw timeout '+secret},{message:new HarnessError('CLEANUP','Failed','cleanup').message}]} as TestResult;
     failed.attachments=[...passed.attachments,...Array.from({length:5},(_,i)=>({name:'magicstick-preflight-diagnostic',contentType:'application/json',
       body:Buffer.from(JSON.stringify({scope:i.toString(16).padStart(16,'0'),diagnostic:{...newPreflightDiagnostic(),state:'converged'}}))})),
       {name:'magicstick-preflight-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({scope:'f'.repeat(16),diagnostic:preflight()}))}];
     failed.attachments.push({name:'magicstick-cleanup-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({...cleanup(process.env.REGRESSION_RUN_ID!),token:secret}))},
-      {name:'magicstick-cleanup-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({token:secret}))});
+      {name:'magicstick-cleanup-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify({token:secret}))},
+      {...gpuAttachment,body:Buffer.from(JSON.stringify({version:1,raw:secret}))});
     reporter.onTestBegin(failedSelected);
     for(let index=0;index<2003;index++) {
       const step={category:'test.step',title:secret,duration:1,error:index>=16?{message:new HarnessError('CLEANUP','Failed','cleanup',{reason:'DEADLINE',stage:'model-stopped'}).message}:undefined} as TestStep;
@@ -249,7 +284,8 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     expect(bounded.preflightDiagnostics?.[0]).toEqual(finished);expect(bounded.preflightDiagnostics?.at(-1)).toEqual(preflight());
     expect(bounded.steps).toHaveLength(2000);expect(bounded.steps.at(-1)).toMatchObject({index:2003,reason:'CLEANUP',causeReason:'DEADLINE',causeStage:'model-stopped'});
     expect(bounded.steps.find(step=>step.index===17)).toMatchObject({reason:'CLEANUP',causeReason:'DEADLINE'});
-    expect(bounded.cleanupDiagnostics).toEqual([cleanup(process.env.REGRESSION_RUN_ID!)]);expect(bounded.diagnosticsUnavailable).toBe(1);
+    expect(bounded.cleanupDiagnostics).toEqual([cleanup(process.env.REGRESSION_RUN_ID!)]);expect(bounded.diagnosticsUnavailable).toBe(2);
+    expect(bounded.gpuMemoryDiagnostics).toEqual([gpuMemory()]);
     expect(parseExecutionTrace(bounded).steps.at(-1)?.causeReason).toBe('DEADLINE');
     expect(rows.at(-1)?.cleanupDiagnostic).toEqual(cleanup(process.env.REGRESSION_RUN_ID!));
     expect(JSON.stringify(rows)).not.toContain(secret);

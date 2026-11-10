@@ -25,6 +25,24 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   counterexample, so fixed-version media cannot acquire a development-channel
   fingerprint between build and upload. No old installer or product tag is reused.
 
+- Keep host-drill, preview/plan and network-restoration receipts beside the
+  executing worker's journal. A later `CACHE-06` worker no longer invalidates
+  the already verified root fingerprint and triggers a false `HAR-07` cleanup
+  failure. New durable host receipts name their exact worker and Appliance;
+  mismatched owners, unfinished receipts and altered legacy root evidence still
+  block cleanup. Preserve the launcher-owned continuation path, old reports,
+  Lease fencing and independent resource-restoration checks.
+
+- Correct `GPUHOST-01` draft/revert checks to distinguish the actual kernel
+  memory limit from the rounded slider draft. Extend the existing case with
+  aligned, non-step-aligned and corrective desktop/mobile fixtures and negative
+  control-state checks. Retain bounded numeric expected/observed draft and
+  Review states in filtered traces and HTML/text/JSON/JUnit exports without
+  exposing arbitrary API bodies or weakening final host confirmation. Product
+  memory settings and historical results remain unchanged; native acceptance
+  requires a newly qualified runner. The existing runner CI also executes the
+  Phase 6 browser selection in its built Linux image.
+
 - Adopt trunk-based main PRs and coordinated immutable image-promotion PRs, with
   an exact-source product-release workflow, independent CodeQL/finding acceptance
   and immutable annotated version tags. Add administrator version discovery and

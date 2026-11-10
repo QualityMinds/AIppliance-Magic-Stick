@@ -232,7 +232,12 @@ including hosts with additional NVIDIA GPUs bound to the `nvidia` driver:
 
 The panel separates current values from the unsubmitted draft. Changing a
 slider sends no host operation. A non-step-aligned kernel default can have a
-rounded draft, but that alone cannot enable submission. If the active limit
+rounded draft, but that alone cannot enable submission. When the actual limit
+is not selectable, moving a slider and returning to the initial rounded draft
+still selects a different value from the kernel limit. **Review memory
+configuration** therefore stays enabled for that valid, explicitly selected
+change; returning to an exactly selectable current value disables it again.
+No operation is submitted by either action. If the active limit
 exceeds the allowed maximum for the current firmware reservation, the panel
 instead offers a limited corrective draft for review without another slider
 movement. It still requires exact-host confirmation and never applies itself.

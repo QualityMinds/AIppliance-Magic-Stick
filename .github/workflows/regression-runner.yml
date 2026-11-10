@@ -135,7 +135,9 @@ jobs:
         run: bash tools/regression.sh phase7-fixtures
       - name: Exercise administration and regression-dashboard Chromium fixtures
         if: ${{ !cancelled() && steps.delta.outputs.pin_only != 'true' && steps.build.outcome == 'success' }}
-        run: bash tools/regression.sh phase8-fixtures
+        run: |
+          bash tools/regression.sh phase6-fixtures
+          bash tools/regression.sh phase8-fixtures
       - name: Publish tested Linux AMD64 runner
         id: publish
         if: ${{ steps.delta.outputs.pin_only != 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_candidate && startsWith(github.ref, 'refs/heads/'))) }}

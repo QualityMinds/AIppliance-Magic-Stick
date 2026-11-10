@@ -7,6 +7,7 @@ import {gpuCoverage,gpuRequirements,phase3Variants,phase4Variants,type GpuVarian
 import {remainingCoverage,remainingRequirements,remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
 import {writePrivate} from './private-files.ts';
 import {preflightDiagnosticText} from './preflight-diagnostic.ts';
+import {gpuMemoryDiagnosticText} from './gpu-memory-diagnostic.ts';
 import {join} from 'node:path';
 import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from './evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
@@ -366,6 +367,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
         (step.source?` · ${xml(step.source.file)}:${step.source.line}`:'')+'</li>').join('')+'</ol>'+
       (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+
       (trace.preflightDiagnostics??[]).map(d=>'<details><summary>Preflight observations — '+d.state+'</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(preflightDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
+      (trace.gpuMemoryDiagnostics??[]).map(d=>'<details><summary>GPU memory draft observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(gpuMemoryDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
       (trace.omittedPreflightDiagnostics?`<p>${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.</p>`:'')+
       (trace.cleanupDiagnostics??[]).map(d=>'<details><summary>Cleanup observations — '+d.state+'</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(cleanupDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
       (trace.runtimeDiagnostics??[]).map(d=>'<details><summary>Runtime observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(JSON.stringify(d,null,2))+'</pre></details>').join('')+
@@ -401,6 +403,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       (item.blockedBy?.caseId ? `\n  Blocking check: ${item.blockedBy.caseId}${item.blockedBy.reason ? ` (${item.blockedBy.reason})` : ''}${item.blockedBy.stage ? ` [${item.blockedBy.stage}]` : ''}` : '')+
       (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n'+
     artifacts.flatMap(({trace})=>[...(trace.preflightDiagnostics??[]).map(d=>`\nPreflight / ${trace.executionId}\n${preflightDiagnosticText(d).join('\n')}\n`),
+      ...(trace.gpuMemoryDiagnostics??[]).map(d=>`\nGPU memory draft / ${trace.executionId}\n${gpuMemoryDiagnosticText(d).join('\n')}\n`),
       ...(trace.omittedPreflightDiagnostics?[`${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.\n`]:[]),
       ...(trace.cleanupDiagnostics??[]).flatMap(d=>[`\nCleanup / ${trace.executionId}\n`,...cleanupDiagnosticText(d).map(line=>line+'\n')]),
       ...(trace.runtimeDiagnostics??[]).map(d=>`\nRuntime / ${trace.executionId}\n${JSON.stringify(d)}\n`),
