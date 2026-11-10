@@ -108,13 +108,30 @@ describe('host shared GPU memory', () => {
     expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
   });
 
-  it('does not treat a rounded kernel default as a requested change', () => {
-    host.gpuMemory!.currentDynamicLimitMi = 31949;
+  it('does not submit initial rounding but reviews an explicitly restored rounded draft against the kernel value', async () => {
+    host.gpuMemory!.systemMemoryMi = 125629;
+    host.gpuMemory!.currentCarveoutIndex = 9;
+    host.gpuMemory!.currentCarveoutMi = 512;
+    host.gpuMemory!.currentDynamicLimitMi = 62814;
     mount();
-    expect(screen.getByText('Current dynamic GPU ceiling (TTM)').nextElementSibling).toHaveTextContent('31.2 GiB');
-    expect(dynamicSlider()).toHaveValue('31744');
-    expect(screen.getByText('Draft rounded to 31 GiB')).toBeInTheDocument();
+    expect(screen.getByText('Current dynamic GPU ceiling (TTM)').nextElementSibling).toHaveTextContent('61.3 GiB');
+    expect(dynamicSlider()).toHaveValue('62464');
+    expect(screen.getByText('Draft rounded to 61 GiB')).toBeInTheDocument();
     expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
+    fireEvent.change(dynamicSlider(), {target: {value: '61440'}});
+    expect(review()).toBeEnabled();
+    fireEvent.change(dynamicSlider(), {target: {value: '62464'}});
+    expect(review()).toBeEnabled(); expect(writes).toHaveLength(0);
+    fireEvent.change(fixedSlider(), {target: {value: '2'}});
+    fireEvent.change(fixedSlider(), {target: {value: '0'}});
+    fireEvent.change(dynamicSlider(), {target: {value: '62464'}});
+    expect(review()).toBeEnabled();
+    await userEvent.click(review());
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('61.3 GiB → 61 GiB');
+    expect(within(dialog).getByRole('button', {name: 'Apply memory configuration'})).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}));
+    expect(writes).toHaveLength(0);
   });
 
   it('allows reviewing an over-limit correction without another slider movement', async () => {
@@ -143,6 +160,9 @@ describe('host shared GPU memory', () => {
     expect(dynamicSlider()).toHaveValue(String(45 * 1024));
     expect(screen.getByText('Draft rounded to 45 GiB')).toBeInTheDocument();
     expect(review()).toBeDisabled();
+    fireEvent.change(dynamicSlider(), {target: {value: String(44 * 1024)}});
+    fireEvent.change(dynamicSlider(), {target: {value: String(45 * 1024)}});
+    expect(review()).toBeEnabled();
     expect(writes).toHaveLength(0);
   });
 

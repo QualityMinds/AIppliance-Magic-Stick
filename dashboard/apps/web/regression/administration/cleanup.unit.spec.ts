@@ -19,6 +19,8 @@ import {absentLicenseDocumentPatch} from '../core/license-baseline.ts';
 import {SharedWorkflow,executionIdentity} from '../core/shared-workflow.ts';
 import {unmanagedKeyWorkflow} from './security-live.ts';
 import {assessCleanup,attestCleanup} from '../core/cleanup-state.ts';
+import {runHostDrill} from '../core/host-drill.ts';
+import {createHash} from 'node:crypto';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
 test('APP-02 dependent cases retain their exact shared failure across worker restarts without rerunning writes',annotation,async()=>{
@@ -82,6 +84,8 @@ test('PERF-02 catalog-driven Pod replacement is not a leak; extra replicas, repl
 test('HAR-07 transaction receipts from restarted workers cannot overwrite or collide with previous workers',annotation,async()=>{
   const root=await mkdtemp(join(tmpdir(),'worker-receipts-'));
   const previousProfile=process.env.REGRESSION_REMAINING_PROFILE,previousRun=process.env.REGRESSION_RUN_DIR;
+  const drillEnvironment=['REGRESSION_MODE','REGRESSION_HOST_DRILLS','REGRESSION_HOST_DRILLS_FILE'] as const;
+  const previousDrillEnvironment=drillEnvironment.map(name=>[name,process.env[name]] as const);
   try {
     const first={filename:join(root,'worker-1','journal.json')},second={filename:join(root,'worker-2','journal.json')};
     for(const item of [first,second])await privateDirectory(dirname(item.filename));
@@ -118,9 +122,81 @@ test('HAR-07 transaction receipts from restarted workers cannot overwrite or col
     await expect(lstat(join(directory,'unmanaged-key-fixture.json'))).rejects.toMatchObject({code:'ENOENT'});
     await attestCleanup(dirname(journal.filename),identity);
     expect((await assessCleanup(directory,true)).state).toBe('verified');
+    const rootProof=await readPrivate(join(directory,'cleanup-verification.json'));
+    // The real CACHE-06 workflow must not add a later worker's receipt to the
+    // already attested root. All API/host/model adapters below are inert fixtures.
+    const cacheJournal=await ResourceJournal.create(join(directory,'worker-2','journal.json'),newRunId(),identity.applianceUid);
+    const host={name:'fixture-node',nodeUid:'node',bootId:'fixture-boot',kernel:'fixture-kernel',available:true,
+      modelCache:{id:'c'.repeat(64),supported:true,blocked:false,reclaimableBytes:4096,caches:[{id:'ollama',usedBytes:4096}]}};
+    const recipe=join(root,'cache-drill.json');
+    await writePrivate(recipe,{version:1,cases:{'CACHE-06':{caseId:'CACHE-06',acknowledgeDisruption:true,independentRecoveryAvailable:true,
+      request:{action:'clear-model-cache',nodeName:host.name,nodeUid:host.nodeUid,bootId:host.bootId,confirmation:host.name,
+        acknowledgeDisruption:true,allowExperimental:false,experimentMode:false,planId:host.modelCache.id},
+      expected:{bootChanges:0,kernel:host.kernel,terminal:'Succeeded',freeCacheIds:['ollama']}}}});
+    process.env.REGRESSION_MODE='phase6-live';process.env.REGRESSION_HOST_DRILLS='approved';process.env.REGRESSION_HOST_DRILLS_FILE=recipe;
+    let operation:any,modelPresent=false,posts=0;
+    const name=cacheJournal.prefix+'cache-race';
+    const rejection={phase:'Failed',message:'A model started during cleanup. Remaining cache files were kept.'};
+    const observer={list:async(resource:string)=>resource.startsWith('hostoperations')?[operation]:resource==='nodes'?
+      [{metadata:{name:host.name,uid:host.nodeUid},status:{nodeInfo:{bootID:host.bootId}}}]:[],get:async()=>operation};
+    const cacheContext={request:{fetch:async(url:string,options:any)=>{
+      const path=new URL(url).pathname;
+      if(options.method==='POST') {
+        expect(path).toBe('/api/host-management/operations');posts++;
+        const spec=JSON.parse(options.data);
+        operation={metadata:{name:'host-'+createHash('sha256').update(JSON.stringify(host.nodeUid)).digest('hex').slice(0,24),uid:'fixture-operation',generation:1},
+          spec,status:rejection};
+        return response({accepted:true,requestId:spec.requestId});
+      }
+      if(path==='/api/host-management')return response({nodes:[{...host,...(operation?{operation:{...rejection,requestId:operation.spec.requestId}}:{})}]});
+      if(path==='/api/settings')return response({});
+      if(path==='/api/session')return response({roles:['magicstick-admin']});
+      throw new Error('Unexpected fixture request');
+    }}};
+    const modelAdapter:CleanupAdapter={lookup:async()=>modelPresent?{uid:'fixture-model',generation:1}:null,
+      removeIfUid:async(_entry,uid)=>{expect(uid).toBe('fixture-model');modelPresent=false;},verifyRemoved:async()=>!modelPresent};
+    const cacheLive={journal:cacheJournal,guard:async()=>{},context:cacheContext,observer,
+      config:{dashboardUrl:'https://dashboard.example.invalid',requestTimeoutMs:1000,expected:{applianceUid:identity.applianceUid,
+        applianceNamespace:'ai-system',nodes:[{name:host.name,uid:host.nodeUid,bootId:host.bootId}]}},
+      api:{models:async()=>({activations:modelPresent?[{metadata:{uid:'fixture-model'},spec:{enabled:true}}]:[]})},
+      lease:{reserveOfflineWindow:async()=>{},finishOfflineWindow:async()=>{}},
+      createModel:async()=>{
+        await cacheJournal.requested('model',name);modelPresent=true;await cacheJournal.owned('model',name,'fixture-model',1);
+        return {client:{name},uid:'fixture-model',generation:1};
+      },modelState:async()=>({item:{metadata:{uid:'fixture-model'},spec:{enabled:true}},observed:{metadata:{uid:'fixture-model'}},pods:[],models:{models:[]}}),
+      cleanup:async()=>cacheJournal.cleanup({model:modelAdapter,key:modelAdapter,app:modelAdapter,identity:modelAdapter},async()=>{}),
+    } as unknown as LiveFoundation;
+    await runHostDrill(cacheLive,'CACHE-06');
+    expect(posts).toBe(1);expect(modelPresent).toBe(false);
+    await attestCleanup(dirname(cacheJournal.filename),identity);
+    expect((await assessCleanup(directory,true)).state).toBe('verified');
+    expect(await readPrivate(join(directory,'cleanup-verification.json'))).toBe(rootProof);
+    const cacheReceipt=journalFile(cacheJournal,'host-drill-cache-06.json');
+    expect(JSON.parse(await readPrivate(cacheReceipt))).toMatchObject({state:'verified',runId:cacheJournal.runId,targetUid:identity.applianceUid});
+    await expect(lstat(join(directory,'host-drill-cache-06.json'))).rejects.toMatchObject({code:'ENOENT'});
+    await expect(lstat(journalFile(cacheJournal,'host-plan-cache-06.json'))).resolves.toBeDefined();
+    // The launcher-owned continuation is intentionally still at the root.
+    expect(JSON.parse(await readPrivate(join(directory,'post-drill-lab.json'))).expected.nodes[0].bootId).toBe(host.bootId);
+    const saved=JSON.parse(await readPrivate(cacheReceipt));
+    await writePrivate(cacheReceipt,{...saved,state:'requested'});
+    expect((await assessCleanup(directory,true)).state).toBe('required');
+    await expect(attestCleanup(dirname(cacheJournal.filename),identity)).rejects.toMatchObject({code:'CLEANUP'});
+    await writePrivate(cacheReceipt,saved);
+    expect((await assessCleanup(directory,true)).state).toBe('verified');
+    for(const invalid of [{runId:newRunId()},{targetUid:'foreign-appliance'},{runId:undefined}]) {
+      await writePrivate(cacheReceipt,{...saved,...invalid});
+      expect((await assessCleanup(directory,true)).state).toBe('blocked');
+      await writePrivate(cacheReceipt,saved);
+      expect((await assessCleanup(directory,true)).state).toBe('verified');
+    }
+    // Do not make an old misplaced receipt invisible to the verifier: an old
+    // root write still needs exact normal recovery, never an inferred clean state.
+    await writePrivate(join(directory,'host-drill-cache-06.json'),{version:1,state:'verified'},true);
+    expect((await assessCleanup(directory,true)).state).toBe('unknown');
   }finally{
     if(previousProfile===undefined)delete process.env.REGRESSION_REMAINING_PROFILE;else process.env.REGRESSION_REMAINING_PROFILE=previousProfile;
     if(previousRun===undefined)delete process.env.REGRESSION_RUN_DIR;else process.env.REGRESSION_RUN_DIR=previousRun;
+    for(const [name,value] of previousDrillEnvironment)if(value===undefined)delete process.env[name];else process.env[name]=value;
     await rm(root,{recursive:true,force:true});
   }
 });

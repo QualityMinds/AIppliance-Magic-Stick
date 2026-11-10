@@ -59,6 +59,11 @@ export async function recoveryInventory(directory:string,identity:RecoveryIdenti
         leases.push({filename,state:value.state,value});
       } else if(transaction.test(name)) {
         const value=await record(filename);requireSafe(value.version===1,'RECOVERY');
+        // New host receipts bind their worker and Appliance explicitly. Legacy
+        // receipts still need the unchanged scoped fingerprint/recovery proof.
+        if((name.startsWith('host-drill-')||name==='network-baseline-restore.json')&&
+          (Object.hasOwn(value,'runId')||Object.hasOwn(value,'targetUid')))
+          requireSafe(value.runId===journal.runId&&value.targetUid===identity.applianceUid,'RECOVERY');
         if(!['restored','removed','verified'].includes(value.state))unfinished++;
       }
     }

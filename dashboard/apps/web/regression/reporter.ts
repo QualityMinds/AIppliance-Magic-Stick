@@ -12,6 +12,7 @@ import {caseDescription, durationDescription, layerDescriptions, publicScenarioT
 import {disabledExperimentalEngines} from './core/engine-policy.ts';
 import {progressEvent} from './core/progress.ts';
 import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type ExecutionTrace,type TraceStep} from './core/execution-trace.ts';
+import {parseGpuMemoryDiagnostic,type GpuMemoryDiagnostic} from './core/gpu-memory-diagnostic.ts';
 import {checkedBlocker} from './core/blocking.ts';
 import {regressionBlockedKind} from '../../../packages/core/src/regression-blocking.ts';
 import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './core/runtime-diagnostic.ts';
@@ -219,9 +220,16 @@ export default class SafeReporter implements Reporter {
     const steps=this.traceSteps(test,outcome);
     const omittedSteps=this.omittedSteps.get(test);
     const runtimeDiagnostics:RuntimeDiagnostic[]=[];
+    const gpuMemoryDiagnostics:GpuMemoryDiagnostic[]=[];
     const cleanupDiagnostics=new Map<string,CleanupDiagnostic>();let omittedCleanupDiagnostics=0,diagnosticsUnavailable=0;
     const preflight=new Map<string,PreflightDiagnostic>(),preflightScopes=new Set<string>();
     for(const attachment of result.attachments??[]) {
+      if(attachment.name==='magicstick-gpu-memory-diagnostic') {
+        try {
+          if(attachment.contentType!=='application/json'||!attachment.body||attachment.body.length>8*1024||gpuMemoryDiagnostics.length>=8)throw new Error();
+          gpuMemoryDiagnostics.push(parseGpuMemoryDiagnostic(JSON.parse(attachment.body.toString('utf8'))));
+        }catch{diagnosticsUnavailable++;}
+      }
       if(attachment.name==='magicstick-cleanup-diagnostic') {
         try {
           if(attachment.contentType!=='application/json'||!attachment.body||attachment.body.length>64*1024)throw new Error();
@@ -255,6 +263,7 @@ export default class SafeReporter implements Reporter {
       ...(omittedSteps?{omittedSteps}:{}),...(source?{source}:{}),...(scenario?{scenario}:{}),
       ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} ),
       ...(preflight.size?{preflightDiagnostics:[...preflight.values()]}:{}),
+      ...(gpuMemoryDiagnostics.length?{gpuMemoryDiagnostics}:{}),
       ...(cleanupDiagnostics.size?{cleanupDiagnostics:[...cleanupDiagnostics.values()]}:{}),
       ...(omittedCleanupDiagnostics?{omittedCleanupDiagnostics}:{}),...(diagnosticsUnavailable?{diagnosticsUnavailable}:{}),
       ...(preflightScopes.size>preflight.size?{omittedPreflightDiagnostics:preflightScopes.size-preflight.size}:{})});

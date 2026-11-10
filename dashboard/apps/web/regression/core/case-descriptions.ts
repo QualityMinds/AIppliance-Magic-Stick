@@ -61,7 +61,7 @@ export const webSource=realpathSync(fileURLToPath(new URL('../..',import.meta.ur
 export function publicDiagnosticTitle(title:string,file:string,kind:'component'|'step') {
   try {
     const source=realpathSync(file);
-    if(!source.startsWith(webSource+sep)||!(kind==='component' ? /[/\\]src[/\\].*\.test\.tsx?$/ : /[/\\]regression[/\\](?:.*\.(?:spec|cases)\.ts|core[/\\][a-z0-9-]+\.ts)$/).test(source))return;
+    if(!source.startsWith(webSource+sep)||!(kind==='component' ? /[/\\]src[/\\].*\.test\.tsx?$/ : /[/\\]regression[/\\](?:.*\.(?:spec|cases)\.ts|core[/\\][a-z0-9-]+\.ts|administration[/\\]form-checks\.ts)$/).test(source))return;
     const key=kind+'/'+source;let titles=diagnosticTitles.get(key);
     if(!titles){titles=staticDiagnosticTitles(readFileSync(source,'utf8'),kind);diagnosticTitles.set(key,titles);}
     return titles.has(title)?title:undefined;

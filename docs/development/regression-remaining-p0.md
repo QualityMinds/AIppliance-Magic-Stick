@@ -153,6 +153,14 @@ each mutated journal scope independently. Adding a later already-cleaned worker
 does not invalidate an unchanged root receipt. Any open resource or changed
 receipt still fences writes; older receipts without sufficient proof require
 the same exact-journal recovery rather than inferred approval.
+Host-drill execution/preview/plan and network-restoration receipts also belong
+beside the executing worker's journal, not the already verified parent scope.
+Completed later cache drills therefore preserve an unchanged root fingerprint.
+New durable host receipts bind the worker run and Appliance; mismatched or
+partial ownership headers fail closed. Existing misplaced legacy receipts are
+not ignored, moved or blessed automatically. The launcher alone retains the
+validated `post-drill-lab.json` continuation at the parent path; it is not a
+resource-cleanup receipt. Historical failures stay failed after normal recovery.
 Each GPU scenario also reserves its own recovery journal,
 even when consecutive successful cases share a worker. Fresh exclusive GPU
 defaults need no manual sharing setup. Full GPU scenarios borrow that baseline,
@@ -288,6 +296,17 @@ The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
 scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
 cause properties. The archive retains every row, even when the Dashboard limits
 its expanded list. Raw credentials, journals and runtime logs stay private.
+For `GPUHOST-01`, filtered traces, HTML/text and JUnit retain bounded GPU memory
+draft observations: the actual kernel limit, rounded initial draft, step and
+safety maximum, plus expected/observed slider positions and Review state at
+each change/restore checkpoint. Unknown control reads remain unknown. These
+numeric fields are independently validated on capture and archive import;
+arbitrary selectors, host names, API bodies and error text stay private.
+Returning to a rounded draft is not a no-op when it still differs from the
+kernel value. The isolated desktop/mobile counterexamples verify both enabled
+and disabled expectations; they do not apply a host operation or prove native
+acceptance. Existing historical traces are not rewritten.
+
 For cleanup failures, expand **Cleanup observations** in the Dashboard or HTML
 report. The original underlying cause stays separate from the outer `CLEANUP`
 error and from a test failure. Observations show which stage was waiting, whether

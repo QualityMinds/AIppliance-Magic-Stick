@@ -6,6 +6,7 @@ import {readPrivate,writePrivate} from './private-files.ts';
 import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './runtime-diagnostic.ts';
 import {parsePreflightDiagnostic,type PreflightDiagnostic} from './preflight-diagnostic.ts';
 import {parseCleanupDiagnostic,type CleanupDiagnostic} from './cleanup-diagnostic.ts';
+import {parseGpuMemoryDiagnostic,type GpuMemoryDiagnostic} from './gpu-memory-diagnostic.ts';
 
 export const traceCategories=['test.step','expect','pw:api','fixture','hook','test.attach','test.skip'] as const;
 const operations=['click','fill','check','uncheck','selectOption','press','goto','reload','waitForResponse','waitForURL',
@@ -18,6 +19,7 @@ export interface TraceStep {index:number;parentIndex?:number;category:typeof tra
 export interface ExecutionTrace {version:1;runId:string;executionId:string;outcome:TraceOutcome;scenario?:string;
   durationMs:number;source?:TraceSource;steps:TraceStep[];omittedSteps?:number;recoveryRequired?:true;runtimeDiagnostics?:RuntimeDiagnostic[];
   preflightDiagnostics?:PreflightDiagnostic[];omittedPreflightDiagnostics?:number;
+  gpuMemoryDiagnostics?:GpuMemoryDiagnostic[];
   cleanupDiagnostics?:CleanupDiagnostic[];omittedCleanupDiagnostics?:number;diagnosticsUnavailable?:number}
 export function safeTraceSource(location:{file:string;line:number;column?:number}|undefined):TraceSource|undefined {
   try {
@@ -51,6 +53,7 @@ export function parseExecutionTrace(value:unknown):ExecutionTrace {
     Array.isArray(trace.steps)&&trace.steps.length<=2000&&
     (trace.runtimeDiagnostics===undefined||Array.isArray(trace.runtimeDiagnostics)&&trace.runtimeDiagnostics.length<=4)&&
     (trace.preflightDiagnostics===undefined||Array.isArray(trace.preflightDiagnostics)&&trace.preflightDiagnostics.length<=4)&&
+    (trace.gpuMemoryDiagnostics===undefined||Array.isArray(trace.gpuMemoryDiagnostics)&&trace.gpuMemoryDiagnostics.length<=8)&&
     (trace.omittedPreflightDiagnostics===undefined||Number.isSafeInteger(trace.omittedPreflightDiagnostics)&&trace.omittedPreflightDiagnostics>0)&&
     (trace.omittedSteps===undefined||Number.isSafeInteger(trace.omittedSteps)&&trace.omittedSteps>0),'CONFIG');
   requireSafe((trace.cleanupDiagnostics===undefined||Array.isArray(trace.cleanupDiagnostics)&&trace.cleanupDiagnostics.length<=16)&&
@@ -83,6 +86,7 @@ export function parseExecutionTrace(value:unknown):ExecutionTrace {
     ...(scenario?{scenario}:{}),...(trace.recoveryRequired===true?{recoveryRequired:true as const}:{}),
     ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics.map(parseRuntimeDiagnostic)}:{}),
     ...(trace.preflightDiagnostics?.length?{preflightDiagnostics:trace.preflightDiagnostics.map(parsePreflightDiagnostic)}:{}),
+    ...(trace.gpuMemoryDiagnostics?.length?{gpuMemoryDiagnostics:trace.gpuMemoryDiagnostics.map(parseGpuMemoryDiagnostic)}:{}),
     ...(trace.omittedPreflightDiagnostics?{omittedPreflightDiagnostics:trace.omittedPreflightDiagnostics}:{}),
     ...(trace.cleanupDiagnostics?.length?{cleanupDiagnostics:trace.cleanupDiagnostics.map(value=>{const d=parseCleanupDiagnostic(value);requireSafe(d.runId===trace.runId,'CONFIG');return d;})}:{}),
     ...(trace.omittedCleanupDiagnostics?{omittedCleanupDiagnostics:trace.omittedCleanupDiagnostics}:{}),

@@ -1,5 +1,7 @@
-import {expect,type Page,type Locator} from '@playwright/test';
+import {test,expect,type Page,type Locator} from '@playwright/test';
+import type {HostGpuMemory} from '@magicstick/dashboard-contracts';
 import {requireSafe} from '../core/errors.ts';
+import {parseGpuMemoryDiagnostic,type GpuMemoryDiagnostic} from '../core/gpu-memory-diagnostic.ts';
 
 /** Move a native range through keyboard input. fill() can leave a React range
  * value tracker and a clamped draft out of sync; do not inject DOM events. */
@@ -18,7 +20,7 @@ export async function selectRange(slider:Locator,value:number) {
 
 /** Exercise drafts in the actual UI. No request permit is granted and the
  * final confirmation is never clicked, even when it becomes enabled. */
-export async function gpuMemoryDraft(page:Page,nodeName:string) {
+export async function gpuMemoryDraft(page:Page,nodeName:string,evidence:HostGpuMemory) {
   const node=page.getByRole('article',{name:`GPU node ${nodeName}`,exact:true});
   await expect(node).toBeVisible();
   const amd=node.locator('.gpu-configuration').filter({hasText:'GPU Configuration AMD'});
@@ -32,34 +34,73 @@ export async function gpuMemoryDraft(page:Page,nodeName:string) {
   const fixed=memory.getByRole('slider',{name:'Fixed GPU reservation (firmware)',exact:true});
   const review=memory.getByRole('button',{name:'Review memory configuration',exact:true});
   await expect(dynamic).toBeEnabled(); await expect(fixed).toBeEnabled();
-  const current=Number(await dynamic.inputValue()),step=Number(await dynamic.getAttribute('step'));
+  const step=Number(await dynamic.getAttribute('step'));
   const min=Number(await dynamic.getAttribute('min')),max=Number(await dynamic.getAttribute('max'));
-  requireSafe([current,step,min,max].every(Number.isFinite) && step > 0 && max > min,'PREREQUISITE');
-  // A non-step-aligned current limit may intentionally offer a corrective
-  // draft. Do not falsely require disabled Review in that case.
-  const originallyEnabled=await review.isEnabled();
+  const options=[...(evidence.options??[])].sort((a,b)=>a.sizeMi-b.sizeMi),reserve=Math.max(16384,evidence.systemReserveMi??16384);
+  requireSafe([step,min,max,evidence.currentDynamicLimitMi,evidence.currentCarveoutMi,evidence.systemMemoryMi]
+    .every(value=>Number.isSafeInteger(value)&&Number(value)>0)&&step>0&&max>min,'PREREQUISITE');
+  const reservation=options.findIndex(option=>option.index===evidence.currentCarveoutIndex);
+  requireSafe(reservation>=0&&options.length>1,'PREREQUISITE');
+  const allowedMaximumMi=evidence.systemMemoryMi!-reserve;
+  const maximumFor=(position:number)=>Math.floor((evidence.systemMemoryMi!+evidence.currentCarveoutMi!-options[position]!.sizeMi-reserve)/step)*step;
+  const current=Math.max(min,Math.min(maximumFor(reservation),Math.floor(evidence.currentDynamicLimitMi!/step)*step));
+  const diagnostic:GpuMemoryDiagnostic={version:1,kernelDynamicLimitMi:evidence.currentDynamicLimitMi!,initialDraftMi:current,
+    stepMi:step,allowedMaximumMi,observations:[]};
+  // Returning to the slider's rounded initial draft is not necessarily a
+  // return to the actual kernel configuration. After interaction it is an
+  // explicit valid change; only the genuinely unchanged kernel value is a no-op.
+  const restoredReviewEnabled=current!==evidence.currentDynamicLimitMi;
   const next=current-step >= min ? current-step : current+step;
   requireSafe(next >= min && next <= max,'PREREQUISITE');
-  const originalReview=()=>originallyEnabled ? expect(review).toBeEnabled() : expect(review).toBeDisabled();
-  await selectRange(dynamic,next); await expect(review).toBeEnabled();
-  await selectRange(dynamic,current); await originalReview();
-  const reservation=await fixed.inputValue(),other=reservation === '0' ? '1' : '0';
-  requireSafe(Number(await fixed.getAttribute('max')) >= Number(other),'PREREQUISITE');
-  await selectRange(fixed,Number(other)); await expect(review).toBeEnabled();
-  // Increasing the reservation legitimately clamps the dynamic draft. Restore
-  // both values, not just the reservation, before asserting unchanged state.
-  await selectRange(fixed,Number(reservation)); await selectRange(dynamic,current); await originalReview();
-  await selectRange(dynamic,next); await review.click();
-  const dialog=page.getByRole('dialog',{name:'Configure GPU shared memory',exact:true});
-  const confirm=dialog.getByRole('button',{name:'Apply memory configuration',exact:true});
-  await expect(confirm).toBeDisabled();
-  await dialog.getByLabel(`Type ${nodeName} to confirm`,{exact:true}).fill(nodeName+'-wrong');
-  await expect(confirm).toBeDisabled();
-  await dialog.getByLabel(`Type ${nodeName} to confirm`,{exact:true}).fill(nodeName);
-  await expect(confirm).toBeEnabled();
-  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
-  await review.click(); await expect(page.getByRole('dialog').getByLabel(`Type ${nodeName} to confirm`,{exact:true})).toHaveValue('');
-  await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+  const observe=async(checkpoint:GpuMemoryDiagnostic['observations'][number]['checkpoint'],expectedDraftMi:number,
+    expectedFixedPosition:number,expectedReviewEnabled:boolean,action=async()=>{})=>{
+    try {
+      await action();
+      await expect(dynamic).toHaveValue(String(expectedDraftMi));
+      await expect(fixed).toHaveValue(String(expectedFixedPosition));
+      if(expectedReviewEnabled)await expect(review).toBeEnabled();else await expect(review).toBeDisabled();
+    }finally {
+      const value=async(input:Locator)=>{try{const raw=await input.inputValue({timeout:1000}),n=Number(raw);
+        return raw!==''&&Number.isSafeInteger(n)&&n>=0&&n<=2_147_483_647?n:null;}catch{return null;}};
+      diagnostic.observations.push({checkpoint,expectedDraftMi,draftMi:await value(dynamic),expectedFixedPosition,
+        fixedPosition:await value(fixed),expectedReviewEnabled,reviewEnabled:await review.isEnabled({timeout:1000}).catch(()=>null)});
+    }
+  };
+  try {
+    await test.step('GPUHOST-01 initial draft distinguishes rounding from an over-limit correction',async()=>{
+      await observe('initial',current,reservation,evidence.currentDynamicLimitMi!>allowedMaximumMi);
+      await expect(dynamic).toHaveAttribute('step',String(evidence.stepMi??1024));
+      await expect(dynamic).toHaveAttribute('max',String(maximumFor(reservation)));
+    });
+    await test.step('GPUHOST-01 a changed dynamic draft enables review',()=>observe('dynamic-changed',next,reservation,true,()=>selectRange(dynamic,next)));
+    await test.step('GPUHOST-01 restoring a dynamic draft compares with the actual kernel value',()=>
+      observe('dynamic-restored',current,reservation,restoredReviewEnabled,()=>selectRange(dynamic,current)));
+    const other=reservation===0?1:0;
+    await test.step('GPUHOST-01 a changed firmware draft enables review',()=>
+      observe('fixed-changed',Math.max(min,Math.min(maximumFor(other),current)),other,true,()=>selectRange(fixed,other)));
+    // Increasing the reservation legitimately clamps the dynamic draft. Restore
+    // both controls before comparing with the actual kernel configuration.
+    await test.step('GPUHOST-01 restoring both drafts preserves a genuine rounded change',()=>
+      observe('fixed-restored',current,reservation,restoredReviewEnabled,async()=>{
+        await selectRange(fixed,reservation);await selectRange(dynamic,current);
+      }));
+    await test.step('GPUHOST-01 review still requires exact host confirmation and cancel clears it',async()=>{
+      await selectRange(dynamic,next); await review.click();
+      const dialog=page.getByRole('dialog',{name:'Configure GPU shared memory',exact:true});
+      const confirm=dialog.getByRole('button',{name:'Apply memory configuration',exact:true});
+      await expect(confirm).toBeDisabled();
+      await dialog.getByLabel(`Type ${nodeName} to confirm`,{exact:true}).fill(nodeName+'-wrong');
+      await expect(confirm).toBeDisabled();
+      await dialog.getByLabel(`Type ${nodeName} to confirm`,{exact:true}).fill(nodeName);
+      await expect(confirm).toBeEnabled();
+      await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+      await review.click(); await expect(page.getByRole('dialog').getByLabel(`Type ${nodeName} to confirm`,{exact:true})).toHaveValue('');
+      await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+    });
+  }finally {
+    await test.info().attach('magicstick-gpu-memory-diagnostic',{contentType:'application/json',
+      body:Buffer.from(JSON.stringify(parseGpuMemoryDiagnostic(diagnostic)))});
+  }
 }
 
 export async function changedReverted(input:Locator,button:Locator,value:string) {
@@ -69,7 +110,8 @@ export async function changedReverted(input:Locator,button:Locator,value:string)
   await input.fill(original); await expect(button).toBeDisabled();
 }
 
-export async function settingsDrafts(page:Page,origin:string,nodeName:string,{domains=true,mesh=true,hardware=true}={}) {
+export async function settingsDrafts(page:Page,origin:string,nodeName:string,{domains=true,mesh=true,hardware=true,gpuMemory}:
+  {domains?:boolean;mesh?:boolean;hardware?:boolean;gpuMemory?:HostGpuMemory}={}) {
   // These are real controls and product polling. No fetch mock or write permit
   // is used by the live caller; fixtures call the same browser interactions.
   await page.goto(origin+'/#/system/settings/network');
@@ -90,7 +132,7 @@ export async function settingsDrafts(page:Page,origin:string,nodeName:string,{do
   await expect(page.getByRole('button',{name:'Check channel',exact:true})).toBeDisabled();
   await commit.fill('a'.repeat(40));await expect(page.getByRole('button',{name:'Check channel',exact:true})).toBeEnabled();
   await expect(page.getByRole('button',{name:'Apply channel',exact:true})).toBeDisabled();
-  if(hardware) {await page.goto(origin+'/#/system/hardware');await gpuMemoryDraft(page,nodeName);await gpuSharingDrafts(page,nodeName);}
+  if(hardware) {requireSafe(gpuMemory,'CONFIG');await page.goto(origin+'/#/system/hardware');await gpuMemoryDraft(page,nodeName,gpuMemory);await gpuSharingDrafts(page,nodeName);}
   if(mesh)await meshDraft(page,origin);
   if(domains) {
     await page.goto(origin+'/#/system/settings');
