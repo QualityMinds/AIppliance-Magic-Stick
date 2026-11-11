@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Fix HAR-07 recovery after terminal rejected/interrupted/rolled-back host
+  operations. Register interrupted workers and recovery processes before their
+  first writes, aggregate their exact cleanup evidence, and retain the safe
+  original recovery cause instead of a generic exit-code assertion. Unfinished
+  children fence later live checks; historical reports remain unchanged.
+
 - Wait for the exact borrowed GPU configuration and its physical-inventory
   generation before HW-06 submits verification. Preserve identity, intent,
   admission and revision guards without retrying rejected writes. Retain bounded

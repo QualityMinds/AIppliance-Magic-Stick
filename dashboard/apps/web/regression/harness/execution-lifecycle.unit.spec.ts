@@ -4,7 +4,8 @@ import {mkdtemp,rm,symlink,lstat,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {assessCleanup,assessRunCleanup,attestCleanup,verifyReservationReleased} from '../core/cleanup-state.ts';
+import {assessCleanup,assessRunCleanup,attestCleanup,verifyReservationReleased,registerRecoveryChild,requireRecoveryResult} from '../core/cleanup-state.ts';
+import {hostOperationTerminal} from '../core/preflight.ts';
 import {ResourceJournal,newRunId} from '../core/journal.ts';
 import {readPrivate,writePrivate} from '../core/private-files.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
@@ -22,6 +23,40 @@ import {LabLease,type Lease,type LeaseStore} from '../core/lease.ts';
 import {CleanupRecorder} from '../core/cleanup-diagnostic.ts';
 
 const identity={applianceUid:'synthetic-appliance',nodeUids:['synthetic-node']};
+test('HAR-07 recovery agrees on every terminal host state without accepting active or unknown work',()=>{
+  for(const phase of ['Succeeded','Failed','Cancelled','Rejected','Interrupted','RolledBack'])expect(hostOperationTerminal(phase)).toBe(true);
+  for(const phase of ['Pending','Running','Queued','','unknown'])expect(hostOperationTerminal(phase)).toBe(false);
+});
+test('HAR-07 registered interruption children fence an empty parent until independently cleaned',async()=>fixture(async output=>{
+  const parent=await run(output),child=await run(output);
+  await registerRecoveryChild(parent.directory,child.id,'recovery-target');
+  await child.journal.requested('model',child.journal.prefix+'owned');
+  await child.journal.owned('model',child.journal.prefix+'owned','exact-uid',1);
+  expect((await assessRunCleanup(output,parent.directory,true)).state).toBe('required');
+  await registerRecoveryChild(parent.directory,child.id,'recovery-target');
+  const ledger=JSON.parse(await readPrivate(join(parent.directory,'child-runs.json')));
+  expect(ledger.children).toHaveLength(1);
+  await expect(registerRecoveryChild(parent.directory,child.id,'recover')).rejects.toThrow('[RECOVERY]');
+  await expect(registerRecoveryChild(parent.directory,'../foreign','recover')).rejects.toThrow('[RECOVERY]');
+  const absent={lookup:async()=>null,removeIfUid:async()=>{},verifyRemoved:async()=>true};
+  await child.journal.cleanup({model:absent,key:absent,app:absent,identity:absent},async()=>{});
+  expect((await assessRunCleanup(output,parent.directory,true)).state).not.toBe('verified');
+  await attestCleanup(child.directory,identity);
+  expect((await assessRunCleanup(output,parent.directory,true)).state).toBe('verified');
+  await registerRecoveryChild(parent.directory,newRunId(),'recover');
+  expect((await assessRunCleanup(output,parent.directory,true)).state).not.toBe('verified');
+}));
+test('HAR-07 recovery preserves BUSY cause and refuses exit zero without complete cleanup evidence',()=>{
+  const id=newRunId(),good={version:2,runId:id,cases:[{id:'HAR-07',outcome:'Passed'}],cleanup:{state:'verified'},recoveryFenceActive:false};
+  expect(()=>requireRecoveryResult(good,id,0)).not.toThrow();
+  expect(()=>requireRecoveryResult({...good,cases:[{id:'HAR-07',outcome:'Blocked',reason:'BUSY'},
+    {id:'HAR-07',outcome:'Failed',reason:'CLEANUP'}]},id,1)).toThrow('[cause:BUSY]');
+  for(const value of [{...good,cases:[]},{...good,cleanup:{state:'required'}},{...good,recoveryFenceActive:true}])
+    expect(()=>requireRecoveryResult(value,id,0)).toThrow('[CLEANUP]');
+  expect(()=>requireRecoveryResult({...good,runId:newRunId()},id,0)).toThrow('[RECOVERY]');
+  expect(()=>requireRecoveryResult({...good,cases:[{reason:'synthetic-private-token',outcome:'Failed'}]},id,1))
+    .toThrow('[CLEANUP]');
+});
 async function fixture(action:(root:string)=>Promise<void>) {
   const root=await mkdtemp(join(tmpdir(),'magicstick-lifecycle-'));
   try{await action(root);}finally{await rm(root,{recursive:true,force:true});}

@@ -132,6 +132,14 @@ or intervening revision requires inspection; the lock cannot be force-released.
 External-run journals must be cleaned up on their original runner. Historical
 failed reports remain unchanged.
 
+HAR-07's deliberate interruption registers both the interrupted worker and its
+recovery process before either can mutate resources. Their exact journals and
+cleanup proofs participate in the parent result even after a failed recovery.
+Terminal host operations (`Rejected`, `Interrupted` and `RolledBack` included)
+are not running work; independent host busy flags and ownership checks still
+apply. A failed recovery retains its fixed underlying reason, never raw process
+output. An exit code alone cannot prove restoration.
+
 `PROCESS_STATE` means the old runner did not prove all its workers stopped; it
 is a harness failure, not a missing prerequisite or proof of another owner.
 The bounded private `process-state.json` records process states and birth
