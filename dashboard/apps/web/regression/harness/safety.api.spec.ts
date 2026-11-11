@@ -8,7 +8,8 @@ import {ResourceJournal, newRunId} from '../core/journal.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle, verifyDeploymentPins, verifiedEndpoint} from '../core/preflight.ts';
 import {requireSafe, HarnessError} from '../core/errors.ts';
-import {privateDirectory} from '../core/private-files.ts';
+import {privateDirectory,readPrivate} from '../core/private-files.ts';
+import {registerRecoveryChild,requireRecoveryResult} from '../core/cleanup-state.ts';
 import {poll} from '../core/poll.ts';
 import {OwnedModelClient} from '../core/owned-model.ts';
 import {KubernetesLeaseStore} from '../core/observer.ts';
@@ -170,6 +171,7 @@ test('HAR-07 [p0:process-recovery] killed owned runner is independently recovere
   const runId = newRunId(), directory = join('/private/runs', runId);
   await privateDirectory(directory);
   const childJournal = await ResourceJournal.create(join(directory, 'journal.json'), runId, config.expected.applianceUid);
+  await registerRecoveryChild(process.env.REGRESSION_RUN_DIR!,runId,'recovery-target');
   const child = spawn(process.execPath, typeScriptWorkerArgs(fileURLToPath(new URL('../interruption-worker.mjs', import.meta.url))),
     {env: {...process.env, REGRESSION_RUN_DIR: directory, REGRESSION_RUN_ID: runId}, stdio: ['ignore', 'ignore', 'ignore', 'ipc']});
   const closed = new Promise<{code: number | null; signal: NodeJS.Signals | null}>(resolve => child.once('close', (code, signal) => resolve({code, signal})));
@@ -194,14 +196,19 @@ test('HAR-07 [p0:process-recovery] killed owned runner is independently recovere
     const lease = await store.read();
     requireSafe(lease.spec.holderIdentity === runId && lease.metadata.labels['regression.magicstick.dev/appliance-uid'] === config.expected.applianceUid, 'CONFLICT');
     await store.replace({...lease, spec: {...lease.spec, holderIdentity: ''}});
+    const recoveryId=newRunId();
+    await registerRecoveryChild(process.env.REGRESSION_RUN_DIR!,recoveryId,'recover');
     const recovery = spawn(process.execPath, ['regression/launch.mjs', 'recover', recorded.filename],
-      {env: process.env, stdio: ['ignore', 'ignore', 'ignore']});
+      {env: {...process.env,REGRESSION_CHILD_RUN_ID:recoveryId}, stdio: ['ignore', 'ignore', 'ignore']});
     const exit = await new Promise<number | null>((resolve, reject) => {
       const timer = setTimeout(() => { recovery.kill('SIGTERM'); reject(new HarnessError('DEADLINE', 'Failed', 'cleanup')); }, 500_000);
       recovery.once('error', () => { clearTimeout(timer); reject(new HarnessError('UNEXPECTED')); });
       recovery.once('close', code => { clearTimeout(timer); resolve(code); });
     });
-    expect(exit).toBe(0);
+    let recovered:unknown;
+    try {recovered=JSON.parse(await readPrivate(join('/private/runs',recoveryId,'summary.json')));}
+    catch {throw new HarnessError('RECOVERY','Failed','recovery-journal');}
+    requireRecoveryResult(recovered,recoveryId,exit);
     expect((await ResourceJournal.resume(recorded.filename, config.expected.applianceUid)).recoveryPlan()).toEqual([]);
     expect((await store.read()).spec.holderIdentity).toBeFalsy();
     // Read-only independent post-recovery observation; no new resources.

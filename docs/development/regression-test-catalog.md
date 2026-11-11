@@ -617,6 +617,15 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+### 2026-11-11 — HAR-07 terminal state and nested cleanup accounting
+
+Existing HAR-07 lifecycle checks cover terminal versus active host operations,
+durable registration before interrupted/recovery child execution, missing child
+evidence, duplicate/conflicting registrations and an open child beneath an empty
+parent. Verified absence and exact cleanup proofs remain mandatory. Fixed BUSY
+causes survive the parent failure without exporting raw subprocess output. No
+new registered case is added; native retest remains separate from local checks.
+
 ### 2026-11-11 — HW-06 configuration projection and request diagnostics
 
 Existing HW-06 owning checks reproduce an AMD inventory projection lagging the
