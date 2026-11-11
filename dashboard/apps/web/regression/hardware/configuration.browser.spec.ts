@@ -6,8 +6,55 @@ import {evidenceAnnotations} from '../core/evidence.ts';
 import {installedReadyUi,gpuConfigurationUi} from './live-ui.ts';
 import {fourNvidiaCards,fourNvidiaCardsWithMixedTelemetry,heterogeneousNvidiaCards,nvidiaSelection} from '../fixtures/nvidia-cards.ts';
 import {savedGpuBudget,gpuBudgetInput} from '../core/model-ui.ts';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import type {GpuScenario} from '../core/gpu-scenario.ts';
+import {privateDirectory} from '../core/private-files.ts';
+import {requestValidationUi} from './validation-workflow.ts';
+import {parseGpuValidationDiagnostic} from '../core/gpu-validation-diagnostic.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fixtures' ? 4 : 3;
+
+if(phase===3)for(const viewport of ['desktop','mobile'] as const)for(const engine of ['OLlama','VLLM'] as const)
+for(const outcome of ['accepted','conflict','invalid-contract'] as const)
+test(`HW-06 ${viewport} ${engine} verification waits for inventory and records ${outcome} without replay`,evidenceAnnotations(
+  {id:'HW-06',variant:'p3-validation-all',layer:'B'}),async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  const directory=info.outputPath('private-validation');await privateDirectory(directory);
+  const privateValue='synthetic-response-never-exported',device:HardwareGpuDevice={id:'fixture-node-uid/0000:01:00.0',
+    node:'fixture-node',nodeUid:'fixture-node-uid',bootId:'fixture-boot',pciAddress:'0000:01:00.0',pciId:'1002:0000',
+    vendor:'amd',module:'amd-gpu',name:'Fixture AMD',activationGeneration:2,eligible:true,hostDriverReady:true,
+    resourceRegistered:true,validationAvailable:true};
+  let reads=0,posts=0;
+  const scenario={directory,allowed:[],config:{dashboardUrl:origin,expected:{applianceNamespace:'ai-system'},
+    gpu:{nodeName:device.node,nodeUid:device.nodeUid,bootId:device.bootId,devices:{amd:device}}},
+    inventory:async()=>({devices:[{...device,activationGeneration:++reads<3?1:2}]}),
+    sharing:{entries:[{provider:'amd',state:'borrowed',uid:'fixture-module',generation:2,lastSpec:{enabled:true}}]},
+    live:{journal:{runId:'reg-11111111-2222-3333-4444-555555555555'},guard:async()=>{},observer:{get:async()=>({
+      metadata:{uid:'fixture-module',generation:2,resourceVersion:'8'},spec:{enabled:true},
+      status:{phase:'Ready',observedGeneration:2,conditions:[{type:'Ready',status:'True',observedGeneration:2}]}})}}} as unknown as GpuScenario;
+  await fixturePage(page,{'/api/status':{pods:[],services:[],httpRoutes:[],fluxKustomizations:[],
+    hardwareOperators:{'amd-gpu':{devices:[device]}}},'/api/hardware/gpu-sharing':{providers:[]},'/api/host-management':{nodes:[]}});
+  await page.route(origin+'/api/hardware/validation',async route=>{
+    expect(reads).toBeGreaterThanOrEqual(3);expect(route.request().method()).toBe('POST');posts++;
+    const body=route.request().postDataJSON();expect(scenario.allowed).toEqual([{method:'POST',path:'/api/hardware/validation',body}]);
+    expect(body).toMatchObject({engine,nodeName:device.node,nodeUid:device.nodeUid,deviceIds:[device.id],acknowledgeResourceUse:true});
+    const response=outcome==='conflict'?{code:'GPU_CONFIGURATION_CHANGED',error:'The GPU configuration changed; refresh Hardware before validation',
+      generations:{currentGeneration:3,inventoryGeneration:2,uid:privateValue},raw:privateValue}:
+      {accepted:true,requestId:outcome==='invalid-contract'?'wrong-request':body.requestId,deviceIds:body.deviceIds,raw:privateValue};
+    await route.fulfill({status:outcome==='conflict'?409:202,contentType:'application/json',body:JSON.stringify(response)});
+  });
+  if(outcome==='accepted')expect(await requestValidationUi(scenario,page,engine,'all',0)).toMatchObject({engine,deviceIds:[device.id]});
+  else await expect(requestValidationUi(scenario,page,engine,'all',0)).rejects.toMatchObject({code:'API',stage:'gpu-validation'});
+  expect(posts).toBe(1);expect(scenario.allowed).toEqual([]);
+  const raw=await readFile(join(directory,'gpu-verification-0.json'),'utf8'),diagnostic=parseGpuValidationDiagnostic(JSON.parse(raw));
+  expect(raw).not.toContain(privateValue);expect(diagnostic.history.map(o=>o.state)).toEqual(['waiting','ready']);
+  expect(diagnostic).toMatchObject({engine,scope:'all',requestAttempted:true,httpStatus:outcome==='conflict'?409:202,
+    reason:outcome==='conflict'?'GPU_CONFIGURATION_CHANGED':outcome==='invalid-contract'?'RESPONSE_CONTRACT':'ACCEPTED'});
+  if(outcome==='conflict')expect(diagnostic.responseGenerations).toEqual({currentGeneration:3,inventoryGeneration:2});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`gpu-verification-${viewport}-${engine}-${outcome}.png`),fullPage:true});
+});
 
 for(const engine of ['VLLM','OLlama'] as const)for(const deployment of ['split','replicated'] as const)for(const failed of [false,true])
 test(`MGPU-01 MGPU-02 ${engine} ${deployment} Edit ${failed?'failed':'pending'} estimate retains exact saved MiB`,evidenceAnnotations(

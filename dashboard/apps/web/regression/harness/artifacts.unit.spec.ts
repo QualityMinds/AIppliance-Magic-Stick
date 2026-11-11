@@ -19,6 +19,8 @@ import {newPreflightDiagnostic,recordPinObservation} from '../core/preflight-dia
 import type {CleanupDiagnostic} from '../core/cleanup-diagnostic.ts';
 import {publicResult} from '../core/kubernetes-progress.ts';
 import {parseGpuMemoryDiagnostic,type GpuMemoryDiagnostic} from '../core/gpu-memory-diagnostic.ts';
+import {parseGpuValidationDiagnostic,gpuValidationResponseReason,gpuValidationResponseGenerations,
+  gpuValidationDiagnosticText,type GpuValidationDiagnostic} from '../core/gpu-validation-diagnostic.ts';
 
 const source={file:'regression/harness/artifacts.unit.spec.ts',line:1};
 const secret='synthetic-credential-never-archive';
@@ -52,6 +54,45 @@ function gpuMemory():GpuMemoryDiagnostic {
     {checkpoint:'dynamic-restored',expectedDraftMi:62464,draftMi:62464,expectedFixedPosition:0,fixedPosition:0,
       expectedReviewEnabled:true,reviewEnabled:false}]};
 }
+function gpuValidation():GpuValidationDiagnostic {
+  return {version:1,engine:'OLlama',scope:'all',reason:'GPU_CONFIGURATION_CHANGED',requestAttempted:true,httpStatus:409,
+    responseGenerations:{currentGeneration:3,inventoryGeneration:2},omittedObservations:12,
+    history:[{attempt:1,state:'waiting',modules:[{provider:'amd',expectedGeneration:2,currentGeneration:2,
+      observedGeneration:1,inventoryGenerations:[null],identityMatches:true,intentMatches:true,ready:false}]},
+    {attempt:14,state:'ready',modules:[{provider:'amd',expectedGeneration:2,currentGeneration:2,
+      observedGeneration:2,inventoryGenerations:[2],identityMatches:true,intentMatches:true,ready:true}]}]};
+}
+
+test('HAR-11 HW-06 GPU verification diagnostics retain fixed HTTP and generation observations without raw responses',()=>{
+  const value=gpuValidation(),safe=parseGpuValidationDiagnostic({...value,rawBody:secret,url:secret,
+    responseGenerations:{...value.responseGenerations,uid:secret},
+    history:value.history.map(o=>({...o,requestId:secret,modules:o.modules.map(m=>({...m,uid:secret,spec:secret}))}))});
+  expect(safe).toEqual(value);expect(JSON.stringify(safe)).not.toContain(secret);
+  expect(parseExecutionTrace({...trace(),gpuValidationDiagnostics:[{...safe,raw:secret}]}).gpuValidationDiagnostics).toEqual([value]);
+  expect(gpuValidationDiagnosticText(safe)).toContain('Server observed generations: inventory 2; current 3');
+  expect(gpuValidationDiagnosticText(safe)).toContain('12 intermediate observations omitted; first and latest retained');
+  expect(gpuValidationDiagnosticText(safe).join('\n')).toContain('inventory unknown');
+  for(const bad of [{...value,reason:secret},{...value,httpStatus:0},{...value,httpStatus:600},{...value,requestAttempted:false},
+    {...value,omittedObservations:-1},{...value,history:Array(9).fill(value.history[0])},
+    {...value,history:[value.history[1],value.history[0]]},
+    {...value,responseGenerations:{currentGeneration:true,inventoryGeneration:2}},
+    {...value,responseGenerations:{currentGeneration:2_147_483_648,inventoryGeneration:2}},
+    {...value,history:[{...value.history[0],modules:[{...value.history[0]!.modules[0],inventoryGenerations:[]}]}]},
+    {...value,history:[{...value.history[0],modules:Array(3).fill(value.history[0]!.modules[0])}]},
+    {...value,history:[{...value.history[0],modules:[{...value.history[0]!.modules[0],currentGeneration:secret}]}]}])
+    expect(()=>parseGpuValidationDiagnostic(bad)).toThrow('[CONFIG]');
+  expect(()=>parseExecutionTrace({...trace(),gpuValidationDiagnostics:Array(5).fill(value)})).toThrow('[CONFIG]');
+  expect(parseExecutionTrace(trace())).not.toHaveProperty('gpuValidationDiagnostics');
+  expect(gpuValidationResponseReason(409,{code:'GPU_CONFIGURATION_CHANGED',error:secret})).toBe('GPU_CONFIGURATION_CHANGED');
+  expect(gpuValidationResponseReason(409,{error:'The GPU configuration changed; refresh Hardware before validation'})).toBe('GPU_CONFIGURATION_CHANGED');
+  for(const payload of [{error:secret},{code:secret,error:'The GPU configuration changed; refresh Hardware before validation'},null])
+    expect(gpuValidationResponseReason(409,payload)).toBe('UNCLASSIFIED_RESPONSE');
+  expect(gpuValidationResponseReason(503,{code:'GPU_CONFIGURATION_CHANGED'})).toBe('UNCLASSIFIED_RESPONSE');
+  expect(gpuValidationResponseReason(403,{error:secret})).toBe('AUTHORIZATION_REJECTED');
+  expect(gpuValidationResponseGenerations({generations:{currentGeneration:3,inventoryGeneration:null,raw:secret}}))
+    .toEqual({currentGeneration:3,inventoryGeneration:null});
+  expect(gpuValidationResponseGenerations({generations:{currentGeneration:'3',inventoryGeneration:2}})).toBeUndefined();
+});
 
 test('HAR-10 full-size JUnit keeps every step once without duplicating its JSON payload',()=>{
   // A complete campaign records thousands of scenarios. Repeating every step
@@ -138,6 +179,7 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
   const output=join(directory,'runs'),leafId=newRunId(),rootId=newRunId(),leaf=join(output,leafId),root=join(output,rootId);
   await privateDirectory(leaf);await privateDirectory(root);
   const recorded={...trace(leafId),preflightDiagnostics:[preflight()],gpuMemoryDiagnostics:[{...gpuMemory(),rawResponse:secret}],
+    gpuValidationDiagnostics:[{...gpuValidation(),rawResponse:secret}],
     cleanupDiagnostics:[{...cleanup(leafId),password:secret}],diagnosticsUnavailable:1};await saveExecutionTrace(leaf,recorded);
   await writePrivate(join(leaf,'journal.json'),{password:secret});
   await writePrivate(join(leaf,'preflight-pins','private','preflight-private-logs.json'),{text:secret});
@@ -159,6 +201,7 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
     expect(xml).toContain('time="1.337"');
     expect(xml).toContain('preflightDiagnosticCount');expect(xml).toContain('&quot;generation&quot;');
     expect(xml).toContain('gpuMemoryDiagnosticCount');expect(xml).toContain('&quot;kernelDynamicLimitMi&quot;:62814');
+    expect(xml).toContain('gpuValidationDiagnosticCount');expect(xml).toContain('&quot;httpStatus&quot;:409');
     expect(xml).toContain('cleanupDiagnosticCount');expect(xml).toContain('name="causeReason" value="DEADLINE"');expect(xml).toContain('pods 1');
     expect(xml).toContain('[[ATTACHMENT|report-artifacts/'+leafId+'/traces/'+recorded.executionId+'.json]]');
     const archive=join(root,'report-artifacts.tar.gz');expect((await lstat(archive)).mode&0o077).toBe(0);
@@ -181,14 +224,18 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
       expect(body).toContain('1 diagnostic captures unavailable');
       expect(body).toContain('kernel 62814 MiB; initial draft 62464 MiB; step 1024 MiB');
       expect(body).toContain('Review disabled / expected enabled');
+      expect(body).toContain('GPU verification OLlama/all: GPU_CONFIGURATION_CHANGED; request attempted; HTTP 409');
+      expect(body).toContain('Server observed generations: inventory 2; current 3');
     }
     const exported=JSON.parse(await readFile(join(root,'report-artifacts',leafId,'traces',recorded.executionId+'.json'),'utf8'));
     expect(exported.preflightDiagnostics).toEqual([preflight()]);
     expect(exported.cleanupDiagnostics).toEqual([cleanup(leafId)]);
     expect(exported.gpuMemoryDiagnostics).toEqual([gpuMemory()]);
+    expect(exported.gpuValidationDiagnostics).toEqual([gpuValidation()]);
     const summary=JSON.parse(await readFile(join(root,'summary.json'),'utf8')),status=publicResult(summary,{});
     expect(status.cases[0]).toMatchObject({causeReason:'DEADLINE',causeStage:'cleanup'});
     expect(status.cases[0]?.diagnostics).toContain('Last observation: verify: failed · DEADLINE · cleanup · 300000 ms / 300000 ms budget · object absent · UID unknown · revision unknown · pods 1 · catalog 0');
+    expect(status.cases[0]?.gpuValidationDiagnostics).toContain('Server observed generations: inventory 2; current 3');
     expect(JSON.stringify(status)).not.toContain(secret);
     const page=await browser.newPage();
     try{
@@ -201,6 +248,9 @@ test('HAR-10 HAR-11 JUnit archives separate evidence scenarios and steps with po
         await page.getByText('Preflight observations — failed',{exact:true}).click();
         await page.getByText('Cleanup observations — failed',{exact:true}).click();
         await page.getByText('GPU memory draft observations',{exact:true}).click();
+        const scenario=page.locator('summary').filter({hasText:recorded.executionId}).locator('..');
+        await scenario.getByText('GPU verification observations',{exact:true}).click();
+        await expect(scenario.getByText('Server observed generations: inventory 2; current 3',{exact:false})).toBeVisible();
         await expect(page.getByText('Review disabled / expected enabled',{exact:false})).toBeVisible();
         await expect(page.getByText('Last observation: verify: failed',{exact:false}).last()).toBeVisible();
         await expect(page.getByText('First failed observation',{exact:false})).toBeVisible();
@@ -296,5 +346,23 @@ test('HAR-10 reporter records handled negative steps truncation and secondary cl
     reporter.onTestEnd(blockedSelected,blocked);
     expect((reporter as unknown as {traces:ExecutionTrace[]}).traces.at(-1)?.steps[0])
       .toMatchObject({outcome:'Blocked',reason:'PREREQUISITE'});
+  }finally{if(previous===undefined)delete process.env.REGRESSION_RUN_ID;else process.env.REGRESSION_RUN_ID=previous;}
+});
+
+test('HAR-10 HW-06 reporter keeps the first HTTP rejection and marks unavailable diagnostic captures',()=>{
+  const previous=process.env.REGRESSION_RUN_ID;process.env.REGRESSION_RUN_ID=newRunId();
+  try {
+    const reporter=new SafeReporter(),selected={title:'HAR-10 HW-06 reporter keeps the first HTTP rejection and marks unavailable diagnostic captures',
+      annotations:[],location:{file:fileURLToPath(import.meta.url),line:1,column:1}} as unknown as TestCase;
+    const attachment=(value:unknown)=>({name:'magicstick-gpu-validation-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify(value))});
+    const waiting={...gpuValidation(),reason:'NOT_REQUESTED',requestAttempted:false,httpStatus:null,responseGenerations:undefined};
+    const result={status:'failed',retry:0,duration:1,errors:[{message:new HarnessError('API','Failed','gpu-validation').message}],
+      attachments:[attachment(waiting),attachment({...gpuValidation(),raw:secret}),attachment(waiting),
+        attachment({...gpuValidation(),reason:'ACCEPTED',httpStatus:202,responseGenerations:undefined}),
+        attachment({raw:secret}),{name:'magicstick-gpu-validation-unavailable',contentType:'application/json',body:Buffer.from('{}')}]} as unknown as TestResult;
+    reporter.onBegin({} as FullConfig,{allTests:()=>[selected]} as Suite);reporter.onTestBegin(selected);reporter.onTestEnd(selected,result);
+    const recorded=(reporter as unknown as {traces:ExecutionTrace[]}).traces[0]!;
+    expect(recorded.gpuValidationDiagnostics).toEqual([gpuValidation()]);expect(recorded.diagnosticsUnavailable).toBe(2);
+    expect(JSON.stringify(recorded)).not.toContain(secret);
   }finally{if(previous===undefined)delete process.env.REGRESSION_RUN_ID;else process.env.REGRESSION_RUN_ID=previous;}
 });

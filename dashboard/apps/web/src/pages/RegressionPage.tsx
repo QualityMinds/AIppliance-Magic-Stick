@@ -109,6 +109,7 @@ const Result = ({run}: {run: RegressionRun}) => {
         <p>Reason: <code>{row.reason}</code> — {row.message}</p>
         {row.causeReason&&<p>Underlying cause: <code>{row.causeReason}</code>{row.causeStage?` · ${row.causeStage}`:''}</p>}
         {!!row.diagnostics?.length&&<details><summary>Cleanup observations</summary><ul>{row.diagnostics.map((line,i)=><li className="break-anywhere" key={i}>{line}</li>)}</ul></details>}
+        {!!row.gpuValidationDiagnostics?.length&&<details><summary>GPU verification observations</summary><ul>{row.gpuValidationDiagnostics.map((line,i)=><li className="break-anywhere" key={i}>{line}</li>)}</ul></details>}
         {row.blockedBy?.caseId&&<p>Blocking check: <strong>{row.blockedBy.caseId}</strong>{row.blockedBy.reason ? ` · ${row.blockedBy.reason}` : ''}{row.blockedBy.stage ? ` · Stage: ${row.blockedBy.stage}` : ''}</p>}
         <p className="muted">{row.phase !== undefined ? `Phase ${row.phase} · ` : ''}Check layer {row.layer}{row.stage ? ` · Stage: ${row.stage}` : ''}</p>
         <p className="muted">Next action: {row.action}</p>

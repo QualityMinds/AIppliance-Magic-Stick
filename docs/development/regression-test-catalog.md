@@ -279,7 +279,7 @@ check that the Create Model engine list contains only supported runtimes.
 | HW-03 | Distinguish driver ready, Kubernetes resource ready, optional engine validation and model Ready. An allocatable provider can remain usable during Flux reconciliation; missing resource blocks it. | U+C+A+B | P0 · gpu |
 | HW-04 | Expand/collapse individual GPU and provider configuration sections. Default collapsed state and independent expansion persist; polling/opening never applies preparation or validation. | U+B+E | P1 · gpu |
 | HW-05 | Save a changed AMD runtime profile through its normal API. Persist module parameters without host package/kernel changes, starting smoke tests or overwriting sharing; unchanged/reverted draft cannot Save. | U+C+A+E | P1 · gpu |
-| HW-06 | Request Ollama/vLLM verification for one GPU and for all eligible GPUs on the selected node. Workload binding, scope, engine results and RBAC are correct; unrelated node/GPU is untouched. | U+C+A+E | P0 · gpu |
+| HW-06 | Request Ollama/vLLM verification for one GPU and for all eligible GPUs on the selected node. Wait for the exact owned configuration and physical inventory generation before the one submission; retain fixed HTTP/rejection/generation observations. Workload binding, scope, engine results and RBAC are correct; changed identity/intent fails and unrelated node/GPU is untouched. | U+C+B+A+E | P0 · gpu |
 | HW-07 | Verify while slots are occupied. Report queued/waiting/unsupported state and respect admission; optional validation must not gate otherwise eligible production model use. | U+C+A | P1 · gpu |
 | HW-08 | Validate fresh/stale/mismatched node evidence and changed physical GPU identity. Fail eligibility safely; Intel absence produces explicit deferred/unsupported test state, not invented validation. | U+C+B+A | P0 · gpu |
 
@@ -616,6 +616,24 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+### 2026-11-11 — HW-06 configuration projection and request diagnostics
+
+Existing HW-06 owning checks reproduce an AMD inventory projection lagging the
+saved borrowed configuration, and stop on changed module/device/boot identity,
+complete spec, generation or a failed read. The bounded read-only wait never
+replays a verification write. Existing desktop/mobile fixture selections exercise
+both engines through the bundled confirmation dialog, exact one-request scope,
+HTTP 409 rejection and invalid HTTP 202 acceptance contracts. The all-GPU variant
+adds complementary B evidence; no registered case or diagnostic selection is
+added. Runner CI now executes that existing Phase 3 fixture selection inside the
+built Linux runner before publication. HAR-10/11 and UX-02 counterexamples retain fixed safe HTTP, reason and
+generation fields across filtered capture/import, Dashboard, archive, HTML/text
+and JUnit, while discarding synthetic private response data. Missing observations
+remain unknown, and a rejection is not overwritten by a later success claim.
+Local/CI fixture qualification, installed-image delivery and a fresh native HW-06
+retest are separate gates. No historical response, old success or hardware
+acceptance is inferred by this change; phase/exclusion policies are unchanged.
 
 ### 2026-11-05 — configured identity callback reconciliation
 

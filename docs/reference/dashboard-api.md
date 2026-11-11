@@ -426,6 +426,19 @@ are not reset. Response acceptance remains HTTP 202, not runtime completion.
 The runner journals the original representation and confirms the resulting
 UID/generation/spec; a lost acknowledgement remains fenced.
 
+The physical-device form of administrator-only, CSRF-protected
+`POST /api/hardware/validation` retains its existing node/boot, eligible PCI-device,
+fresh-host-evidence, module-generation, busy-state and resource-version checks.
+HTTP 409 now also includes one fixed `code`: `GPU_NODE_CHANGED`,
+`GPU_DEVICE_UNAVAILABLE`, `GPU_EVIDENCE_STALE`, `GPU_PROVIDER_UNSUPPORTED`,
+`GPU_OPERATOR_DISABLED`, `GPU_CONFIGURATION_CHANGED` or `GPU_REQUEST_CONFLICT`.
+Only `GPU_CONFIGURATION_CHANGED` includes `generations.currentGeneration` and
+`generations.inventoryGeneration`: positive bounded integers, or `null` when
+unknown. No native error, UID, request header or arbitrary metadata is added.
+Partial provider acceptance remains a rejection, not permission to replay the
+request. HTTP 202 still means only accepted intent; diagnostic execution and
+physical workload binding require independent observation.
+
 The user API identifies locally managed accounts with `source: "local"`. Clients
 must not require a separate `local: true` property. Regression-created accounts
 record the acknowledged exact user ID before checking enabled state and roles;

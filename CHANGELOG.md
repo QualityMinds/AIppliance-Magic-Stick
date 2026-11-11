@@ -8,6 +8,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Wait for the exact borrowed GPU configuration and its physical-inventory
+  generation before HW-06 submits verification. Preserve identity, intent,
+  admission and revision guards without retrying rejected writes. Retain bounded
+  fixed HTTP/rejection/generation observations in Dashboard and filtered report
+  exports; raw response bodies and credentials remain excluded. Extend the
+  existing cases with delayed-projection and desktop/mobile counterexamples;
+  native GPU acceptance and historical results remain separate.
+
 - Complete product release delivery with an automatic exact-tag installer build
   and public image/checksum/evidence verification. Preserve the product tag and
   locked assets; append verified download links only after completion. Missing

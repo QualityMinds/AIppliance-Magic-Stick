@@ -29,6 +29,22 @@ beforeEach(() => {
 });
 
 describe('In-Appliance regression tests', () => {
+  it('shows GPU request observations separately from cleanup without starting or changing a test',async()=>{
+    data.runs=[{...run(),phase:'Failed',phases:[3],reportAvailable:true,credentialsCleaned:true,result:{
+      counts:{Passed:2,Failed:1,Blocked:0},executionCounts:{Passed:1,Failed:1,Blocked:0},recoveryRequired:false,omittedCases:0,phases:[],
+      cases:[{id:'HW-06',variant:'p3-validation-all',layer:'A',outcome:'Failed',reason:'API',stage:'gpu-validation',
+        message:'The GPU verification request was rejected.',action:'Inspect the observed generations.',durationMs:10,
+        gpuValidationDiagnostics:['GPU verification OLlama/all: GPU_CONFIGURATION_CHANGED; request attempted; HTTP 409',
+          'Server observed generations: inventory 2; current 3']}]}}];
+    mount();await userEvent.click(await screen.findByText('Failures and blocked checks (1)'));
+    const observations=screen.getByText('GPU verification observations',{selector:'summary'});
+    expect(observations.closest('details')).not.toHaveAttribute('open');
+    await userEvent.click(observations);
+    expect(screen.getByText('GPU verification OLlama/all: GPU_CONFIGURATION_CHANGED; request attempted; HTTP 409')).toBeVisible();
+    expect(screen.getByText('Server observed generations: inventory 2; current 3')).toBeVisible();
+    expect(screen.queryByText('Cleanup observations')).not.toBeInTheDocument();
+    expect(api.startRegression).not.toHaveBeenCalled();expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
   it('puts all checks first, including runner and cleanup failures without scenario IDs',async()=>{
     const result=reportCountsFixture();
     data.runs=[{...run(),phase:'Failed',phases:[0],result,reportAvailable:true,

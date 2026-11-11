@@ -389,6 +389,28 @@ is a failed proof at `gpu-binding`, not evidence that hardware is absent. Its
 private `verification-binding-failure.json` retains only fixed check codes and
 run/request identity; no credentials or raw runtime output are exported. Inspect
 that exact proof before changing allocator settings or repeating the test.
+Before either HW-06 scope submits verification, the runner now waits read-only
+for the borrowed provider's exact ModuleActivation UID, complete spec and saved
+generation to be Ready and projected into every selected physical device's
+`activationGeneration`. A stale or missing status projection may converge for
+at most 90 seconds. A changed device, Node/boot identity, module UID, saved
+intent, future inventory generation, read failure or lost Lease stops the check;
+none is adopted. Status-only resource-version updates do not change intent.
+There is no retry of the verification POST. A rejection remains a failed API
+proof at `gpu-validation`, even if a later hardware refresh would succeed.
+
+The filtered trace, report JSON/HTML/text, JUnit and Dashboard retain bounded
+**GPU verification observations**: engine/scope, whether submission was attempted,
+observed HTTP status, fixed rejection reason and configuration generations.
+Generation mismatch responses retain the server's two numeric observations;
+missing values stay unknown. Up to eight readiness observations keep the first
+and latest with an omitted count. Capture and archive import rebuild the same
+allowlisted schema; raw bodies, messages, URLs, headers, resource identities and
+extra fields are not exported. Failed diagnostic capture is explicit and cannot
+replace the primary failure. Existing HW-06 owning and desktop/mobile browser
+counterexamples cover delayed projection, identity/intent changes, both engines,
+rejection and invalid acceptance contracts. These fixtures are not installed
+GPU acceptance, and do not reconstruct a missing historical response.
 NVIDIA binding is observed while the diagnostic runs. Kubernetes can clear the
 claim's allocation when its last consumer completes, before the successful Pod
 is deleted. Only an allocation already verified for that same Pod and unchanged

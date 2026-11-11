@@ -13,6 +13,7 @@ import {disabledExperimentalEngines} from './core/engine-policy.ts';
 import {progressEvent} from './core/progress.ts';
 import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type ExecutionTrace,type TraceStep} from './core/execution-trace.ts';
 import {parseGpuMemoryDiagnostic,type GpuMemoryDiagnostic} from './core/gpu-memory-diagnostic.ts';
+import {parseGpuValidationDiagnostic,type GpuValidationDiagnostic} from './core/gpu-validation-diagnostic.ts';
 import {checkedBlocker} from './core/blocking.ts';
 import {regressionBlockedKind} from '../../../packages/core/src/regression-blocking.ts';
 import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './core/runtime-diagnostic.ts';
@@ -221,9 +222,20 @@ export default class SafeReporter implements Reporter {
     const omittedSteps=this.omittedSteps.get(test);
     const runtimeDiagnostics:RuntimeDiagnostic[]=[];
     const gpuMemoryDiagnostics:GpuMemoryDiagnostic[]=[];
+    const gpuValidationDiagnostics=new Map<string,GpuValidationDiagnostic>();
     const cleanupDiagnostics=new Map<string,CleanupDiagnostic>();let omittedCleanupDiagnostics=0,diagnosticsUnavailable=0;
     const preflight=new Map<string,PreflightDiagnostic>(),preflightScopes=new Set<string>();
     for(const attachment of result.attachments??[]) {
+      if(attachment.name==='magicstick-gpu-validation-unavailable')diagnosticsUnavailable++;
+      if(attachment.name==='magicstick-gpu-validation-diagnostic') {
+        try {
+          if(attachment.contentType!=='application/json'||!attachment.body||attachment.body.length>16*1024)throw new Error();
+          const d=parseGpuValidationDiagnostic(JSON.parse(attachment.body.toString('utf8'))),key=d.engine+'/'+d.scope;
+          const old=gpuValidationDiagnostics.get(key);
+          // Keep an observed rejection even if a later attachment claims success.
+          if(!old?.requestAttempted||old.httpStatus===null||old.reason==='ACCEPTED')gpuValidationDiagnostics.set(key,d);
+        }catch{diagnosticsUnavailable++;}
+      }
       if(attachment.name==='magicstick-gpu-memory-diagnostic') {
         try {
           if(attachment.contentType!=='application/json'||!attachment.body||attachment.body.length>8*1024||gpuMemoryDiagnostics.length>=8)throw new Error();
@@ -264,6 +276,7 @@ export default class SafeReporter implements Reporter {
       ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} ),
       ...(preflight.size?{preflightDiagnostics:[...preflight.values()]}:{}),
       ...(gpuMemoryDiagnostics.length?{gpuMemoryDiagnostics}:{}),
+      ...(gpuValidationDiagnostics.size?{gpuValidationDiagnostics:[...gpuValidationDiagnostics.values()]}:{}),
       ...(cleanupDiagnostics.size?{cleanupDiagnostics:[...cleanupDiagnostics.values()]}:{}),
       ...(omittedCleanupDiagnostics?{omittedCleanupDiagnostics}:{}),...(diagnosticsUnavailable?{diagnosticsUnavailable}:{}),
       ...(preflightScopes.size>preflight.size?{omittedPreflightDiagnostics:preflightScopes.size-preflight.size}:{})});

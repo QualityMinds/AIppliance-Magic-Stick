@@ -53,7 +53,7 @@ export interface RegressionResult {
     blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts}>;
   cases: Array<{id: string; description?: string; outcome: RegressionOutcome; layer: string; variant: string; reason: string; message: string; action: string; durationMs: number;
     phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker;
-    causeReason?:string;causeStage?:string;diagnostics?:string[]}>;
+    causeReason?:string;causeStage?:string;diagnostics?:string[];gpuValidationDiagnostics?:string[]}>;
 }
 export interface RegressionRun {
   diagnosticSelection?: string;
@@ -846,6 +846,8 @@ export interface HardwareGpuDevice {
   validationAvailable: boolean;
   validationReason?: string;
   validationContext?: string;
+  /** Generation of the vendor ModuleActivation used for this physical inventory. */
+  activationGeneration?: number;
   validation?: Record<string, GpuEngineValidation>;
 }
 

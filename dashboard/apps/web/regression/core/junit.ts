@@ -53,6 +53,7 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
         ...(trace.runtimeDiagnostics?.length?{runtimeDiagnosticCount:String(trace.runtimeDiagnostics.length)}:{}),
         ...(trace.preflightDiagnostics?.length?{preflightDiagnosticCount:String(trace.preflightDiagnostics.length)}:{}),
         ...(trace.gpuMemoryDiagnostics?.length?{gpuMemoryDiagnosticCount:String(trace.gpuMemoryDiagnostics.length)}:{}),
+        ...(trace.gpuValidationDiagnostics?.length?{gpuValidationDiagnosticCount:String(trace.gpuValidationDiagnostics.length)}:{}),
         ...(trace.omittedPreflightDiagnostics?{omittedPreflightDiagnostics:String(trace.omittedPreflightDiagnostics)}:{}),
         ...(trace.cleanupDiagnostics?.length?{cleanupDiagnosticCount:String(trace.cleanupDiagnostics.length)}:{}),
         ...(trace.diagnosticsUnavailable?{diagnosticsUnavailable:String(trace.diagnosticsUnavailable)}:{}),
@@ -62,6 +63,7 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[],exclude
         ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics}:{} ),
         ...(trace.preflightDiagnostics?.length?{preflightDiagnostics:trace.preflightDiagnostics}:{} ),
         ...(trace.gpuMemoryDiagnostics?.length?{gpuMemoryDiagnostics:trace.gpuMemoryDiagnostics}:{}),
+        ...(trace.gpuValidationDiagnostics?.length?{gpuValidationDiagnostics:trace.gpuValidationDiagnostics}:{}),
         ...(trace.cleanupDiagnostics?.length?{cleanupDiagnostics:trace.cleanupDiagnostics}:{})})+'\n'+
         attachments.map(path=>`[[ATTACHMENT|${path}]]`).join('\n')};
   });

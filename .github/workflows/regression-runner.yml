@@ -133,9 +133,10 @@ jobs:
       - name: Exercise Realtime Chromium fixtures in the built image
         if: ${{ !cancelled() && steps.delta.outputs.pin_only != 'true' && steps.build.outcome == 'success' }}
         run: bash tools/regression.sh phase7-fixtures
-      - name: Exercise administration and regression-dashboard Chromium fixtures
+      - name: Exercise GPU, administration and regression-dashboard Chromium fixtures
         if: ${{ !cancelled() && steps.delta.outputs.pin_only != 'true' && steps.build.outcome == 'success' }}
         run: |
+          bash tools/regression.sh phase3-fixtures
           bash tools/regression.sh phase6-fixtures
           bash tools/regression.sh phase8-fixtures
       - name: Publish tested Linux AMD64 runner
