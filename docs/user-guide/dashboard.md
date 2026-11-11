@@ -138,7 +138,12 @@ cleaned. Cleanup is `unknown`, `required`, `running`, `verified`, or `blocked`, 
 its recorded reason/stage. Missing fields in old reports mean not verified, not
 clean; retain the exact private journal for recovery. Expand **Failures and blocked checks** for the reason,
 phase, variant, check layer, stage, next action and available filtered trace
-location. **Blocked by prerequisite** means required hardware, access or fixtures
+location. When recorded, **GPU verification observations** separately shows
+the attempted engine/scope, HTTP status, fixed rejection reason and configuration
+generations. Missing values mean unknown. The runner may wait briefly for an
+unchanged configuration to settle, but never repeats a rejected verification
+request automatically. These observations are not a successful GPU test or a
+cleanup proof. **Blocked by prerequisite** means required hardware, access or fixtures
 are unavailable. **Blocked by failure** means an earlier test, preparation or
 cleanup failed; its recorded blocking check and trace are shown. Cancelled and
 unrecorded causes in older reports remain separate. Missing execution evidence in

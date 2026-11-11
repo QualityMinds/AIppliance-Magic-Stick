@@ -215,6 +215,28 @@ data:
             self.status = status
 
 
+    class GpuValidationConflict(RequestError):
+        # Fixed public reasons only; no Kubernetes response or exception text.
+        messages = {
+            "GPU_NODE_CHANGED": "The node changed; refresh Hardware before requesting validation",
+            "GPU_DEVICE_UNAVAILABLE": "A selected GPU changed, is unavailable or already has a pending diagnostic; refresh Hardware",
+            "GPU_EVIDENCE_STALE": "Physical GPU evidence changed or expired; refresh Hardware before validation",
+            "GPU_PROVIDER_UNSUPPORTED": "No approved diagnostic exists for the selected provider",
+            "GPU_OPERATOR_DISABLED": "The GPU operator is no longer enabled; refresh Hardware",
+            "GPU_CONFIGURATION_CHANGED": "The GPU configuration changed; refresh Hardware before validation",
+            "GPU_REQUEST_CONFLICT": "Validation could not be recorded for every provider",
+        }
+
+        def __init__(self, code, accepted=None, current_generation=None, inventory_generation=None):
+            message = self.messages[code]
+            if code == "GPU_REQUEST_CONFLICT":
+                message += ". Accepted providers: " + (", ".join(x for x in (accepted or []) if x in ("amd-gpu", "gpu")) or "none") + ". Refresh Hardware before retrying."
+            super().__init__(409, message)
+            self.code = code
+            valid = lambda value: value if type(value) is int and 0 < value <= 2147483647 else None
+            self.generations = {"currentGeneration": valid(current_generation), "inventoryGeneration": valid(inventory_generation)} if code == "GPU_CONFIGURATION_CHANGED" else None
+
+
     def jwt_payload(access_token):
         try:
             encoded = access_token.split(".")[1]
@@ -3449,12 +3471,12 @@ data:
         uid = (node.get("metadata") or {}).get("uid")
         boot = (node.get("status") or {}).get("nodeInfo", {}).get("bootID")
         if not uid or payload.get("nodeUid") != uid:
-            raise RequestError(409, "The node changed; refresh Hardware before requesting validation")
+            raise GpuValidationConflict("GPU_NODE_CHANGED")
         devices = [d for o in (appliance().get("status", {}).get("hardwareOperators") or {}).values() for d in o.get("devices", [])]
         selected = [d for d in devices if d.get("id") in ids and d.get("nodeUid") == uid and d.get("node") == name]
         if len(selected) != len(ids) or any(not d.get("validationAvailable") or d.get("bootId") != boot
                                           or d.get("validation", {}).get(engine, {}).get("state") in ("queued", "running") for d in selected):
-            raise RequestError(409, "A selected GPU changed, is unavailable or already has a pending diagnostic; refresh Hardware")
+            raise GpuValidationConflict("GPU_DEVICE_UNAVAILABLE")
         try:
             host = json.loads((node.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/gpu-host-preflight", ""))
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(host["generatedAt"].replace("Z", "+00:00"))).total_seconds()
@@ -3464,23 +3486,24 @@ data:
                            or host.get("fingerprint") != d.get("hostFingerprint") for d in selected)):
                 raise ValueError("stale host")
         except (ValueError, TypeError, KeyError, AttributeError):
-            raise RequestError(409, "Physical GPU evidence changed or expired; refresh Hardware before validation")
+            raise GpuValidationConflict("GPU_EVIDENCE_STALE")
         # Verify all targets before writing any request. Requests are recorded on
         # their existing vendor ModuleActivations, never in Git-owned spec.
         changes = {}
         for device in selected:
             module = device.get("module")
             if module not in ("amd-gpu", "gpu"):
-                raise RequestError(409, "No approved diagnostic exists for the selected provider")
+                raise GpuValidationConflict("GPU_PROVIDER_UNSUPPORTED")
             if module not in changes:
                 activation = module_activation(module) or {}
                 metadata = activation.get("metadata") or {}
                 if not metadata.get("resourceVersion") or activation.get("spec", {}).get("enabled", True) is False or metadata.get("deletionTimestamp"):
-                    raise RequestError(409, "The GPU operator is no longer enabled; refresh Hardware")
+                    raise GpuValidationConflict("GPU_OPERATOR_DISABLED")
                 changes[module] = (metadata, {})
             metadata, annotations = changes[module]
             if metadata.get("generation") != device.get("activationGeneration"):
-                raise RequestError(409, "The GPU configuration changed; refresh Hardware before validation")
+                raise GpuValidationConflict("GPU_CONFIGURATION_CHANGED", current_generation=metadata.get("generation"),
+                                            inventory_generation=device.get("activationGeneration"))
             key = "appliance.magicstick.dev/device-validation-" + hashlib.sha256((device["id"] + ":" + engine).encode()).hexdigest()[:24]
             annotations[key] = json.dumps({"requestId": request_id, "context": device["validationContext"]}, sort_keys=True)
         accepted = []
@@ -3491,7 +3514,7 @@ data:
                                  {"metadata": {"resourceVersion": metadata["resourceVersion"], "annotations": annotations}}, "application/merge-patch+json")
                 accepted.append(module)
             except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-                raise RequestError(409, "Validation could not be recorded for every provider. Accepted providers: " + (", ".join(accepted) or "none") + ". Refresh Hardware before retrying.")
+                raise GpuValidationConflict("GPU_REQUEST_CONFLICT", accepted)
         return {"accepted": True, "requestId": request_id, "deviceIds": ids}
 
 
@@ -9123,8 +9146,12 @@ data:
             self.end_headers()
             self.wfile.write(data)
 
-        def send_error_json(self, status, message):
-            self.send_json({"error": message}, status)
+        def send_error_json(self, status, message, code=None, generations=None):
+            extra = {"code": code} if isinstance(code, str) and code in GpuValidationConflict.messages else {}
+            if code == "GPU_CONFIGURATION_CHANGED" and isinstance(generations, dict):
+                extra["generations"] = {key: value if type(value) is int and 0 < value <= 2147483647 else None
+                                        for key in ("currentGeneration", "inventoryGeneration") for value in [generations.get(key)]}
+            self.send_json({"error": message, **extra}, status)
 
         def send_auth_error(self, error):
             if error.status == 401:
@@ -9790,7 +9817,8 @@ data:
             except AuthError as error:
                 self.send_auth_error(error)
             except RequestError as error:
-                self.send_error_json(error.status, str(error))
+                self.send_error_json(error.status, str(error), error.code if isinstance(error, GpuValidationConflict) else None,
+                                     error.generations if isinstance(error, GpuValidationConflict) else None)
             except urllib.error.HTTPError as error:
                 if self.route().startswith("/api/api-access"):
                     self.send_error_json(503, "API access management is unavailable")

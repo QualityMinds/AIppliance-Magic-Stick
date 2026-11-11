@@ -18,6 +18,8 @@ import {nvidiaValidationBinding,prepareValidation,requestValidationUi,completedV
 import {pinnedGpuModules,requireGpuProvider} from './prerequisites.ts';
 import type {GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {gpuFixtureEstimateBody,sizedGpuFixture} from '../core/gpu-fixture.ts';
+import {waitValidationConfiguration} from './validation-readiness.ts';
+import {HarnessError} from '../core/errors.ts';
 import type {GpuModelFixture} from '../core/config.ts';
 import type {MemoryEstimate} from '@magicstick/dashboard-contracts';
 
@@ -97,9 +99,14 @@ test('HW-06 SLOT-03 prepare exact-card DRA through borrowed settings before atte
   const lab=config();delete lab.gpu!.devices.amd;
   const devices=Array.from({length:4},(_,index)=>({id:index===0?lab.gpu!.devices.nvidia!.id:`card-${index}`,vendor:'nvidia',
     node:lab.gpu!.nodeName,nodeUid:lab.gpu!.nodeUid,bootId:lab.gpu!.bootId,eligible:true,hostDriverReady:true,
-    pciAddress:index===0?lab.gpu!.devices.nvidia!.pciAddress:`0000:0${index+2}:00.0`,validationAvailable:false})) as HardwareGpuDevice[];
+    pciAddress:index===0?lab.gpu!.devices.nvidia!.pciAddress:`0000:0${index+2}:00.0`,name:'Fixture GPU',pciId:'10de:0000',
+    module:'gpu',activationGeneration:2,validationAvailable:false})) as HardwareGpuDevice[];
   let backend='time-slicing',draAvailable=true,transitions:unknown[]=[];
-  const scenario={config:lab,inventory:async()=>({devices}),state:async()=>({backend,draAvailable,mode:'shared',maxModels:2}),
+  const moduleSpec={enabled:true},module={metadata:{uid:'fixture-module',resourceVersion:'8',generation:2},spec:moduleSpec,
+    status:{phase:'Ready',observedGeneration:2,conditions:[{type:'Ready',status:'True',observedGeneration:2}]}};
+  const scenario={config:lab,allowed:[],inventory:async()=>({devices}),state:async()=>({backend,draAvailable,mode:'shared',maxModels:2}),
+    sharing:{entries:[{provider:'nvidia',uid:'fixture-module',generation:2,lastSpec:moduleSpec,state:'borrowed'}]},
+    live:{observer:{get:async()=>module}},
     transition:async(...args:unknown[])=>{transitions.push(args);backend='dra';for(const device of devices)device.validationAvailable=true;}} as unknown as GpuScenario;
   expect((await prepareValidation(scenario,'OLlama','nvidia')).map(device=>device.id)).toEqual([lab.gpu!.devices.nvidia!.id]);
   expect(transitions).toEqual([['nvidia','shared',2,'dra']]);
@@ -121,6 +128,71 @@ test('HW-03 SHR-04 optional-vendor module reads use only registered physical pro
   const lab=config();expect(pinnedGpuModules(lab)).toEqual(['amd-gpu','gpu']);delete lab.gpu!.devices.amd;
   expect(pinnedGpuModules(lab)).toEqual(['gpu']);expect(()=>requireGpuProvider(lab,'nvidia')).not.toThrow();
   expect(()=>requireGpuProvider(lab,'amd')).toThrow('[GPU_PROVIDER]');
+});
+test('HW-06 waits for the physical inventory generation after a completed AMD configuration change',async()=>{
+  const lab=config();delete lab.gpu!.devices.nvidia;
+  const device={...lab.gpu!.devices.amd!,vendor:'amd',module:'amd-gpu',name:'Fixture AMD GPU',pciId:'1002:0000',node:lab.gpu!.nodeName,
+    nodeUid:lab.gpu!.nodeUid,bootId:lab.gpu!.bootId,eligible:true,hostDriverReady:true,
+    validationAvailable:true,activationGeneration:1} as HardwareGpuDevice;
+  const spec={enabled:true,parameters:{unrelated:'keep'}};
+  const module={metadata:{uid:'fixture-module',resourceVersion:'8',generation:2},spec,
+    status:{phase:'Ready',observedGeneration:2,conditions:[{type:'Ready',status:'True',observedGeneration:2}]}};
+  let reads=0;
+  const scenario={config:lab,inventory:async()=>{
+    reads++;return {devices:[{...device,activationGeneration:reads===1?1:2}]};
+  },sharing:{entries:[{provider:'amd',uid:'fixture-module',generation:2,lastSpec:spec,state:'borrowed'}]},
+  live:{guard:async()=>{},observer:{get:async()=>module}}} as unknown as GpuScenario;
+  const selected=await prepareValidation(scenario,'OLlama','all');
+  expect(reads).toBeGreaterThan(1);
+  expect(selected[0]!.activationGeneration).toBe(2);
+});
+test('HW-06 configuration convergence never adopts changed identities intent or future inventory',async()=>{
+  for(const change of ['module-uid','module-generation','module-spec','device-id','device-boot','future-generation'] as const) {
+    const lab=config(),spec={enabled:true},device={...lab.gpu!.devices.amd!,name:'Fixture AMD',pciId:'1002:0000',
+      vendor:'amd',module:'amd-gpu',node:lab.gpu!.nodeName,nodeUid:lab.gpu!.nodeUid,bootId:lab.gpu!.bootId,
+      validationAvailable:true,activationGeneration:2} as HardwareGpuDevice;
+    const current={metadata:{uid:'fixture-module',resourceVersion:'8',generation:2},spec,
+      status:{phase:'Ready',observedGeneration:2,conditions:[{type:'Ready',status:'True',observedGeneration:2}]}};
+    const observed=structuredClone(device);
+    if(change==='module-uid')current.metadata.uid='replacement';
+    if(change==='module-generation')current.metadata.generation=3;
+    if(change==='module-spec')current.spec={enabled:false};
+    if(change==='device-id')observed.id='replacement-card';
+    if(change==='device-boot')observed.bootId='replacement-boot';
+    if(change==='future-generation')observed.activationGeneration=3;
+    let reads=0;const observations:unknown[]=[];
+    const scenario={config:lab,inventory:async()=>{reads++;return {devices:[observed]};},
+      sharing:{entries:[{provider:'amd',uid:'fixture-module',generation:2,lastSpec:spec,state:'borrowed'}]},
+      live:{observer:{get:async()=>current}}} as unknown as GpuScenario;
+    await expect(waitValidationConfiguration(scenario,[device],d=>d,{timeoutMs:100,intervalMs:1,
+      observe:async o=>{observations.push(o);}})).rejects.toMatchObject({code:
+      ['module-uid','device-id','device-boot'].includes(change)?'IDENTITY':'CONFLICT',stage:'gpu-validation',outcome:'Failed'});
+    expect(reads,change).toBe(1);expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({state:'failed'});
+  }
+});
+test('HW-06 waits only on readonly projection readiness and keeps unknown or failed reads unknown',async()=>{
+  const lab=config(),spec={enabled:true},device={...lab.gpu!.devices.amd!,name:'Fixture AMD',pciId:'1002:0000',
+    vendor:'amd',module:'amd-gpu',node:lab.gpu!.nodeName,nodeUid:lab.gpu!.nodeUid,bootId:lab.gpu!.bootId,
+    validationAvailable:true,activationGeneration:2} as HardwareGpuDevice;
+  let reads=0;const observations:unknown[]=[];
+  const scenario={config:lab,inventory:async()=>({devices:[device]}),
+    sharing:{entries:[{provider:'amd',uid:'fixture-module',generation:2,lastSpec:spec,state:'borrowed'}]},
+    live:{observer:{get:async()=>({metadata:{uid:'fixture-module',resourceVersion:String(++reads),generation:2},spec,
+      status:{phase:reads===1?'Reconciling':'Ready',observedGeneration:reads===1?1:2,
+        conditions:[{type:'Ready',status:reads===1?'False':'True',observedGeneration:reads===1?1:2}]}})}}} as unknown as GpuScenario;
+  expect(await waitValidationConfiguration(scenario,[device],d=>d,{timeoutMs:1000,intervalMs:1,
+    observe:async o=>{observations.push(o);}})).toEqual([device]);
+  expect(reads).toBe(2);expect(observations).toMatchObject([{state:'waiting'},{state:'ready'}]);
+  delete device.activationGeneration;
+  await expect(waitValidationConfiguration(scenario,[device],d=>d,{timeoutMs:15,intervalMs:1}))
+    .rejects.toMatchObject({code:'DEADLINE',outcome:'Failed',stage:'gpu-validation'});
+  let failedReads=0;
+  scenario.live.observer.get=async()=>{failedReads++;throw new HarnessError('API','Failed','gpu-validation');};
+  await expect(waitValidationConfiguration(scenario,[device],d=>d,{timeoutMs:1000,intervalMs:1,
+    observe:async()=>{throw new Error('synthetic diagnostic failure');}}))
+    .rejects.toMatchObject({code:'API',stage:'gpu-validation'});
+  expect(failedReads).toBe(1);
 });
 test('HW-06 terminal failed validation stops with a concrete stage before polling stale device success',async()=>{
   const request={requestId:'diagnostic-fixture',deviceIds:['fixture-card'],engine:'OLlama' as const,startedAt:Date.now()};

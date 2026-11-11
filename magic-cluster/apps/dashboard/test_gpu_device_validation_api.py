@@ -85,14 +85,43 @@ class DeviceValidationApiTests(unittest.TestCase):
             self.api['request_gpu_engine_validation'](self.payload)
         self.assertEqual(self.writes, [])
 
+    def test_changed_configuration_has_a_fixed_conflict_code_without_relaxing_review(self):
+        self.activations['amd-gpu']['metadata']['generation'] = 3
+        with self.assertRaises(self.api['RequestError']) as raised:
+            self.api['request_gpu_engine_validation'](self.payload)
+        self.assertEqual(raised.exception.status, 409)
+        self.assertEqual(getattr(raised.exception, 'code', None), 'GPU_CONFIGURATION_CHANGED')
+        self.assertEqual(raised.exception.generations, {'currentGeneration': 3, 'inventoryGeneration': 2})
+        self.assertEqual(self.writes, [])
+
+    def test_public_conflict_reply_exports_only_fixed_code_and_bounded_generations(self):
+        responses = []
+        handler = self.api['Handler'].__new__(self.api['Handler'])
+        handler.send_json = lambda payload, status=200: responses.append((payload, status))
+        for current, inventory, expected in ((3, 2, (3, 2)), (True, '2', (None, None)),
+                                             (0, 2147483648, (None, None)), (None, None, (None, None))):
+            error = self.api['GpuValidationConflict']('GPU_CONFIGURATION_CHANGED', current_generation=current,
+                                                       inventory_generation=inventory)
+            handler.send_error_json(error.status, str(error), error.code, {**error.generations, 'raw': 'synthetic-private-body'})
+            self.assertEqual(responses[-1], ({'error': str(error), 'code': 'GPU_CONFIGURATION_CHANGED',
+                'generations': {'currentGeneration': expected[0], 'inventoryGeneration': expected[1]}}, 409))
+        handler.send_error_json(400, 'Invalid request', 'UNKNOWN', {'currentGeneration': 3})
+        self.assertEqual(responses[-1], ({'error': 'Invalid request'}, 400))
+        error = self.api['GpuValidationConflict']('GPU_REQUEST_CONFLICT', ['gpu', 'synthetic-private-body'])
+        handler.send_error_json(error.status, str(error), error.code, {'currentGeneration': 3})
+        self.assertEqual(responses[-1][0]['code'], 'GPU_REQUEST_CONFLICT')
+        self.assertNotIn('generations', responses[-1][0])
+        self.assertNotIn('synthetic-private-body', json.dumps(responses))
+
     def test_a_partial_provider_conflict_is_reported_without_repeating_accepted_work(self):
         def write(*args):
             if args[1].endswith('/gpu'):
                 raise self.api['urllib'].error.HTTPError(args[1], 409, 'Conflict', {}, None)
             self.writes.append(args)
         self.api['request_json'] = write
-        with self.assertRaisesRegex(self.api['RequestError'], 'Accepted providers: amd-gpu'):
+        with self.assertRaisesRegex(self.api['RequestError'], 'Accepted providers: amd-gpu') as raised:
             self.api['request_gpu_engine_validation'](self.payload)
+        self.assertEqual(raised.exception.code, 'GPU_REQUEST_CONFLICT')
         self.assertEqual(len(self.writes), 1)
 
 
