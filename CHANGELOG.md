@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Bound ordinary automatic NVIDIA model memory planning to one eligible physical
+  card, not the sum of a scheduling pool. Create/Edit sliders and recommendations
+  keep that ceiling even with an older API or an invalid saved budget; the API
+  rejects physically impossible single-card reservations regardless of risk
+  acceptance. Preserve explicit split/replicated budgets and add existing
+  MEM-01/MEM-05 API, component and desktop/mobile regression counterexamples.
+
 - Fix HAR-07 recovery after terminal rejected/interrupted/rolled-back host
   operations. Register interrupted workers and recovery processes before their
   first writes, aggregate their exact cleanup evidence, and retain the safe

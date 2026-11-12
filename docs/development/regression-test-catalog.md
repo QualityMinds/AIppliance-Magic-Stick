@@ -257,11 +257,11 @@ check that the Create Model engine list contains only supported runtimes.
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
-| MEM-01 | Estimate vLLM/Ollama weights, rank/layer KV/recurrent/auxiliary caches, runtime and separate uneven-placement/headroom allowances. Show serving/startup RAM envelopes without calling file cache another permanent model copy; new RAM defaults do not overwrite saved/manual budgets. Calculator and Breakdown use matching split totals and per-copy replication budgets. Host runtime/download are not multiplied for a split Pod; missing metadata/capacity stays unknown. | U+C+B | P0 · fast |
+| MEM-01 | Estimate vLLM/Ollama weights, rank/layer KV/recurrent/auxiliary caches, runtime and separate uneven-placement/headroom allowances. Show serving/startup RAM envelopes without calling file cache another permanent model copy; new RAM defaults do not overwrite saved/manual budgets. Automatic NVIDIA placement uses one eligible card's bounded capacity, never summed pool VRAM; Create/Edit sliders stay safe with an older aggregate estimate or invalid saved budget. Calculator and Breakdown use matching split totals and per-copy replication budgets. Host runtime/download are not multiplied for a split Pod; missing metadata/capacity stays unknown. | U+C+B | P0 · fast |
 | MEM-02 | Vary context, sequences and KV format with attention/hybrid/GQA fixtures. Formula, substituted inputs, quantized storage, theoretical KV versus allocator safety and fallback labels are accurate. | U+C+B | P1 · fast |
 | MEM-03 | Exercise binary-unit conversion and 100 MiB planning steps near minimum/maximum. Round recommendations up and safe maxima down; CPU Pod requests follow their separate contract. | U+C+B | P1 · fast |
 | MEM-04 | Compare capacity, live free, unreserved budgets and slots. Each gauge/legend uses its own denominator; reservations never masquerade as measured memory or protected partitions. | U+C+B+A+E | P0 · gpu |
-| MEM-05 | Enter a legal but estimated-underbudget/oversubscribed vLLM/Ollama allocation. Require the documented explicit memory-risk acceptance; invalid inputs and exhausted slots remain hard errors. | U+C+A+B | P0 · functional |
+| MEM-05 | Enter a legal but estimated-underbudget/oversubscribed vLLM/Ollama allocation. Require the documented explicit memory-risk acceptance; invalid inputs, exhausted slots and known physically impossible single-GPU budgets remain hard errors in the form and API. Correct an invalid saved automatic budget explicitly, without silent rewriting. | U+C+A+B | P0 · functional |
 | MEM-06 | Drag/click sliders and edit number fields while estimator/status responses arrive out of order. Preserve user choice, focus and manual host-RAM budget without flicker or remount. | U+B+E | P0 · functional |
 | MEM-07 | Calculate shared free with 38.2 GiB MemAvailable, 108 GiB ceiling and 78.7 GiB GTT usage. Return 29.3 GiB; clamp at zero, use bytes before conversion, and do not subtract occupancy twice. | U+C+B | P0 · fast |
 | MEM-08 | Supply missing/invalid/stale/non-PCI-matched samples or changed Node UID/boot/kernel. Show unknown, not zero usage/full availability or another node's counters. | U+C+A+B | P0 · gpu |
@@ -616,6 +616,20 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+### 2026-11-12 — MEM-01/05 automatic NVIDIA single-card memory
+
+The existing Phase 2 owning/component and API-contract selections reproduce the
+four-card aggregate estimate and reject a physically impossible one-card budget
+on Create/Edit, even with memory-risk acceptance. They also cover unequal cards,
+unknown capacity, eligible-node filtering and exclusion of only the edited
+model's reservation. Existing explicit split/replicated coverage stays active.
+Eight required bundled-frontend browser variants cover vLLM/Ollama Create/Edit
+on desktop/mobile, including a legacy aggregate API response, slider/number-field
+consistency, bounded recommendation/100% actions, rejected invalid submissions
+and explicit correction of an older saved budget. No new registered case ID or
+live diagnostic selection is introduced; isolated checks do not establish
+installed runtime/inference acceptance. Native rollout and retest remain pending.
 
 ### 2026-11-11 — HAR-07 terminal state and nested cleanup accounting
 

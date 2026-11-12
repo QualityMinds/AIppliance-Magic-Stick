@@ -36,6 +36,16 @@ deployment targets and cannot be blindly summed into a model-fit guarantee.
 
 ## Engine budgets
 
+Automatic NVIDIA device-plugin placement assigns **one GPU**, not the combined
+VRAM of all cards in its node/cluster pool. Create/Edit use a per-card maximum;
+the smallest eligible physical card bounds an assignment whose exact card is
+not selectable. Unreserved planning may use a free sibling's budget, bounded by
+that physical ceiling, but never sums cards or nodes. Missing physical capacity
+stays unknown. For example, four 49,140 MiB cards do not give a single-card model
+196,560 MiB; its slider's 100 MiB steps stop at 49,100 MiB. Use an explicit DRA
+split to distribute a model. Memory-risk acceptance cannot bypass a known
+physical limit; a valid budget still does not guarantee successful inference.
+
 vLLM/Ollama memory estimates include model and context/runtime assumptions.
 Supported CPU offloading uses host RAM on the selected GPU node, not memory from
 another node or an implicit disk-swap pool. GPU budgets are not universal

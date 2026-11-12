@@ -154,10 +154,30 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
   const fallbackAvailable = card ? Math.min(...targetDevices.map((item) => Number(item.unreservedMi ?? 0) + (ownActive && ownKeys.includes(nvidiaCardKey(item.gpuDevice!)) ? initialStandard!.selectedMi : 0)))
     : targetDevices.reduce((maximum, item) => Math.max(maximum, Number(item.unreservedMi ?? 0)), 0) + (initialStandard?.selectedMi ?? 0);
-  const capacityKnown = editing ? typeof estimate?.maximumMi === 'number' || fallbackAvailable > (initialStandard?.selectedMi ?? 0)
+  const rawCapacityKnown = editing ? typeof estimate?.maximumMi === 'number' || fallbackAvailable > (initialStandard?.selectedMi ?? 0)
     : capacities.length > 0 && (!cardRequired || capacities.length === selectedCards.length);
-  const availableMi = editing ? typeof estimate?.maximumMi === 'number' ? estimate.maximumMi : fallbackAvailable
-    : capacityKnown ? cardRequired ? Math.min(...capacities) : Math.max(...capacities) : 0;
+  const rawAvailableMi = editing ? typeof estimate?.maximumMi === 'number' ? estimate.maximumMi : fallbackAvailable
+    : rawCapacityKnown ? cardRequired ? Math.min(...capacities) : Math.max(...capacities) : 0;
+  const singleNvidia = !omni && computeTarget === 'nvidia-gpu' && gpuCount === 1;
+  const physicalCapacities = targetDevices.map(nvidiaPhysicalCapacityMi);
+  // Older APIs returned aggregate VRAM as maximumMi. Never let that enlarge a
+  // single-card control, or add an invalid saved budget to physical capacity.
+  const devicePhysicalMaximum = physicalCapacities.length && physicalCapacities.every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0)
+    ? Math.min(...physicalCapacities as number[]) : null;
+  const estimatePhysicalMaximum = estimate?.physicalMaximumMi;
+  const physicalMaximumMi = estimate && Object.hasOwn(estimate, 'physicalMaximumMi')
+    ? typeof estimatePhysicalMaximum === 'number' && Number.isFinite(estimatePhysicalMaximum) && estimatePhysicalMaximum > 0
+      ? Math.min(estimatePhysicalMaximum, devicePhysicalMaximum ?? estimatePhysicalMaximum) : null
+    : devicePhysicalMaximum;
+  const unreservedCapacities = targetDevices.map(item => item.unreservedMi);
+  // An older API may report per-card unreserved bytes without totalMi. They
+  // still bound planning, but do not invent a separate physical-capacity proof.
+  const legacySingleMaximum = unreservedCapacities.length && unreservedCapacities.every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0)
+    ? Math.max(...unreservedCapacities as number[]) : null;
+  const singleMaximumMi = physicalMaximumMi ?? (estimate && Object.hasOwn(estimate, 'physicalMaximumMi') ? null : legacySingleMaximum);
+  const capacityKnown = rawCapacityKnown && (!singleNvidia || typeof singleMaximumMi === 'number');
+  const availableMi = capacityKnown ? singleNvidia ? Math.min(rawAvailableMi, singleMaximumMi!) : rawAvailableMi : 0;
+  const exceedsPhysicalMemory = singleNvidia && typeof physicalMaximumMi === 'number' && selectedMi > physicalMaximumMi;
 
   useEffect(() => {
     if (editing || omni) return;
@@ -219,7 +239,7 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
     ...(hasHostBudget && typeof systemMemory?.minimumMi === 'number' && hostMemoryMi < systemMemory.minimumMi ? ['Host RAM is below the estimated startup minimum.'] : []),
   ] : [];
   const hasMemoryRisk = !omni && memoryRisks.length > 0;
-  const invalidBudget = !omni && ((!editing && !selectedTarget) || noSlots || engineUnavailable || (cardRequired && gpuDeployment !== 'single' && gpuCount < 2)
+  const invalidBudget = !omni && ((!editing && !selectedTarget) || noSlots || engineUnavailable || exceedsPhysicalMemory || (cardRequired && gpuDeployment !== 'single' && gpuCount < 2)
     || !Number.isInteger(selectedMi) || selectedMi < 100 || ((editing ? selectedMi !== initialStandard?.selectedMi : true) && selectedMi % 100 !== 0)
     || ((cpuOffloading || gpuCount > 1) && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < (gpuCount > 1 ? 1100 : 100)
       || ((editing ? hostMemoryMi !== initialStandard?.hostMemoryMi : true) && hostMemoryMi % 100 !== 0)))
@@ -296,7 +316,8 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
         maximum={multiGpu?.computeTargets.includes(computeTarget) ? multiGpu.maxDevices : 1} replicated={replicated} />
     </>}
     {noSlots && <p id="model-slots-full" className="notice notice-warn" role="status">{editing ? 'No free slot on the selected NVIDIA card.' : 'No free GPU model slots. Remove a model or change GPU sharing in System > Hardware.'}</p>}
-    {automaticGpuPool && <p className="notice" role="status">Automatic GPU assignment: this hardware choice selects a node scheduling pool, not an individual card. Enable NVIDIA DRA card selection in System &gt; Hardware to choose a specific card.</p>}
+    {automaticGpuPool && <p className="notice" role="status">Automatic GPU assignment: the model receives one GPU from the scheduling pool, not the combined memory of all cards. The calculator and slider use a single-card capacity. Enable NVIDIA DRA card selection in System &gt; Hardware to choose specific cards or split a model.</p>}
+    {exceedsPhysicalMemory && <p className="notice notice-warn" role="alert">The selected VRAM budget exceeds physical memory for a single GPU ({formatMi(physicalMaximumMi)}). Reduce it or choose an explicit multi-GPU split. Memory-risk acceptance cannot combine cards.</p>}
     {engineUnavailable && <p className="notice notice-warn" role="status">{selectedTarget?.engineAvailability?.[draft.engine]?.message ?? `${draft.engine} is not available on the selected hardware.`}</p>}
     {omni && config && <section className="stack compact" aria-label="Hardware configuration"><div className="form-grid">
       <Field label="Compute node"><select value={device ? deviceChoice(device) : config.gpuNode} onChange={(event) => {
@@ -375,7 +396,7 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
     </AdvancedModelSettings>
     {imageMissing && <p className="notice notice-warn" role="status">Choose a backend-compatible runtime image in Advanced.</p>}
     {invalidRealtime && config?.gpuNode && <p className="notice notice-warn" role="alert">Check available slots, positive numeric settings and the node's RAM capacity.</p>}
-    {hasMemoryRisk && <div id="model-memory-risk" className="notice notice-warn" role="note"><strong>{editing ? 'Memory warning — this change can still be applied.' : 'Memory warning — you can still try to start this model.'}</strong><ul>{memoryRisks.map((risk) => <li key={risk}>{risk}</li>)}</ul>{!editing && <p>Adding it accepts this risk. The pod may remain Pending, fail with out-of-memory errors or restart. Requests and limits stay at your selected budgets; a successful start is not guaranteed.</p>}</div>}
+    {hasMemoryRisk && <div id="model-memory-risk" className="notice notice-warn" role="note"><strong>{exceedsPhysicalMemory ? 'Correct the physical GPU memory limit before saving.' : editing ? 'Memory warning — this change can still be applied.' : 'Memory warning — you can still try to start this model.'}</strong><ul>{memoryRisks.map((risk) => <li key={risk}>{risk}</li>)}</ul>{!editing && !exceedsPhysicalMemory && <p>Adding it accepts this risk. The pod may remain Pending, fail with out-of-memory errors or restart. Requests and limits stay at your selected budgets; a successful start is not guaranteed.</p>}</div>}
     {editing && <p className="muted">Saving reconciles the model runtime. The Pod may restart while the new parameters are applied.</p>}
     <ErrorNotice error={estimateError ?? (editing && !omni ? estimateQuery.error : null) ?? mutation.error} />
     <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>

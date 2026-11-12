@@ -331,6 +331,18 @@ global model defaults or overwrite saved application settings and indexes.
 
 ### NVIDIA multi-GPU models
 
+For ordinary NVIDIA models, both memory-estimation endpoints return
+`physicalMaximumMi` (nullable) separately from unreserved `maximumMi`, with
+`memoryBudgetScope: per-device`. Without an explicit DRA card selection,
+automatic placement receives one GPU: `maximumMi` is bounded by the smallest
+eligible physical card, never aggregate DCGM/pool VRAM. Only schedulable nodes
+matching the target/engine selector contribute. Unknown candidate capacity
+remains null. Create/update reject a known physically oversized one-card budget
+even with `allowMemoryRisk: true`; estimated underbudgeting and unreserved
+oversubscription retain their separate documented risk contract. Edit estimates
+exclude the old model's own reservation, never add its old budget to physical
+capacity. This does not select or promise an exact device-plugin GPU.
+
 The existing local-model create, estimate, edit, start and stop endpoints remain
 the only control path. Optional `local.gpuDeployment` selects `single`, `split`
 or `replicated`. Omission preserves existing single/split behavior; replication

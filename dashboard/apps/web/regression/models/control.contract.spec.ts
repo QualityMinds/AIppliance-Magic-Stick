@@ -97,6 +97,7 @@ test('MEM-01 MEM-05 memory estimates expose their terms and risk remains explici
   'test_memory_calculations.MemoryCalculationTests.test_replica_ram_is_per_copy_and_total_is_not_worker_multiplied_twice',
   'test_memory_calculations.MemoryCalculationTests.test_unknown_metadata_and_other_gpu_nodes_cannot_invent_ram_capacity',
   'test_nvidia_card_api.NvidiaCardApiTests.test_group_startup_ram_underbudget_needs_explicit_risk_without_changing_budget',
+  'test_nvidia_pool_memory.NvidiaPoolMemoryTests',
   'test_cpu_offloading.CpuOffloadingTests.test_explicit_memory_risk_acceptance_preserves_small_and_unverifiable_budgets',
   'test_cpu_offloading.CpuOffloadingTests.test_risk_acceptance_does_not_bypass_invalid_values_or_replica_limits',
 ]));
