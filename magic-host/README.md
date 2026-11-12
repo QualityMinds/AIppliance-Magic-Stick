@@ -274,6 +274,12 @@ state in `/var/lib/magicstick/dashboard-console`, mounted only into the console
 runtime.
 Use `Ctrl+Alt+F1` for the system console and `Ctrl+Alt+F9` for Magic Stick.
 
+A mouse attached to the appliance works on that monitor: the launcher runs the
+TUI behind `/usr/local/sbin/magicstick-console-mouse`, which reads
+`/dev/input/mice` and feeds mouse reports to the TUI. Without a mouse or with
+`dashboard_console_mouse_enabled: false` the TUI starts directly and is operated
+with the keyboard.
+
 Before the first-run console is shown, the `kubernetes-oidc` role waits for the
 Flux-managed identity CA, installs only its public certificate on the host,
 restarts K3s with the Keycloak issuer/client/group claim contract, and publishes

@@ -30,6 +30,9 @@ class DashboardConsoleRoleTests(unittest.TestCase):
             "{{ dashboard_console_setup_resource | quote }}": shlex.quote("local"),
             "{{ (dashboard_console_client_secret_directory ~ '/client-secret') | quote }}":
                 shlex.quote("/var/run/magicstick-console-client/client-secret"),
+            "{{ dashboard_console_mouse_enabled | bool | string | lower | quote }}": shlex.quote("true"),
+            "{{ dashboard_console_mouse_helper | quote }}": shlex.quote("/usr/local/sbin/magicstick-console-mouse"),
+            "{{ dashboard_console_mouse_device | quote }}": shlex.quote("/dev/input/mice"),
         }
         rendered_launcher = LAUNCHER
         for source, target in values.items():
@@ -103,6 +106,21 @@ class DashboardConsoleRoleTests(unittest.TestCase):
         self.assertIn("exec -i -t", LAUNCHER)
         self.assertIn('current_phase="$(setup_phase)"', LAUNCHER)
         self.assertIn('"$current_phase" != "Completed"', LAUNCHER)
+
+    def test_mouse_helper_is_optional_and_never_replaces_the_keyboard_path(self):
+        # The helper wraps the unchanged kubectl session; without helper, device
+        # or opt-in the launcher runs that session directly.
+        self.assertIn('"$MOUSE_ENABLED" == "true" && -x "$MOUSE_HELPER" && -r "$MOUSE_DEVICE"', LAUNCHER)
+        self.assertIn('mouse=("$MOUSE_HELPER" --device "$MOUSE_DEVICE" --)', LAUNCHER)
+        self.assertIn('${mouse[@]+"${mouse[@]}"} "${KUBECTL[@]}" -n "$NAMESPACE" exec -i -t', LAUNCHER)
+        # The TUI draws a pointer only when the helper is actually feeding it.
+        self.assertIn('MAGICSTICK_CONSOLE_POINTER="$pointer"', LAUNCHER)
+        self.assertIn("pointer=0", LAUNCHER)
+        self.assertIn("src: console-mouse.py", TASKS)
+        self.assertIn('dest: "{{ dashboard_console_mouse_helper }}"', TASKS)
+        defaults = yaml.safe_load((ROLE_DIR / "defaults" / "main.yml").read_text(encoding="utf-8"))
+        self.assertIs(defaults["dashboard_console_mouse_enabled"], True)
+        self.assertEqual(defaults["dashboard_console_mouse_device"], "/dev/input/mice")
 
     def test_systemd_owns_tty9_only_after_the_claim_is_removed(self):
         self.assertIn("ConditionPathExists=!{{ dashboard_console_setup_claim_file }}", TASKS)

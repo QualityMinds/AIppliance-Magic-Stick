@@ -13,15 +13,52 @@ kubeconfig generation.
 
 The interactive `magicstick tui` command exposes the same role-filtered areas
 as the React application and refreshes the shared snapshot automatically. It is
-also a lifecycle client: operators can enable or disable catalog services and
-create or remove local and external models; administrators can perform the
+also a lifecycle client: operators can enable or disable catalog services,
+create and remove application instances, show service and instance credentials
+on request, create or remove local and external models, and start, stop or
+restart them; administrators can change instance sharing, perform the
 local-user lifecycle, create and revoke named API keys, and assign or revoke
 SSO-backed Kubernetes access. The TUI calls the same authenticated API client
 as the explicit CLI commands, preserves API authorization checks, confirms
 destructive actions, masks passwords, and shows API-key secrets only once.
 Token-free kubeconfigs can be copied with the terminal's OSC 52 clipboard
-protocol. Instance creation remains available in the browser or through the
-complete JSON-payload CLI command.
+protocol. The create-instance form offers the same values as the browser form
+and both send the same request; the complete JSON-payload CLI command remains
+available for scripts. Editing a model's settings and reading model logs remain
+in the browser.
+
+The screen is laid out like the browser dashboard and is designed for a
+terminal 120 columns wide. Below the banner, one line shows the connection and
+the signed-in user. The page list on the left has the same pages as the browser
+(Overview, Models, Services, API Access, Mesh, Kubernetes Access and System,
+with the System sections as a button row). Pages consist of the same panels,
+status badges and `[ buttons ]`. Mesh, Computer power, model editing and logs,
+and the settings that the TUI cannot change point to the browser dashboard.
+
+A cursor marks one element at a time. The arrow keys (or `h`/`j`/`k`/`l`) move
+it to the nearest element in that direction, Tab and Shift+Tab walk through all
+elements in reading order, and Enter or Space uses the element. In the page
+list, Up and Down switch pages and Right enters the page; Left returns to the
+list. Page Up, Page Down, Home and End scroll long pages, and the number keys
+open a page directly. The bottom line is a hotkey bar: it names what Enter does
+on the current element and lists the shortcuts of the current page, such as
+`a` to add a model, `n` for a new instance, `f` to change the Services filter or `s` to change the
+System section, together with `r` (reload), `x` (switch user or sign out), `?`
+(help) and `q` (quit).
+
+Terminals that report mouse events, such as common SSH clients, also accept
+clicks on every element and hotkey-bar entry, and the wheel scrolls the page.
+Hold Shift to select text with the terminal while the TUI is open.
+
+A mouse plugged into the appliance works on the attached monitor too, without
+a graphical desktop. The Linux console itself reports no mouse, so the host's
+console launcher runs the TUI behind a small helper that reads the kernel's
+combined mouse device (`/dev/input/mice`) and sends the TUI the same reports a
+terminal would; the TUI draws the pointer as a solid block. This needs both the
+updated host role and the updated CLI image; with only one of them, or without
+a mouse, the monitor is operated with the keyboard exactly as before. Set
+`dashboard_console_mouse_enabled: false` for the host role to switch the helper
+off.
 
 The seven-line, borderless ASCII space banner carries **AIppliance** and
 **Magic Stick** on two lines of a USB spacecraft, without a duplicate heading
@@ -52,7 +89,7 @@ including with `--no-color`. The standalone
 [banner module](../../dashboard/apps/cli/src/banner.ts) owns the artwork and timing.
 
 For a frontend-only preview, `magicstick tui --demo` (or `corepack pnpm tui:demo`
-from the built dashboard workspace) displays all nine tabs with synthetic
+from the built dashboard workspace) displays all pages with synthetic
 sample data. The **OFFLINE DEMO** header distinguishes it from a real session.
 This mode makes no network requests, reads no saved configuration or credentials,
 and disables live actions, clipboard exports, and sign-out. It does not alter
@@ -120,7 +157,7 @@ The attached monitor and keyboard are signed in as **Local console** with
 repaired at the machine itself, including while the network is unavailable.
 Anyone with physical access to that keyboard has the configured access without
 a password. Administrators choose the level under **System → Settings → Local
-console**, in the TUI **Settings** tab (`e`), or with the CLI:
+console**, in the TUI under **System → Settings** (**Change**, or `e`), or with the CLI:
 
 ```bash
 magicstick console-access get
