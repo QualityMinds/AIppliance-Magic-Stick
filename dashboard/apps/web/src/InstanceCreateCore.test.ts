@@ -6,6 +6,7 @@ describe('shared create-instance payload', () => {
     expect(instanceHost('hermes', 'default', 'example.com')).toBe('default.hermes.example.com');
     expect(instanceHost('hermes', 'hermes-team', '.example.com.')).toBe('team.hermes.example.com');
     expect(instanceHost('pi-coding', 'My Space', 'example.com')).toBe('my-space.pi-coding.example.com');
+    expect(instanceHost('hermes', `a${'-'.repeat(100_000)}`, 'example.com')).toBe('a.hermes.example.com');
   });
 
   it('starts every application from the same defaults in the browser and the terminal', () => {

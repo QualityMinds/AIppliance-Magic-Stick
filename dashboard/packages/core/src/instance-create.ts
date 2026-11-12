@@ -54,8 +54,17 @@ export const initialInstanceDraft = (type: string, model = ''): InstanceDraft =>
   template: 'default-coder', chromaStorage: '5Gi', searxngStorage: '1Gi', ntfyStorage: '1Gi',
 });
 
-const dnsPart = (value: string, fallback: string) => value.trim().toLowerCase()
-  .replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').replace(/--+/g, '-') || fallback;
+const dnsPart = (value: string, fallback: string) => {
+  const result: string[] = [];
+  for (const character of value.trim().toLowerCase()) {
+    const code = character.charCodeAt(0);
+    const isAlphanumeric = (code >= 48 && code <= 57) || (code >= 97 && code <= 122);
+    if (isAlphanumeric) result.push(character);
+    else if (result.length && result[result.length - 1] !== '-') result.push('-');
+  }
+  if (result[result.length - 1] === '-') result.pop();
+  return result.join('') || fallback;
+};
 
 /** `<instance-name>.<instance-type>.<domain>`, the hostname contract of application instances. */
 export const instanceHost = (type: string, name: string, publicDomain: string) => {
