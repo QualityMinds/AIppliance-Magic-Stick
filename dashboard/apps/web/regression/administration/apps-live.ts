@@ -22,6 +22,7 @@ import {HermesTerminalEvidence,observeHermesTerminal,verifyHermesTerminalChat} f
 import {OpenCodeChatEvidence,observeOpenCodeChat,verifyOpenCodeChat,openCodeChatPath} from '../core/opencode-chat.ts';
 import {applicationFixtureEnabled,liveWorkflowEnabled} from '../core/engine-policy.ts';
 import {serviceRegressionEnabled} from '../core/service-selection.ts';
+import type {LocalModelFixture} from '../core/config.ts';
 import {ModuleRuntimeProof} from '../core/module-runtime-proof.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
@@ -279,6 +280,13 @@ export function applicationStageIds(stage:ApplicationServiceStage) {
   return new Set(stage==='installation'?['APP-02','APP-10']:['APP-05','APP-07','ACL-01','ACL-02','ACL-04','ACL-06']);
 }
 
+/** The app form requires a deployed catalog model even when this suite does
+ * not test inference. Keep its ordinary owned name within native admission. */
+export async function prepareApplicationInstallModel(live:LiveFoundation,fixture:LocalModelFixture) {
+  const model=await live.createModel('app-setup',live.journal,fixture);
+  await live.waitReady(model.client,model.uid,model.generation);return model;
+}
+
 export function applicationSsoChallenge(status:number,location:string|undefined,identityUrl:string,clientId:string,redirectUrl:string) {
   requireSafe([302,303].includes(status)&&location,'AUTH');
   const target=new URL(location);
@@ -337,8 +345,7 @@ export async function applicationServiceStage(live:LiveFoundation,browser:Browse
     await prepareApplications(live,apps.api,fixtures);await verifyGateway();
     const baseline=Object.values((await apps.api.api.instances()).instances).flat()
       .map(item=>`${item.metadata?.uid}:${item.metadata?.generation}`).sort().join(',');
-    const model=await live.createModel('app-install-prerequisite',live.journal,fixture);
-    await live.waitReady(model.client,model.uid,model.generation);
+    const model=await prepareApplicationInstallModel(live,fixture);
     const allowed=stage==='access'?await users.create('app-allowed','user'):undefined,
       denied=stage==='access'?await users.create('app-denied','user'):undefined;
     for(const actor of [allowed,denied])if(actor)actors.push(await realLogin(browser,live.config,{actor:{

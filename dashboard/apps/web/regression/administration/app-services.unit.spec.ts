@@ -1,10 +1,32 @@
 import {test,expect} from '@playwright/test';
-import {applicationStageIds,applicationServiceStage,applicationSsoChallenge,applicationPageReady,validateAppFixtures} from './apps-live.ts';
+import {applicationStageIds,applicationServiceStage,applicationSsoChallenge,applicationPageReady,validateAppFixtures,prepareApplicationInstallModel} from './apps-live.ts';
 import {directAppBackendReady,nativeAppBackendReady,appResourceAssociated} from '../core/owned-app.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
+import {ResourceJournal,newRunId} from '../core/journal.ts';
+import {kubeaiModelNameLimit} from '../core/owned-model.ts';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import type {LiveFoundation} from '../core/live-foundation.ts';
+import type {LocalModelFixture} from '../core/config.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('APP-02 installation prerequisite uses the real journal prefix without exceeding native KubeAI name admission',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-service-name-'));
+  try {
+    const journal=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'fixture-appliance');
+    const fixture:LocalModelFixture={engine:'OLlama',computeTarget:'cpu',url:'ollama://fixture',memoryRequiredMi:1024,contextWindow:2048,maxNumSeqs:1};
+    const client={name:''},calls:string[]=[];
+    const live={journal,createModel:async(suffix:string,actualJournal:ResourceJournal,actualFixture:LocalModelFixture)=>{
+      expect(actualJournal).toBe(journal);expect(actualFixture).toBe(fixture);client.name=journal.prefix+suffix;
+      expect(client.name.length).toBeLessThanOrEqual(kubeaiModelNameLimit);calls.push('create');return {client,uid:'owned',generation:1};
+    },waitReady:async(actual:unknown,uid:string,generation:number)=>{
+      expect(actual).toBe(client);expect(uid).toBe('owned');expect(generation).toBe(1);calls.push('ready');
+    }} as unknown as LiveFoundation;
+    await prepareApplicationInstallModel(live,fixture);expect(calls).toEqual(['create','ready']);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 test('APP-02/05 services only credit installation, SSO/public access and uninstall, not deferred model integration',annotation,async()=>{
   expect([...applicationStageIds('installation')]).toEqual(['APP-02','APP-10']);
   expect([...applicationStageIds('access')]).toEqual(['APP-05','APP-07','ACL-01','ACL-02','ACL-04','ACL-06']);
