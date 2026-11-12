@@ -46,6 +46,8 @@ describe('shared create-instance payload', () => {
 
   it('rejects incomplete drafts before anything is sent', () => {
     expect(() => instanceCreatePayload({...initialInstanceDraft('hermes', 'qwen'), name: 'Bad Name'}, 'example.com')).toThrow('lowercase');
+    expect(() => instanceCreatePayload({...initialInstanceDraft('hermes', 'qwen'), name: `a${'-'.repeat(100_000)}!`}, 'example.com')).toThrow('lowercase');
+    expect(instanceCreatePayload({...initialInstanceDraft('hermes', 'qwen'), name: 'a-b'}, 'example.com')).toMatchObject({name: 'a-b'});
     expect(() => instanceCreatePayload(initialInstanceDraft('hermes', ''), 'example.com')).toThrow('chat model');
     expect(() => instanceCreatePayload({...initialInstanceDraft('paperclip', 'qwen'), openClawEnabled: true}, 'example.com')).toThrow('OpenClaw');
     expect(() => instanceCreatePayload({...initialInstanceDraft('paperclip', 'qwen'), hermesEnabled: true}, 'example.com')).toThrow('Hermes');

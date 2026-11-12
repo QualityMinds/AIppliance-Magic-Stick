@@ -29,6 +29,16 @@ const storageDefaults: Record<string, string> = {
   openclaw: '20Gi', hermes: '10Gi', paperclip: '5Gi', odysseus: '20Gi', kubeopencode: '5Gi', 'pi-coding': '5Gi',
 };
 
+const isValidInstanceName = (name: string) => {
+  if (!name.length) return false;
+  for (let index = 0; index < name.length; index += 1) {
+    const code = name.charCodeAt(index);
+    const isAlphanumeric = (code >= 48 && code <= 57) || (code >= 97 && code <= 122);
+    if (!isAlphanumeric && (code !== 45 || index === 0 || index === name.length - 1)) return false;
+  }
+  return true;
+};
+
 export const instanceStorageDefault = (type: string) => storageDefaults[type] ?? '5Gi';
 export const instanceModelRequired = (type: string) => ['openclaw', 'hermes', 'paperclip', 'kubeopencode', 'odysseus', 'pi-coding'].includes(type);
 /** Applications whose form has a storage size; KubeOpenCode has none. */
@@ -58,7 +68,7 @@ export const instanceHost = (type: string, name: string, publicDomain: string) =
 /** The request body for `POST /api/instances/<type>`. Throws a user-readable error for an incomplete draft. */
 export const instanceCreatePayload = (draft: InstanceDraft, publicDomain: string): Record<string, unknown> => {
   const {type, model} = draft;
-  if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(draft.name)) throw new Error('The name may contain lowercase letters, digits and hyphens, and must start and end with a letter or digit.');
+  if (!isValidInstanceName(draft.name)) throw new Error('The name may contain lowercase letters, digits and hyphens, and must start and end with a letter or digit.');
   if (instanceModelRequired(type) && !model) throw new Error('Select a deployed chat model.');
   if (type === 'paperclip' && draft.openClawEnabled && !draft.openClawInstanceRef) throw new Error('Select an OpenClaw instance or disable its gateway.');
   if (type === 'paperclip' && draft.hermesEnabled && !draft.hermesInstanceRef) throw new Error('Select a Hermes instance or disable its gateway.');
