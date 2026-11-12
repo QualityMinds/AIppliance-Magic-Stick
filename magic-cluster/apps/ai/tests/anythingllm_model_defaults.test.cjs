@@ -46,6 +46,45 @@ test('a fresh LiteLLM configuration rejects an unavailable default chat model', 
     /catalogued default chat model/);
 });
 
+test('a genuinely empty first-install catalog permits native setup without a fake model or context', () => {
+  for (const empty of [{models: []}, {defaultModel: '', models: []}, {defaultModel: null, models: []}]) {
+    const result = modelDefaults(empty, {models: []}, {}, {});
+    assert.equal(result.LLM_PROVIDER, 'litellm');
+    assert.equal(result.LITE_LLM_MODEL_PREF, undefined);
+    assert.equal(result.LITE_LLM_MODEL_TOKEN_LIMIT, undefined);
+    assert.equal(result.EMBEDDING_MODEL_PREF, undefined);
+  }
+  // Neither a named missing default nor an explicit missing choice is empty.
+  for (const [catalog, env] of [[{defaultModel: 'missing', models: []}, {}],
+    [{models: []}, {MAGICSTICK_INITIAL_CHAT_MODEL: 'missing'}],
+    [{models: []}, {MAGICSTICK_INITIAL_EMBEDDING_MODEL: 'missing'}],
+    [{models: [{id: 'unselected'}]}, {}]]) {
+    assert.throws(() => modelDefaults(catalog, {models: []}, {}, env), /catalog/);
+  }
+});
+
+test('empty catalog startup preserves saved user selections and never rewrites them to setup defaults', () => {
+  const saved = {LLM_PROVIDER: 'litellm', LITE_LLM_MODEL_PREF: 'saved-unavailable-chat',
+    LITE_LLM_MODEL_TOKEN_LIMIT: '12000', EMBEDDING_MODEL_PREF: 'saved-index-embedding'};
+  const original = JSON.stringify(saved), result = modelDefaults({models: []}, {models: []}, saved, {});
+  for (const key of Object.keys(saved)) assert.equal(result[key], undefined);
+  assert.equal(JSON.stringify(saved), original);
+});
+
+test('an empty catalog seed writes setup-only settings without any model download or fake activation', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anythingllm-empty-setup-'));
+  try {
+    for (const name of ['chat-models.json', 'embedding-models.json'])
+      fs.writeFileSync(path.join(directory, name), JSON.stringify({defaultModel: null, models: []}));
+    seed({storageDir: directory, catalogDir: directory, env: {}, parse: () => ({})});
+    const text = fs.readFileSync(path.join(directory, 'anythingllm.env'), 'utf8');
+    assert(text.includes('LLM_PROVIDER="litellm"'));
+    for (const field of ['LITE_LLM_MODEL_PREF', 'LITE_LLM_MODEL_TOKEN_LIMIT', 'EMBEDDING_MODEL_PREF'])
+      assert(!text.includes(field));
+    assert.equal(fs.statSync(path.join(directory, 'anythingllm.env')).mode & 0o777, 0o600);
+  } finally { fs.rmSync(directory, {recursive: true, force: true}); }
+});
+
 test('catalog changes preserve complete existing dotenv content, secrets and unrelated settings', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anythingllm-defaults-test-'));
   try {

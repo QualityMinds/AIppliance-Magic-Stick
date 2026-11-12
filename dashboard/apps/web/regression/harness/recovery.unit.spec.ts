@@ -18,6 +18,10 @@ import {HarnessError} from '../core/errors.ts';
 import {gpuWorkerJournal} from '../core/gpu-scenario.ts';
 import {attestKubernetesTermination,verifiedKubernetesTermination,reconcileKubernetesSession} from '../core/kubernetes-termination.ts';
 import {assessCleanup} from '../core/cleanup-state.ts';
+import {recoveryInventory} from '../core/recovery-inventory.ts';
+import {AppRuntimeProof} from '../core/app-lifecycle.ts';
+import {ModuleRuntimeProof} from '../core/module-runtime-proof.ts';
+import type {ModuleRuntimeObject} from '../core/module-lifecycle.ts';
 
 test('HAR-06 HAR-09 cleanup always runs without replacing the original scenario error', async () => {
   const primary = new HarnessError('DEADLINE', 'Failed', 'model-ready');
@@ -69,6 +73,99 @@ async function isolated(action:(directory:string)=>Promise<void>) {
   const directory=await mkdtemp(join(tmpdir(),'runner-recovery-'));
   try {await action(directory);}finally {await rm(directory,{recursive:true,force:true});}
 }
+
+test('HAR-07 durable app runtime snapshots fence interrupted deletion and are immutable after repeated verified recovery',async()=>isolated(async directory=>{
+  const f=await fixture(directory),name='pi-coding-'+f.journal.prefix+'owned';
+  await f.journal.requested('app',name);await f.journal.owned('app',name,'exact-app-uid',1);
+  const entry=f.journal.entries[0]!,catalog={modules:{},catalogJson:{modules:{pi:{requiredCrds:[]}},applications:{'pi-coding':{requiredModules:['pi'],requiredCrds:[]}}}};
+  const instance={metadata:{name,namespace:'ai-system',uid:entry.uid!,generation:1},spec:{application:'pi-coding',targetNamespace:'ai'}};
+  let current:typeof instance|null=instance;
+  const proof=new AppRuntimeProof({journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},
+    observer:{list:async()=>[]}},async()=>current,async()=>catalog);
+  await proof.capture(entry);expect((await recoveryInventory(f.path,registration)).appRuntimes[0]!.state).toBe('observed');
+  f.resources.set(name,entry.uid!);
+  const original=f.adapters.cleanup;
+  f.adapters.cleanup=(journal,guard)=>({...original(journal,guard),app:{lookup:async()=>current?{uid:entry.uid!}:null,
+    removeIfUid:async()=>{await guard();await proof.capture(entry);current=null;f.resources.delete(name);},verifyRemoved:value=>proof.verifyRemoved(value)}});
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+  const filename=join(f.path,'app-runtime-'+name+'.json'),closed=await readPrivate(filename);
+  expect((await recoveryInventory(f.path,registration)).open).toBe(0);expect((await assessCleanup(f.path,true)).state).toBe('verified');
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+  expect(await readPrivate(filename)).toBe(closed);expect((await assessCleanup(f.path,true)).state).toBe('verified');
+  await writePrivate(filename,{...JSON.parse(closed),uid:'foreign-app-uid'});
+  await expect(recoveryInventory(f.path,registration)).rejects.toMatchObject({code:'RECOVERY'});
+}));
+
+test('HAR-07 interrupted service restoration independently verifies durable runtime absence before releasing recovery',async()=>isolated(async directory=>{
+  const f=await fixture(directory),borrowedFile=join(f.path,'borrowed-module.json');
+  let objects:ModuleRuntimeObject[]=[];
+  const observer={get:async()=>structuredClone(f.module.current),list:async(resource:string)=>objects.filter(item=>item.resource===resource).map(item=>item.object)};
+  const live={journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},observer};
+  const proof=new ModuleRuntimeProof(live,f.original,borrowedFile,'app-optional-fixture',true);
+  await proof.capture();const borrowed=new BorrowedModule(f.original,borrowedFile,f.adapters.module(f.original,async()=>{}),async()=>{});
+  await borrowed.change(true,{});
+  objects=[{resource:'pods',object:{metadata:{name:'owned-pod',namespace:'ai',uid:'owned-pod-uid',
+    labels:{'kustomize.toolkit.fluxcd.io/name':'app-optional-fixture','kustomize.toolkit.fluxcd.io/namespace':'flux-system'}},status:{phase:'Running'}}}];
+  await proof.capture();const adapter=f.adapters.module;
+  f.adapters.module=(original,guard)=>{const result=adapter(original,guard);return {...result,set:async(enabled,parameters)=>{
+    await result.set(enabled,parameters);if(!enabled)objects=[];
+  }};};
+  f.adapters.moduleRuntime=(receipt,guard)=>{
+    const current=()=>ModuleRuntimeProof.resume({...live,guard},receipt.filename);
+    return {verifyRecoverable:async()=>{await (await current()).verifyRecoverable();},capture:async()=> (await current()).capture(),
+      verifyRestored:async()=>{await (await current()).verifyRestored();}};
+  };
+  expect((await recoveryInventory(f.path,registration)).moduleRuntimes[0]!.value.state).toBe('observed');
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+  expect(f.store.value.spec.holderIdentity).toBe('');expect((await assessCleanup(f.path,true)).state).toBe('verified');
+  const text=await readPrivate(proof.filename);
+  f.module.current={...f.module.current,metadata:{...f.module.current.metadata,resourceVersion:'later-status-write'},status:{phase:'Disabled',message:'Refreshed'}};
+  await proof.verifyRestored();expect(await readPrivate(proof.filename)).toBe(text);expect((await assessCleanup(f.path,true)).state).toBe('verified');
+}));
+
+test('HAR-07 service runtime unknown reads and replacement module UIDs retain their fence without cleanup writes',async()=>isolated(async directory=>{
+  const f=await fixture(directory),observer={get:async()=>structuredClone(f.module.current),list:async(_resource:string):Promise<KubeObject[]>=>[]},
+    live={journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},observer};
+  const proof=new ModuleRuntimeProof(live,f.original,join(f.path,'borrowed-module.json'),'app-optional-fixture',true);await proof.capture();
+  observer.list=async()=>{throw new HarnessError('OBSERVER','Failed','recovery-module');};
+  await expect(proof.verifyRestored()).rejects.toMatchObject({code:'OBSERVER'});
+  expect((await recoveryInventory(f.path,registration)).moduleRuntimes[0]!.value.state).toBe('observed');
+  f.module.current={...f.module.current,metadata:{...f.module.current.metadata,uid:'foreign-module-uid'}};
+  await expect(proof.verifyRecoverable()).rejects.toMatchObject({code:'CONFLICT'});expect(f.module.writes).toBe(0);
+  expect(f.store.replacements).toBe(0);expect(f.store.value.spec.holderIdentity).toBe(f.runId);
+}));
+
+test('HAR-07 disabled service runtime still present cannot be attested restored',async()=>isolated(async directory=>{
+  const f=await fixture(directory),pod={metadata:{name:'owned',namespace:'ai',uid:'owned-pod',labels:{
+    'kustomize.toolkit.fluxcd.io/name':'app-optional-fixture','kustomize.toolkit.fluxcd.io/namespace':'flux-system'}},status:{phase:'Running'}};
+  const live={journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},
+    observer:{get:async()=>f.module.current,list:async(resource:string)=>resource==='pods'?[pod]:[]}};
+  const proof=new ModuleRuntimeProof(live,f.original,join(f.path,'borrowed-module.json'),'app-optional-fixture',true);await proof.capture();
+  await expect(proof.verifyRestored({timeoutMs:20,intervalMs:1})).rejects.toMatchObject({code:'DEADLINE',stage:'recovery-module'});
+  expect((await recoveryInventory(f.path,registration)).moduleRuntimes[0]!.value.state).toBe('observed');
+  expect(f.module.writes).toBe(0);expect(f.store.value.spec.holderIdentity).toBe(f.runId);
+}));
+
+test('HAR-07 originally enabled service restoration requires fresh current Flux and native workload readiness',async()=>isolated(async directory=>{
+  const f=await fixture(directory),original={...f.original,spec:{...f.original.spec,enabled:true}};
+  f.module.current={...original,status:{phase:'Ready',observedGeneration:1}};
+  const labels={'kustomize.toolkit.fluxcd.io/name':'app-optional-fixture','kustomize.toolkit.fluxcd.io/namespace':'flux-system'},
+    template={containers:[{name:'controller',image:'registry.invalid/controller:v1'}]},source={metadata:{name:'app-optional-fixture',namespace:'flux-system',uid:'source',generation:1},
+      status:{observedGeneration:1,conditions:[{type:'Ready',status:'True'}],inventory:{entries:[{id:'ai_controller_apps_Deployment'}]}}};
+  const objects:ModuleRuntimeObject[]=[{resource:'deployments.apps',object:{metadata:{name:'controller',namespace:'ai',uid:'deployment',generation:1,labels},
+    spec:{replicas:1,template:{spec:template}},status:{observedGeneration:1,replicas:1,readyReplicas:1,updatedReplicas:1,availableReplicas:1} as any}},
+    {resource:'replicasets.apps',object:{metadata:{name:'controller-rs',namespace:'ai',uid:'replicaset',ownerReferences:[{kind:'Deployment',uid:'deployment'}]}}},
+    {resource:'pods',object:{metadata:{name:'controller-pod',namespace:'ai',uid:'pod',ownerReferences:[{kind:'ReplicaSet',uid:'replicaset'}]},spec:template,
+      status:{phase:'Running',conditions:[{type:'Ready',status:'True'}],containerStatuses:[{name:'controller',ready:true,imageID:'actual-image-id'}]}}}];
+  const observer={get:async()=>structuredClone(f.module.current),list:async(resource:string)=>resource==='kustomizations.kustomize.toolkit.fluxcd.io'?[source]:
+    objects.filter(item=>item.resource===resource).map(item=>item.object)};
+  const proof=new ModuleRuntimeProof({journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},observer},
+    original,join(f.path,'borrowed-module.json'),'app-optional-fixture',true);
+  await proof.capture();await proof.verifyRestored();const closed=await readPrivate(proof.filename);
+  source.status.observedGeneration=0;
+  await expect(proof.verifyRestored({timeoutMs:20,intervalMs:1})).rejects.toMatchObject({code:'DEADLINE'});
+  expect(await readPrivate(proof.filename)).toBe(closed);
+}));
 
 test('HAR-08 automatic cleanup restores a fresh GPU baseline and never adopts an ambiguous reset',async()=>{
   for(const interrupted of ['untouched','shared','reset-response-lost'] as const)await isolated(async directory=>{

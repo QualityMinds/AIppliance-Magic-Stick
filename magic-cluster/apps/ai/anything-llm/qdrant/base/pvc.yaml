@@ -3,6 +3,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: qdrant-storage
   namespace: ai
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
     app: qdrant
 spec:

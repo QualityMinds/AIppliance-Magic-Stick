@@ -1,6 +1,7 @@
 {
   "version": 2,
   "profiles": [
+    {"id": "services", "phase": 5, "title": "Separate services: installation, SSO/public access and removal (including Pi Coding Agent)", "caseIds": ["MOD-03", "MOD-04", "APP-02", "APP-10", "APP-05", "APP-07", "ACL-01", "ACL-02", "ACL-04", "ACL-06"], "grep": "MOD-03|MOD-04|APP-02|APP-10|APP-05|APP-07|ACL-01|ACL-02|ACL-04|ACL-06"},
     {"id": "slot-race", "phase": 4, "title": "Last GPU slot race", "caseIds": ["SLOT-09"], "grep": "SLOT-09"},
     {"id": "reload", "phase": 4, "title": "Sharing persistence after reload", "caseIds": ["SHR-12"], "grep": "SHR-12"},
     {"id": "restoration", "phase": 4, "title": "Exact sharing and resource restoration", "caseIds": ["HAR-08"], "grep": "HAR-08"},
