@@ -148,9 +148,36 @@ data:
             "oauth2.device.authorization.grant.enabled": "true"
           },
           "protocol": "openid-connect"
+        },
+        {
+          "clientId": "magicstick-console",
+          "name": "Magic Stick local appliance console",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_CONSOLE_CLIENT_SECRET}",
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "redirectUris": [],
+          "webOrigins": [],
+          "attributes": {
+            "magicstick.console.defaultAccessApplied": "true"
+          },
+          "protocol": "openid-connect"
         }
       ],
       "users": [
+        {
+          "username": "service-account-magicstick-console",
+          "enabled": true,
+          "serviceAccountClientId": "magicstick-console",
+          "realmRoles": [
+            "magicstick-user",
+            "magicstick-admin"
+          ]
+        },
         {
           "username": "service-account-magicstick-setup",
           "enabled": true,

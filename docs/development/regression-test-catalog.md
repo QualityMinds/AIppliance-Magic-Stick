@@ -103,6 +103,8 @@ without dashboard-management grants. Follow the current shared role contract.
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
 | AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
+| AUTH-11 | Open the attached appliance console without any saved login. It signs in as the Local console service account with no prompt, browser or stored token; a saved user login takes precedence and logout returns to the automatic session. A missing, empty or rejected console secret and a switched-off level fall back to the device login instead of failing, while an unreachable API or identity provider is never replaced by a login prompt. Switching users can be cancelled without losing the working session. | U+C | P1 · identity |
+| AUTH-12 | Change the Local console level (Off, Viewer, Operator, Administrator) from Web, CLI and TUI through the shared API. Only a live administrator can change it; the console's authorization follows its current Keycloak roles instead of stale token claims, so a downgrade applies to the next request and a downgraded console cannot restore itself. A console-client token for any other account, invalid levels and an unprovisioned identity are rejected without a role write. A console token is honoured only on the direct in-cluster connection: any gateway or frontend-proxy header, or an unknown transport, is refused, and the network API route denies the identity before its role rule, while proxied human sessions are unaffected. Startup reconciliation grants the default exactly once and never re-grants after an opt-out; the identity stays out of human-user lists and administrator counts. | U+C | P1 · identity |
 | AUTH-10 | Simulate Keycloak/API unavailability. Distinguish authentication service failure from bad credentials; do not allow cached privilege or an unauthenticated fallback. | U+C+B | P0 · fast |
 
 ## 3. Navigation, Overview and System Status
@@ -616,6 +618,31 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+### 2026-11-12 — automatic sign-in of the attached appliance console
+
+New AUTH-11/AUTH-12 cover the Local console identity at its owning layers.
+API (C): `test_console_access_api.py` rejects stale token roles, foreign
+subjects on the console client, self-restoration after a downgrade, invalid
+levels and an unprovisioned identity, and checks cache invalidation and audit.
+The same file rejects a console token carrying each proxy header or no known
+transport, through the real request handler too, and keeps proxied human
+sessions working; `test_user_admin_deployment.py` checks the ordered gateway
+deny rule. Envoy's evaluation of that rule is not exercised locally.
+Identity (C): `test_console_identity.py` runs the extracted startup function
+against a synthetic `kcadm` for upgrade creation, once-only default grant,
+retry after a failed grant and a preserved opt-out; `test_callback_policy.py`
+propagates its failure. Host role (C): the Secret mount is optional, read-only
+and never passed on a command line. CLI/TUI (U): credential exchange, session
+precedence, in-memory token, fallback and non-fallback errors, cancellable user
+switching and the Settings form. Web (U): changed/reverted/refetched drafts,
+unavailable state and rejected saves. Client-credential, `userinfo`, role
+removal and wrong-secret behaviour were confirmed once against a local
+Keycloak 26.6.3 container; that is upstream verification, not installed
+acceptance. No selection profile or phase is changed: the physical console is
+outside the browser/API runner, so there is no B/A/E/O evidence. A native
+check of an offline console, the installed Secret/pod wiring and an upgrade
+of an existing realm remains open.
 
 ### 2026-11-12 — MEM-01/05 automatic NVIDIA single-card memory
 

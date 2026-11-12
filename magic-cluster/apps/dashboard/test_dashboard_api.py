@@ -204,7 +204,7 @@ class LocalRuntimeTests(unittest.TestCase):
     def test_dashboard_and_cli_oidc_clients_are_trusted(self):
         self.assertEqual(
             self.server["OIDC_EXPECTED_CLIENT_IDS"],
-            {"magicstick-human-gateway-local", "magicstick-cli"},
+            {"magicstick-human-gateway-local", "magicstick-cli", "magicstick-console"},
         )
 
     def test_remove_local_runtime_deletes_only_auto_enabled_modules(self):

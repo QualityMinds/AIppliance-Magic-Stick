@@ -10,6 +10,7 @@ import type {
   ModuleState,
   RouteStatus,
   Session,
+  ConsoleAccessLevel,
   SystemStatusPayload,
   GpuCompatibilityProfile,
   GpuEngineValidation,
@@ -26,6 +27,16 @@ export const dashboardRole = (session?: Session): DashboardRole => {
   if (roles.has('magicstick-operator')) return 'operator';
   return 'viewer';
 };
+
+/** Display name for the signed-in identity; the automatic console session has no personal username. */
+export const sessionDisplayName = (session?: Session) => session?.localConsole ? 'Local console' : session?.username ?? 'unknown';
+
+export const consoleAccessLabel = (level: ConsoleAccessLevel) => ({
+  off: 'Off — sign-in required',
+  viewer: 'Viewer (read-only)',
+  operator: 'Operator',
+  admin: 'Administrator',
+})[level];
 
 export const canMutateRuntime = (session?: Session) => dashboardRole(session) !== 'viewer';
 export const canAdminister = (session?: Session) => dashboardRole(session) === 'admin';

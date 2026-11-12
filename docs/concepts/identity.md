@@ -32,6 +32,12 @@ magicstick CLI or TUI
      -> short-lived access token with the same Magic Stick realm roles
   -> Envoy JWT policy on api.<mDNS-domain>
   -> dashboard control-plane API authorization
+
+attached appliance monitor (TUI)
+  -> confidential magicstick-console client, secret mounted in-cluster only
+     -> short-lived token of the local console service account, no user or browser
+  -> cluster-internal dashboard API, which reads the console's current roles
+     from Keycloak on every authorization
 ```
 
 Applications trust one stable local issuer. External enterprise identity
@@ -98,6 +104,20 @@ None of these clients reuse browser cookies, client secrets, or each other's
 client ID. Unattended machine integrations still need their own policy and
 credential lifecycle; a renewable human device session is not a service
 account.
+
+The monitor attached to the appliance is the one deliberate exception to a
+personal login. It signs in automatically as the **Local console** service
+account so the appliance stays operable at the machine itself without a network
+or a second device. Physical access to that keyboard therefore equals the
+configured dashboard access: Administrator by default, or Operator, Viewer or
+Off as chosen by an administrator. The identity has dashboard roles only, is
+hidden from user lists, cannot be used to sign in to the browser dashboard or
+`kubectl`, and a console with a lowered level cannot raise it again. Its tokens
+are accepted only on the cluster-internal API connection, never through a
+network-facing route. Root on the host, Kubernetes cluster administrators and
+Keycloak administrators can read the generated secret; they already hold
+equivalent or broader access. See
+[automatic sign-in](../reference/cli.md#automatic-sign-in).
 
 ## Browser session lifetime
 
@@ -186,6 +206,8 @@ The current implementation provides:
 - dashboard API token validation, a minimal user launchpad and viewer/operator/admin authorization
 - a public `magicstick-cli` device-flow client and the JWT-protected,
   mDNS-published `api.<mDNS-domain>` route used by the CLI and TUI
+- a confidential `magicstick-console` service-account client for automatic
+  sign-in of the attached monitor, with an administrator-controlled access level
 - protected local and public routes for LiteLLM, AnythingLLM, and KubeOpenCode
   with a minimum `magicstick-user` role
 - LiteLLM-specific OIDC token forwarding disabled after edge authorization, so

@@ -110,18 +110,60 @@ the operational TUI share virtual terminal 9 but never run concurrently:
    exists.
 2. Successful setup removes the claim and starts
    `magicstick-dashboard-console.service`.
-3. The console requests a Keycloak device login if it has no usable cached SSO
-   session, then starts `magicstick console`.
+3. The console starts `magicstick console`, which signs in automatically and
+   opens the TUI. No browser, second device or network connection is needed.
+
+#### Automatic sign-in
+
+The attached monitor and keyboard are signed in as **Local console** with
+**Administrator** access by default, so the appliance can be operated and
+repaired at the machine itself, including while the network is unavailable.
+Anyone with physical access to that keyboard has the configured access without
+a password. Administrators choose the level under **System → Settings → Local
+console**, in the TUI **Settings** tab (`e`), or with the CLI:
+
+```bash
+magicstick console-access get
+magicstick console-access set operator   # off | viewer | operator | admin
+```
+
+| Level | Console without a login |
+|---|---|
+| Administrator (default) | Full access, including users, network and power. |
+| Operator | Status, services and models; no administration. |
+| Viewer | Read-only status. |
+| Off | No automatic access; the console shows a device login. |
+
+A change applies to the next request of a running console. A lowered or
+switched-off console cannot raise its own level again; an administrator signs
+in from the browser dashboard, the CLI, or on the console itself with `x`.
+
+Press `x` to **act as a different user**: the console shows an address and a
+one-time code that the user confirms in a browser on a second device (Keycloak
+device login). `Esc` cancels and returns to the previous session. A signed-in
+user replaces the automatic session until they choose **Return to the automatic
+monitor session** with `x`. With **Off**, or on an appliance whose platform
+revision has not provisioned automatic sign-in yet, the device login is shown
+directly; it needs a second device that can reach the appliance.
 
 The terminal client is packaged into a dedicated Node.js CLI runtime image and
 executed in a dedicated runtime Deployment with no Service, no ingress and no
 Kubernetes service-account token. API and token polling traffic uses cluster-internal
 transport while the token issuer and browser verification address remain the
-canonical `id.<mDNS-domain>` URL. The persistent session directory is mounted
-only into that runtime and stores mode-`0600` token data; no password or client
-secret is provisioned. Press `x` in the TUI to remove the local session and
-authorize a different user. Pressing `q` exits the current process, after which
-the appliance service restores the TUI automatically.
+canonical `id.<mDNS-domain>` URL. Automatic sign-in uses a dedicated
+confidential Keycloak client, `magicstick-console`, whose generated secret
+exists only as `Secret/magicstick-console-client` in `identity-system` and is
+mounted read-only into that runtime. Its service account holds dashboard roles
+only: no Keycloak administration and no Kubernetes group. The CLI exchanges the
+secret for a five-minute access token that is kept in memory and never written
+to disk. The dashboard API honours that token only on the direct in-cluster
+connection the console uses: requests that arrive through the gateway or the
+browser frontend are refused, and the `api.<mDNS-domain>` route denies the
+console identity as well. A copied secret therefore cannot be used from another
+device on the network or the internet. The persistent session directory is mounted only into that runtime and
+stores mode-`0600` token data of a user who signed in with `x`; no password is
+stored. Pressing `q` exits the current process, after which the appliance
+service restores the TUI automatically.
 
 | Method | Path | Behavior |
 |---|---|---|
@@ -173,6 +215,8 @@ the appliance service restores the TUI automatically.
 | `GET` | `/api/api-access` | Lists only named LiteLLM virtual keys created through this dashboard plus the local/public API bases; raw key values are never returned. |
 | `POST` | `/api/api-access` | Creates a named LiteLLM virtual key and returns its raw value exactly once. |
 | `DELETE` | `/api/api-access/{id}` | Verifies dashboard ownership and revokes one named LiteLLM virtual key. |
+| `GET` | `/api/console-access` | Administrator: returns whether automatic console sign-in is provisioned and its level (`off`, `viewer`, `operator`, `admin`). |
+| `PUT` | `/api/console-access` | Administrator: replaces the dashboard roles of the local console identity with `{"accessLevel": …}`; effective on the console's next request and recorded in the user-administration audit log. |
 | `GET` | `/api/kubernetes-access?search=&first=&max=` | Lists human Keycloak users, their direct Kubernetes access group, and non-secret cluster OIDC readiness. |
 | `PUT` | `/api/kubernetes-access/{id}` | Replaces only the user's direct Magic Stick Kubernetes group and requests a Keycloak logout. |
 | `GET` | `/api/kubernetes-access/{id}/kubeconfig` | Returns a user-labelled kubeconfig with cluster/identity CAs and an OIDC exec plugin, but no token, password, or client secret. |

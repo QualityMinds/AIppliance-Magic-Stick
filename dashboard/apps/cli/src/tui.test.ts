@@ -47,6 +47,35 @@ describe('terminal dashboard', () => {
     expect(lines.join('\n')).not.toContain('\x1b');
   });
 
+  it('labels the automatic monitor session and offers switching users instead of signing out', () => {
+    const automatic = snapshot();
+    automatic.session = {...automatic.session, username: 'service-account-magicstick-console', localConsole: true};
+    const screen = renderTui(automatic, 0, 100, 30, false, {localConsole: true});
+    expect(screen).toContain('signed in: Local console · admin · automatic');
+    expect(screen).not.toContain('service-account');
+    expect(screen).toContain('x: switch user');
+    expect(screen).not.toContain('x: sign out');
+
+    const workstation = renderTui(snapshot(), 0, 100, 30, false);
+    expect(workstation).toContain('x: sign out');
+    expect(workstation).not.toContain('automatic');
+  });
+
+  it('shows the monitor sign-in level in Settings only when the appliance reports it', () => {
+    const tabs = availableTabs(snapshot());
+    const configured = {...snapshot(), consoleAccess: {available: true, accessLevel: 'admin' as const}};
+    const lines = tabLines('Settings', configured).join('\n');
+    expect(lines).toContain('Automatic sign-in  Administrator');
+    expect(lines).toContain('without a password');
+    expect(renderTui(configured, tabs.indexOf('Settings'), 100, 30, false)).toContain('e/Enter: monitor sign-in');
+
+    const off = tabLines('Settings', {...snapshot(), consoleAccess: {available: true, accessLevel: 'off' as const}}).join('\n');
+    expect(off).toContain('Off — sign-in required');
+    expect(off).not.toContain('without a password');
+    expect(tabLines('Settings', {...snapshot(), consoleAccess: {available: false, accessLevel: 'off' as const}}).join('\n')).toContain('Not provisioned');
+    expect(tabLines('Settings', snapshot()).join('\n')).not.toContain('Automatic sign-in');
+  });
+
   it('caps the banner at the same width as the separator on wide terminals', () => {
     const lines = renderTui(snapshot(), 0, 250, 40, false).split('\n');
     const bannerWidths = lines.slice(0, BANNER_HEIGHT).map((line) => line.length);

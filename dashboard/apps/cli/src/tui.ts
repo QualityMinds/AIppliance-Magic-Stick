@@ -1,17 +1,21 @@
 import {
   canAdminister,
   canMutateRuntime,
+  consoleAccessLabel,
   dashboardRole,
   flattenInstances,
   formatMi,
   gpuCompatibilityParameters,
   gpuValidationSummary,
   phaseNeedsAttention,
+  sessionDisplayName,
   titleFromKey,
 } from '@magicstick/dashboard-core';
+import {CONSOLE_ACCESS_LEVELS} from '@magicstick/dashboard-contracts';
 import type {
   ApiKeyItem,
   ComputeTarget,
+  ConsoleAccessLevel,
   KubernetesAccessUser,
   ModelActivation,
   ModuleCatalogEntry,
@@ -24,6 +28,9 @@ import type {Runtime} from './runtime';
 import {clipTerminalLine, truncate} from './output';
 import {bannerFits, createBannerAnimation, renderBanner, type BannerFrame} from './banner';
 import {licenseLines, previewLines, readLicenseFile, saveLicenseFile} from './license';
+
+/** Why the TUI ended: a plain quit, or a request the appliance console must act on. */
+export type TuiOutcome = 'quit' | 'switch-user' | 'restart-session';
 
 export type TuiTab = 'Overview' | 'Services' | 'Models' | 'Settings' | 'Users' | 'API Access' | 'Kubernetes' | 'License' | 'Hardware' | 'System';
 
@@ -69,6 +76,8 @@ interface TuiRenderState {
   selectionIndex?: number;
   overlay?: TuiOverlay;
   notice?: string;
+  /** The terminal is the appliance console with automatic sign-in: x switches users instead of signing out. */
+  localConsole?: boolean;
 }
 
 export interface LocalModelInput {
@@ -254,6 +263,13 @@ const settingsLines = (snapshot: DashboardSnapshot) => [
   `Public domain  ${snapshot.settings?.publicDomain ?? 'unavailable'}`,
   `Dashboard host ${snapshot.settings?.dashboardHost ?? 'unavailable'}`,
   `mDNS domain    ${snapshot.settings?.mdnsDomain ?? 'unavailable'}`,
+  ...(snapshot.consoleAccess ? [
+    '',
+    'Appliance monitor',
+    `Automatic sign-in  ${snapshot.consoleAccess.available ? consoleAccessLabel(snapshot.consoleAccess.accessLevel) : 'Not provisioned on this appliance yet'}`,
+    ...(snapshot.consoleAccess.available && snapshot.consoleAccess.accessLevel !== 'off'
+      ? ['  Anyone at the attached keyboard has this access without a password.'] : []),
+  ] : []),
 ];
 
 const userLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => [
@@ -346,8 +362,9 @@ const overlayLines = (overlay: TuiOverlay) => {
   ];
 };
 
-const browseHelp = (tab: TuiTab, snapshot: DashboardSnapshot) => {
-  const base = 'x: sign out';
+const browseHelp = (tab: TuiTab, snapshot: DashboardSnapshot, localConsole = false) => {
+  const base = localConsole ? 'x: switch user' : 'x: sign out';
+  if (tab === 'Settings' && canAdminister(snapshot.session) && snapshot.consoleAccess?.available) return `${base} · e/Enter: monitor sign-in`;
   if (tab === 'Services' && canMutateRuntime(snapshot.session)) return `${base} · a: enable · d: disable`;
   if (tab === 'Models' && canMutateRuntime(snapshot.session)) return `${base} · a: add · d: remove`;
   if (tab === 'Users' && canAdminister(snapshot.session)) return `${base} · a: add · e/Enter: edit · d: delete`;
@@ -364,6 +381,19 @@ export const MAX_CONTENT_COLUMNS = 120;
 // Leave the final terminal column unused to avoid automatic line wrapping.
 const usableColumns = (width: number) => Math.max(1, width - 1);
 
+export const wrapTerminalLine = (line: string, columns: number): string[] => {
+  if (Array.from(line).length <= columns || !line.includes(' ')) return [line];
+  const rows: string[] = [];
+  let row = '';
+  for (const word of line.split(' ')) {
+    if (row && Array.from(`${row} ${word}`).length > columns) {
+      rows.push(row);
+      row = word;
+    } else row = row ? `${row} ${word}` : word;
+  }
+  return [...rows, row];
+};
+
 export const renderTui = (
   snapshot: DashboardSnapshot,
   tabIndex: number,
@@ -377,19 +407,25 @@ export const renderTui = (
   const tabs = availableTabs(snapshot);
   const safeIndex = Math.min(Math.max(0, tabIndex), tabs.length - 1);
   const active = tabs[safeIndex] ?? 'Overview';
-  const identity = state.demo ? 'OFFLINE DEMO · read-only · sample data' : `signed in: ${snapshot.session.username} · ${dashboardRole(snapshot.session)}`;
+  const identity = state.demo ? 'OFFLINE DEMO · read-only · sample data'
+    : `signed in: ${sessionDisplayName(snapshot.session)} · ${dashboardRole(snapshot.session)}${snapshot.session.localConsole ? ' · automatic' : ''}`;
   const header = dim(identity, color);
   const tabLabels = tabs.map((tab, index) => index === safeIndex ? `[ ${tab} ]` : tab);
   let firstTab = 0;
   while (firstTab < safeIndex && tabLabels.slice(firstTab, safeIndex + 1).join('  ').length + 2 > columns) firstTab += 1;
   const navigation = `${firstTab ? '< ' : ''}${tabLabels.slice(firstTab).map((label, index) => index + firstTab === safeIndex ? cyan(label, color) : label).join('  ')}`;
-  const rawBody = state.overlay ? overlayLines(state.overlay) : tabLines(active, snapshot, state.selectionIndex);
+  const overlayBody = state.overlay ? overlayLines(state.overlay) : [];
+  // Dialog explanations are prose: wrap them instead of clipping at the screen edge.
+  const overlayHelp = state.overlay && state.overlay.kind !== 'busy' ? [overlayBody.pop() ?? ''] : [];
+  const rawBody = state.overlay
+    ? overlayBody.flatMap((line) => line.startsWith('›') ? [line] : wrapTerminalLine(line, columns))
+    : tabLines(active, snapshot, state.selectionIndex);
   const controls = columns < 72 ? 'h/l:tabs j/k:rows r:refresh q:quit'
     : '←/→ h/l: tabs · ↑/↓ k/j: rows · r: refresh · q: quit';
   // Keep form/confirmation instructions on-screen even when the body scrolls.
   const help = state.overlay
-    ? state.overlay.kind === 'busy' ? [] : [rawBody.pop() ?? '']
-    : state.demo ? [controls] : [controls, browseHelp(active, snapshot)];
+    ? overlayHelp
+    : state.demo ? [controls] : [controls, browseHelp(active, snapshot, state.localConsole)];
   const maximumBody = Math.max(0, height - banner.length - 5 - help.length - (state.notice ? 1 : 0));
   const focus = rawBody.findIndex((line) => line.startsWith('›'));
   const bodyStart = focus >= maximumBody ? Math.max(0, focus - maximumBody + 1) : 0;
@@ -416,7 +452,7 @@ const userSource = (user: User) => {
 };
 const isLocalUser = (user: User) => user.local ?? ['local', 'keycloak', 'internal'].includes(userSource(user).toLowerCase());
 
-export const runTui = async (runtime: Runtime, options: {color?: boolean; refreshSeconds?: number; demo?: boolean} = {}) => {
+export const runTui = async (runtime: Runtime, options: {color?: boolean; refreshSeconds?: number; demo?: boolean} = {}): Promise<TuiOutcome> => {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('The TUI needs an interactive terminal. Use CLI commands or --json for non-interactive use.');
   let snapshot = await loadSnapshot(runtime.api);
   let tabIndex = 0;
@@ -424,6 +460,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
   let refreshError = '';
   let overlay: TuiOverlay | undefined;
   let finished = false;
+  let outcome: TuiOutcome = 'quit';
   const selection: Partial<Record<TuiTab, number>> = {};
   const color = options.color !== false;
   const animation = createBannerAnimation((frame) => {
@@ -444,6 +481,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       demo: options.demo,
       banner: animation.frame,
       selectionIndex: activeSelection(), overlay,
+      localConsole: runtime.localConsole,
       notice: refreshError ? `Refresh failed: ${refreshError}` : '',
     });
     process.stdout.write(`\x1b[H${rendered.split('\n').map((row) => `${row}\x1b[K`).join('\n')}\x1b[J`);
@@ -798,13 +836,32 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     });
   };
 
+  const editConsoleAccess = () => {
+    const access = snapshot.consoleAccess;
+    if (!access?.available) return message('Automatic sign-in unavailable', 'This appliance has not provisioned automatic sign-in for its monitor yet. It appears after the next platform update.');
+    openForm('Monitor sign-in', 'Access of the attached monitor and keyboard without a login. Off requires a user sign-in from a second device. Changes apply immediately; a lower level can only be raised again by a signed-in administrator.', [
+      {id: 'accessLevel', label: 'Automatic sign-in', value: access.accessLevel, kind: 'choice', choices: CONSOLE_ACCESS_LEVELS.map((value) => ({value, label: consoleAccessLabel(value)}))},
+    ], 'save', async (values) => {
+      const level = values.accessLevel as ConsoleAccessLevel;
+      if (level === access.accessLevel) throw new Error('This level is already active.');
+      await perform('Change monitor sign-in', async () => {
+        await runtime.api.updateConsoleAccess(level);
+        return {lines: [`Automatic sign-in of the appliance monitor: ${consoleAccessLabel(level)}.`]};
+      });
+    });
+  };
+
   const browseAction = (key: string) => {
     if (!isTuiActionKey(key)) return;
     if (options.demo) return message('Offline demo', 'This preview is read-only. Live actions require an appliance connection.');
     const tab = activeTab();
     const entity = selectedEntity();
     if ((tab === 'Services' || tab === 'Models') && !canMutateRuntime(snapshot.session)) return message('Read-only session', 'Operator or administrator access is required for this action.', 'error');
-    if (['Users', 'API Access', 'Kubernetes', 'License', 'Hardware'].includes(tab) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+    if (['Settings', 'Users', 'API Access', 'Kubernetes', 'License', 'Hardware'].includes(tab) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+    if (tab === 'Settings') {
+      if (key === 'e' || key === '\r' || key === '\n') editConsoleAccess();
+      return;
+    }
     if (tab === 'Hardware') {
       const compatibility = snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
       if (!compatibility) return message('Hardware catalog unavailable', 'The server has not reported GPU compatibility profiles yet. Refresh after the controller update.');
@@ -969,10 +1026,25 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     }
     if (key === 'x') {
       if (options.demo) return message('Offline demo', 'No session is stored or changed in demo mode. Press q to quit.');
-      openConfirm('Sign out', 'The locally cached SSO session is removed. The appliance console will request a new device login.', 'sign out', async () => {
-        await runtime.logout();
+      const leave = (next: TuiOutcome) => {
+        outcome = next;
         cleanup();
-      });
+      };
+      const kind = runtime.sessionKind();
+      if (runtime.localConsole && kind === 'console') {
+        openConfirm('Sign in as another user', 'This monitor is signed in automatically. To act as a different user, a one-time code is shown that you confirm in a browser on a second device. You can cancel and return here at any time.', 'continue', async () => leave('switch-user'));
+      } else if (runtime.localConsole && kind === 'user') {
+        overlay = {kind: 'menu', title: 'Switch user', description: `Signed in as ${sessionDisplayName(snapshot.session)}.`, active: 0, options: [
+          {label: 'Return to the automatic monitor session', hint: 'removes this user login', action: () => void runtime.logout().then(() => leave('restart-session'), (error) => message('Could not sign out', errorText(error), 'error'))},
+          {label: 'Sign in as another user', hint: 'needs a second device', action: () => leave('switch-user')},
+        ]};
+        draw();
+      } else {
+        openConfirm('Sign out', 'The locally cached SSO session is removed. A new device login is needed afterwards.', 'sign out', async () => {
+          await runtime.logout();
+          cleanup();
+        });
+      }
       return;
     }
     const tabs = availableTabs(snapshot);
@@ -1021,4 +1093,5 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
   animation.start();
   draw();
   await new Promise<void>((resolve) => { finish = resolve; });
+  return outcome;
 };

@@ -1,14 +1,15 @@
 import {promises as fs} from 'node:fs';
-import {canAdminister, flattenInstances, formatBytes, formatMi, gpuCompatibilityParameters, gpuValidationSummary, titleFromKey} from '@magicstick/dashboard-core';
+import {canAdminister, consoleAccessLabel, flattenInstances, formatBytes, formatMi, gpuCompatibilityParameters, gpuValidationSummary, titleFromKey} from '@magicstick/dashboard-core';
 import {ApiError, type MagicStickApi} from '@magicstick/dashboard-api-client';
 import {parseArguments, option, optionValues, type ParsedArguments} from './args';
 import {phase, stringify, table, truncate} from './output';
-import {createRuntime, type Runtime, type RuntimeOptions} from './runtime';
+import {createRuntime, type Runtime, type RuntimeOptions, type SessionKind} from './runtime';
+import {ConsoleSignInUnavailableError, LoginCancelledError} from './auth';
 import {loadSnapshot} from './snapshot';
 import {runTui} from './tui';
 import {createDemoRuntime} from './demo';
 import {licenseLines, previewLines, readLicenseFile, saveLicenseFile} from './license';
-import type {InstanceSharing} from '@magicstick/dashboard-contracts';
+import {CONSOLE_ACCESS_LEVELS, type ConsoleAccessLevel, type InstanceSharing} from '@magicstick/dashboard-contracts';
 
 export const VERSION = '0.1.0';
 
@@ -21,7 +22,25 @@ export interface CliIo {
 export interface CliDependencies {
   createRuntime?: (options?: RuntimeOptions) => Promise<Runtime>;
   runTui?: typeof runTui;
+  /** Calls `cancel` when the person at the terminal presses Esc; returns a disposer. */
+  cancelOnKey?: (cancel: () => void) => () => void;
 }
+
+const cancelOnTerminalKey = (cancel: () => void) => {
+  const input = process.stdin;
+  if (!input.isTTY) return () => undefined;
+  const onData = (data: Buffer) => {
+    if (['\u001b', 'q', '\u0003'].includes(data.toString('utf8'))) cancel();
+  };
+  input.setRawMode(true);
+  input.resume();
+  input.on('data', onData);
+  return () => {
+    input.off('data', onData);
+    input.setRawMode(false);
+    input.pause();
+  };
+};
 
 const defaultIo: CliIo = {
   stdout: (value) => process.stdout.write(value),
@@ -50,8 +69,11 @@ Interactive TUI:
   create/remove models. Administrators can additionally manage users, named API
   keys, offline licenses, and SSO-backed Kubernetes access. Forms and confirmations
   use the same authenticated control API as the commands below.
-  console is the appliance-monitor mode: it requests a device-flow login when
-  necessary and then opens the same TUI without storing a password.
+  console is the appliance-monitor mode. On the appliance's own monitor it is
+  signed in automatically with the access level an administrator configured
+  (console-access), so it also works without a network or a second device.
+  Press x to act as a different user; a device-flow login is requested only
+  for that, or when automatic console sign-in is switched off.
   tui --demo previews all tabs with synthetic, read-only data, without a backend
   or login. No saved configuration or credentials are accessed.
 
@@ -72,6 +94,7 @@ Read commands:
   model popular [--provider huggingface|ollama]
   model artifacts <repo> [--provider huggingface|ollama]
   settings get
+  console-access get                   Automatic sign-in of the appliance monitor (admin)
   user list [--search text] [--first 0] [--max 25]
   api-key list
   kubernetes-access list [--search text]
@@ -96,6 +119,7 @@ Mutation commands:
   model remove <name>
   model cleanup-runtime
   settings set [--public-domain domain] [--mdns-domain domain]
+  console-access set <off|viewer|operator|admin>
   user create <username> --password-file file [--access-level user|viewer|operator|admin]
   user update <id> [--first-name value] [--last-name value] [--email value]
   user role <id> <user|viewer|operator|admin>
@@ -161,18 +185,22 @@ const output = (io: CliIo, parsed: ParsedArguments, value: unknown, human: () =>
   io.stdout(option(parsed, 'json') ? stringify(value) : `${human()}\n`);
 };
 
-export const consoleLoginRequired = (error: unknown) => {
+export const consoleLoginRequired = (error: unknown, kind: SessionKind = 'none') => {
   if (error instanceof ApiError && error.status === 401) return true;
+  // An administrator switched automatic console sign-in off: the console
+  // identity still authenticates but no longer holds any dashboard role.
+  if (kind === 'console' && error instanceof ApiError && error.status === 403) return true;
   const messages: string[] = [];
   let current: unknown = error;
   for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    if (current instanceof ConsoleSignInUnavailableError) return true;
     messages.push(current instanceof Error ? current.message : String(current));
     current = (current as {cause?: unknown}).cause;
   }
   return /not signed in|saved login has expired|invalid or expired access token|invalid_grant|token is not active|session not active|refresh token/i.test(messages.join(' '));
 };
 
-const consoleLoginScreen = ({verificationUri, userCode}: {verificationUri: string; userCode: string}) => [
+const consoleLoginScreen = ({verificationUri, userCode}: {verificationUri: string; userCode: string}, cancellable = false) => [
   '\x1b[2J\x1b[H',
   '============================================================',
   '                         MAGIC STICK',
@@ -189,8 +217,65 @@ const consoleLoginScreen = ({verificationUri, userCode}: {verificationUri: strin
   '',
   'Die TUI startet automatisch nach erfolgreicher Anmeldung.',
   'Es wird kein Passwort auf dem Magic Stick gespeichert.',
+  ...(cancellable ? ['', 'Esc: abbrechen und zur bisherigen Sitzung zurueckkehren'] : []),
   '',
 ].join('\n');
+
+/**
+ * Makes sure the appliance console has a working session. The automatic
+ * console session is preferred; the device login is the fallback when it is
+ * switched off or unavailable, and the explicit path for switching users.
+ */
+const ensureConsoleSession = async (runtime: Runtime, io: CliIo, dependencies: CliDependencies, switchUser: boolean): Promise<void> => {
+  const usableSession = async () => {
+    for (;;) {
+      try {
+        await runtime.api.session();
+        return true;
+      } catch (error) {
+        const kind = runtime.sessionKind();
+        if (!consoleLoginRequired(error, kind)) throw error;
+        if (kind !== 'user') return false;
+        // A stale saved login must not hide the automatic console session.
+        await runtime.logout();
+        if (runtime.sessionKind() !== 'console') return false;
+      }
+    }
+  };
+  if (!switchUser && await usableSession()) return;
+
+  const controller = new AbortController();
+  const release = switchUser ? (dependencies.cancelOnKey ?? cancelOnTerminalKey)(() => controller.abort()) : () => undefined;
+  try {
+    await runtime.login(false, (details) => io.stdout(consoleLoginScreen(details, switchUser)), controller.signal);
+  } catch (error) {
+    // Switching users is optional: keep the working session when it fails.
+    if (!switchUser) throw error;
+    io.stdout(error instanceof LoginCancelledError
+      ? '\nAnmeldung abgebrochen.\n'
+      : `\nAnmeldung nicht moeglich: ${error instanceof Error ? error.message : String(error)}\n`);
+    return ensureConsoleSession(runtime, io, dependencies, false);
+  } finally {
+    release();
+  }
+  const session = await runtime.api.session();
+  io.stdout(`\nAngemeldet als ${session.username}. TUI wird geladen ...\n`);
+};
+
+const consoleAccessCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo, action: string, level?: string) => {
+  const describe = (result: {available: boolean; accessLevel: ConsoleAccessLevel}) => result.available
+    ? `Automatic console sign-in: ${consoleAccessLabel(result.accessLevel)}`
+    : 'Automatic console sign-in is not provisioned on this appliance yet.';
+  if (!action || action === 'get') {
+    const result = await runtime.api.consoleAccess();
+    output(io, parsed, result, () => describe(result));
+    return;
+  }
+  if (action !== 'set') throw new Error(`Unknown console-access action: ${action}`);
+  if (!CONSOLE_ACCESS_LEVELS.includes(level as ConsoleAccessLevel)) throw new Error('Usage: magicstick console-access set <off|viewer|operator|admin>');
+  const result = await runtime.api.updateConsoleAccess(level as ConsoleAccessLevel);
+  output(io, parsed, result, () => describe(result));
+};
 
 const summary = async (api: MagicStickApi, parsed: ParsedArguments, io: CliIo) => {
   const snapshot = await loadSnapshot(api);
@@ -529,6 +614,7 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
   else if (command === 'instance' || command === 'instances') await instanceCommand(runtime, parsed, io, action, argument);
   else if (command === 'model' || command === 'models') await modelCommand(runtime, parsed, io, action, argument);
   else if (command === 'settings') await settingsCommand(runtime, parsed, io, action);
+  else if (command === 'console-access') await consoleAccessCommand(runtime, parsed, io, action, argument);
   else if (command === 'license') await licenseCommand(runtime, parsed, io, action, argument);
   else if (command === 'user' || command === 'users') await userCommand(runtime, parsed, io, action, argument, extra);
   else if (command === 'api-key' || command === 'api-keys') await apiKeyCommand(runtime, parsed, io, action, argument);
@@ -539,19 +625,16 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
     refreshSeconds: integerOption(parsed, 'refresh', 15),
   });
   else if (command === 'console') {
-    try {
-      await runtime.api.session();
-    } catch (error) {
-      if (!consoleLoginRequired(error)) throw error;
-      await runtime.logout();
-      await runtime.login(false, (details) => io.stdout(consoleLoginScreen(details)));
-      const session = await runtime.api.session();
-      io.stdout(`\nAngemeldet als ${session.username}. TUI wird geladen ...\n`);
+    let switchUser = false;
+    for (;;) {
+      await ensureConsoleSession(runtime, io, dependencies, switchUser);
+      const outcome = await (dependencies.runTui ?? runTui)(runtime, {
+        color: !option(parsed, 'no-color'),
+        refreshSeconds: integerOption(parsed, 'refresh', 15),
+      });
+      if (outcome !== 'switch-user' && outcome !== 'restart-session') break;
+      switchUser = outcome === 'switch-user';
     }
-    await (dependencies.runTui ?? runTui)(runtime, {
-      color: !option(parsed, 'no-color'),
-      refreshSeconds: integerOption(parsed, 'refresh', 15),
-    });
   }
   else throw new Error(`Unknown command: ${command}. Run \`magicstick --help\` for usage.`);
   return 0;

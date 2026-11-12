@@ -22,3 +22,6 @@ dashboard_console_refresh_seconds: 15
 dashboard_console_retry_seconds: 5
 dashboard_console_setup_namespace: identity-system
 dashboard_console_setup_resource: local
+# Generated in-cluster; mounted read-only so the monitor signs in without a second device.
+dashboard_console_client_secret: magicstick-console-client
+dashboard_console_client_secret_directory: /var/run/magicstick-console-client

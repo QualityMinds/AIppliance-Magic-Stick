@@ -55,5 +55,7 @@ export const createDemoRuntime = (): Runtime => {
     settings: {apiUrl: '', issuer: '', clientId: ''},
     login: unavailable,
     logout: unavailable,
+    sessionKind: () => 'none',
+    localConsole: false,
   };
 };

@@ -8,6 +8,21 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Sign the attached appliance monitor in automatically. The terminal dashboard
+  no longer needs a device login from a second device, so the appliance can be
+  operated at the machine itself while the network is unavailable. **Security
+  note:** after this update, physical access to the attached keyboard grants
+  Administrator dashboard access by default, on existing installations too.
+  Administrators can lower it to Operator or Viewer or switch it off under
+  **System → Settings → Local console**, in the TUI or with
+  `magicstick console-access`; lower levels apply immediately and cannot be
+  raised from the console itself. The console identity is accepted only on
+  the cluster-internal API connection, so its secret is useless from the
+  network. `x` now switches to a personal device login
+  and back. The console runtime no longer requires the image registry to
+  restart. Takes effect once the updated platform revision, CLI image and host
+  role are installed; older combinations keep the device login.
+
 - Bound ordinary automatic NVIDIA model memory planning to one eligible physical
   card, not the sum of a scheduling pool. Create/Edit sliders and recommendations
   keep that ceiling even with an older API or an invalid saved budget; the API

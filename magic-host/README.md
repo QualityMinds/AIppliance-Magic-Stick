@@ -264,11 +264,14 @@ remains a non-clearing shell command.
 After the first-run claim is completed, the setup cleanup hands virtual console
 9 to `magicstick-dashboard-console.service`. The `dashboard-console` role runs
 the packaged Node.js client from an isolated CLI runtime Deployment with no
-Service or ingress and attaches its interactive TUI to the physical monitor. On first
-use it shows a Keycloak device-flow URL and one-time code; the operator
-authorizes the console from another browser. No password or static administrator
-credential is installed. The resulting refresh token is private state in
-`/var/lib/magicstick/dashboard-console`, mounted only into the console runtime.
+Service or ingress and attaches its interactive TUI to the physical monitor. The
+monitor signs in automatically through the generated in-cluster
+`magicstick-console-client` Secret, so it works without a network or a second
+device; administrators can lower its access level or switch it off, which
+falls back to a Keycloak device-flow URL and one-time code. No password is
+installed on the host. A user who signs in on the console keeps private token
+state in `/var/lib/magicstick/dashboard-console`, mounted only into the console
+runtime.
 Use `Ctrl+Alt+F1` for the system console and `Ctrl+Alt+F9` for Magic Stick.
 
 Before the first-run console is shown, the `kubernetes-oidc` role waits for the

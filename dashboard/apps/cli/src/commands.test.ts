@@ -1,6 +1,8 @@
 import {describe, expect, it, vi} from 'vitest';
-import type {MagicStickApi} from '@magicstick/dashboard-api-client';
-import type {Runtime} from './runtime';
+import {ApiError, type MagicStickApi} from '@magicstick/dashboard-api-client';
+import type {Runtime, SessionKind} from './runtime';
+import {ConsoleSignInUnavailableError, LoginCancelledError} from './auth';
+import type {TuiOutcome} from './tui';
 import {runCli, VERSION} from './commands';
 
 const io = () => {
@@ -22,7 +24,24 @@ const runtime = (api: Partial<MagicStickApi>): Runtime => ({
   settings: {apiUrl: 'https://api.magicstick.local', issuer: 'https://id.magicstick.local/realms/magicstick', clientId: 'magicstick-cli'},
   login: vi.fn(async () => undefined),
   logout: vi.fn(async () => undefined),
+  sessionKind: () => 'none',
+  localConsole: false,
 });
+
+// The appliance monitor: a saved user login (optional) on top of the automatic console session.
+const consoleRuntimeWith = (api: Partial<MagicStickApi>, initial: SessionKind = 'console') => {
+  let kind = initial;
+  const value = runtime(api);
+  value.localConsole = true;
+  value.sessionKind = () => kind;
+  value.logout = vi.fn(async () => { kind = 'console'; });
+  value.login = vi.fn(async (_openBrowser, prompt) => {
+    prompt?.({verificationUri: 'https://id.magicstick.local/device', userCode: 'ABCD-EFGH'});
+    kind = 'user';
+  });
+  return value;
+};
+const quit = () => vi.fn(async (): Promise<TuiOutcome> => 'quit');
 
 describe('runCli', () => {
   const compatibility = {
@@ -90,7 +109,7 @@ describe('runCli', () => {
 
   it.each([['tui', '--demo'], ['--demo', 'tui']])('starts an offline preview for %j without constructing a live runtime', async (...argv) => {
     const createRuntime = vi.fn();
-    const launch = vi.fn(async () => undefined);
+    const launch = quit();
     expect(await runCli(argv, io().supplied, {createRuntime, runTui: launch})).toBe(0);
     expect(createRuntime).not.toHaveBeenCalled();
     expect(launch).toHaveBeenCalledWith(expect.anything(), {demo: true, color: true, refreshSeconds: 15});
@@ -123,7 +142,7 @@ describe('runCli', () => {
 
   it('passes the configured interval into the interactive TUI', async () => {
     const output = io();
-    const launch = vi.fn(async () => undefined);
+    const launch = quit();
     await runCli(['tui', '--refresh', '20', '--no-color'], output.supplied, {
       createRuntime: async () => runtime({}),
       runTui: launch,
@@ -134,11 +153,14 @@ describe('runCli', () => {
 
   it('uses device login before opening the appliance console when no session exists', async () => {
     const output = io();
-    const launch = vi.fn(async () => undefined);
+    const launch = quit();
     const session = vi.fn()
       .mockRejectedValueOnce(new Error('Not signed in. Run `magicstick login` first.'))
       .mockResolvedValue({subject: '1', username: 'tova', roles: ['magicstick-admin']});
     const consoleRuntime = runtime({session} as Partial<MagicStickApi>);
+    let signedIn = true;
+    consoleRuntime.sessionKind = () => signedIn ? 'user' : 'none';
+    consoleRuntime.logout = vi.fn(async () => { signedIn = false; });
     consoleRuntime.login = vi.fn(async (_openBrowser, prompt) => prompt?.({
       verificationUri: 'https://id.magicstick.local/device',
       userCode: 'ABCD-EFGH',
@@ -150,8 +172,9 @@ describe('runCli', () => {
     });
 
     expect(consoleRuntime.logout).toHaveBeenCalledOnce();
-    expect(consoleRuntime.login).toHaveBeenCalledWith(false, expect.any(Function));
+    expect(consoleRuntime.login).toHaveBeenCalledWith(false, expect.any(Function), expect.any(AbortSignal));
     expect(output.stdout()).toContain('ABCD-EFGH');
+    expect(output.stdout()).not.toContain('Esc:');
     expect(output.stdout()).toContain('Angemeldet als tova');
     expect(launch).toHaveBeenCalledOnce();
   });
@@ -162,11 +185,127 @@ describe('runCli', () => {
 
     await expect(runCli(['console'], output.supplied, {
       createRuntime: async () => consoleRuntime,
-      runTui: vi.fn(async () => undefined),
+      runTui: quit(),
     })).rejects.toThrow('network unavailable');
 
     expect(consoleRuntime.login).not.toHaveBeenCalled();
     expect(consoleRuntime.logout).not.toHaveBeenCalled();
+  });
+
+  it('opens the appliance console with the automatic session and no login prompt', async () => {
+    const output = io();
+    const launch = quit();
+    const session = vi.fn(async () => ({subject: 'console', username: 'service-account-magicstick-console', roles: ['magicstick-admin'], localConsole: true}));
+    const consoleRuntime = consoleRuntimeWith({session} as unknown as Partial<MagicStickApi>);
+
+    await runCli(['console'], output.supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+
+    expect(consoleRuntime.login).not.toHaveBeenCalled();
+    expect(consoleRuntime.logout).not.toHaveBeenCalled();
+    expect(output.stdout()).toBe('');
+    expect(launch).toHaveBeenCalledOnce();
+  });
+
+  it('replaces an expired saved user login with the automatic console session', async () => {
+    const output = io();
+    const launch = quit();
+    const session = vi.fn()
+      .mockRejectedValueOnce(new Error('The saved login has expired. Run `magicstick login` again.'))
+      .mockResolvedValue({subject: 'console', username: 'service-account-magicstick-console', roles: ['magicstick-admin'], localConsole: true});
+    const consoleRuntime = consoleRuntimeWith({session} as unknown as Partial<MagicStickApi>, 'user');
+
+    await runCli(['console'], output.supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+
+    expect(consoleRuntime.logout).toHaveBeenCalledOnce();
+    expect(consoleRuntime.login).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['is switched off by an administrator', new ApiError('user role required', 403)],
+    ['is not provisioned or rejected', new ConsoleSignInUnavailableError('Automatic console sign-in is not provisioned on this appliance yet.')],
+  ])('falls back to the device login when automatic console sign-in %s', async (_name, failure) => {
+    const output = io();
+    const launch = quit();
+    const session = vi.fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue({subject: '1', username: 'tova', roles: ['magicstick-admin']});
+    const consoleRuntime = consoleRuntimeWith({session} as unknown as Partial<MagicStickApi>);
+
+    await runCli(['console'], output.supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+
+    expect(consoleRuntime.login).toHaveBeenCalledOnce();
+    expect(output.stdout()).toContain('ABCD-EFGH');
+    expect(launch).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat a missing permission of a signed-in user as a reason to log in again', async () => {
+    const consoleRuntime = consoleRuntimeWith({session: vi.fn(async () => { throw new ApiError('user role required', 403); })} as unknown as Partial<MagicStickApi>, 'user');
+
+    await expect(runCli(['console'], io().supplied, {createRuntime: async () => consoleRuntime, runTui: quit()})).rejects.toThrow('user role required');
+
+    expect(consoleRuntime.login).not.toHaveBeenCalled();
+  });
+
+  it('lets the console switch to another user and return to the automatic session', async () => {
+    const output = io();
+    const outcomes: TuiOutcome[] = ['switch-user', 'restart-session', 'quit'];
+    const launch = vi.fn(async (): Promise<TuiOutcome> => outcomes.shift() ?? 'quit');
+    const session = vi.fn(async () => ({subject: '1', username: 'tova', roles: ['magicstick-viewer']}));
+    const consoleRuntime = consoleRuntimeWith({session} as unknown as Partial<MagicStickApi>);
+    const release = vi.fn();
+
+    await runCli(['console'], output.supplied, {
+      createRuntime: async () => consoleRuntime, runTui: launch, cancelOnKey: () => release,
+    });
+
+    expect(launch).toHaveBeenCalledTimes(3);
+    expect(consoleRuntime.login).toHaveBeenCalledOnce();
+    expect(output.stdout()).toContain('Esc: abbrechen');
+    expect(output.stdout()).toContain('Angemeldet als tova');
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the automatic session when switching users is cancelled or fails', async () => {
+    for (const failure of [new LoginCancelledError(), new Error('The device login expired before it was completed. Run login again.')]) {
+      const output = io();
+      const outcomes: TuiOutcome[] = ['switch-user', 'quit'];
+      const launch = vi.fn(async (): Promise<TuiOutcome> => outcomes.shift() ?? 'quit');
+      const consoleRuntime = consoleRuntimeWith({session: vi.fn(async () => ({subject: 'console', username: 'console', roles: ['magicstick-admin'], localConsole: true}))} as unknown as Partial<MagicStickApi>);
+      let cancel = () => undefined as void;
+      consoleRuntime.login = vi.fn(async (_openBrowser, _prompt, signal) => {
+        cancel();
+        if (failure instanceof LoginCancelledError) expect(signal?.aborted).toBe(true);
+        throw failure;
+      });
+
+      await runCli(['console'], output.supplied, {
+        createRuntime: async () => consoleRuntime, runTui: launch,
+        cancelOnKey: (abort) => { cancel = failure instanceof LoginCancelledError ? abort : cancel; return () => undefined; },
+      });
+
+      expect(launch).toHaveBeenCalledTimes(2);
+      expect(consoleRuntime.logout).not.toHaveBeenCalled();
+      expect(output.stdout()).toContain(failure instanceof LoginCancelledError ? 'Anmeldung abgebrochen' : 'Anmeldung nicht moeglich');
+    }
+  });
+
+  it('reads and changes the automatic console sign-in level', async () => {
+    const consoleAccess = vi.fn(async () => ({available: true, accessLevel: 'admin' as const}));
+    const updateConsoleAccess = vi.fn(async () => ({available: true, accessLevel: 'off' as const}));
+    const live = runtime({consoleAccess, updateConsoleAccess} as Partial<MagicStickApi>);
+
+    const read = io();
+    await runCli(['console-access'], read.supplied, {createRuntime: async () => live});
+    expect(read.stdout()).toContain('Automatic console sign-in: Administrator');
+
+    const write = io();
+    await runCli(['console-access', 'set', 'off'], write.supplied, {createRuntime: async () => live});
+    expect(updateConsoleAccess).toHaveBeenCalledWith('off');
+    expect(write.stdout()).toContain('Off — sign-in required');
+
+    await expect(runCli(['console-access', 'set', 'root'], io().supplied, {createRuntime: async () => live})).rejects.toThrow('off|viewer|operator|admin');
+    expect(updateConsoleAccess).toHaveBeenCalledOnce();
   });
 
   it('passes an explicit appliance CA to the runtime', async () => {

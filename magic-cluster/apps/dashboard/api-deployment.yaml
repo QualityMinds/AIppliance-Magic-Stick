@@ -85,7 +85,7 @@ spec:
             - name: OIDC_EXPECTED_ISSUER
               value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
             - name: OIDC_EXPECTED_CLIENT_IDS
-              value: magicstick-human-gateway-local,magicstick-cli
+              value: magicstick-human-gateway-local,magicstick-cli,magicstick-console
             - name: IDENTITY_MANAGEMENT_MODE
               value: keycloak
             - name: KEYCLOAK_ADMIN_URL

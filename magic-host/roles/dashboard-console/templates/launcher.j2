@@ -12,6 +12,7 @@ REFRESH_SECONDS={{ dashboard_console_refresh_seconds | quote }}
 RETRY_SECONDS={{ dashboard_console_retry_seconds | quote }}
 SETUP_NAMESPACE={{ dashboard_console_setup_namespace | quote }}
 SETUP_RESOURCE={{ dashboard_console_setup_resource | quote }}
+CONSOLE_SECRET_FILE={{ (dashboard_console_client_secret_directory ~ '/client-secret') | quote }}
 
 mdns_domain() {
   local value
@@ -77,6 +78,7 @@ while true; do
       MAGICSTICK_API_URL="$API_URL" \
       MAGICSTICK_ISSUER="$issuer" \
       MAGICSTICK_OIDC_NETWORK_URL="$OIDC_NETWORK_URL" \
+      MAGICSTICK_CONSOLE_CLIENT_SECRET_FILE="$CONSOLE_SECRET_FILE" \
       /usr/local/bin/magicstick-dashboard console --no-open --refresh "$REFRESH_SECONDS" || true
 
   draw_waiting 'TUI wurde beendet; sie wird gleich neu gestartet.'
