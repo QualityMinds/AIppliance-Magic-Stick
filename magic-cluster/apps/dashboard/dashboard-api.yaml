@@ -109,13 +109,25 @@ data:
     OIDC_EXPECTED_CLIENT_IDS_RAW = (
         os.environ.get("OIDC_EXPECTED_CLIENT_IDS")
         or os.environ.get("OIDC_EXPECTED_CLIENT_ID")
-        or "magicstick-human-gateway-local,magicstick-cli"
+        or "magicstick-human-gateway-local,magicstick-cli,magicstick-console"
     )
     OIDC_EXPECTED_CLIENT_IDS = {
         value.strip()
         for value in OIDC_EXPECTED_CLIENT_IDS_RAW.split(",")
         if value.strip()
     }
+    # The physical appliance console signs in with this confidential
+    # service-account client; its access level is an administrator setting.
+    CONSOLE_CLIENT_ID = os.environ.get("CONSOLE_OIDC_CLIENT_ID", "magicstick-console").strip()
+    CONSOLE_SERVICE_ACCOUNT_USERNAME = "service-account-" + CONSOLE_CLIENT_ID
+    CONSOLE_ACCESS_LEVELS = ("off", "viewer", "operator", "admin")
+    # The gateway and the frontend proxy always add at least one of these and a
+    # network client cannot remove them. The attached console calls the
+    # cluster-internal Service directly and sends none.
+    PROXIED_REQUEST_HEADERS = (
+        "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP",
+        "X-Envoy-External-Address", "X-Envoy-Original-Path", "Forwarded", "Via",
+    )
     AUTH_CACHE_TTL_SECONDS = 30
     AUTH_CACHE = {}
     ROLE_ACCESS = {
@@ -288,6 +300,11 @@ data:
         realm_access = claims.get("realm_access") or {}
         raw_roles = realm_access.get("roles", []) if isinstance(realm_access, dict) else []
         roles = {str(role) for role in raw_roles} if isinstance(raw_roles, list) else set()
+        local_console = bool(CONSOLE_CLIENT_ID) and str(claims.get("azp") or "") == CONSOLE_CLIENT_ID
+        if local_console:
+            # Token claims can be up to one token lifetime old. The console
+            # setting must take effect immediately, so read the live roles.
+            roles = console_live_roles(str(userinfo.get("sub") or claims.get("sub") or ""), roles)
         principal = {
             "subject": str(userinfo.get("sub") or claims.get("sub") or ""),
             "username": str(
@@ -299,12 +316,24 @@ data:
             ),
             "roles": sorted(roles),
         }
+        if local_console:
+            principal["localConsole"] = True
         AUTH_CACHE[cache_key] = (min(now + AUTH_CACHE_TTL_SECONDS, float(claims["exp"])), principal)
         return principal
 
 
-    def authorize(authorization, required_access):
+    def require_local_console_transport(principal, headers):
+        # A copied console secret must be useless away from the appliance:
+        # its tokens are honoured only on the direct in-cluster connection.
+        if not (principal or {}).get("localConsole"):
+            return
+        if headers is None or any(headers.get(name) for name in PROXIED_REQUEST_HEADERS):
+            raise AuthError(403, "the local console session is only accepted on the appliance itself")
+
+
+    def authorize(authorization, required_access, headers=None):
         principal = authenticated_principal(authorization)
+        require_local_console_transport(principal, headers)
         allowed_roles = ROLE_ACCESS[required_access]
         if not allowed_roles.intersection(principal["roles"]):
             raise AuthError(403, f"{required_access} role required")
@@ -730,13 +759,93 @@ data:
         }
 
 
+    def is_console_service_account(user):
+        if not isinstance(user, dict) or not user.get("id"):
+            return False
+        client_id = str(user.get("serviceAccountClientId") or "")
+        username = str(user.get("username") or "").lower()
+        return client_id == CONSOLE_CLIENT_ID or (not client_id and username == CONSOLE_SERVICE_ACCOUNT_USERNAME.lower())
+
+
+    def console_service_account(user_id):
+        payload, _ = keycloak_admin_request("GET", _user_path(user_id))
+        if not is_console_service_account(payload):
+            raise RequestError(404, "user not found")
+        return payload
+
+
+    def console_live_roles(subject, token_roles):
+        if IDENTITY_MANAGEMENT_MODE != "keycloak":
+            return set(token_roles)
+        if not subject or not USER_ID.fullmatch(subject):
+            raise AuthError(401, "invalid access token")
+        try:
+            account = console_service_account(subject)
+            if not account.get("enabled"):
+                return set()
+            return role_names(keycloak_user_roles(subject, effective=True)) & MANAGED_REALM_ROLES
+        except RequestError as error:
+            if error.status == 404:
+                raise AuthError(401, "access token client is not trusted") from error
+            raise AuthError(503, "identity provider unavailable") from error
+        except (urllib.error.URLError, TimeoutError) as error:
+            raise AuthError(503, "identity provider unavailable") from error
+
+
+    def console_account():
+        require_identity_management()
+        query = urllib.parse.urlencode({"username": CONSOLE_SERVICE_ACCOUNT_USERNAME, "exact": "true"})
+        page, _ = keycloak_admin_request("GET", _realm_path("/users?") + query)
+        if not isinstance(page, list):
+            raise RequestError(503, "identity provider returned an invalid response")
+        return next((user for user in page if is_console_service_account(user)), None)
+
+
+    def console_access_payload(account):
+        level = "off"
+        if account and account.get("enabled"):
+            direct = role_names(keycloak_user_roles(str(account["id"]), effective=False)) & MANAGED_REALM_ROLES
+            candidate = access_level(direct) if direct else "off"
+            level = candidate if candidate in CONSOLE_ACCESS_LEVELS else "off"
+        return {"available": bool(account), "accessLevel": level, "accessLevels": list(CONSOLE_ACCESS_LEVELS)}
+
+
+    def get_console_access(principal):
+        live_admin_actor(principal)
+        return console_access_payload(console_account())
+
+
+    def update_console_access(principal, payload, request_id=""):
+        _reject_unknown_fields(payload, {"accessLevel"})
+        level = _clean_text(payload, "accessLevel", 16, required=True)
+        if level not in CONSOLE_ACCESS_LEVELS:
+            raise RequestError(400, "accessLevel must be off, viewer, operator, or admin")
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            try:
+                account = console_account()
+                if not account:
+                    raise RequestError(409, "automatic console sign-in is not provisioned on this appliance yet")
+                if not account.get("enabled"):
+                    raise RequestError(409, "the local console account is disabled in the identity provider")
+                _replace_managed_roles(str(account["id"]), set() if level == "off" else ACCESS_LEVEL_ROLES[level])
+                # Drop cached principals so a downgrade applies to the next request.
+                AUTH_CACHE.clear()
+                result = console_access_payload(account)
+            except Exception as error:
+                _audit_failure(principal, "update-console-access", "local-console", request_id, error)
+                raise
+            audit_user_action(principal, "update-console-access", "local-console:" + level, "success", request_id, 200)
+            return result
+
+
     def live_admin_actor(principal):
         require_identity_management()
         subject = str((principal or {}).get("subject") or "")
         if not subject:
             raise AuthError(403, "administrator identity is unavailable")
         try:
-            actor = keycloak_user(subject)
+            actor = console_service_account(subject) if (principal or {}).get("localConsole") else keycloak_user(subject)
         except RequestError as error:
             if error.status == 404:
                 raise AuthError(403, "administrator access has been revoked") from error
@@ -9208,7 +9317,7 @@ data:
             self.send_error_json(error.status, str(error))
 
         def require_access(self, required_access):
-            return authorize(self.headers.get("Authorization", ""), required_access)
+            return authorize(self.headers.get("Authorization", ""), required_access, self.headers)
 
         def request_id(self):
             candidate = str(self.headers.get("X-Request-ID", "") or "").strip()
@@ -9241,6 +9350,7 @@ data:
                         cookie = cookies.get("MagicStickAccessToken")
                         authorization = "Bearer " + cookie.value if cookie else ""
                     principal = authenticated_principal(authorization)
+                    require_local_console_transport(principal, self.headers)
                     access = spec.get("access") or {}
                     role = access.get("role", "user")
                     allowed = MANAGED_REALM_ROLES if role == "user" else ROLE_ACCESS.get(role, set())
@@ -9533,6 +9643,10 @@ data:
                 if path == "/api/api-access":
                     self.require_access("admin")
                     self.send_json(list_api_access())
+                    return
+                if path == "/api/console-access":
+                    principal = self.require_access("admin")
+                    self.send_json(get_console_access(principal))
                     return
                 required_access = required_get_access(parts)
                 principal = self.require_access(required_access)
@@ -9907,6 +10021,11 @@ data:
                             self.request_id(),
                         )
                     )
+                    return
+                if path == "/api/console-access":
+                    principal = self.require_access("admin")
+                    validate_user_mutation_request(self)
+                    self.send_json(update_console_access(principal, read_body(self), self.request_id()))
                     return
                 if len(parts) != 4 or parts[:2] != ["api", "users"]:
                     self.send_error_json(404, "not found")

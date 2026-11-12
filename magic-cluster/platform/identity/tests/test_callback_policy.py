@@ -204,14 +204,14 @@ class CallbackPolicyTests(unittest.TestCase):
         script = script.replace("/tmp/kcadm-client-sync.config", str(self.directory / "sync.config"))
         script = script.replace("${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", "renamed.example.local")
         script = script.replace("${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}", "dashboard.example.com")
-        helpers = ("sync_user_admin_client", "sync_federation_admin_client", "sync_kubernetes_client_and_groups", "sync_dashboard_cli_client")
+        helpers = ("sync_user_admin_client", "sync_federation_admin_client", "sync_kubernetes_client_and_groups", "sync_dashboard_cli_client", "sync_console_client")
         stubs = "\n".join(name + "() { return " + ("1" if name == failed_helper else "0") + "; }" for name in helpers)
         script = script.replace("attempt=0", stubs + "\nattempt=0", 1)
         script = script.replace('while [ "$attempt" -lt 120 ]', 'while [ "$attempt" -lt 2 ]').replace("sleep 5", "sleep 0")
         return script
 
     def test_whole_hook_propagates_each_helper_failure(self):
-        for failed in ("sync_user_admin_client", "sync_federation_admin_client", "sync_kubernetes_client_and_groups", "sync_dashboard_cli_client"):
+        for failed in ("sync_user_admin_client", "sync_federation_admin_client", "sync_kubernetes_client_and_groups", "sync_dashboard_cli_client", "sync_console_client"):
             with self.subTest(failed=failed):
                 self.state_path.write_text(json.dumps({"client": self.initial}))
                 result = subprocess.run(["/bin/sh", "-ec", self.hook(failed)],
@@ -223,7 +223,8 @@ class CallbackPolicyTests(unittest.TestCase):
                 stage = {"sync_user_admin_client": "USER_ADMIN",
                          "sync_federation_admin_client": "FEDERATION_ADMIN",
                          "sync_kubernetes_client_and_groups": "KUBERNETES",
-                         "sync_dashboard_cli_client": "DASHBOARD_CLI"}[failed]
+                         "sync_dashboard_cli_client": "DASHBOARD_CLI",
+                         "sync_console_client": "CONSOLE"}[failed]
                 self.assertIn("Keycloak client sync: " + stage + " failed", result.stderr)
                 self.assertFalse((self.directory / "sync.config").exists())
 

@@ -14,6 +14,11 @@ dashboard_console_api_url: http://ai-appliance-dashboard-api.identity-system.svc
 dashboard_console_oidc_network_url: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick
 dashboard_console_default_mdns_domain: "{{ ai_appliance_mdns_domain | default('magicstick.local', true) }}"
 dashboard_console_tty_path: /dev/tty9
+# Mouse on the attached monitor: a host helper turns the kernel's combined mouse
+# device into terminal mouse reports for the TUI. The keyboard works without it.
+dashboard_console_mouse_enabled: true
+dashboard_console_mouse_helper: /usr/local/sbin/magicstick-console-mouse
+dashboard_console_mouse_device: /dev/input/mice
 dashboard_console_virtual_terminal: 9
 dashboard_console_runtime_uid: 65532
 dashboard_console_runtime_gid: 65532
@@ -22,3 +27,6 @@ dashboard_console_refresh_seconds: 15
 dashboard_console_retry_seconds: 5
 dashboard_console_setup_namespace: identity-system
 dashboard_console_setup_resource: local
+# Generated in-cluster; mounted read-only so the monitor signs in without a second device.
+dashboard_console_client_secret: magicstick-console-client
+dashboard_console_client_secret_directory: /var/run/magicstick-console-client

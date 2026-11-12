@@ -15,6 +15,7 @@ const api = (roles: string[]) => {
     apiAccess: vi.fn(async () => ({items: [], total: 0})),
     licenseStatus: vi.fn(async () => ({state: 'missing', features: []})),
     kubernetesAccess: vi.fn(async () => ({users: [], total: 0, first: 0, max: 100})),
+    consoleAccess: vi.fn(async () => ({available: true, accessLevel: 'admin'})),
   };
   return {methods, client: methods as unknown as MagicStickApi};
 };
@@ -29,6 +30,17 @@ describe('loadSnapshot', () => {
     expect(methods.apiAccess).toHaveBeenCalledOnce();
     expect(methods.licenseStatus).toHaveBeenCalledOnce();
     expect(methods.kubernetesAccess).toHaveBeenCalledOnce();
+    expect(result.consoleAccess).toEqual({available: true, accessLevel: 'admin'});
+  });
+
+  it('still loads when the appliance API predates automatic console sign-in', async () => {
+    const {methods, client} = api(['magicstick-admin']);
+    methods.consoleAccess.mockRejectedValue(new Error('not found'));
+
+    const result = await loadSnapshot(client);
+
+    expect(result.consoleAccess).toBeUndefined();
+    expect(result.users?.total).toBe(0);
   });
 
   it('does not request administrator endpoints for a viewer', async () => {
@@ -41,5 +53,6 @@ describe('loadSnapshot', () => {
     expect(methods.apiAccess).not.toHaveBeenCalled();
     expect(methods.licenseStatus).not.toHaveBeenCalled();
     expect(methods.kubernetesAccess).not.toHaveBeenCalled();
+    expect(methods.consoleAccess).not.toHaveBeenCalled();
   });
 });

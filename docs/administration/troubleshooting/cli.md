@@ -14,7 +14,7 @@ pnpm cli --help
 
 For a frontend-only terminal preview with no backend or login, run
 `corepack pnpm tui:demo` in the built dashboard workspace, or use the standalone
-`magicstick tui --demo`. All eight tabs contain synthetic sample data and show
+`magicstick tui --demo`. All pages contain synthetic sample data and show
 an **OFFLINE DEMO** banner. Navigation and sample-data refresh work; live
 actions, clipboard exports, and sign-out are disabled. No saved configuration
 or credentials are read, no network requests are made, and the local session
@@ -53,15 +53,32 @@ contract as the React forms without a second set of client-side reconciliation
 rules. User passwords are accepted only through `--password-file` or
 `--password-stdin`.
 
-Inside `magicstick tui`, left/right or `h`/`l` changes tabs and up/down or
-`k`/`j` selects a row. The footer lists only the actions available on the
-current role and tab. `a` enables or creates, `d` disables, removes, or revokes,
-and `e`/Enter opens user or Kubernetes access management. TUI forms use Tab or
-Enter to advance, arrow keys to change a choice, Ctrl+S to submit, Ctrl+U to
-clear the active value, and Escape to cancel. Password fields are masked.
-New API-key values are displayed only in the completion dialog and can be
-copied with `c`; Kubernetes kubeconfigs use `c` directly on the selected user.
-Clipboard transfer uses OSC 52 and therefore depends on terminal support.
+Inside `magicstick tui`, the page list on the left and the panels and buttons
+on the right mirror the browser dashboard. The arrow keys or `h`/`j`/`k`/`l`
+move the cursor to the nearest element, Tab and Shift+Tab walk through all
+elements, and Enter or Space uses the element under the cursor. The hotkey bar
+at the bottom names what Enter does and lists the shortcuts of the current
+page. Only the buttons available to the current role are shown; a button that
+cannot be used right now explains why when it is activated. For example,
+**Create Instance** needs an application whose required services are ready and
+a deployed chat model, and **Stop** waits until a model has a saved revision.
+Credentials are fetched only when **Credentials** is activated and disappear
+when the dialog is closed. If elements cannot
+be clicked, the terminal does not report mouse events; the keyboard always
+works. On the attached monitor the pointer is a solid block drawn by the TUI.
+If no pointer appears there after plugging in a mouse, check on the host that
+`/dev/input/mice` exists and `/usr/local/sbin/magicstick-console-mouse` is
+installed, then let the console restart (quit the TUI with `q`); the launcher
+decides at each start whether to use the mouse helper. If text can no longer be selected with the mouse, hold Shift while
+selecting. The layout needs a terminal at least 120 columns wide; narrower
+terminals cut off the right edge.
+
+TUI dialogs appear over the page. Forms use Tab or Enter to advance, arrow
+keys to change a choice, Ctrl+S to submit, Ctrl+U to clear the active value,
+and Escape to cancel. Password fields are masked. New API-key values are
+displayed only in the completion dialog and can be copied with `c`; Kubernetes
+kubeconfigs are copied with **Copy kubeconfig** on the user's row. Clipboard
+transfer uses OSC 52 and therefore depends on terminal support.
 
 The seven-line borderless banner puts the **AIppliance** / **Magic Stick**
 branding on the rounded USB spacecraft itself. There is no caption row.

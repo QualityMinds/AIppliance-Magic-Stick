@@ -19,6 +19,8 @@ import {
   type InstanceSharing,
   type SharingPrincipal,
   type KubernetesAccessPayload,
+  type ConsoleAccess,
+  type ConsoleAccessLevel,
   type MemoryEstimate,
   type ModelLogsPayload,
   type ModelsPayload,
@@ -310,6 +312,16 @@ export class MagicStickApi {
 
   updateUserRoles(id: string, accessLevel: string) {
     return this.request<User>(`/api/users/${encodeURIComponent(id)}/roles`, {
+      method: 'PUT', body: JSON.stringify({accessLevel}),
+    });
+  }
+
+  consoleAccess() {
+    return this.request<ConsoleAccess>('/api/console-access');
+  }
+
+  updateConsoleAccess(accessLevel: ConsoleAccessLevel) {
+    return this.request<ConsoleAccess>('/api/console-access', {
       method: 'PUT', body: JSON.stringify({accessLevel}),
     });
   }
