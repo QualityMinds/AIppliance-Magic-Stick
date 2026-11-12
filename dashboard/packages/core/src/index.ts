@@ -18,6 +18,7 @@ import type {
 
 export * from './local-model-configuration.ts';
 export * from './regression-blocking.ts';
+export * from './instance-create.ts';
 
 export type DashboardRole = 'viewer' | 'operator' | 'admin';
 

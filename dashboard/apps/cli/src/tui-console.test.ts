@@ -33,7 +33,7 @@ const terminal = () => {
       stdin.emit('data', Buffer.from(value));
       await new Promise((resolve) => setTimeout(resolve, 0));
     },
-    screen: () => [...writes].reverse().find((write) => write.includes('signed in') || write.includes('Action')) ?? '',
+    screen: () => [...writes].reverse().find((write) => write.includes('Signed in')) ?? '',
     close: () => { stdin.destroy(); stdout.destroy(); },
   };
 };
@@ -95,7 +95,9 @@ describe('appliance-console user switching', () => {
     const {runtime, updateConsoleAccess} = consoleRuntime('console');
     const {io, running} = await started(runtime);
     try {
-      for (let step = 0; step < 3; step += 1) await io.key('l'); // Overview → Services → Models → Settings
+      await io.key('7'); // System
+      await io.key('l'); // into the page: the Settings section button
+      await io.key('\r');
       expect(io.screen()).toContain('Automatic sign-in  Administrator');
       await io.key('e');
       expect(io.screen()).toContain('Monitor sign-in');

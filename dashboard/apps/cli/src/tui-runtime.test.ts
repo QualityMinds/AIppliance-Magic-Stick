@@ -32,6 +32,7 @@ describe('terminal animation lifecycle', () => {
       const browsingWrites = writes.length;
       await vi.advanceTimersByTimeAsync(500);
       expect(writes.length).toBeGreaterThan(browsingWrites);
+      key('2'); // Models
       key('a');
       expect(writes.at(-1)).toContain('Live actions require an appliance connection');
       const dialogWrites = writes.length;

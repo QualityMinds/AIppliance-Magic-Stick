@@ -3,11 +3,15 @@ import {
   canMutateRuntime,
   consoleAccessLabel,
   dashboardRole,
-  flattenInstances,
   formatMi,
+  flattenInstances,
   gpuCompatibilityParameters,
-  gpuValidationSummary,
-  phaseNeedsAttention,
+  initialInstanceDraft,
+  instanceCreatePayload,
+  instanceHasStorage,
+  instanceModelRequired,
+  missingApplicationModules,
+  modelEditRevision,
   sessionDisplayName,
   titleFromKey,
 } from '@magicstick/dashboard-core';
@@ -16,6 +20,8 @@ import type {
   ApiKeyItem,
   ComputeTarget,
   ConsoleAccessLevel,
+  InstanceAccessState,
+  InstanceSharing,
   KubernetesAccessUser,
   ModelActivation,
   ModuleCatalogEntry,
@@ -25,14 +31,23 @@ import type {
 import type {DashboardSnapshot} from './snapshot';
 import {loadSnapshot} from './snapshot';
 import type {Runtime} from './runtime';
-import {clipTerminalLine, truncate} from './output';
+import {truncate} from './output';
 import {bannerFits, createBannerAnimation, renderBanner, type BannerFrame} from './banner';
-import {licenseLines, previewLines, readLicenseFile, saveLicenseFile} from './license';
+import {previewLines, readLicenseFile, saveLicenseFile} from './license';
+import {
+  activeSystemSection, availablePages, availableSystemSections, buildPage, deployedChatModels, isLocalUser, SERVICE_FILTERS,
+  type Hotkey, type PageId, type PageState,
+} from './tui-pages';
+import {
+  badge, button, Canvas, fit, gap, hitTarget, panel, prose, span, textWidth,
+  type Action, type Row, type Span, type Target,
+} from './tui-screen';
+
+export {availablePages, availableSystemSections} from './tui-pages';
+export type {PageId, SystemSectionId, ServiceFilter} from './tui-pages';
 
 /** Why the TUI ended: a plain quit, or a request the appliance console must act on. */
 export type TuiOutcome = 'quit' | 'switch-user' | 'restart-session';
-
-export type TuiTab = 'Overview' | 'Services' | 'Models' | 'Settings' | 'Users' | 'API Access' | 'Kubernetes' | 'License' | 'Hardware' | 'System';
 
 type TuiEntity =
   | {kind: 'service'; id: string; state: ModuleState; catalog?: ModuleCatalogEntry}
@@ -63,22 +78,33 @@ interface MenuOption {
   action: () => void;
 }
 
-type TuiOverlay =
+export type TuiOverlay =
   | {kind: 'menu'; title: string; description?: string; options: MenuOption[]; active: number}
   | {kind: 'form'; title: string; description?: string; fields: FormField[]; active: number; submitLabel: string; error?: string; onSubmit: (values: Record<string, string>) => Promise<void>}
   | {kind: 'confirm'; title: string; description: string; confirmLabel: string; onConfirm: () => Promise<void>}
   | {kind: 'message'; title: string; lines: string[]; tone?: 'normal' | 'error'; copyValue?: string}
   | {kind: 'busy'; title: string; description?: string};
 
-interface TuiRenderState {
-  demo?: boolean;
-  banner?: BannerFrame;
-  selectionIndex?: number;
+/** Everything that decides what the screen shows, besides the appliance data. */
+export interface TuiViewState extends PageState {
+  /** The element under the cursor; resolved to an existing element on every render. */
+  focusId?: string;
+  /** Where the cursor last was, to stay close when its element disappears after a refresh. */
+  focusAt?: {x: number; y: number};
+  scrollTop: number;
   overlay?: TuiOverlay;
   notice?: string;
+  demo?: boolean;
   /** The terminal is the appliance console with automatic sign-in: x switches users instead of signing out. */
   localConsole?: boolean;
+  banner?: BannerFrame;
+  /** Screen cell of a mouse pointer the TUI has to draw itself (the attached monitor has none). */
+  pointer?: {x: number; y: number};
 }
+
+export const initialViewState = (overrides: Partial<TuiViewState> = {}): TuiViewState => ({
+  page: 'overview', systemSection: 'status', serviceFilter: 'all', expanded: {}, scrollTop: 0, ...overrides,
+});
 
 export interface LocalModelInput {
   name: string;
@@ -99,15 +125,13 @@ const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 const ALT_SCREEN = '\x1b[?1049h';
 const NORMAL_SCREEN = '\x1b[?1049l';
-const cyan = (value: string, color: boolean) => color ? `\x1b[36m${value}\x1b[0m` : value;
-const dim = (value: string, color: boolean) => color ? `\x1b[2m${value}\x1b[0m` : value;
-const good = (value: string, color: boolean) => color ? `\x1b[32m${value}\x1b[0m` : value;
-const bad = (value: string, color: boolean) => color ? `\x1b[31m${value}\x1b[0m` : value;
-const warn = (value: string, color: boolean) => color ? `\x1b[33m${value}\x1b[0m` : value;
+// Click and wheel reports in the SGR encoding; terminals without mouse support ignore both.
+const MOUSE_ON = '\x1b[?1000h\x1b[?1006h';
+const MOUSE_OFF = '\x1b[?1006l\x1b[?1003l\x1b[?1000l';
+// Additionally reports every pointer movement, for a console where the TUI draws the pointer.
+const MOUSE_MOTION_ON = '\x1b[?1003h';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
-const statusLabel = (value?: string) => value || 'Unknown';
-const selectedPrefix = (index: number, selectedIndex = -1) => index === selectedIndex ? '›' : ' ';
 const currentChoice = (field: FormField) => field.choices?.find((item) => item.value === field.value)?.label ?? field.value;
 const displayFieldValue = (field: FormField) => field.kind === 'secret' ? '•'.repeat(Array.from(field.value).length) : currentChoice(field);
 const formValues = (fields: FormField[]) => Object.fromEntries(fields.map((field) => [field.id, field.value]));
@@ -118,7 +142,6 @@ const positiveInteger = (value: string, label: string) => {
 };
 const roundMemory = (value: number) => Math.max(100, Math.ceil(value / 100) * 100);
 
-export const isTuiActionKey = (key: string) => ['a', 'd', 'e', 'c', 'v', '\r', '\n'].includes(key);
 
 export const buildLocalModelPayload = (input: LocalModelInput, target: ComputeTarget) => {
   const local: Record<string, unknown> = {
@@ -145,30 +168,37 @@ export const buildLocalModelPayload = (input: LocalModelInput, target: ComputeTa
 
 export const osc52ClipboardSequence = (value: string) => `\x1b]52;c;${Buffer.from(value).toString('base64')}\x07`;
 
+/** Splits one raw terminal chunk into keys; control sequences (arrows, paging keys, mouse reports) stay whole. */
 export const splitTerminalInput = (value: string) => {
   const keys: string[] = [];
   for (let index = 0; index < value.length;) {
-    if (value[index] === '\u001b' && value[index + 1] === '[' && value[index + 2]) {
-      keys.push(value.slice(index, index + 3));
-      index += 3;
-    } else {
-      const [key = ''] = Array.from(value.slice(index));
-      keys.push(key);
-      index += key.length;
+    if (value[index] === '\u001b' && value[index + 1] === '[') {
+      let end = index + 2;
+      while (end < value.length && /[0-9;<=>?]/.test(value[end]!)) end += 1;
+      if (end < value.length) {
+        keys.push(value.slice(index, end + 1));
+        index = end + 1;
+        continue;
+      }
     }
+    const [key = ''] = Array.from(value.slice(index));
+    keys.push(key);
+    index += key.length;
   }
   return keys;
 };
 
-export const availableTabs = (snapshot: DashboardSnapshot): TuiTab[] => {
-  const tabs: TuiTab[] = ['Overview', 'Services', 'Models'];
-  if (dashboardRole(snapshot.session) === 'admin') tabs.push('Settings');
-  if (dashboardRole(snapshot.session) === 'admin' && snapshot.session.identityManagementAvailable !== false) tabs.push('Users');
-  if (dashboardRole(snapshot.session) === 'admin') tabs.push('API Access');
-  if (dashboardRole(snapshot.session) === 'admin') tabs.push('License');
-  if (dashboardRole(snapshot.session) === 'admin' && snapshot.session.identityManagementAvailable !== false) tabs.push('Kubernetes');
-  tabs.push('Hardware', 'System');
-  return tabs;
+export interface MouseEvent {
+  button: number;
+  x: number;
+  y: number;
+  pressed: boolean;
+}
+
+/** Decodes an SGR mouse report (`ESC [ < button ; column ; row M|m`) to zero-based screen cells. */
+export const parseMouse = (key: string): MouseEvent | undefined => {
+  const match = /^\u001b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(key);
+  return match ? {button: Number(match[1]), x: Number(match[2]) - 1, y: Number(match[3]) - 1, pressed: match[4] === 'M'} : undefined;
 };
 
 export const moveTab = (index: number, direction: number, count: number) => count
@@ -179,289 +209,330 @@ export const moveSelection = (index: number, direction: number, count: number) =
   ? Math.min(Math.max(0, index + direction), count - 1)
   : 0;
 
-const serviceEntries = (snapshot: DashboardSnapshot) => {
-  const catalog = snapshot.modules.catalogJson?.modules ?? {};
-  return Object.entries(snapshot.modules.modules ?? {}).sort(([left], [right]) => {
-    const order = (catalog[left]?.order ?? 9999) - (catalog[right]?.order ?? 9999);
-    return order || left.localeCompare(right);
-  });
-};
-
-const modelEntries = (snapshot: DashboardSnapshot) => (snapshot.models.activations ?? [])
-  .filter((activation) => Boolean(activation.metadata?.name));
-
-const selectableEntities = (tab: TuiTab, snapshot: DashboardSnapshot): TuiEntity[] => {
-  if (tab === 'Services') return serviceEntries(snapshot).map(([id, state]) => ({
-    kind: 'service', id, state, catalog: snapshot.modules.catalogJson?.modules?.[id],
-  }));
-  if (tab === 'Models') return modelEntries(snapshot).map((activation) => ({
-    kind: 'model', id: activation.metadata?.name ?? '', activation,
-  }));
-  if (tab === 'Users') return (snapshot.users?.users ?? []).map((user) => ({kind: 'user', id: user.id, user}));
-  if (tab === 'API Access') return (snapshot.apiAccess?.items ?? []).map((item) => ({kind: 'api-key', id: item.id, item}));
-  if (tab === 'Kubernetes') return (snapshot.kubernetesAccess?.users ?? []).map((user) => ({kind: 'kubernetes', id: user.id, user}));
-  return [];
-};
-
-export const selectableCount = (tab: TuiTab, snapshot: DashboardSnapshot) => selectableEntities(tab, snapshot).length;
-
-const overviewLines = (snapshot: DashboardSnapshot) => {
-  const modules = Object.entries(snapshot.modules.modules ?? {});
-  const instances = flattenInstances(snapshot.instances);
-  const activations = snapshot.models.activations ?? [];
-  const attention = [
-    ...modules.filter(([, item]) => item.enabled && phaseNeedsAttention(item.status?.phase)).map(([id, item]) => `Module ${item.displayName ?? titleFromKey(id)}: ${item.status?.message ?? item.status?.phase}`),
-    ...instances.filter((item) => phaseNeedsAttention(item.value.status?.phase)).map((item) => `Instance ${item.name}: ${item.value.status?.message ?? item.value.status?.phase}`),
-    ...activations.filter((item) => phaseNeedsAttention(item.status?.phase)).map((item) => `Model ${item.metadata?.name ?? 'unnamed'}: ${item.status?.message ?? item.status?.phase}`),
-  ];
-  return [
-    `Appliance  ${snapshot.appliance.metadata?.name ?? 'local'}  ${statusLabel(snapshot.appliance.status?.phase)}`,
-    `Modules    ${modules.filter(([, item]) => item.enabled).length} enabled / ${modules.length} catalogued`,
-    `Instances  ${instances.length}`,
-    `Models     ${activations.length} activation(s), ${(snapshot.models.models ?? []).length} registered`,
-    '',
-    attention.length ? 'Attention' : 'Attention  No issues detected.',
-    ...attention.slice(0, 12).map((item) => `  ! ${truncate(item, 100)}`),
-  ];
-};
-
-const serviceLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
-  const modules = serviceEntries(snapshot);
-  const instances = flattenInstances(snapshot.instances);
-  return [
-    'Modules',
-    ...modules.map(([id, item], index) => `${selectedPrefix(index, selectedIndex)} ${item.enabled ? '●' : '○'} ${(item.displayName ?? titleFromKey(id)).padEnd(25)} ${statusLabel(item.status?.phase)}`),
-    '', 'Instances (managed in the browser or with `magicstick instance`)',
-    ...instances.map((item) => `  ● ${item.type.padEnd(15)} ${item.name.padEnd(24)} ${statusLabel(item.value.status?.phase)}`),
-  ];
-};
-
-const modelLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
-  const devices = snapshot.models.computeMemory?.devices ?? [];
-  const models = modelEntries(snapshot);
-  return [
-    'Compute memory',
-    ...(snapshot.models.computeMemory?.sharedPools ?? []).flatMap((pool) => [
-      `  ${pool.node}: installed RAM ${formatMi(pool.installedMemoryMi)} / fixed GPU reservation ${formatMi(pool.firmwareReservedMi)}`,
-      `    Linux RAM ${formatMi(pool.physicalMemoryMi)} / dynamic GPU ceiling ${formatMi(pool.gpuAccessibleMi)} (within Linux RAM, not extra)`,
-      `    One GPU: driver capacity ${formatMi(pool.gpuCapacityMi)} / allocation ${pool.gpuAllocationMode ?? 'unknown'} / source ${pool.gpuCapacitySource ?? 'unavailable'}`,
-      '    Dynamic memory is not a protected reservation. Firmware and dynamic limits are not added.',
-    ]),
-    ...devices.flatMap((device) => [`  ${device.name ?? device.id}: ${formatMi(device.freeMi)} ${device.gpuAllocationMode === 'shared-gtt' ? 'shared RAM available' : 'free'} / ${formatMi(device.unreservedMi)} unreserved / ${formatMi(device.totalMi)} ${device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}`, ...(device.memoryArchitecture === 'unified' ? ['    Only host runtime and dynamic GPU allocations are charged to Linux RAM; GPU accounting ' + (device.accountingVerified ? 'verified.' : 'not verified.')] : [])]),
-    '', 'Models',
-    ...models.map((item, index) => {
-      const local = item.spec?.local ?? {};
-      const detail = item.spec?.type === 'external'
-        ? String((item.spec?.external as Record<string, unknown> | undefined)?.model ?? 'external')
-        : `${String(local.engine ?? '')} ${String(local.computeTarget ?? '')} · KV ${String(item.status?.effectiveKvCacheType || item.status?.requestedKvCacheType || local.kvCacheType || 'default')}${item.status?.requestedKvCacheType && !item.status?.effectiveKvCacheType ? ' (pending)' : ''}${local.cpuOffloading ? ` · CPU offloading · host RAM ${formatMi(Number(item.status?.memoryRequiredMi ?? local.memoryRequiredMi))}` : ''}`.trim();
-      return `${selectedPrefix(index, selectedIndex)} ${item.metadata?.name ?? 'unnamed'}  ${statusLabel(item.status?.phase)}  ${detail}`.trimEnd();
-    }),
-  ];
-};
-
-const settingsLines = (snapshot: DashboardSnapshot) => [
-  `Public domain  ${snapshot.settings?.publicDomain ?? 'unavailable'}`,
-  `Dashboard host ${snapshot.settings?.dashboardHost ?? 'unavailable'}`,
-  `mDNS domain    ${snapshot.settings?.mdnsDomain ?? 'unavailable'}`,
-  ...(snapshot.consoleAccess ? [
-    '',
-    'Appliance monitor',
-    `Automatic sign-in  ${snapshot.consoleAccess.available ? consoleAccessLabel(snapshot.consoleAccess.accessLevel) : 'Not provisioned on this appliance yet'}`,
-    ...(snapshot.consoleAccess.available && snapshot.consoleAccess.accessLevel !== 'off'
-      ? ['  Anyone at the attached keyboard has this access without a password.'] : []),
-  ] : []),
-];
-
-const userLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => [
-  `${snapshot.users?.total ?? 0} user(s)`,
-  ...(snapshot.users?.users ?? []).map((user, index) => `${selectedPrefix(index, selectedIndex)} ${user.enabled ? '●' : '○'} ${user.username.padEnd(22)} ${(user.effectiveAccessLevel ?? user.accessLevel ?? 'user').padEnd(10)} ${user.provider ?? user.source ?? 'local'}`),
-];
-
-const apiAccessLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => [
-  `${snapshot.apiAccess?.total ?? 0} named API key(s)`,
-  ...(snapshot.apiAccess?.apiBases ?? []).map((item) => `  ${item.scope ?? 'api'}  ${item.url}`),
-  '',
-  ...(snapshot.apiAccess?.items ?? []).map((item, index) => `${selectedPrefix(index, selectedIndex)} ${item.name.padEnd(24)} ${item.keyHint ?? ''} ${item.status ?? 'active'}`),
-];
-
-const kubernetesLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
-  const configured = Boolean(snapshot.kubernetesAccess?.configuration?.configured);
-  return [
-    `OIDC configuration  ${configured ? 'Ready' : 'Not confirmed'}`,
-    `${snapshot.kubernetesAccess?.total ?? 0} identity/identities`,
-    ...(snapshot.kubernetesAccess?.users ?? []).map((user, index) => `${selectedPrefix(index, selectedIndex)} ${user.enabled ? '●' : '○'} ${user.username.padEnd(22)} ${(user.accessLevel ?? 'none').padEnd(10)} ${user.provider ?? user.source ?? 'local'}`),
-  ];
-};
-
-const hardwareLines = (snapshot: DashboardSnapshot) => {
-  const compatibility = snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
-  return [
-    `AMD compatibility profile: ${compatibility?.selectedProfile || 'upstream rules'}`,
-    'GPU availability requires host readiness and resource registration; engine validation is optional.',
-    ...Object.entries(snapshot.status.hardwareOperators ?? {}).map(([id, item]) => `${item.displayName ?? id}: ${statusLabel(item.phase)} / ${item.allocatableResources ?? 0} GPU resources`),
-    '', ...(compatibility?.nodes ?? []).flatMap((node) => [
-      `${node.node} · ${node.profileId || 'upstream'} · ${node.eligible ? 'eligible' : 'not eligible'}`,
-      `  Driver: ${node.hostDriverReady === true ? 'ready' : 'not verified'} · GPU resource: ${node.resourceRegistered === true ? 'registered' : 'not verified'}`,
-      `  Ollama: ${gpuValidationSummary(node.validation?.OLlama)} · vLLM: ${gpuValidationSummary(node.validation?.VLLM)}`,
-      ...Object.entries(node.validation ?? {}).filter(([, validation]) => validation.runtimeMessage).map(([engine, validation]) => `  ${engine}: ${validation.runtimeMessage}`),
-      ...(node.memoryArchitecture === 'unified' ? [`  Installed RAM: ${formatMi(node.installedMemoryMi)} / fixed GPU reservation: ${formatMi(node.firmwareReservedMi)}`, `  OS-visible shared RAM: ${formatMi(node.physicalMemoryMi)} / dynamic GPU ceiling: ${formatMi(node.gpuAccessibleMi)} (within Linux RAM, not extra).`, `  One GPU: driver capacity ${formatMi(node.gpuCapacityMi)} / allocation ${node.gpuAllocationMode ?? 'unknown'} / source ${node.gpuCapacitySource ?? 'unavailable'}`, '  Dynamic memory is not a protected reservation. Firmware and dynamic limits are not added.', `  Shared accounting: ${node.memoryAccountingVerified ? 'verified' : 'not verified'}`] : []),
-    ]),
-    ...(!compatibility ? ['GPU compatibility catalog has not been reported.'] : []),
-  ];
-};
-
-const systemLines = (snapshot: DashboardSnapshot) => [
-  'Hardware operators',
-  ...Object.entries(snapshot.status.hardwareOperators ?? {}).map(([id, item]) => `  ${item.operatorActive ? '●' : '○'} ${(item.displayName ?? titleFromKey(id)).padEnd(28)} ${statusLabel(item.phase)}  ${truncate(item.message, 60)}`),
-  '',
-  `Flux             ${snapshot.status.fluxKustomizations?.length ?? 0}`,
-  `Pods             ${snapshot.status.pods?.length ?? 0}`,
-  `Services         ${snapshot.status.services?.length ?? 0}`,
-  `Ingresses        ${snapshot.status.ingresses?.length ?? 0}`,
-  `HTTP routes      ${snapshot.status.httpRoutes?.length ?? 0}`,
-];
-
-export const tabLines = (tab: TuiTab, snapshot: DashboardSnapshot, selectedIndex = -1) => {
-  switch (tab) {
-    case 'Services': return serviceLines(snapshot, selectedIndex);
-    case 'Models': return modelLines(snapshot, selectedIndex);
-    case 'Settings': return settingsLines(snapshot);
-    case 'Users': return userLines(snapshot, selectedIndex);
-    case 'API Access': return apiAccessLines(snapshot, selectedIndex);
-    case 'Kubernetes': return kubernetesLines(snapshot, selectedIndex);
-    case 'License': return snapshot.license ? licenseLines(snapshot.license) : [snapshot.licenseError ?? 'No license status loaded.'];
-    case 'Hardware': return hardwareLines(snapshot);
-    case 'System': return systemLines(snapshot);
-    default: return overviewLines(snapshot);
-  }
-};
-
-const overlayLines = (overlay: TuiOverlay) => {
-  if (overlay.kind === 'busy') return [overlay.title, overlay.description ?? 'Applying change and refreshing state…'];
-  if (overlay.kind === 'message') return [overlay.title, '', ...overlay.lines, '', overlay.copyValue ? 'c: copy to clipboard · Enter/Esc: close' : 'Enter/Esc: close'];
-  if (overlay.kind === 'confirm') return [overlay.title, '', overlay.description, '', `Enter/y: ${overlay.confirmLabel} · Esc/n: cancel`];
-  if (overlay.kind === 'menu') return [
-    overlay.title,
-    ...(overlay.description ? ['', overlay.description] : []),
-    '',
-    ...overlay.options.map((item, index) => `${selectedPrefix(index, overlay.active)} ${item.disabled ? '×' : '●'} ${item.label}${item.hint ? ` — ${item.hint}` : ''}`),
-    '', '↑/↓: select · Enter: choose · Esc: cancel',
-  ];
-  return [
-    overlay.title,
-    ...(overlay.description ? ['', overlay.description] : []),
-    '',
-    ...overlay.fields.map((field, index) => {
-      const value = displayFieldValue(field) || field.hint || '';
-      const required = field.required ? ' *' : '';
-      const choices = field.kind === 'choice' ? '  ←/→' : '';
-      return `${selectedPrefix(index, overlay.active)} ${field.label}${required}: ${value}${choices}`;
-    }),
-    ...(overlay.error ? ['', `! ${overlay.error}`] : []),
-    '', `Enter/Tab: next${overlay.active === overlay.fields.length - 1 ? ` and ${overlay.submitLabel}` : ''} · Ctrl+S: ${overlay.submitLabel} · Ctrl+U: clear · Esc: cancel`,
-  ];
-};
-
-const browseHelp = (tab: TuiTab, snapshot: DashboardSnapshot, localConsole = false) => {
-  const base = localConsole ? 'x: switch user' : 'x: sign out';
-  if (tab === 'Settings' && canAdminister(snapshot.session) && snapshot.consoleAccess?.available) return `${base} · e/Enter: monitor sign-in`;
-  if (tab === 'Services' && canMutateRuntime(snapshot.session)) return `${base} · a: enable · d: disable`;
-  if (tab === 'Models' && canMutateRuntime(snapshot.session)) return `${base} · a: add · d: remove`;
-  if (tab === 'Users' && canAdminister(snapshot.session)) return `${base} · a: add · e/Enter: edit · d: delete`;
-  if (tab === 'API Access' && canAdminister(snapshot.session)) return `${base} · a: create · d: revoke`;
-  if (tab === 'License' && canAdminister(snapshot.session)) return `${base} · a: inspect/import · e: export`;
-  if (tab === 'Kubernetes' && canAdminister(snapshot.session)) return `${base} · e/Enter: access · d: revoke · c: copy kubeconfig`;
-  if (tab === 'Hardware' && canAdminister(snapshot.session)) return `${base} · e: profile · v: validate · d: upstream rules`;
-  return base;
-};
-
-// Body text is truncated to at most this many columns, so the banner and
-// separator stop here too instead of stretching across wide terminals.
+// The layout is designed for 120 columns; wider terminals keep that width.
 export const MAX_CONTENT_COLUMNS = 120;
 // Leave the final terminal column unused to avoid automatic line wrapping.
 const usableColumns = (width: number) => Math.max(1, width - 1);
+const SIDEBAR = 20;
 
-export const wrapTerminalLine = (line: string, columns: number): string[] => {
-  if (Array.from(line).length <= columns || !line.includes(' ')) return [line];
-  const rows: string[] = [];
-  let row = '';
-  for (const word of line.split(' ')) {
-    if (row && Array.from(`${row} ${word}`).length > columns) {
-      rows.push(row);
-      row = word;
-    } else row = row ? `${row} ${word}` : word;
-  }
-  return [...rows, row];
-};
+/** A focusable element with a key that stays unique when the same action appears twice on a page. */
+export interface FocusTarget extends Target {
+  key: string;
+}
 
-export const renderTui = (
-  snapshot: DashboardSnapshot,
-  tabIndex: number,
-  width = 100,
-  height = 30,
-  color = true,
-  state: TuiRenderState = {},
-) => {
-  const columns = usableColumns(width);
-  const banner = bannerFits(height) ? renderBanner(Math.min(columns, MAX_CONTENT_COLUMNS), state.banner?.elapsedMs, color, state.banner?.seed) : [];
-  const tabs = availableTabs(snapshot);
-  const safeIndex = Math.min(Math.max(0, tabIndex), tabs.length - 1);
-  const active = tabs[safeIndex] ?? 'Overview';
-  const identity = state.demo ? 'OFFLINE DEMO · read-only · sample data'
-    : `signed in: ${sessionDisplayName(snapshot.session)} · ${dashboardRole(snapshot.session)}${snapshot.session.localConsole ? ' · automatic' : ''}`;
-  const header = dim(identity, color);
-  const tabLabels = tabs.map((tab, index) => index === safeIndex ? `[ ${tab} ]` : tab);
-  let firstTab = 0;
-  while (firstTab < safeIndex && tabLabels.slice(firstTab, safeIndex + 1).join('  ').length + 2 > columns) firstTab += 1;
-  const navigation = `${firstTab ? '< ' : ''}${tabLabels.slice(firstTab).map((label, index) => index + firstTab === safeIndex ? cyan(label, color) : label).join('  ')}`;
-  const overlayBody = state.overlay ? overlayLines(state.overlay) : [];
-  // Dialog explanations are prose: wrap them instead of clipping at the screen edge.
-  const overlayHelp = state.overlay && state.overlay.kind !== 'busy' ? [overlayBody.pop() ?? ''] : [];
-  const rawBody = state.overlay
-    ? overlayBody.flatMap((line) => line.startsWith('›') ? [line] : wrapTerminalLine(line, columns))
-    : tabLines(active, snapshot, state.selectionIndex);
-  const controls = columns < 72 ? 'h/l:tabs j/k:rows r:refresh q:quit'
-    : '←/→ h/l: tabs · ↑/↓ k/j: rows · r: refresh · q: quit';
-  // Keep form/confirmation instructions on-screen even when the body scrolls.
-  const help = state.overlay
-    ? overlayHelp
-    : state.demo ? [controls] : [controls, browseHelp(active, snapshot, state.localConsole)];
-  const maximumBody = Math.max(0, height - banner.length - 5 - help.length - (state.notice ? 1 : 0));
-  const focus = rawBody.findIndex((line) => line.startsWith('›'));
-  const bodyStart = focus >= maximumBody ? Math.max(0, focus - maximumBody + 1) : 0;
-  const body = rawBody.slice(bodyStart, bodyStart + maximumBody).map((line) => {
-    const clipped = clipTerminalLine(line, columns);
-    if (!line.startsWith('›')) return clipped;
-    return cyan(clipped, color);
+interface BarItem {
+  key: string;
+  label: string;
+  actionId?: string;
+}
+
+export interface TuiLayout {
+  lines: string[];
+  /** Screen row of the first row below the banner; mouse targets are relative to it. */
+  top: number;
+  mouse: Target[];
+  header: FocusTarget[];
+  nav: FocusTarget[];
+  /** Page elements in page coordinates: `y` is the row within the whole page, not the visible window. */
+  content: FocusTarget[];
+  focused?: FocusTarget;
+  hotkeys: Hotkey[];
+  page: PageId;
+  scrollTop: number;
+  maxScroll: number;
+  viewport: number;
+}
+
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+const keyed = (targets: Target[]): FocusTarget[] => {
+  const seen = new Map<string, number>();
+  return targets.map((target) => {
+    const count = seen.get(target.action.id) ?? 0;
+    seen.set(target.action.id, count + 1);
+    return {...target, key: count ? `${target.action.id}#${count}` : target.action.id};
   });
-  const health = phaseNeedsAttention(snapshot.appliance.status?.phase) ? bad(statusLabel(snapshot.appliance.status?.phase), color) : good(statusLabel(snapshot.appliance.status?.phase), color);
-  const context = state.overlay
-    ? state.overlay.kind === 'message' && state.overlay.tone === 'error' ? bad('Action failed', color) : cyan('Action', color)
-    : dim(`Appliance ${health}`, color);
-  const notice = state.notice ? [warn(state.notice, color)] : [];
-  return [...banner, header, navigation, '─'.repeat(Math.min(columns, MAX_CONTENT_COLUMNS)), `${active}  ${context}`, '', ...body, ...notice, ...help.map((line) => dim(line, color))]
-    .slice(0, height).map((line) => clipTerminalLine(line, columns)).join('\n');
 };
 
-const userSource = (user: User) => {
-  if (typeof user.source === 'object' && user.source) {
-    const source = user.source as Record<string, unknown>;
-    return String(source.provider ?? source.alias ?? source.type ?? source.displayName ?? 'external');
+const fieldRow = (field: FormField, active: boolean): string => {
+  const shown = displayFieldValue(field);
+  const value = field.kind === 'choice' ? `< ${shown} >` : `${shown}${active ? '_' : ''}`;
+  return `${field.label}${field.required ? ' *' : ''}: ${value}${!shown && field.hint ? `  (${field.hint})` : ''}`;
+};
+
+const dialog = (overlay: TuiOverlay, width: number, room: number): {rows: Row[]; focus?: string} => {
+  const inner = width - 4;
+  const description = 'description' in overlay && overlay.description ? [...prose(inner, overlay.description, 'dim'), []] : [];
+  const footer = (buttons: Span[]): Row[] => [[], fit(inner, [], buttons.flatMap((item, index) => index ? [gap(), item] : [item]))];
+  const limited = (lead: Row[], tail: Row[]) => lead.length + tail.length > room ? [...lead.slice(0, Math.max(0, room - tail.length)), ...tail] : [...lead, ...tail];
+  if (overlay.kind === 'busy') return {rows: panel(width, {title: overlay.title}, prose(inner, overlay.description ?? 'Applying change and refreshing state…', 'dim'))};
+  if (overlay.kind === 'message') return {
+    focus: 'dlg:close',
+    rows: panel(width, {title: overlay.title, status: overlay.tone === 'error' ? badge('Failed', 'bad') : undefined}, limited(
+      overlay.lines.flatMap((line) => prose(inner, line, overlay.tone === 'error' ? 'bad' : undefined)),
+      footer([...(overlay.copyValue ? [button('dlg:copy', 'Copy')] : []), button('dlg:close', 'Close', 'primary')]),
+    )),
+  };
+  if (overlay.kind === 'confirm') return {
+    focus: 'dlg:confirm',
+    rows: panel(width, {title: overlay.title}, limited(
+      prose(inner, overlay.description),
+      footer([button('dlg:cancel', 'Cancel'), button('dlg:confirm', capitalize(overlay.confirmLabel), 'primary')]),
+    )),
+  };
+  if (overlay.kind === 'menu') return {
+    focus: `dlg:option:${overlay.active}`,
+    rows: panel(width, {title: overlay.title}, limited([
+      ...description,
+      ...overlay.options.map((item, index): Row => [{
+        text: `${item.disabled ? '×' : '●'} ${item.label}${item.hint ? ` — ${item.hint}` : ''}`,
+        style: item.disabled ? {tone: 'dim'} : undefined,
+        action: {id: `dlg:option:${index}`, label: 'Choose'},
+      }]),
+    ], footer([button('dlg:cancel', 'Cancel')]))),
+  };
+  const error = overlay.error ? [[], ...prose(inner, `! ${overlay.error}`, 'bad')] : [];
+  const tail = [...error, ...footer([button('dlg:cancel', 'Cancel'), button('dlg:submit', capitalize(overlay.submitLabel), 'primary')])];
+  // Long forms show a window of fields around the active one, so it and the buttons stay on screen.
+  const visible = Math.max(1, Math.min(overlay.fields.length, room - description.length - tail.length));
+  const start = Math.max(0, Math.min(overlay.active - Math.floor(visible / 2), overlay.fields.length - visible));
+  return {
+    focus: `dlg:field:${overlay.active}`,
+    rows: panel(width, {title: overlay.title, meta: overlay.fields.length > visible ? `field ${overlay.active + 1} of ${overlay.fields.length}` : undefined}, limited([
+      ...description,
+      ...overlay.fields.slice(start, start + visible).map((field, offset): Row => [{
+        text: fieldRow(field, start + offset === overlay.active),
+        action: {id: `dlg:field:${start + offset}`, label: 'Edit'},
+      }]),
+    ], tail)),
+  };
+};
+
+const overlayBar = (overlay: TuiOverlay): BarItem[] => {
+  if (overlay.kind === 'busy') return [{key: '…', label: 'Please wait'}];
+  if (overlay.kind === 'message') return [
+    {key: 'Enter', label: 'Close', actionId: 'dlg:close'},
+    ...(overlay.copyValue ? [{key: 'c', label: 'Copy to clipboard', actionId: 'dlg:copy'}] : []),
+  ];
+  if (overlay.kind === 'confirm') return [
+    {key: 'Enter', label: capitalize(overlay.confirmLabel), actionId: 'dlg:confirm'}, {key: 'Esc', label: 'Cancel', actionId: 'dlg:cancel'},
+  ];
+  if (overlay.kind === 'menu') return [
+    {key: '↑↓', label: 'Select'}, {key: 'Enter', label: 'Choose'}, {key: 'Esc', label: 'Cancel', actionId: 'dlg:cancel'},
+  ];
+  const last = overlay.active === overlay.fields.length - 1;
+  return [
+    {key: '↑↓', label: 'Field'},
+    ...(overlay.fields[overlay.active]?.kind === 'choice' ? [{key: '←→', label: 'Change'}] : []),
+    {key: 'Enter', label: last ? capitalize(overlay.submitLabel) : 'Next'},
+    {key: 'Ctrl+S', label: capitalize(overlay.submitLabel), actionId: 'dlg:submit'},
+    {key: 'Ctrl+U', label: 'Clear'}, {key: 'Esc', label: 'Cancel', actionId: 'dlg:cancel'},
+  ];
+};
+
+/** Lays out one full screen and reports where every interactive element is. */
+export const composeTui = (snapshot: DashboardSnapshot, state: TuiViewState, width = 120, height = 36, color = true): TuiLayout => {
+  const columns = Math.min(usableColumns(width), MAX_CONTENT_COLUMNS);
+  const banner = bannerFits(height) ? renderBanner(columns, state.banner?.elapsedMs, color, state.banner?.seed) : [];
+  const rows = Math.max(1, height - banner.length);
+  const canvas = new Canvas(columns, rows);
+  const pages = availablePages(snapshot);
+  const page = pages.some((item) => item.id === state.page) ? state.page : 'overview';
+  const viewport = Math.max(0, rows - 4 - (state.notice ? 1 : 0));
+  const contentX = SIDEBAR + 3;
+  const contentWidth = Math.max(10, columns - SIDEBAR - 6);
+  const view = buildPage(snapshot, {...state, page}, contentWidth);
+  const pageRows = view.rows.map((row) => fit(contentWidth, row));
+  const maxScroll = Math.max(0, pageRows.length - viewport);
+  const scrollTop = Math.min(Math.max(0, state.scrollTop), maxScroll);
+
+  // Header: the one-line counterpart of the web header.
+  const identity: Row = state.demo ? [span('OFFLINE DEMO · read-only · sample data', 'warn')] : [
+    state.notice ? badge('Not refreshed', 'warn') : badge('Connected', 'good'),
+    span(`  Signed in: ${sessionDisplayName(snapshot.session)} · ${dashboardRole(snapshot.session)}${snapshot.session.localConsole ? ' · automatic' : ''}  `, 'dim'),
+    button('session', state.localConsole ? 'Switch user' : 'Sign out'),
+  ];
+  canvas.row(1, 0, fit(Math.max(0, columns - 2), [span('AI Appliance Dashboard', undefined, true)], identity), 'header');
+
+  // Workspace frame: sidebar with the pages on the left, the page on the right.
+  const frame = {tone: 'dim'} as const;
+  const horizontal = (left: string, middle: string, right: string) => `${left}${'─'.repeat(SIDEBAR)}${middle}${'─'.repeat(Math.max(0, columns - SIDEBAR - 3))}${right}`;
+  canvas.put(0, 1, horizontal('┌', '┬', '┐'), frame);
+  for (let index = 0; index < viewport; index += 1) {
+    for (const x of [0, SIDEBAR + 1, columns - 1]) canvas.put(x, 2 + index, '│', frame);
   }
-  return String(user.provider ?? user.source ?? 'local');
-};
-const isLocalUser = (user: User) => user.local ?? ['local', 'keycloak', 'internal'].includes(userSource(user).toLowerCase());
+  canvas.put(0, 2 + viewport, horizontal('└', '┴', '┘'), frame);
+  pages.slice(0, viewport).forEach((item, index) => {
+    const active = item.id === page;
+    if (active) canvas.put(1, 2 + index, '▌', {tone: 'accent'});
+    canvas.row(2, 2 + index, [{
+      text: item.label.padEnd(SIDEBAR - 2), style: active ? {tone: 'accent', bold: true} : undefined,
+      action: {id: `nav:${item.id}`, label: 'Open page'},
+    }], 'nav');
+  });
 
-export const runTui = async (runtime: Runtime, options: {color?: boolean; refreshSeconds?: number; demo?: boolean} = {}): Promise<TuiOutcome> => {
+  const content: Target[] = [];
+  pageRows.forEach((row, index) => {
+    let x = contentX;
+    for (const item of row) {
+      const size = textWidth(item.text);
+      if (item.action) content.push({action: item.action, zone: 'content', x, y: index, width: size});
+      x += size;
+    }
+  });
+  pageRows.slice(scrollTop, scrollTop + viewport).forEach((row, index) => canvas.row(contentX, 2 + index, row, 'content'));
+  if (maxScroll > 0 && viewport > 0) {
+    const thumb = Math.max(1, Math.round(viewport * viewport / pageRows.length));
+    const offset = Math.round(scrollTop / maxScroll * (viewport - thumb));
+    for (let index = 0; index < viewport; index += 1) canvas.put(columns - 2, 2 + index, index >= offset && index < offset + thumb ? '█' : '░', frame);
+  }
+  if (state.notice) canvas.put(1, 3 + viewport, state.notice, {tone: 'warn'});
+
+  const header = keyed(canvas.targets.filter((target) => target.zone === 'header'));
+  const nav = keyed(canvas.targets.filter((target) => target.zone === 'nav'));
+  const keyedContent = keyed(content);
+  const everything = [...header, ...nav, ...keyedContent];
+  let focused = everything.find((target) => target.key === state.focusId);
+  if (!focused) {
+    // The element is gone (page changed, a button swapped after a refresh): stay as close as possible.
+    const at = state.focusAt;
+    const wasContent = Boolean(state.focusId) && !state.focusId!.startsWith('nav:') && state.focusId !== 'session';
+    focused = wasContent && at && keyedContent.length
+      ? keyedContent.reduce((best, target) => Math.abs(target.y - at.y) * 1000 + Math.abs(target.x - at.x) < Math.abs(best.y - at.y) * 1000 + Math.abs(best.x - at.x) ? target : best)
+      : nav.find((target) => target.key === `nav:${page}`) ?? nav[0];
+  }
+
+  let bar: BarItem[];
+  if (state.overlay) {
+    canvas.dim();
+    const boxWidth = Math.max(20, Math.min(84, columns - 4));
+    const box = dialog(state.overlay, boxWidth, Math.max(1, rows - 3));
+    const left = Math.max(0, Math.floor((columns - boxWidth) / 2));
+    const top = Math.max(0, Math.floor((rows - 1 - box.rows.length) / 2));
+    box.rows.forEach((row, index) => {
+      canvas.put(left, top + index, ' '.repeat(boxWidth));
+      canvas.row(left, top + index, row, 'dialog');
+    });
+    const active = canvas.targets.find((target) => target.zone === 'dialog' && target.action.id === box.focus);
+    if (active) canvas.highlight(active, color);
+    bar = overlayBar(state.overlay);
+  } else {
+    if (focused) {
+      const y = focused.zone === 'content' ? 2 + focused.y - scrollTop : focused.y;
+      if (focused.zone !== 'content' || (y >= 2 && y < 2 + viewport)) canvas.highlight({...focused, y}, color);
+    }
+    bar = [
+      {key: '↑↓←→', label: 'Move'}, {key: 'Tab', label: 'Next'},
+      ...(focused ? [{key: 'Enter', label: focused.action.label}] : []),
+      ...view.hotkeys.map((item) => ({key: item.key, label: item.label, actionId: item.actionId})),
+      {key: `1-${pages.length}`, label: 'Page'}, {key: 'r', label: 'Reload', actionId: 'reload'},
+      ...(state.demo ? [] : [{key: 'x', label: state.localConsole ? 'Switch user' : 'Sign out', actionId: 'session'}]),
+      {key: '?', label: 'Help', actionId: 'help'}, {key: 'q', label: 'Quit', actionId: 'quit'},
+    ];
+  }
+
+  // Footer: the hotkey bar. Entries with an action can also be clicked.
+  let x = 1;
+  for (const item of bar) {
+    const size = textWidth(item.key) + 1 + textWidth(item.label);
+    if (x + size > columns) break;
+    canvas.put(x, rows - 1, item.key, {tone: 'accent', bold: true});
+    canvas.put(x + textWidth(item.key) + 1, rows - 1, item.label, {tone: 'dim'});
+    if (item.actionId) canvas.targets.push({action: {id: item.actionId, label: item.label}, zone: 'bar', x, y: rows - 1, width: size});
+    x += size + 2;
+  }
+
+  if (state.pointer) canvas.pointer(state.pointer.x, state.pointer.y - banner.length, color);
+
+  return {
+    lines: [...banner, ...canvas.lines(color)].slice(0, height),
+    top: banner.length, mouse: canvas.targets, header, nav, content: keyedContent, focused,
+    hotkeys: view.hotkeys, page, scrollTop, maxScroll, viewport,
+  };
+};
+
+export const renderTui = (snapshot: DashboardSnapshot, state: Partial<TuiViewState> = {}, width = 120, height = 36, color = true) =>
+  composeTui(snapshot, initialViewState(state), width, height, color).lines.join('\n');
+
+export type FocusDirection = 'up' | 'down' | 'left' | 'right' | 'next' | 'previous';
+
+/** Scroll position that keeps a page row visible, with a little context above or below it. */
+const revealRow = (layout: TuiLayout, y: number) => {
+  if (y < layout.scrollTop) return Math.max(0, y - 3);
+  if (y >= layout.scrollTop + layout.viewport) return Math.min(layout.maxScroll, y - layout.viewport + 3);
+  return layout.scrollTop;
+};
+
+/**
+ * Moves the cursor like focus in the browser: arrows go to the nearest element in
+ * that direction, Tab walks in reading order. Returns the new element and scroll position.
+ */
+export const moveFocus = (layout: TuiLayout, direction: FocusDirection): {focusId?: string; scrollTop: number} => {
+  const current = layout.focused;
+  const stay = {focusId: current?.key, scrollTop: layout.scrollTop};
+  const navActive = layout.nav.find((target) => target.key === `nav:${layout.page}`) ?? layout.nav[0];
+  const toContent = (target?: FocusTarget) => target ? {focusId: target.key, scrollTop: revealRow(layout, target.y)} : undefined;
+  const visible = (target: FocusTarget) => target.y >= layout.scrollTop && target.y < layout.scrollTop + layout.viewport;
+  const firstVisible = layout.content.find(visible) ?? layout.content[0];
+  if (!current) return {focusId: navActive?.key, scrollTop: layout.scrollTop};
+
+  if (current.zone === 'header') {
+    if (direction === 'next' || direction === 'down' || direction === 'left') return {focusId: navActive?.key, scrollTop: layout.scrollTop};
+    if (direction === 'previous') return toContent(layout.content.at(-1)) ?? {focusId: navActive?.key, scrollTop: layout.scrollTop};
+    return stay;
+  }
+  if (current.zone === 'nav') {
+    const index = layout.nav.indexOf(current);
+    if (direction === 'up') return index > 0 ? {focusId: layout.nav[index - 1]!.key, scrollTop: 0} : {focusId: layout.header[0]?.key ?? current.key, scrollTop: layout.scrollTop};
+    if (direction === 'down') return {focusId: layout.nav[Math.min(layout.nav.length - 1, index + 1)]!.key, scrollTop: index < layout.nav.length - 1 ? 0 : layout.scrollTop};
+    if (direction === 'right' || direction === 'next') return toContent(firstVisible) ?? (direction === 'next' && layout.header[0] ? {focusId: layout.header[0].key, scrollTop: layout.scrollTop} : stay);
+    if (direction === 'previous') return {focusId: layout.header[0]?.key ?? current.key, scrollTop: layout.scrollTop};
+    return stay;
+  }
+
+  const index = layout.content.indexOf(current);
+  if (direction === 'next') return toContent(layout.content[index + 1]) ?? {focusId: layout.header[0]?.key ?? navActive?.key, scrollTop: layout.scrollTop};
+  if (direction === 'previous') return toContent(layout.content[index - 1]) ?? {focusId: navActive?.key, scrollTop: layout.scrollTop};
+  // After scrolling with the wheel or paging keys the cursor may be off screen: continue from what is visible.
+  if (!visible(current) && firstVisible && visible(firstVisible)) return toContent(firstVisible)!;
+  if (direction === 'left' || direction === 'right') {
+    const row = layout.content.filter((target) => target.y === current.y);
+    const neighbour = row[row.indexOf(current) + (direction === 'left' ? -1 : 1)];
+    if (neighbour) return toContent(neighbour)!;
+    return direction === 'left' ? {focusId: navActive?.key, scrollTop: layout.scrollTop} : stay;
+  }
+  const candidates = layout.content.filter((target) => direction === 'up' ? target.y < current.y : target.y > current.y);
+  if (!candidates.length) {
+    // Nothing left to select: scroll the rest of the page into view instead.
+    return {focusId: current.key, scrollTop: Math.min(layout.maxScroll, Math.max(0, layout.scrollTop + (direction === 'up' ? -1 : 1)))};
+  }
+  const nearestRow = direction === 'up' ? Math.max(...candidates.map((target) => target.y)) : Math.min(...candidates.map((target) => target.y));
+  const centre = current.x + current.width / 2;
+  const best = candidates.filter((target) => target.y === nearestRow)
+    .reduce((left, right) => Math.abs(right.x + right.width / 2 - centre) < Math.abs(left.x + left.width / 2 - centre) ? right : left);
+  const moved = toContent(best)!;
+  // Moving to the first element also brings the page heading back.
+  return best === layout.content[0] && best.y < layout.viewport ? {...moved, scrollTop: 0} : moved;
+};
+
+export interface TuiOptions {
+  color?: boolean;
+  refreshSeconds?: number;
+  demo?: boolean;
+  /** Draw a mouse pointer and ask for movement reports: set on the appliance console, whose terminal shows none. */
+  pointer?: boolean;
+}
+
+export const runTui = async (runtime: Runtime, options: TuiOptions = {}): Promise<TuiOutcome> => {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('The TUI needs an interactive terminal. Use CLI commands or --json for non-interactive use.');
   let snapshot = await loadSnapshot(runtime.api);
-  let tabIndex = 0;
+  const view = initialViewState();
+  let layout: TuiLayout | undefined;
   let loading = false;
   let refreshError = '';
   let overlay: TuiOverlay | undefined;
   let finished = false;
   let outcome: TuiOutcome = 'quit';
-  const selection: Partial<Record<TuiTab, number>> = {};
   const color = options.color !== false;
   const animation = createBannerAnimation((frame) => {
     const rows = renderBanner(Math.min(usableColumns(process.stdout.columns ?? 100), MAX_CONTENT_COLUMNS), frame.elapsedMs, color, frame.seed);
@@ -469,29 +540,37 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     process.stdout.write(`\x1b[H${rows.map((row) => `${row}\x1b[K`).join('\n')}`);
   }, () => !finished && bannerFits(process.stdout.rows ?? 30));
 
-  const activeTab = () => availableTabs(snapshot)[tabIndex] ?? 'Overview';
-  const activeSelection = () => selection[activeTab()] ?? 0;
-  const selectedEntity = () => selectableEntities(activeTab(), snapshot)[activeSelection()];
-  const clampSelection = () => {
-    for (const tab of availableTabs(snapshot)) selection[tab] = moveSelection(selection[tab] ?? 0, 0, selectableCount(tab, snapshot));
-  };
-  const draw = () => {
+  let pointer: {x: number; y: number} | undefined;
+  /** Repaints the whole screen, or only the given screen rows when just the pointer moved. */
+  const draw = (onlyRows?: number[]) => {
     if (finished) return;
-    const rendered = renderTui(snapshot, tabIndex, process.stdout.columns ?? 100, process.stdout.rows ?? 30, color, {
+    layout = composeTui(snapshot, {
+      ...view, overlay, pointer,
       demo: options.demo,
       banner: animation.frame,
-      selectionIndex: activeSelection(), overlay,
       localConsole: runtime.localConsole,
       notice: refreshError ? `Refresh failed: ${refreshError}` : '',
-    });
-    process.stdout.write(`\x1b[H${rendered.split('\n').map((row) => `${row}\x1b[K`).join('\n')}\x1b[J`);
+    }, process.stdout.columns ?? 100, process.stdout.rows ?? 30, color);
+    // Remember where the cursor ended up, so it survives refreshes and changed buttons.
+    view.page = layout.page;
+    view.scrollTop = layout.scrollTop;
+    view.focusId = layout.focused?.key;
+    view.focusAt = layout.focused?.zone === 'content' ? {x: layout.focused.x, y: layout.focused.y} : undefined;
+    if (onlyRows) {
+      // The banner repaints itself; only rows below it can show the pointer.
+      const frame = layout;
+      const rows = [...new Set(onlyRows)].filter((row) => row >= frame.top && row < frame.lines.length);
+      if (rows.length) process.stdout.write(rows.map((row) => `\x1b[${row + 1};1H${frame.lines[row]}\x1b[K`).join(''));
+      return;
+    }
+    process.stdout.write(`\x1b[H${layout.lines.map((row) => `${row}\x1b[K`).join('\n')}\x1b[J`);
   };
+  const redraw = () => draw();
   const refresh = async () => {
     if (loading || overlay) return;
     loading = true;
     try {
       snapshot = await loadSnapshot(runtime.api);
-      clampSelection();
       refreshError = '';
     } catch (error) {
       refreshError = truncate(errorText(error), 100);
@@ -515,7 +594,6 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       const lines = result?.lines ?? [title];
       try {
         snapshot = await loadSnapshot(runtime.api);
-        clampSelection();
         refreshError = '';
       } catch (error) {
         refreshError = truncate(errorText(error), 100);
@@ -761,17 +839,6 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       });
     });
   };
-  const editUser = (entity: Extract<TuiEntity, {kind: 'user'}>) => {
-    const user = entity.user;
-    const options: MenuOption[] = [
-      {label: 'Edit profile', disabled: user.capabilities?.canEditProfile === false || !isLocalUser(user), action: () => editUserProfile(user)},
-      {label: 'Change dashboard access', disabled: user.capabilities?.canManageRoles === false, action: () => editUserRole(user)},
-      {label: user.enabled === false ? 'Enable account' : 'Disable account', disabled: user.enabled === false ? user.capabilities?.canEnable === false : user.capabilities?.canDisable === false, action: () => toggleUser(user)},
-      {label: 'Reset temporary password', disabled: user.capabilities?.canResetPassword === false || !isLocalUser(user), action: () => resetUserPassword(user)},
-    ];
-    overlay = {kind: 'menu', title: `Manage ${user.username}`, description: `${user.provider ?? user.source ?? 'Local'} identity`, options, active: Math.max(0, options.findIndex((item) => !item.disabled))};
-    draw();
-  };
   const deleteUser = (entity: Extract<TuiEntity, {kind: 'user'}>) => {
     if (entity.user.capabilities?.canDelete === false || !isLocalUser(entity.user)) return message('Account cannot be deleted', 'Self, recovery, last-admin, protected, and external accounts cannot be deleted here.');
     openForm(`Delete ${entity.user.username}`, 'This permanently deletes the local account. Enter the exact username to confirm.', [
@@ -851,85 +918,216 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     });
   };
 
-  const browseAction = (key: string) => {
-    if (!isTuiActionKey(key)) return;
-    if (options.demo) return message('Offline demo', 'This preview is read-only. Live actions require an appliance connection.');
-    const tab = activeTab();
-    const entity = selectedEntity();
-    if ((tab === 'Services' || tab === 'Models') && !canMutateRuntime(snapshot.session)) return message('Read-only session', 'Operator or administrator access is required for this action.', 'error');
-    if (['Settings', 'Users', 'API Access', 'Kubernetes', 'License', 'Hardware'].includes(tab) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
-    if (tab === 'Settings') {
-      if (key === 'e' || key === '\r' || key === '\n') editConsoleAccess();
-      return;
-    }
-    if (tab === 'Hardware') {
-      const compatibility = snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
-      if (!compatibility) return message('Hardware catalog unavailable', 'The server has not reported GPU compatibility profiles yet. Refresh after the controller update.');
-      const apply = async (parameters: Record<string, string>) => perform('GPU compatibility', async () => {
-        await runtime.api.enableModule('amd-gpu', parameters);
-        return {lines: ['Hardware configuration saved. GPU use requires host readiness and GPU registration. Optional engine tests run only when requested manually.']};
+  const hardwareAction = (verb: string) => {
+    const compatibility = snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
+    if (!compatibility) return message('Hardware catalog unavailable', 'The server has not reported GPU compatibility profiles yet. Refresh after the controller update.');
+    const apply = async (parameters: Record<string, string>) => perform('GPU compatibility', async () => {
+      await runtime.api.enableModule('amd-gpu', parameters);
+      return {lines: ['Hardware configuration saved. GPU use requires host readiness and GPU registration. Optional engine tests run only when requested manually.']};
+    });
+    if (verb === 'profile') openForm('AMD compatibility profile', 'Experimental profiles require explicit acceptance. Selection affects matching nodes only and does not certify inference.', [
+      {id: 'profile', label: 'Profile', value: compatibility.selectedProfile ?? '', kind: 'choice', choices: [{value: '', label: 'Upstream operator rules only'}, ...compatibility.profiles.map((profile) => ({value: profile.id, label: `${profile.displayName} ${profile.version}${profile.experimental ? ' (experimental)' : ''}`}))]},
+      {id: 'acknowledge', label: 'Accept experimental profile limitations', value: 'false', kind: 'choice', choices: [{value: 'false', label: 'No'}, {value: 'true', label: 'Yes, explicitly opt in'}]},
+    ], 'save', async (values) => apply(gpuCompatibilityParameters(values.profile ?? '', compatibility.profiles, values.acknowledge === 'true')));
+    else if (verb === 'upstream') openConfirm('Return to upstream rules', 'Remove the custom GPU compatibility profile. Existing models may lose GPU eligibility. This does not uninstall the host driver.', 'use upstream', async () => apply(gpuCompatibilityParameters('', compatibility.profiles, false)));
+    else if (verb === 'validate') {
+      if (!compatibility.selectedProfile) return message('Select a profile first', 'GPU validation requires a saved compatibility profile.');
+      openConfirm('Run GPU validation', 'Optional diagnostic: the profile tests may download images and use GPU resources. Results do not block GPU use; this is not a full model quality benchmark.', 'run tests', async () => {
+        const parameters = gpuCompatibilityParameters(compatibility.selectedProfile ?? '', compatibility.profiles, compatibility.allowExperimental === true);
+        parameters.validationRequest = `tui-${Date.now()}-${crypto.randomUUID()}`;
+        await apply(parameters);
       });
-      if (key === 'e' || key === '\r' || key === '\n') openForm('AMD compatibility profile', 'Experimental profiles require explicit acceptance. Selection affects matching nodes only and does not certify inference.', [
-        {id: 'profile', label: 'Profile', value: compatibility.selectedProfile ?? '', kind: 'choice', choices: [{value: '', label: 'Upstream operator rules only'}, ...compatibility.profiles.map((profile) => ({value: profile.id, label: `${profile.displayName} ${profile.version}${profile.experimental ? ' (experimental)' : ''}`}))]},
-        {id: 'acknowledge', label: 'Accept experimental profile limitations', value: 'false', kind: 'choice', choices: [{value: 'false', label: 'No'}, {value: 'true', label: 'Yes, explicitly opt in'}]},
-      ], 'save', async (values) => apply(gpuCompatibilityParameters(values.profile ?? '', compatibility.profiles, values.acknowledge === 'true')));
-      else if (key === 'd') openConfirm('Return to upstream rules', 'Remove the custom GPU compatibility profile. Existing models may lose GPU eligibility. This does not uninstall the host driver.', 'use upstream', async () => apply(gpuCompatibilityParameters('', compatibility.profiles, false)));
-      else if (key === 'v') {
-        if (!compatibility.selectedProfile) return message('Select a profile first', 'GPU validation requires a saved compatibility profile.');
-        openConfirm('Run GPU validation', 'Optional diagnostic: the profile tests may download images and use GPU resources. Results do not block GPU use; this is not a full model quality benchmark.', 'run tests', async () => {
-          const parameters = gpuCompatibilityParameters(compatibility.selectedProfile ?? '', compatibility.profiles, compatibility.allowExperimental === true);
-          parameters.validationRequest = `tui-${Date.now()}-${crypto.randomUUID()}`;
-          await apply(parameters);
-        });
-      }
-      return;
     }
-    if (tab === 'License') {
-      if (key === 'a') openForm('Import license', 'Enter a local license file path. Validation does not replace the current license.', [
-        {id: 'file', label: 'License file', value: '', required: true},
-      ], 'inspect', async (values) => {
-        try {
-          const document = await readLicenseFile(values.file ?? '');
-          const preview = await runtime.api.inspectLicense(document);
-          if (!preview.candidate.valid) return message('License rejected', preview.candidate.message, 'error');
-          openConfirm('Activate license', [...previewLines(preview), 'Replace previous entitlements? Missing features stay unavailable.'].join('\n'), 'activate', async () => {
-            await perform('Activate license', async () => {
-              await runtime.api.importLicense(document, preview.current.revision);
-              return {lines: ['License saved persistently. Federated SSO availability follows the active license.']};
-            });
+  };
+  const importLicense = () => openForm('Import license', 'Enter a local license file path. Validation does not replace the current license.', [
+    {id: 'file', label: 'License file', value: '', required: true},
+  ], 'inspect', async (values) => {
+    try {
+      const document = await readLicenseFile(values.file ?? '');
+      const preview = await runtime.api.inspectLicense(document);
+      if (!preview.candidate.valid) return message('License rejected', preview.candidate.message, 'error');
+      openConfirm('Activate license', [...previewLines(preview), 'Replace previous entitlements? Missing features stay unavailable.'].join('\n'), 'activate', async () => {
+        await perform('Activate license', async () => {
+          await runtime.api.importLicense(document, preview.current.revision);
+          return {lines: ['License saved persistently. Federated SSO availability follows the active license.']};
+        });
+      });
+    } catch (error) { message('License inspection failed', errorText(error), 'error'); }
+  });
+  const exportLicense = () => openForm('Export license', 'Choose a new file path. Existing files are never overwritten.', [
+    {id: 'file', label: 'Output file', value: '', required: true},
+  ], 'export', async (values) => {
+    await perform('Export license', async () => {
+      const result = await runtime.api.exportLicense();
+      await saveLicenseFile(values.file ?? '', result.content);
+      return {lines: ['License exported with private file permissions.']};
+    });
+  });
+
+  /** Loads something to read (credentials, an access policy) behind a busy dialog, without a "completed" message. */
+  const load = async <T,>(title: string, fetch: () => Promise<T>, then: (value: T) => void) => {
+    if (loading) return;
+    loading = true;
+    overlay = {kind: 'busy', title, description: 'Loading…'};
+    draw();
+    try {
+      const value = await fetch();
+      loading = false;
+      overlay = undefined;
+      then(value);
+    } catch (error) {
+      loading = false;
+      overlay = {kind: 'message', title: 'Could not load', lines: [errorText(error)], tone: 'error'};
+    }
+    draw();
+  };
+  const showCredentials = (label: string, fetch: () => Promise<{title?: string; credentials?: Array<{key: string; value: string}>}>) =>
+    load(`Credentials · ${label}`, fetch, (result) => message(`Credentials · ${result.title ?? label}`, [
+      'Sensitive values are shown only on request. Close this dialog when you are done.',
+      ...((result.credentials ?? []).length ? (result.credentials ?? []).map((entry) => `${entry.key}: ${entry.value}`) : ['No credentials are stored.']),
+    ]));
+
+  const applicationOptions = () => {
+    const catalog = snapshot.modules.catalogJson?.modules ?? {};
+    return Object.entries(snapshot.modules.catalogJson?.applications ?? {}).map(([id, definition]) => ({
+      id, label: definition.displayName ?? titleFromKey(id),
+      missing: missingApplicationModules(definition, snapshot.modules.modules ?? {}, catalog).map((module) => catalog[module]?.displayName ?? titleFromKey(module)),
+    })).sort((left, right) => left.label.localeCompare(right.label));
+  };
+  const openInstanceForm = (type: string, label: string) => {
+    const models = deployedChatModels(snapshot);
+    const yesNo = [{value: 'true', label: 'Yes'}, {value: 'false', label: 'No'}];
+    const gateway = (kind: string) => [{value: '', label: 'Off'}, ...flattenInstances(snapshot.instances)
+      .filter((item) => item.type === kind && item.value.spec?.enabled !== false && String(item.value.status?.phase ?? '').toLowerCase() !== 'removing')
+      .map((item) => ({value: item.name, label: item.name}))];
+    const draft = initialInstanceDraft(type, models[0] ?? '');
+    openForm(`New ${label} instance`, 'Only the values this application supports are shown. Sharing with selected users can be set afterwards.', [
+      {id: 'name', label: 'Name', value: draft.name, required: true, hint: 'lowercase letters, digits, hyphens'},
+      ...(instanceModelRequired(type) ? [{id: 'model', label: type === 'paperclip' ? 'Default model' : 'Model', value: draft.model, kind: 'choice' as const, choices: models.map((value) => ({value, label: value}))}] : []),
+      ...(type === 'paperclip' ? [{id: 'adminEmail', label: 'Admin email', value: draft.adminEmail, required: true}] : []),
+      ...(type === 'kubeopencode' ? [{id: 'template', label: 'Template', value: draft.template, required: true}] : []),
+      {id: 'authentication', label: 'Access', value: draft.authentication, kind: 'choice', choices: [{value: 'sso', label: 'SSO protected'}, {value: 'none', label: 'Public without login'}]},
+      {id: 'role', label: 'Minimum role', value: draft.role, kind: 'choice', choices: [{value: 'user', label: 'Authenticated user'}, {value: 'viewer', label: 'Viewer'}, {value: 'operator', label: 'Operator'}, {value: 'admin', label: 'Administrator'}]},
+      {id: 'exposure', label: 'Exposure', value: draft.exposure, kind: 'choice', choices: [{value: 'localAndPublic', label: 'Local and public hosts'}, {value: 'local', label: 'Local host only'}]},
+      ...(instanceHasStorage(type) ? [{id: 'storage', label: 'Storage', value: draft.storage, required: true}] : []),
+      ...(type === 'paperclip' ? [
+        {id: 'postgresStorage', label: 'Postgres storage', value: draft.postgresStorage, required: true},
+        {id: 'maxConcurrentAgents', label: 'Parallel agents (1-10)', value: String(draft.maxConcurrentAgents), required: true},
+        {id: 'openCodeEnabled', label: 'OpenCode runtime', value: 'true', kind: 'choice' as const, choices: yesNo},
+        {id: 'openClawInstanceRef', label: 'OpenClaw gateway', value: '', kind: 'choice' as const, choices: gateway('openclaw')},
+        {id: 'hermesInstanceRef', label: 'Hermes gateway', value: '', kind: 'choice' as const, choices: gateway('hermes')},
+      ] : []),
+      ...(type === 'odysseus' ? [
+        {id: 'chromaStorage', label: 'Chroma storage', value: draft.chromaStorage, required: true},
+        {id: 'searxngStorage', label: 'SearXNG storage', value: draft.searxngStorage, required: true},
+        {id: 'ntfyStorage', label: 'ntfy storage', value: draft.ntfyStorage, required: true},
+      ] : []),
+    ], 'create instance', async (values) => {
+      const application = applicationOptions().find((item) => item.id === type);
+      if (!application || application.missing.length) throw new Error('The required services of this application are no longer ready.');
+      const next = {
+        ...draft, ...values,
+        maxConcurrentAgents: type === 'paperclip' ? positiveInteger(values.maxConcurrentAgents ?? '', 'Parallel agents') : draft.maxConcurrentAgents,
+        openCodeEnabled: values.openCodeEnabled !== 'false',
+        openClawEnabled: Boolean(values.openClawInstanceRef), hermesEnabled: Boolean(values.hermesInstanceRef),
+      };
+      await perform(`Create ${label} instance`, async () => {
+        // The hostname follows the configured domain; only administrators have it in the snapshot.
+        const domain = snapshot.settings?.publicDomain ?? (await runtime.api.settings().catch(() => undefined))?.publicDomain ?? '';
+        await runtime.api.createInstance(type, instanceCreatePayload(next, domain));
+        return {lines: [`${label} instance ${next.name} was requested. It appears under Services while the operator sets it up.`]};
+      });
+    });
+  };
+  const createInstance = (type?: string) => {
+    if (!deployedChatModels(snapshot).length) return message('No chat model available', 'Add a chat model first: applications need a deployed chat model.');
+    const applications = applicationOptions();
+    const direct = applications.find((item) => item.id === type);
+    if (direct && !direct.missing.length) return openInstanceForm(direct.id, direct.label);
+    if (!applications.some((item) => !item.missing.length)) return message('No application available', 'No application has all of its required services ready.');
+    overlay = {kind: 'menu', title: 'Create Instance', description: 'Choose an application.', active: Math.max(0, applications.findIndex((item) => !item.missing.length)), options: applications.map((item) => ({
+      label: item.label,
+      disabled: Boolean(item.missing.length),
+      hint: item.missing.length ? `required services are not ready: ${item.missing.join(', ')}` : undefined,
+      action: () => openInstanceForm(item.id, item.label),
+    }))};
+    draw();
+  };
+  const removeInstance = (name: string) => openConfirm(`Remove ${name}`, `Remove ${name}? Its reconciled application resources will be removed by the operator.`, 'remove', async () => {
+    await perform(`Remove instance ${name}`, async () => {
+      await runtime.api.removeInstance(name);
+      return {lines: [`Removal of ${name} was requested.`]};
+    });
+  });
+
+  /** Sharing editor: a menu that is reopened after every change until the policy is saved. */
+  const sharingMenu = (access: InstanceAccessState, sharing: InstanceSharing, names: Map<string, string>, active = 0) => {
+    const usable = access.guardReady && access.authentication === 'sso';
+    const blocked = !access.guardReady ? 'the access guard is still being prepared; wait until the instance is ready'
+      : access.authentication !== 'sso' ? 'this instance is public without login; selected users need SSO' : undefined;
+    const changed = JSON.stringify(sharing) !== JSON.stringify(access.sharing);
+    const nameOf = (kind: 'users' | 'groups', id: string) => names.get(`${kind}:${id}`) ?? access.principals?.[kind].find((item) => item.id === id)?.name ?? id;
+    const reopen = (next: InstanceSharing, index = 0) => sharingMenu(access, next, names, index);
+    const search = (kind: 'users' | 'groups') => openForm(`Add ${kind === 'users' ? 'user' : 'group'}`, 'Search the directory. Leave the name empty to list the first entries.', [
+      {id: 'search', label: 'Name', value: ''},
+    ], 'search', async (values) => load('Searching directory', () => runtime.api.instancePrincipals(kind, values.search ?? ''), (result) => {
+      const selected = sharing[kind] ?? [];
+      overlay = {kind: 'menu', title: `Add ${kind === 'users' ? 'user' : 'group'}`, description: result.items.length ? 'Choose an entry to add.' : 'No matching entries. Groups are managed in Keycloak.', active: 0, options: [
+        ...result.items.map((entry) => ({
+          label: entry.name, disabled: selected.includes(entry.id) || selected.length >= 100,
+          hint: selected.includes(entry.id) ? 'already selected' : undefined,
+          action: () => {
+            names.set(`${kind}:${entry.id}`, entry.name);
+            reopen({...sharing, [kind]: [...selected, entry.id]});
+          },
+        })),
+        {label: 'Back', action: () => reopen(sharing)},
+      ]};
+    }));
+    const selectedRows = (kind: 'users' | 'groups') => (sharing[kind] ?? []).map((id) => ({
+      label: `${kind === 'users' ? 'User' : 'Group'} ${nameOf(kind, id)}`, hint: 'remove from the list',
+      action: () => reopen({...sharing, [kind]: (sharing[kind] ?? []).filter((item) => item !== id)}, 0),
+    }));
+    const summary = sharing.mode === 'all' ? 'All users with the required role will be able to see and use this instance.'
+      : !sharing.users?.length && !sharing.groups?.length ? 'No one can use this instance until at least one user or group is selected.'
+        : `Only these will be able to see and use this instance: ${[...(sharing.users ?? []).map((id) => nameOf('users', id)), ...(sharing.groups ?? []).map((id) => `group ${nameOf('groups', id)}`)].join(', ')}. Subgroups are included and the minimum role still applies.`;
+    const options: MenuOption[] = [
+      {
+        label: `Visible to: ${sharing.mode === 'all' ? 'all users with the required role' : 'selected users or groups'}`, hint: blocked ?? 'change', disabled: !usable,
+        action: () => reopen(sharing.mode === 'all' ? {mode: 'selected', users: [], groups: []} : {mode: 'all', users: [], groups: []}),
+      },
+      ...(sharing.mode === 'selected' && usable ? [
+        ...selectedRows('users'), ...selectedRows('groups'),
+        {label: 'Add user…', action: () => search('users')},
+        {label: 'Add group…', action: () => search('groups')},
+      ] : []),
+      {
+        label: 'Save sharing', disabled: !usable || !changed, hint: !usable ? blocked : changed ? undefined : 'no changes to save',
+        action: () => openConfirm(`Save sharing for ${access.name}`, summary, 'save sharing', async () => {
+          await perform(`Save sharing for ${access.name}`, async () => {
+            await runtime.api.updateInstanceAccess(access.name, sharing, access.revision);
+            return {lines: [`Sharing for ${access.name} was saved.`]};
           });
-        } catch (error) { message('License inspection failed', errorText(error), 'error'); }
-      });
-      else if (key === 'e') openForm('Export license', 'Choose a new file path. Existing files are never overwritten.', [
-        {id: 'file', label: 'Output file', value: '', required: true},
-      ], 'export', async (values) => {
-        await perform('Export license', async () => {
-          const result = await runtime.api.exportLicense();
-          await saveLicenseFile(values.file ?? '', result.content);
-          return {lines: ['License exported with private file permissions.']};
-        });
-      });
-      return;
-    }
-    if (tab === 'Services' && entity?.kind === 'service') {
-      if (key === 'a') enableService(entity);
-      else if (key === 'd') disableService(entity);
-      else if (key === '\r' || key === '\n') entity.state.enabled ? disableService(entity) : enableService(entity);
-    } else if (tab === 'Models') {
-      if (key === 'a') addModel();
-      else if (key === 'd' && entity?.kind === 'model') removeModel(entity);
-    } else if (tab === 'Users') {
-      if (key === 'a') createUser();
-      else if ((key === 'e' || key === '\r' || key === '\n') && entity?.kind === 'user') editUser(entity);
-      else if (key === 'd' && entity?.kind === 'user') deleteUser(entity);
-    } else if (tab === 'API Access') {
-      if (key === 'a') createApiKey();
-      else if (key === 'd' && entity?.kind === 'api-key') revokeApiKey(entity);
-    } else if (tab === 'Kubernetes' && entity?.kind === 'kubernetes') {
-      if (key === 'e' || key === 'a' || key === '\r' || key === '\n') editKubernetesAccess(entity);
-      else if (key === 'd') revokeKubernetesAccess(entity);
-      else if (key === 'c') void copyKubeconfig(entity);
-    }
+        }),
+      },
+    ];
+    overlay = {kind: 'menu', title: `Sharing · ${access.name}`, description: 'Administrators retain the management view. App access and instance credentials still require an explicit grant.', options, active: Math.min(active, options.length - 1)};
+    draw();
+  };
+  const editSharing = (name: string) => load(`Sharing · ${name}`, () => runtime.api.instanceAccess(name),
+    (access) => sharingMenu(access, {mode: access.sharing.mode, users: [...(access.sharing.users ?? [])], groups: [...(access.sharing.groups ?? [])]}, new Map()));
+
+  const modelLifecycle = (activation: ModelActivation, action: 'start' | 'stop' | 'restart') => {
+    const name = activation.metadata?.name ?? '';
+    const external = activation.spec?.type === 'external';
+    const run = async () => perform(`${capitalize(action)} ${name}`, async () => {
+      await runtime.api.request(`/api/models/${encodeURIComponent(name)}/${action}`, {method: 'POST', body: JSON.stringify({expectedRevision: modelEditRevision(activation)})});
+      return {lines: [action === 'start' ? `${name} is starting with its saved settings.` : action === 'stop' ? `Stop requested for ${name}. Its saved settings are kept.` : `Restart requested for ${name}.`]};
+    });
+    if (action === 'start') return void run();
+    openConfirm(`${capitalize(action)} ${name}`, action === 'restart' ? 'The model runtime is restarted. Requests fail until it is ready again.'
+      : external ? 'This provider route is stopped in Magic Stick. The remote provider itself is not shut down. Saved settings are kept.'
+        : 'The model is stopped and its runtime resources are released. Requests to it fail until it is started again. Saved settings are kept.', action, run);
   };
 
   let finish: (() => void) | undefined;
@@ -941,15 +1139,141 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     animation.stop();
     process.stdin.off('data', onData);
     process.stdin.off('end', cleanup);
-    process.stdout.off('resize', draw);
+    process.stdout.off('resize', redraw);
     process.off('SIGINT', cleanup);
     process.off('SIGTERM', cleanup);
     process.off('SIGHUP', cleanup);
     process.stdin.setRawMode(false);
     process.stdin.pause();
-    process.stdout.write(`${SHOW_CURSOR}${NORMAL_SCREEN}`);
+    process.stdout.write(`${MOUSE_OFF}${SHOW_CURSOR}${NORMAL_SCREEN}`);
     finish?.();
   };
+
+  const sessionAction = () => {
+    if (options.demo) return message('Offline demo', 'No session is stored or changed in demo mode. Press q to quit.');
+    const leave = (next: TuiOutcome) => {
+      outcome = next;
+      cleanup();
+    };
+    const kind = runtime.sessionKind();
+    if (runtime.localConsole && kind === 'console') {
+      openConfirm('Sign in as another user', 'This monitor is signed in automatically. To act as a different user, a one-time code is shown that you confirm in a browser on a second device. You can cancel and return here at any time.', 'continue', async () => leave('switch-user'));
+    } else if (runtime.localConsole && kind === 'user') {
+      overlay = {kind: 'menu', title: 'Switch user', description: `Signed in as ${sessionDisplayName(snapshot.session)}.`, active: 0, options: [
+        {label: 'Return to the automatic monitor session', hint: 'removes this user login', action: () => void runtime.logout().then(() => leave('restart-session'), (error) => message('Could not sign out', errorText(error), 'error'))},
+        {label: 'Sign in as another user', hint: 'needs a second device', action: () => leave('switch-user')},
+      ]};
+      draw();
+    } else {
+      openConfirm('Sign out', 'The locally cached SSO session is removed. A new device login is needed afterwards.', 'sign out', async () => {
+        await runtime.logout();
+        cleanup();
+      });
+    }
+  };
+  const showHelp = () => message('Keyboard and mouse', [
+    'Arrow keys (or h j k l) move the cursor to the nearest element. Tab and Shift+Tab walk through all elements in reading order.',
+    'Enter or Space uses the element under the cursor: opens a page, presses a button, expands a section.',
+    'Left from the page returns to the page list; there, Up and Down switch pages and Right enters the page.',
+    'Page Up, Page Down, Home and End scroll long pages. The number keys open a page directly.',
+    'With a mouse: click any element or footer entry, and use the wheel to scroll. Hold Shift to select text with the terminal.',
+    'The footer always lists the keys that work right now.',
+  ]);
+
+  const openPage = (page: PageId) => {
+    view.page = page;
+    view.scrollTop = 0;
+    view.focusId = `nav:${page}`;
+  };
+  const cycle = <T,>(items: T[], current: T) => items[(items.indexOf(current) + 1) % items.length] ?? current;
+  const missing = () => message('No longer available', 'This item has changed in the meantime. The view shows the current state.');
+
+  /** Runs what a button, link, page entry or hotkey stands for. */
+  const activate = (action: Action) => {
+    const id = action.id;
+    if (action.disabled) return message('Not available', action.disabled);
+    if (id === 'quit') return cleanup();
+    if (id === 'reload') return void refresh();
+    if (id === 'help') return showHelp();
+    if (id === 'session') return sessionAction();
+    if (id.startsWith('nav:')) {
+      openPage(id.slice(4) as PageId);
+      return draw();
+    }
+    if (id.startsWith('section:')) {
+      const sections = availableSystemSections(snapshot).map((item) => item.id);
+      const next = id.slice(8);
+      view.systemSection = next === 'next' ? cycle(sections, activeSystemSection(snapshot, view.systemSection)) : next as typeof view.systemSection;
+      view.scrollTop = 0;
+      return draw();
+    }
+    if (id.startsWith('filter:')) {
+      const next = id.slice(7);
+      view.serviceFilter = next === 'next' ? cycle(SERVICE_FILTERS.map((item) => item.id), view.serviceFilter) : next as typeof view.serviceFilter;
+      return draw();
+    }
+    if (id.startsWith('expand:')) {
+      const key = id.slice(7);
+      view.expanded[key] = !(view.expanded[key] ?? false);
+      return draw();
+    }
+    if (id.startsWith('link:')) return message('Address', [id.slice(5), 'Open this address in a browser on a device in the same network.'], 'normal', id.slice(5));
+
+    if (options.demo) return message('Offline demo', 'This preview is read-only. Live actions require an appliance connection.');
+    const [scope = '', verb = '', ...rest] = id.split(':');
+    const target = rest.join(':');
+    if (['service', 'model', 'instance'].includes(scope) && !canMutateRuntime(snapshot.session)) return message('Read-only session', 'Operator or administrator access is required for this action.', 'error');
+    if (['console', 'user', 'apikey', 'k8s', 'license', 'hardware'].includes(scope) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+
+    if (scope === 'service') {
+      const state = snapshot.modules.modules?.[target];
+      if (!state) return missing();
+      const entity = {kind: 'service' as const, id: target, state, catalog: snapshot.modules.catalogJson?.modules?.[target]};
+      if (verb === 'credentials') return void showCredentials(entity.catalog?.displayName ?? titleFromKey(target), () => runtime.api.moduleCredentials(target));
+      return verb === 'enable' ? enableService(entity) : disableService(entity);
+    }
+    if (scope === 'instance') {
+      if (verb === 'create') return createInstance(target || undefined);
+      if (!flattenInstances(snapshot.instances).some((item) => item.name === target)) return missing();
+      if (verb === 'credentials') return void showCredentials(target, () => runtime.api.instanceCredentials(target));
+      if (verb === 'sharing') return canAdminister(snapshot.session) ? void editSharing(target) : message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+      return removeInstance(target);
+    }
+    if (scope === 'model') {
+      if (verb === 'add') return addModel();
+      const activation = (snapshot.models.activations ?? []).find((item) => item.metadata?.name === target);
+      if (!activation) return missing();
+      if (verb === 'start' || verb === 'stop' || verb === 'restart') return modelLifecycle(activation, verb);
+      return removeModel({kind: 'model', id: target, activation});
+    }
+    if (scope === 'apikey') {
+      if (verb === 'create') return createApiKey();
+      const item = (snapshot.apiAccess?.items ?? []).find((entry) => entry.id === target);
+      return item ? revokeApiKey({kind: 'api-key', id: target, item}) : missing();
+    }
+    if (scope === 'k8s') {
+      const user = (snapshot.kubernetesAccess?.users ?? []).find((entry) => entry.id === target);
+      if (!user) return missing();
+      const entity = {kind: 'kubernetes' as const, id: target, user};
+      if (verb === 'access') return editKubernetesAccess(entity);
+      if (verb === 'revoke') return revokeKubernetesAccess(entity);
+      return void copyKubeconfig(entity);
+    }
+    if (scope === 'user') {
+      if (verb === 'create') return createUser();
+      const user = (snapshot.users?.users ?? []).find((entry) => entry.id === target);
+      if (!user) return missing();
+      if (verb === 'profile') return editUserProfile(user);
+      if (verb === 'access') return editUserRole(user);
+      if (verb === 'toggle') return toggleUser(user);
+      if (verb === 'password') return resetUserPassword(user);
+      return deleteUser({kind: 'user', id: target, user});
+    }
+    if (scope === 'license') return verb === 'import' ? importLicense() : exportLicense();
+    if (scope === 'hardware') return hardwareAction(verb);
+    if (scope === 'console') return editConsoleAccess();
+  };
+
   const handleOverlayInput = (key: string, current: TuiOverlay) => {
     if (current.kind === 'busy') return;
     if (key === '\u001b') {
@@ -962,7 +1286,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
         process.stdout.write(osc52ClipboardSequence(current.copyValue));
         current.lines = [...current.lines.filter((line) => line !== 'Copied to clipboard.'), 'Copied to clipboard.'];
         draw();
-      } else if (key === '\r' || key === '\n') {
+      } else if (key === '\r' || key === '\n' || key === ' ') {
         overlay = undefined;
         draw();
       }
@@ -1015,51 +1339,89 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     }
     draw();
   };
+  /** A click inside a dialog does what the matching key does. */
+  const handleDialogClick = (id: string, current: TuiOverlay) => {
+    if (id === 'dlg:close' || id === 'dlg:confirm') return handleOverlayInput('\r', current);
+    if (id === 'dlg:cancel') return handleOverlayInput('\u001b', current);
+    if (id === 'dlg:copy') return handleOverlayInput('c', current);
+    if (id === 'dlg:submit') return handleOverlayInput('\u0013', current);
+    const index = Number(id.split(':')[2]);
+    if (id.startsWith('dlg:option:') && current.kind === 'menu') {
+      current.active = moveSelection(index, 0, current.options.length);
+      return handleOverlayInput('\r', current);
+    }
+    if (id.startsWith('dlg:field:') && current.kind === 'form') {
+      const already = current.active === index;
+      current.active = moveSelection(index, 0, current.fields.length);
+      // Clicking the selected choice again steps to its next value.
+      if (already && current.fields[index]?.kind === 'choice') return handleOverlayInput(' ', current);
+      draw();
+    }
+  };
+
+  const scrollBy = (rows: number) => {
+    if (!layout) return;
+    view.scrollTop = Math.min(layout.maxScroll, Math.max(0, layout.scrollTop + rows));
+  };
+  const focus = (direction: FocusDirection) => {
+    if (!layout) return;
+    const moved = moveFocus(layout, direction);
+    view.focusId = moved.focusId;
+    view.scrollTop = moved.scrollTop;
+    // In the page list the cursor is the selection: moving it opens that page.
+    if (moved.focusId?.startsWith('nav:') && moved.focusId !== `nav:${view.page}`) openPage(moved.focusId.slice(4) as PageId);
+  };
+  const handleMouse = (event: MouseEvent) => {
+    if (options.pointer) {
+      const previous = pointer;
+      pointer = {x: event.x, y: event.y};
+      // Bit 5 marks a movement report: only the pointer changed, so repaint just its old and new row.
+      if (event.button & 32) return draw([previous?.y ?? event.y, event.y]);
+    }
+    if (!event.pressed || !layout) return;
+    if (event.button === 64 || event.button === 65) {
+      const direction = event.button === 64 ? -1 : 1;
+      if (overlay?.kind === 'menu') overlay.active = moveSelection(overlay.active, direction, overlay.options.length);
+      else if (overlay?.kind === 'form') overlay.active = moveSelection(overlay.active, direction, overlay.fields.length);
+      else if (!overlay) scrollBy(direction * 3);
+      return draw();
+    }
+    if (event.button !== 0) return;
+    const target = hitTarget(layout.mouse, event.x, event.y - layout.top);
+    if (!target) return;
+    if (overlay) {
+      if (target.zone === 'dialog' || target.action.id.startsWith('dlg:')) handleDialogClick(target.action.id, overlay);
+      return;
+    }
+    if (target.zone !== 'bar') {
+      const pool = target.zone === 'content' ? layout.content : target.zone === 'nav' ? layout.nav : layout.header;
+      const y = target.zone === 'content' ? target.y - 2 + layout.scrollTop : target.y;
+      view.focusId = pool.find((item) => item.x === target.x && item.y === y)?.key ?? view.focusId;
+    }
+    activate(target.action);
+    draw();
+  };
   const handleBrowseInput = (key: string) => {
-    if (key === '\u0003') {
-      cleanup();
-      return;
-    }
-    if (key === 'q') {
-      cleanup();
-      return;
-    }
-    if (key === 'x') {
-      if (options.demo) return message('Offline demo', 'No session is stored or changed in demo mode. Press q to quit.');
-      const leave = (next: TuiOutcome) => {
-        outcome = next;
-        cleanup();
-      };
-      const kind = runtime.sessionKind();
-      if (runtime.localConsole && kind === 'console') {
-        openConfirm('Sign in as another user', 'This monitor is signed in automatically. To act as a different user, a one-time code is shown that you confirm in a browser on a second device. You can cancel and return here at any time.', 'continue', async () => leave('switch-user'));
-      } else if (runtime.localConsole && kind === 'user') {
-        overlay = {kind: 'menu', title: 'Switch user', description: `Signed in as ${sessionDisplayName(snapshot.session)}.`, active: 0, options: [
-          {label: 'Return to the automatic monitor session', hint: 'removes this user login', action: () => void runtime.logout().then(() => leave('restart-session'), (error) => message('Could not sign out', errorText(error), 'error'))},
-          {label: 'Sign in as another user', hint: 'needs a second device', action: () => leave('switch-user')},
-        ]};
-        draw();
-      } else {
-        openConfirm('Sign out', 'The locally cached SSO session is removed. A new device login is needed afterwards.', 'sign out', async () => {
-          await runtime.logout();
-          cleanup();
-        });
-      }
-      return;
-    }
-    const tabs = availableTabs(snapshot);
-    if (key === '\u001b[C' || key === 'l') {
-      tabIndex = moveTab(tabIndex, 1, tabs.length);
-      clampSelection();
-    } else if (key === '\u001b[D' || key === 'h') {
-      tabIndex = moveTab(tabIndex, -1, tabs.length);
-      clampSelection();
-    } else if (key === '\u001b[B' || key === 'j') {
-      selection[activeTab()] = moveSelection(activeSelection(), 1, selectableCount(activeTab(), snapshot));
-    } else if (key === '\u001b[A' || key === 'k') {
-      selection[activeTab()] = moveSelection(activeSelection(), -1, selectableCount(activeTab(), snapshot));
-    } else if (key === 'r') void refresh();
-    else browseAction(key);
+    if (key === 'q') return cleanup();
+    if (key === 'x') return sessionAction();
+    if (key === 'r') return void refresh();
+    if (key === '?') return showHelp();
+    const pages = availablePages(snapshot);
+    const hotkey = layout?.hotkeys.find((item) => item.key === key);
+    if (key === '\u001b[A' || key === 'k') focus('up');
+    else if (key === '\u001b[B' || key === 'j') focus('down');
+    else if (key === '\u001b[D' || key === 'h') focus('left');
+    else if (key === '\u001b[C' || key === 'l') focus('right');
+    else if (key === '\t') focus('next');
+    else if (key === '\u001b[Z') focus('previous');
+    else if (key === '\u001b[5~') scrollBy(-Math.max(1, (layout?.viewport ?? 2) - 1));
+    else if (key === '\u001b[6~') scrollBy(Math.max(1, (layout?.viewport ?? 2) - 1));
+    else if (key === '\u001b[H' || key === '\u001b[1~') scrollBy(-Infinity);
+    else if (key === '\u001b[F' || key === '\u001b[4~') scrollBy(Infinity);
+    else if (key === '\u001b') view.focusId = `nav:${view.page}`;
+    else if (/^[1-9]$/.test(key) && pages[Number(key) - 1]) openPage(pages[Number(key) - 1]!.id);
+    else if ((key === '\r' || key === '\n' || key === ' ') && layout?.focused) return activate(layout.focused.action);
+    else if (hotkey) return activate({id: hotkey.actionId, label: hotkey.label});
     draw();
   };
   const onData = (input: Buffer) => {
@@ -1075,17 +1437,19 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
         cleanup();
         return;
       }
-      if (overlay) handleOverlayInput(key, overlay);
+      const mouse = parseMouse(key);
+      if (mouse) handleMouse(mouse);
+      else if (overlay) handleOverlayInput(key, overlay);
       else handleBrowseInput(key);
     }
   };
 
-  process.stdout.write(`${ALT_SCREEN}${HIDE_CURSOR}${CLEAR}`);
+  process.stdout.write(`${ALT_SCREEN}${HIDE_CURSOR}${MOUSE_ON}${options.pointer ? MOUSE_MOTION_ON : ''}${CLEAR}`);
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on('data', onData);
   process.stdin.once('end', cleanup);
-  process.stdout.on('resize', draw);
+  process.stdout.on('resize', redraw);
   process.once('SIGINT', cleanup);
   process.once('SIGTERM', cleanup);
   process.once('SIGHUP', cleanup);

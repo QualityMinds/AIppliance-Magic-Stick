@@ -179,6 +179,24 @@ describe('runCli', () => {
     expect(launch).toHaveBeenCalledOnce();
   });
 
+  it('lets the TUI draw a mouse pointer only when the host mouse helper feeds the console', async () => {
+    const launch = quit();
+    const consoleRuntime = runtime({session: vi.fn(async () => ({subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'}))} as Partial<MagicStickApi>);
+    consoleRuntime.sessionKind = () => 'user';
+    vi.stubEnv('MAGICSTICK_CONSOLE_POINTER', '1');
+    try {
+      await runCli(['console'], io().supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+      expect(launch).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({pointer: true}));
+      vi.stubEnv('MAGICSTICK_CONSOLE_POINTER', '0');
+      await runCli(['console'], io().supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+      expect(launch).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({pointer: false}));
+      // A workstation terminal shows its own pointer: the plain tui command never asks for one.
+      vi.stubEnv('MAGICSTICK_CONSOLE_POINTER', '1');
+      await runCli(['tui'], io().supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+      expect(launch).toHaveBeenLastCalledWith(expect.anything(), expect.not.objectContaining({pointer: true}));
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it('does not replace a network failure with a new console login', async () => {
     const output = io();
     const consoleRuntime = runtime({session: vi.fn(async () => { throw new Error('network unavailable'); })} as Partial<MagicStickApi>);

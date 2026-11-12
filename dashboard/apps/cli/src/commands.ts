@@ -74,7 +74,7 @@ Interactive TUI:
   (console-access), so it also works without a network or a second device.
   Press x to act as a different user; a device-flow login is requested only
   for that, or when automatic console sign-in is switched off.
-  tui --demo previews all tabs with synthetic, read-only data, without a backend
+  tui --demo previews all pages with synthetic, read-only data, without a backend
   or login. No saved configuration or credentials are accessed.
 
 Authentication:
@@ -631,6 +631,8 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
       const outcome = await (dependencies.runTui ?? runTui)(runtime, {
         color: !option(parsed, 'no-color'),
         refreshSeconds: integerOption(parsed, 'refresh', 15),
+        // Set by the host launcher when its mouse helper feeds this terminal: the monitor shows no pointer itself.
+        pointer: process.env.MAGICSTICK_CONSOLE_POINTER === '1',
       });
       if (outcome !== 'switch-user' && outcome !== 'restart-session') break;
       switchUser = outcome === 'switch-user';
