@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "08b08d171bed0bb041a54703544df7714822a9d17afe40d6a249d17ca3174fb6",
+  "deploymentReferencesSha256": "251a33385f83bc054039e0e46a1d82d16beedf55fb7b21cc65266e804fd711f3",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2523,27 +2523,27 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:69ed166219d6cba7e0e3c25d4c583d35c51d0d6d75bfdc5524de4adc25037d3e"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-14abd297ee4d730f4c3951d3f024075df9007781@sha256:c509446a4d7e956ef6036c8e1f3b35dbf00d8a265c864dd0788f901ed4457bc6"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 1195,
+      "line": 1304,
       "reference": "\"        installHint: Install kubelogin from https://github.com/int128/kubelogin and ensure kubectl-oidc_login is on PATH.\","
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6825,
+      "line": 6934,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6862,
+      "line": 6971,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:2d9aa2921f9643ffec342bdad93c40d792ef5ee26534e8e797cc9f98605149e1"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-14abd297ee4d730f4c3951d3f024075df9007781@sha256:0c6dd1749bcf27963ba7b57e7a313b189c5190dfbaebcdf5ae8a8f2acb155300"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
@@ -2738,7 +2738,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:3f1930075178d879ad0b5159364d3343dc58bd37695a444bf24e64ab884db0a5\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-14abd297ee4d730f4c3951d3f024075df9007781@sha256:30346cff2a7c4871fb769c8998614235c09db1e1c66b69c347cd44d9f1ed99e8\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
