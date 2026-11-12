@@ -60,6 +60,21 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertEqual(roles['regression-api-restarter']['rules'][0]['resources'], ['pods'])
         self.assertEqual(roles['regression-catalog-observer']['rules'][0]['resourceNames'], ['ai-model-catalog'])
 
+    def test_native_application_cleanup_observation_is_explicit_and_read_only(self):
+        documents = list(yaml.safe_load_all((ROOT / 'dashboard/apps/web/regression/lab-rbac-administration.example.yaml').read_text()))
+        role = next(item for item in documents if item['metadata']['name'] == 'magicstick-regression-administration-observer' and item['kind'] == 'ClusterRole')
+        expected = {'openclaw.rocks': {'openclawinstances'}, 'hermes.agent': {'hermesinstances'},
+                    'paperclip.inc': {'instances'}, 'agents.x-k8s.io': {'sandboxes'},
+                    'kubeopencode.io': {'agents', 'agenttemplates', 'tasks', 'crontasks', 'registries', 'kubeopencodeconfigs'},
+                    'batch': {'jobs', 'cronjobs'}, 'discovery.k8s.io': {'endpointslices'}, 'networking.k8s.io': {'networkpolicies'}}
+        for group, resources in expected.items():
+            rule = next(rule for rule in role['rules'] if rule['apiGroups'] == [group])
+            self.assertEqual(set(rule['resources']), resources)
+            self.assertEqual(set(rule['verbs']), {'get', 'list', 'watch'})
+        self.assertTrue(all(set(rule['verbs']) <= {'get', 'list', 'watch'} for rule in role['rules']))
+        core = next(rule for rule in role['rules'] if rule['apiGroups'] == [''])
+        self.assertTrue({'resourcequotas', 'limitranges'} <= set(core['resources']))
+
     def test_automatic_setup_service_preserves_linux_runner_isolation_and_normal_read_only_inputs(self):
         compose = yaml.safe_load((ROOT / 'dashboard/apps/web/regression/compose.yaml').read_text())
         services = compose['services']

@@ -189,6 +189,12 @@ survive Pod recreation and catalog updates; existing nonempty preferences are
 never replaced by the bootstrap. LiteLLM/Qdrant endpoints and their Secret-backed
 credentials continue to follow the deployment.
 
+With a genuinely empty initial chat catalog, installation leaves the model and
+context preferences unset so the native setup UI is reachable without downloading
+a model. An explicitly selected unavailable model or an inconsistent named
+catalog default still blocks initialization. Reaching setup is installation/access
+evidence only, not a successful model or document-inference test.
+
 Before upgrading an older installation, follow the
 [settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration)
 to preserve the old container's global preferences. Back up the complete storage

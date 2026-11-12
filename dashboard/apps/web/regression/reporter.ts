@@ -6,7 +6,8 @@ import {phase1StepIds} from './profiles/phase1-p0.ts';
 import {phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases} from './profiles/phase2-p0.ts';
 import {gpuModeIds} from './profiles/gpu-p0.ts';
 import {remainingIds} from './profiles/remaining-p0.ts';
-import {reportVariants, saveReport, type CaseResult} from './core/report.ts';
+import {servicesCaseIds} from './core/service-matrix.ts';
+import {reportVariantCase, saveReport, type CaseResult} from './core/report.ts';
 import {environmentFor, fileLayer, testLayers, type Evidence} from './core/evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions, publicScenarioTitle} from './core/case-descriptions.ts';
 import {disabledExperimentalEngines} from './core/engine-policy.ts';
@@ -148,7 +149,7 @@ export default class SafeReporter implements Reporter {
     }
     const safe = evidence.filter(item => {
       const valid = item && /^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id) && testLayers.includes(item.layer) &&
-        (!item.variant || reportVariants[item.variant] === item.id);
+        (!item.variant || reportVariantCase(item.variant) === item.id);
       if (!valid) this.unexpected = true;
       return valid;
     });
@@ -371,7 +372,7 @@ export default class SafeReporter implements Reporter {
     for(const trace of this.traces)await saveExecutionTrace(directory,trace);
     const modelCase = process.env.REGRESSION_MODEL_CASE as keyof typeof phase2ModelCases | undefined;
     if (modelCase && !Object.hasOwn(phase2ModelCases, modelCase)) throw new HarnessError('CONFIG');
-    const required = process.env.REGRESSION_SCENARIO_ID?[...new Set(this.selected.flatMap(test=>this.mapping(test).evidence.map(e=>e.id)))]:process.env.REGRESSION_MODE==='non-destructive-live'?['HAR-01','HAR-02']:remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? phase1StepIds(process.env.REGRESSION_MODE) ?? (process.env.REGRESSION_MODE==='campaign-recover'?['HAR-07']:process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
+    const required = process.env.REGRESSION_SCENARIO_ID?[...new Set(this.selected.flatMap(test=>this.mapping(test).evidence.map(e=>e.id)))]:process.env.REGRESSION_MODE==='services'?servicesCaseIds:process.env.REGRESSION_MODE==='non-destructive-live'?['HAR-01','HAR-02']:remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? phase1StepIds(process.env.REGRESSION_MODE) ?? (process.env.REGRESSION_MODE==='campaign-recover'?['HAR-07']:process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
       process.env.REGRESSION_MODE === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-readonly' ? ['DISC-03'] :

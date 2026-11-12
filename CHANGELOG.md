@@ -8,6 +8,17 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Add an explicitly selected, catalog-derived Services regression with ordered
+  installation/removal and SSO/public access stages.
+  Include Pi Coding Agent without re-enabling deferred service workflows in
+  ordinary runs; keep Hermes separate. Require exact per-entry evidence and
+  identity-bound runtime removal and interruption recovery. Model integration remains
+  deferred; a small owned model may be required solely to install an application.
+  Preserve AnythingLLM and Qdrant persistent data during module removal, as promised by
+  their keep-data contract. Allow AnythingLLM's native setup with a genuinely empty
+  initial model catalog without inventing a model or replacing saved choices.
+  Local/CI checks and native acceptance remain separate.
+
 - Bound ordinary automatic NVIDIA model memory planning to one eligible physical
   card, not the sum of a scheduling pool. Create/Edit sliders and recommendations
   keep that ceiling even with an older API or an invalid saved budget; the API

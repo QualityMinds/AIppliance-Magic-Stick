@@ -63,7 +63,7 @@ export function suiteInventory(models:ModelsPayload,modules:ModulesPayload,statu
   return {nodes:hosts.map(host=>({name:host.name,nodeUid:host.nodeUid})),
     activeModels:models.activations.filter(item=>item.spec?.type === 'local' && item.spec.enabled !== false).map(item=>({
       name:item.metadata!.name,uid:item.metadata!.uid,generation:item.metadata!.generation,revision:editRevision(item)})),
-    applications:Object.keys(modules.catalogJson?.applications ?? {}).filter(type=>['openclaw','hermes','paperclip','kubeopencode','odysseus'].includes(type) && applicationRegressionEnabled(type)),
+    applications:Object.keys(modules.catalogJson?.applications ?? {}).filter(applicationRegressionEnabled),
     optionalModules:liveWorkflowEnabled('modules')?optionalModules:[],amdProfiles:(amd?.profiles ?? []).filter(profile=>profile.id !== amd?.selectedProfile).map(profile=>({id:profile.id,experimental:profile.experimental})),
     realtime,hosts:hosts.map(host=>({name:host.name,nodeUid:host.nodeUid,bootId:host.bootId,kernel:host.kernel,available:host.available,
       plan:host.plan,gpuMemory:host.gpuMemory,network:host.network,updates:host.updates ? {id:host.updates.id,policy:host.updates.policy,rebootRequired:host.updates.rebootRequired} : null,

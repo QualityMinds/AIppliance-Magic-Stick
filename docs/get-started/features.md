@@ -80,6 +80,10 @@
   viewer account; excluded live steps are named, not counted as passed.
   Product-service/application live workflows, including Hermes, service
   credentials and app access, are currently deferred to separate regression.
+  The explicit separate Services selection tests catalog-derived installation
+  and removal, access with SSO and supported public access, including Pi Coding
+  Agent. Model integration remains deferred; Hermes remains separate. Ordinary
+  runs keep their exclusions.
   Isolated checks and core identity/license/Kubernetes/model/GPU coverage stay
   active; reports name exclusions without claiming service/application acceptance.
   Fixed diagnostic selections can repeat existing external-provider, GPU-verification,

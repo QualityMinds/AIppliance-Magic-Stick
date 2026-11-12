@@ -7,6 +7,8 @@ import {requireSafe} from './errors.ts';
 import {moduleResourceLinks} from '@magicstick/dashboard-core';
 import {applicationRegressionEnabled,liveWorkflowEnabled,realtimeRegressionEnabled} from './engine-policy.ts';
 import {applicationAdapter} from './application-adapters.ts';
+import {serviceRegressionEnabled} from './service-selection.ts';
+import {automaticServiceMatrix} from './service-plan.ts';
 
 /** Choose test fixtures from the deployed product catalog, including its small
  * CPU text fixtures for compatible GPU runtimes. No user-maintained model list. */
@@ -41,6 +43,11 @@ export function automaticGpuProfile(snapshot:PreparationSnapshot,_defaults:Recor
 export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<string,any>,lab:LabConfig) {
   const options:PreparationOptions={phases:[...labPolicy.phases],approve:[...labPolicy.scopes] as PreparationOptions['approve'],independentRecovery:false};
   const profile=preparedProfile({},snapshot,options);
+  if(serviceRegressionEnabled()) {
+    const matrix=automaticServiceMatrix(snapshot.modules);
+    profile.services={version:1,catalog:snapshot.modules.catalogJson,matrix,modules:matrix.entries.filter(entry=>entry.kind==='module').map(entry=>({
+      approveOptionalModule:true,id:entry.id,parameters:snapshot.modules.modules[entry.id]?.parameters??{}}))};
+  }
   profile.unmanagedKey={approveDisposableProbe:true,createDisposableFixture:true};
   // Instance-provider bases can be intentionally empty (Odysseus/Pi); group
   // "apps" alone does not promise a standalone service. Prefer a disabled
@@ -72,7 +79,7 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   // The operator never has to invent CSS selectors for every run.
   const suffix=new URL(lab.dashboardUrl).hostname;
   if(liveWorkflowEnabled('applications'))profile.applications={cleanerKubeconfig:'/inputs/app-cleaner.kubeconfig',fixtures:
-    Object.keys(snapshot.modules.catalogJson?.applications ?? {}).filter(type=>['openclaw','hermes','paperclip','kubeopencode','odysseus'].includes(type) && applicationRegressionEnabled(type))
+    Object.keys(snapshot.modules.catalogJson?.applications ?? {}).filter(type=>applicationRegressionEnabled(type))
       .map(type=>({type,originTemplate:`https://{name}.${type}.${suffix}/`,adapter:applicationAdapter(type),responseMarker:'REGRESSION'}))};
   profile.kubernetes.plugin={filename:'/inputs/kubectl-oidc_login',sha256:previous.kubernetes?.plugin?.sha256 ?? ''};
   if(previous.federation?.upstream && previous.federation?.brokerCleaner)profile.federation={...previous.federation,approveDisposableProviders:true};

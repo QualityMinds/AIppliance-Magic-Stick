@@ -15,7 +15,7 @@ import {setupWorkerMarker} from './core/preparation-diagnostic.ts';
 import {completeReportPublication,publishReportArtifacts} from './core/kubernetes-report.ts';
 import {executionBudget} from './core/execution-budget.ts';
 import {assessCleanup,assessRunCleanup,cleanupStatus} from './core/cleanup-state.ts';
-import {diagnosticSelection} from './core/diagnostic-selection.ts';
+import {diagnosticSelection,diagnosticMode} from './core/diagnostic-selection.ts';
 import {runDiagnosticSelection} from './core/kubernetes-diagnostic.ts';
 import {saveKubernetesRegistration} from './core/kubernetes-registration.ts';
 import {ensureProcessInit} from './core/process-init.ts';
@@ -191,7 +191,7 @@ try {
     await saveReport(directory,runId,[{id,outcome:snapshot.outcome,layer:'A',environment:'live',durationMs:0,
       reason:interrupted?'CANCELLED':error instanceof HarnessError?error.code:'UNEXPECTED',
       ...(error instanceof HarnessError&&error.stage?{stage:error.stage}:{}),
-      ...(recovery?{executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:snapshot.outcome}:{})}],[id],process.env.REGRESSION_SOURCE_REVISION,recovery?'recover':selectedDiagnostic?'phase4-sharing':'all',
+      ...(recovery?{executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:snapshot.outcome}:{})}],[id],process.env.REGRESSION_SOURCE_REVISION,recovery?'recover':selectedDiagnostic?diagnosticMode(selectedDiagnostic):'all',
       recovery?recoveryDiagnostic:undefined,{cleanup:snapshot.cleanup,recoveryFenceActive:snapshot.cleanup.state!=='verified',recoveryAttempts:[]});
     // The displayed result must match the exported infrastructure/cancellation
     // report, not retain an earlier green campaign after export failed.

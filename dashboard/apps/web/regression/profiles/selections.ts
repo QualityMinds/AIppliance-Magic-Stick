@@ -1,5 +1,6 @@
 /** Selection is explicit and fail-closed. File names describe behavior, not phases. */
 export const selections: Record<string, string[]> = {
+  services: ['administration/services.e2e.spec.ts'],
   ...Object.fromEntries([5,6,7,8].flatMap(phase=>[
     [`phase${phase}-fast`,['administration/owning.unit.spec.ts','administration/matrix.unit.spec.ts','administration/safety.unit.spec.ts','administration/cleanup.unit.spec.ts','harness/service-probes.unit.spec.ts',...(phase===5?['administration/kubernetes-workflow.unit.spec.ts','administration/license-workflow.unit.spec.ts']:[])]],
     [`phase${phase}-fixtures`,['administration/configuration.browser.spec.ts','harness/actions.browser.spec.ts','harness/https-policy.browser.spec.ts',...(phase===5?['auth/oidc-exec.browser.spec.ts','administration/kubeconfig-export.browser.spec.ts','administration/license-review.browser.spec.ts']:[]),...(phase===8?['harness/regression.browser.spec.ts']:[])]],
@@ -39,6 +40,7 @@ export const selections: Record<string, string[]> = {
 };
 
 selections.selftest!.unshift('harness/execution-lifecycle.unit.spec.ts');
+selections.selftest!.push('harness/service-matrix.unit.spec.ts','administration/app-services.unit.spec.ts','harness/service-stage-gates.unit.spec.ts');
 selections.selftest!.unshift('harness/diagnostic-selection.unit.spec.ts');
 selections['phase4-fast']!.unshift('harness/diagnostic-selection.unit.spec.ts');
 selections['phase4-fixtures']!.push('harness/regression.browser.spec.ts');
