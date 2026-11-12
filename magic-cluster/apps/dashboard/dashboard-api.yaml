@@ -6404,6 +6404,35 @@ data:
                 *([] if cache_known else ["Cache placement is incomplete; unquantified recurrent/unsupported caches still require runtime validation."])]}
 
 
+    def nvidia_model_memory_capacity(local, activations, vram=None):
+        """One automatic GPU is not the sum of a node/cluster scheduling pool.
+
+        Device-plugin placement does not promise which physical card is chosen.
+        Bound a one-card budget by every eligible card's physical capacity;
+        unreserved planning can use a free sibling, never their summed bytes.
+        Explicit DRA groups retain the existing smallest-per-card contract.
+        """
+        memory = compute_memory_summary(activations, vram)
+        selections = nvidia_model_devices(local) if local.get("gpuDevice") or local.get("gpuDevices") else []
+        if selections:
+            cards = [next((d for d in memory.get("devices", []) if d.get("gpuDevice") == selection), {}) for selection in selections]
+        else:
+            definition = (compute_target_catalog().get("targets") or {}).get("nvidia-gpu") or {}
+            selector = {**(definition.get("nodeSelector") or {}),
+                        **(target_engine_profile(definition, normalize_local_engine(local.get("engine"))).get("nodeSelector") or {})}
+            nodes = {(n.get("metadata") or {}).get("name") for n in ready_schedulable_nodes() if all(
+                str(((n.get("metadata") or {}).get("labels") or {}).get(k) or "") == str(v) for k, v in selector.items())}
+            cards = [d for d in memory.get("devices", []) if d.get("computeTarget") == "nvidia-gpu"
+                     and len(d.get("nodes") or []) == 1 and d["nodes"][0] in nodes]
+        physical = [nvidia_physical_capacity_mi(d) for d in cards]
+        physical_maximum = min(physical) if physical and all(physical) else None
+        unreserved = [d.get("unreservedMi") for d in cards]
+        known = bool(cards) and all(type(v) is int and v >= 0 for v in unreserved)
+        available = (min(unreserved) if selections else max(unreserved)) if known else None
+        maximum = min(available, physical_maximum) if available is not None and physical_maximum is not None else None
+        return {"maximumMi": maximum, "physicalMaximumMi": physical_maximum, "devices": cards}
+
+
     def estimate_model_memory(payload, exclude_model=""):
         payload = payload or {}
         engine = normalize_local_engine(payload.get("engine"))
@@ -6443,17 +6472,17 @@ data:
                 if not exclude_model or (activation.get("metadata") or {}).get("name") != exclude_model
             ]
         vram = vram_summary(activations) if compute_target == "nvidia-gpu" else {"available": False}
-        maximum_mi = vram.get("plannedRemainingMi") if vram.get("available") else None
+        maximum_mi = None
+        nvidia_capacity = None
         selections = []
         selected_memory = []
+        if compute_target == "nvidia-gpu":
+            nvidia_capacity = nvidia_model_memory_capacity(payload, activations, vram)
+            maximum_mi = nvidia_capacity["maximumMi"]
         if payload.get("gpuDevice") or payload.get("gpuDevices"):
             validate_nvidia_gpu_selection(payload, exclude_model)
             selections = nvidia_model_devices(payload)
-            memory = compute_memory_summary(activations, vram)
-            selected_memory = [next((d for d in memory.get("devices", []) if d.get("gpuDevice") == selection), {}) for selection in selections]
-            maximum_mi = min(d["unreservedMi"] for d in selected_memory) if all(d.get("unreservedMi") is not None for d in selected_memory) else None
-            if len(selections) > 1 and maximum_mi is not None:
-                maximum_mi = min(maximum_mi, *(nvidia_physical_capacity_mi(d) or 0 for d in selected_memory))
+            selected_memory = nvidia_capacity["devices"]
         shared_pools = []
         if compute_target == "amd-gpu":
             definition = (compute_target_catalog().get("targets") or {}).get(compute_target) or {}
@@ -6518,6 +6547,10 @@ data:
             "gpuAvailable": bool(vram.get("available")),
             "warnings": warnings,
         }
+        if nvidia_capacity is not None:
+            result.update(physicalMaximumMi=nvidia_capacity["physicalMaximumMi"], memoryBudgetScope="per-device")
+            if not selections:
+                warnings.append("Automatic NVIDIA placement uses one GPU, not pooled VRAM. The smallest eligible physical card bounds the budget; unreserved memory is a planning estimate, not an exact assignment.")
         if len(selections) > 1:
             replica_count = len(selections) if payload.get("gpuDeployment") == "replicated" else 1
             host_maximum = offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"])
@@ -7026,6 +7059,14 @@ data:
                         )
             else:
                 gpu_count = len(local.get("gpuDevices") or [])
+                if compute_target == "nvidia-gpu" and gpu_count <= 1:
+                    budget = positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or parse_mib((selected_artifact or {}).get("vram"))
+                    if budget:
+                        # Physical capacity is independent of reservations and
+                        # of the old budget being edited, including invalid ones.
+                        physical = nvidia_model_memory_capacity(local, [])["physicalMaximumMi"]
+                        if physical is not None and budget > physical:
+                            raise ValueError("The VRAM budget exceeds physical memory for a single GPU. Choose a smaller budget or an explicit multi-GPU split; memory-risk acceptance cannot combine cards.")
                 if gpu_count > 1:
                     estimate = estimate_model_memory({**local, "url": resolved_model_url}, exclude_model)
                     budget = positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or parse_mib((selected_artifact or {}).get("vram"))

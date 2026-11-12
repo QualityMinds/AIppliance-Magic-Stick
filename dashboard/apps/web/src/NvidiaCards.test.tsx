@@ -58,6 +58,66 @@ beforeEach(() => {
 });
 
 describe('NVIDIA physical card selection', () => {
+  it.each(['VLLM', 'OLlama'])('bounds the automatic %s pool calculator and slider to one physical card', async (engine) => {
+    // Reproduce an older API returning the sum of four cards. The form must
+    // not use that aggregate as the capacity of its automatic one-card model.
+    vi.mocked(api.estimateMemory).mockResolvedValue({...estimate, maximumMi: 4 * 49140, minimumMi: 158500, recommendedMi: 182300});
+    const data = fourNvidiaCards(undefined, false);
+    data.computeMemory!.devices!.forEach(card => {card.totalMi = 49140; card.unreservedMi = 49140;});
+    mount(data); const submit = await create(engine);
+    const slider = await screen.findByRole('slider', {name: 'Memory reservation'});
+    await waitFor(() => expect(slider).toHaveAttribute('max', '49100'));
+    const budget = screen.getByLabelText('VRAM budget (MiB)');
+    expect(budget).toHaveValue(49100);
+    expect(screen.getByText(/Automatic GPU assignment:/)).toHaveTextContent('one GPU');
+    fireEvent.change(budget, {target: {value: '182300'}});
+    expect(submit).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/physical memory/);
+    fireEvent.submit(submit.closest('form')!); expect(api.createLocalModel).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', {name: '100%'}));
+    expect(budget).toHaveValue(49100);
+    await waitFor(() => expect(submit).toBeEnabled());
+    await userEvent.click(submit);
+    expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({vram: '49100Mi', allowMemoryRisk: true})}));
+  });
+
+  it('preserves an invalid saved automatic budget for explicit correction without adding it to capacity', async () => {
+    const data = fourNvidiaCards(undefined, false);
+    data.activations = deployed().activations;
+    delete data.activations[0]!.spec!.local!.gpuDevice;
+    data.activations[0]!.spec!.local!.vramMi = 182300;
+    vi.mocked(api.estimateModelUpdate).mockResolvedValue({...estimate, maximumMi: 4 * 49152});
+    mount(data); await userEvent.click(await screen.findByRole('button', {name: 'Edit fixture-model'}));
+    const budget = await screen.findByLabelText('VRAM budget (MiB)');
+    await waitFor(() => expect(screen.getByRole('slider', {name: 'Memory reservation'})).toHaveAttribute('max', '49100'));
+    expect(budget).toHaveValue(182300); expect(api.updateModel).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Context Size'), {target: {value: '8192'}});
+    expect(screen.getByRole('button', {name: 'Save changes'})).toBeDisabled();
+    fireEvent.change(budget, {target: {value: '40000'}});
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Save changes'})).toBeEnabled());
+  });
+
+  it('keeps unknown automatic card capacity unknown rather than trusting aggregate VRAM', async () => {
+    const data = fourNvidiaCards(undefined, false);
+    data.computeMemory!.devices!.forEach(card => {delete card.totalMi; card.unreservedMi = null;});
+    vi.mocked(api.estimateMemory).mockResolvedValue({...estimate, maximumMi: null, physicalMaximumMi: null});
+    mount(data); await create();
+    const slider = await screen.findByRole('slider', {name: 'Memory reservation'});
+    expect(slider).toBeDisabled();
+    expect(screen.getByText('100% unreserved').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByRole('button', {name: '100%'})).toBeDisabled();
+  });
+
+  it('bounds an automatic heterogeneous pool by the smallest physical card', async () => {
+    const data = fourNvidiaCards(undefined, false);
+    data.computeMemory!.devices![1]!.totalMi = 16384;
+    vi.mocked(api.estimateMemory).mockResolvedValue({...estimate, maximumMi: 4 * 49152});
+    mount(data); const submit = await create();
+    await waitFor(() => expect(screen.getByRole('slider', {name: 'Memory reservation'})).toHaveAttribute('max', '16300'));
+    fireEvent.change(screen.getByLabelText('VRAM budget (MiB)'), {target: {value: '20000'}});
+    expect(submit).toBeDisabled();
+  });
+
   it.each(['VLLM', 'OLlama'])('uses startup RAM defaults for %s groups and preserves a manual host budget', async (engine) => {
     // Card changes restart the real estimate debounce. Synchronize with the
     // matching response, not a one-second DOM deadline shared with CI load.

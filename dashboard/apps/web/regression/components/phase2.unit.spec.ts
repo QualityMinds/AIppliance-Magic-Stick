@@ -72,6 +72,11 @@ test('MEM-01 owning model UI renders matching group totals independently of host
     'shows per-copy host RAM and one explicit combined recommendation for replication',
   ]);
   await componentSuite('src/NvidiaCards.test.tsx', [
+    'bounds the automatic VLLM pool calculator and slider to one physical card',
+    'bounds the automatic OLlama pool calculator and slider to one physical card',
+    'preserves an invalid saved automatic budget for explicit correction without adding it to capacity',
+    'keeps unknown automatic card capacity unknown rather than trusting aggregate VRAM',
+    'bounds an automatic heterogeneous pool by the smallest physical card',
     'uses startup RAM defaults for VLLM groups and preserves a manual host budget',
     'uses startup RAM defaults for OLlama groups and preserves a manual host budget',
   ]);

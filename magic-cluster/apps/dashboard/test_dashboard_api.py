@@ -585,14 +585,15 @@ class LocalRuntimeTests(unittest.TestCase):
             self.server["model_activation_payload"]("local", base)
 
     def test_gpu_model_payload_drops_cpu_memory_reservation(self):
-        resource = self.server["model_activation_payload"]("local", {
-            "name": "gpu-chat",
-            "local": {
-                "computeTarget": "nvidia-gpu",
-                "vram": "8Gi",
-                "memoryRequiredMi": 32768,
-            },
-        })
+        with patch.dict(self.server, {"compute_memory_summary": lambda *_: {"devices": []}}):
+            resource = self.server["model_activation_payload"]("local", {
+                "name": "gpu-chat",
+                "local": {
+                    "computeTarget": "nvidia-gpu",
+                    "vram": "8Gi",
+                    "memoryRequiredMi": 32768,
+                },
+            })
 
         self.assertNotIn("memoryRequiredMi", resource["spec"]["local"])
 

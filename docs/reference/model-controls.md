@@ -10,6 +10,14 @@ form. Existing activations retain their saved engine, source and hardware target
 when edited; only changed fields are submitted with the original revision fence.
 Polling updates availability without replacing unsaved input.
 
+With automatic NVIDIA pool assignment the calculator and slider describe one
+physical GPU, not total pool VRAM. A numeric budget above the known per-card
+physical limit disables Save/Add and is also rejected by the API, even with
+memory-risk acceptance. An invalid older saved budget remains visible for an
+explicit correction; opening Edit does not silently replace it. An explicit
+multi-GPU split retains its separate group-total control. See
+[memory accounting](../concepts/memory.md#engine-budgets).
+
 The **Name** field validates local and external models before submission:
 1–63 lowercase letters, numbers or hyphens, starting and ending with a letter
 or number. Inline feedback explains an invalid or already-used name and blocks

@@ -44,7 +44,8 @@ class VllmDeploymentApiTests(unittest.TestCase):
         self.assertEqual(resolve({"vllm": {}}, "VLLM", "amd-gpu", self.catalog), {"visionAttention": "triton"})
 
     def test_legacy_creation_does_not_add_a_deployment_override(self):
-        with patch.dict(self.api, {"compute_target_catalog": lambda: self.catalog}):
+        with patch.dict(self.api, {"compute_target_catalog": lambda: self.catalog,
+                                  "ready_schedulable_nodes": lambda: []}):
             for engine, target, url in (("VLLM", "amd-gpu", "hf://example/model"),
                                        ("VLLM", "nvidia-gpu", "hf://example/model"),
                                        ("OLlama", "amd-gpu", "ollama://example:latest")):

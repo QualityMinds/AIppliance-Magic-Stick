@@ -723,6 +723,8 @@ export interface MemoryEstimate {
   minimumMi: number;
   recommendedMi: number;
   maximumMi?: number | null;
+  /** Hard per-card ceiling. Automatic NVIDIA placement cannot pool cards. */
+  physicalMaximumMi?: number | null;
   gpuCount?: number;
   gpuParallelism?: 'tensor' | 'pipeline' | 'spread' | 'replicated';
   memoryBudgetScope?: 'per-device';

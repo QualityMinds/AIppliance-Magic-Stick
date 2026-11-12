@@ -27,6 +27,59 @@ const common = (extra: Record<string, unknown> = {}) => ({
 });
 
 for (const viewport of ['desktop', 'mobile'] as const) for (const engine of ['VLLM', 'OLlama'] as const)
+for (const mode of ['create', 'edit'] as const)
+test(`MEM-01 MEM-05 automatic NVIDIA ${engine} ${viewport} ${mode} never pools four cards into one allocation`, evidenceAnnotations(
+  {id: mode === 'create' ? 'MEM-01' : 'MEM-05', variant: `nvidia-pool-${engine.toLowerCase()}-${viewport}-${mode}-browser`, layer: 'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width: 390, height: 844} : {width: 1440, height: 1000});
+  const data = fourNvidiaCards(undefined, false);
+  data.computeMemory!.devices!.forEach(card => {card.totalMi = 49140; card.unreservedMi = 49140;});
+  const local = {engine, computeTarget: 'nvidia-gpu', url: engine === 'VLLM' ? 'hf://example/fixture' : 'ollama://fixture:small',
+    modelType: 'chat', vramMi: 182300, contextWindow: 4096, maxNumSeqs: 1, kvCacheType: engine === 'VLLM' ? 'auto' : 'f16'};
+  if (mode === 'edit') data.activations = [{metadata: {name: 'fixture-pool', resourceVersion: '9'},
+    spec: {type: 'local', enabled: true, targetNamespace: 'ai', local}}];
+  const writes: Array<Record<string, any>> = [];
+  const save = (request: Request) => {writes.push(request.postDataJSON()); return {};};
+  // Deliberately retain the old aggregate estimate. New clients must remain
+  // safe during a coordinated rollout against an older API too.
+  const oversized = {...estimate, computeTarget: 'nvidia-gpu', minimumMi: 158500, recommendedMi: 182300, maximumMi: 4 * 49140};
+  await fixturePage(page, common({'/api/models': data, '/api/models/estimate-memory': oversized,
+    '/api/models/fixture-pool/estimate-memory': oversized, '/api/models/local': save, '/api/models/fixture-pool': save}));
+  await page.goto(origin + '/#/models');
+  await page.getByRole('button', {name: mode === 'create' ? 'Create' : 'Edit fixture-pool', exact: true}).click();
+  const dialog = page.getByRole('dialog');
+  if (mode === 'create') {
+    await dialog.getByLabel('Inference Engine').selectOption(engine);
+    await dialog.getByRole('combobox', {name: 'Hardware', exact: true}).selectOption('nvidia-gpu');
+    await dialog.getByLabel('Model source').selectOption('direct');
+    await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(local.url);
+    await dialog.getByLabel('Name', {exact: true}).fill('fixture-pool');
+  }
+  const slider = dialog.getByRole('slider', {name: 'Memory reservation'}), budget = dialog.getByLabel('VRAM budget (MiB)');
+  await expect(slider).toHaveAttribute('max', '49100');
+  await expect(dialog.getByText(/Automatic GPU assignment:/)).toContainText('one GPU');
+  await expect(dialog.getByLabel('Total VRAM budget (MiB)')).toHaveCount(0);
+  if (mode === 'edit') await expect(budget).toHaveValue('182300');
+  else await expect(budget).toHaveValue('49100');
+  const submit = dialog.getByRole('button', {name: mode === 'create' ? 'Add Local Model' : 'Save changes'});
+  await budget.fill('182300');
+  await expect(dialog.getByRole('alert')).toContainText('physical memory for a single GPU');
+  await expect(submit).toBeDisabled(); await budget.press('Enter'); expect(writes).toEqual([]);
+  await dialog.getByRole('button', {name: 'Recommended', exact: true}).click();
+  await expect(budget).toHaveValue('49100');
+  await expect(slider).toHaveValue('49100');
+  await dialog.getByRole('button', {name: '100%', exact: true}).click();
+  await expect(budget).toHaveValue('49100'); await expect(submit).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path: info.outputPath(`nvidia-pool-${engine}-${viewport}-${mode}.png`), fullPage: true});
+  await submit.click(); await expect(dialog).toHaveCount(0);
+  expect(writes).toHaveLength(1);
+  expect(writes[0]!.local).toMatchObject(mode === 'create' ? {vram: '49100Mi', allowMemoryRisk: true}
+    : {vramMi: 49100, allowMemoryRisk: true});
+  expect(writes[0]!.local.gpuDevice).toBeUndefined();
+  expect(writes[0]!.local.gpuDevices).toBeUndefined();
+});
+
+for (const viewport of ['desktop', 'mobile'] as const) for (const engine of ['VLLM', 'OLlama'] as const)
 test(`MEM-01 MEM-06 ${engine} ${viewport} separates startup RAM and preserves manual budgets through recalculation`, evidenceAnnotations(
   {id: 'MEM-01', variant: 'memory-breakdown-browser', layer: 'B'},
   {id: 'MEM-06', variant: 'slider-browser', layer: 'B'}), async ({page}, info) => {
