@@ -17,6 +17,11 @@ class NginxWorkerContractTests(unittest.TestCase):
                 directives = re.findall(r"^\s*worker_processes\s+([^;]+);", path.read_text(), re.MULTILINE)
                 self.assertEqual(directives, ["1"])
 
+    def test_dashboard_bounds_large_sso_header_buffers(self):
+        config = (ROOT / "dashboard/apps/web/nginx.conf").read_text()
+        directives = re.findall(r"^\s*large_client_header_buffers\s+([^;]+);", config, re.MULTILINE)
+        self.assertEqual(directives, ["4 16k"])
+
     def test_pilot_consumes_the_generated_read_only_config(self):
         docs = list(yaml.safe_load_all((IDENTITY / "routes.yaml").read_text()))
         pod = next(item for item in docs if item["kind"] == "Deployment" and

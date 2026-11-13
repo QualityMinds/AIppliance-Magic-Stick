@@ -28,6 +28,41 @@ class NginxRuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
         return result.stdout
 
+    def assert_header_response(self, name, url, headers, expected_status):
+        # These are deliberately synthetic, non-credential values. Report only
+        # header names, byte counts and status, never their contents.
+        args = ["docker", "exec", name, "wget", "-S", "-O", "/dev/null"]
+        for key, value in headers.items():
+            args += ["--header", key + ": " + value]
+        result = subprocess.run([*args, url], capture_output=True, text=True, timeout=10)
+        statuses = re.findall(r"HTTP/\S+\s+(\d{3})\b", result.stderr)
+        description = ", ".join(key + "=" + str(len(value.encode("ascii"))) + " bytes"
+                                for key, value in headers.items())
+        self.assertTrue(statuses, "No HTTP response for synthetic headers: " + description)
+        self.assertEqual(int(statuses[-1]), expected_status, description)
+        self.assertEqual(result.returncode == 0, expected_status == 200, description)
+
+    def exercise_dashboard_headers(self, name):
+        # Test parsing on the real static backend, not authentication. Gateway
+        # and API authorization must remain covered by their existing tests.
+        url = "http://127.0.0.1:8080/"
+        for size in (8 * 1024, 12 * 1024):
+            for header, prefix in (("Cookie", "synthetic-session="),
+                                   ("Authorization", "Bearer synthetic-")):
+                with self.subTest(header=header, bytes=size):
+                    self.assert_header_response(name, url, {header: prefix + "x" * size}, 200)
+        self.assert_header_response(name, url, {
+            "Cookie": "synthetic-session=" + "x" * (12 * 1024),
+            "Authorization": "Bearer synthetic-" + "x" * (12 * 1024),
+        }, 200)
+        for header in ("Cookie", "Authorization"):
+            with self.subTest(header=header, bytes=17 * 1024):
+                self.assert_header_response(name, url, {header: "x" * (17 * 1024)}, 400)
+        # Individual fields fit, but the entire request must remain bounded.
+        self.assert_header_response(name, url, {
+            "X-Synthetic-" + str(index): "x" * (12 * 1024) for index in range(8)
+        }, 400)
+
     def exercise(self, image, config, cpu, memory, port, path, expected, non_root=False):
         name = "magicstick-nginx-test-" + uuid.uuid4().hex[:12]
         image_check = subprocess.run(["docker", "image", "inspect", image],
@@ -72,6 +107,7 @@ class NginxRuntimeTests(unittest.TestCase):
                 if non_root:
                     self.assertEqual(self.command("exec", name, "wget", "-q", "-O-",
                                                   "http://127.0.0.1:8080/").strip(), index.read_text().strip())
+                    self.exercise_dashboard_headers(name)
                 events = dict(line.split() for line in self.command(
                     "exec", name, "cat", "/sys/fs/cgroup/memory.events").splitlines())
                 self.assertEqual(events["oom"], "0")

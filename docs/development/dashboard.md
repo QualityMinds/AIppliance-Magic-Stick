@@ -221,6 +221,11 @@ MAGICSTICK_RUN_NGINX_CONTAINER_TESTS=1 python3 -m unittest -v tests.test_nginx_r
 
 The tests check HTTP responses, exactly one worker, no cgroup OOM events and no
 container restarts; they need Docker and no appliance access.
+The dashboard accepts large request headers with four on-demand 16 KiB buffers;
+each individual header field must fit one buffer. The bounded SSO-header hotfix
+does not change cookie domains, OIDC callbacks, authentication or authorization.
+Runtime tests accept synthetic 8/12 KiB cookies and token headers, reject an
+oversized field, and retain the existing 128 MiB non-root runtime budget.
 
 The API Dockerfile has one final runtime containing the BSL-licensed
 `magicstick_core` package, license texts and third-party notices.

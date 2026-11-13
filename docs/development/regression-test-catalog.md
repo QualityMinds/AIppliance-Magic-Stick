@@ -1486,6 +1486,13 @@ through the existing boot owning-suite selection. Public CI also runs
 OOM/restart counters. This focused deployment regression does not replace the
 installed reboot, authentication or inference requirements of BOOT-02.
 
+13 November 2026, AUTH-01/03 and BOOT-02 supporting regression: the dashboard's
+bounded nginx header buffers accept synthetic 8/12 KiB cookie and token fields
+and continue rejecting oversized individual fields. The existing real-container
+suite checks this with the unchanged non-root 128 MiB budget. Cookie scope and
+OIDC policy are unchanged; installed login and API authorization remain separate
+live acceptance gates, not results inferred from synthetic header acceptance.
+
 The same boot owning-suite selects `NvidiaStartupHandoffTests` in the NVIDIA
 host-role tests. Synthetic PCI bindings reproduce Nouveau/unbound first boot,
 mixed AMD/NVIDIA and post-boot release, including NVML/socket failures, manual

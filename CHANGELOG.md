@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Raise the dashboard nginx's bounded large-header buffers to four 16 KiB
+  buffers so legitimate SSO cookie/token headers do not hit the old 8 KiB
+  per-field limit. Cookie scope, authentication and authorization remain unchanged;
+  requests exceeding the new limit are still rejected.
+
 - Add an explicitly selected, catalog-derived Services regression with ordered
   installation/removal and SSO/public access stages.
   Include Pi Coding Agent without re-enabling deferred service workflows in
