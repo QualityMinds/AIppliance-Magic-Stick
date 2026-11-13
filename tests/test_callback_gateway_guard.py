@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: BUSL-1.1
 import importlib.util
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -66,6 +67,69 @@ class ActivationTests(unittest.TestCase):
                 self.assertEqual(document['spec']['validationActions'], ['Deny'])
                 if 'paramRef' in document['spec']:
                     self.assertEqual(document['spec']['paramRef']['parameterNotFoundAction'], 'Deny')
+
+
+class BootstrapCompositionTests(unittest.TestCase):
+    def test_native_gate_covers_fresh_and_existing_route_upgrades(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/public-release-checks.yml').read_text())
+        gate = workflow['jobs']['gateway-security']
+        self.assertFalse(gate['strategy']['fail-fast'])
+        self.assertEqual(gate['strategy']['matrix']['bootstrap'], ['fresh', 'upgrade'])
+        commands = '\n'.join(step.get('run', '') for step in gate['steps'])
+        self.assertIn('--seed-legacy-route', commands)
+        self.assertIn('--require-existing-route', commands)
+        self.assertIn('flux install --version=v2.9.2', commands)
+        script = (ROOT / 'magic-cluster/platform/identity/tests/gateway_policy_contract.py').read_text()
+        self.assertIn('legacy_uid', script)
+        self.assertIn('InvalidCELExpression', script)
+        self.assertNotIn("call('delete', 'validatingadmissionpolicy", script)
+
+    def render(self, path):
+        result = subprocess.run(['kubectl', 'kustomize', str(ROOT / path)],
+                                text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [item for item in yaml.safe_load_all(result.stdout) if item]
+
+    @staticmethod
+    def identity(item):
+        return item['apiVersion'], item['kind'], item['metadata'].get('namespace', ''), item['metadata']['name']
+
+    def test_two_waves_are_an_exact_nonoverlapping_partition_of_identity(self):
+        full = self.render('magic-cluster/platform/identity')
+        bootstrap = self.render('magic-cluster/platform/identity-bootstrap')
+        routes = self.render('magic-cluster/platform/identity/routes')
+        self.assertTrue(routes)
+        self.assertTrue(all(item['kind'] == 'HTTPRoute' for item in routes))
+        self.assertFalse(any(item['kind'] == 'HTTPRoute' for item in bootstrap))
+        first, second = ({self.identity(item): item for item in wave} for wave in (bootstrap, routes))
+        self.assertFalse(first.keys() & second.keys())
+        self.assertEqual({**first, **second}, {self.identity(item): item for item in full})
+        names = {(item['kind'], item['metadata']['name']) for item in bootstrap}
+        for required in [('Gateway', 'identity-pilot'), ('EnvoyExtensionPolicy', 'magicstick-cookie-migration'),
+                         ('SecurityPolicy', 'magicstick-default-deny'), ('Backend', 'magicstick-callback-gate'),
+                         ('ConfigMap', 'magicstick-cookie-migration'), ('Deployment', 'magicstick-setup')]:
+            self.assertIn(required, names)
+
+    def test_both_entrypoints_wait_for_current_root_policy_acceptance(self):
+        for path in ('base', 'single-node'):
+            graph = self.render('magic-cluster/flux/entrypoints/' + path)
+            nodes = {item['metadata']['name']: item['spec'] for item in graph if item['kind'] == 'Kustomization'}
+            bootstrap, routes = nodes['identity-bootstrap'], nodes['identity-pilot']
+            self.assertEqual(routes['path'], './magic-cluster/platform/identity/routes')
+            self.assertIn({'name': 'identity-bootstrap'}, routes['dependsOn'])
+            self.assertIn({'name': 'callback-backend-activation'}, bootstrap['dependsOn'])
+            self.assertTrue(bootstrap['prune'])
+            self.assertTrue(routes['prune'])
+            self.assertFalse(bootstrap['wait'])
+            checks = {(item['kind'], item['name']) for item in bootstrap['healthChecks']}
+            self.assertIn(('EnvoyExtensionPolicy', 'magicstick-cookie-migration'), checks)
+            self.assertIn(('SecurityPolicy', 'magicstick-default-deny'), checks)
+            self.assertIn(('Deployment', 'keycloak'), checks)
+            self.assertIn(('StatefulSet', 'keycloak-postgresql'), checks)
+            for check in bootstrap['healthCheckExprs']:
+                self.assertNotIn('has(status)', check['current'])
+                self.assertIn("c.type == 'Accepted' && c.status == 'True'", check['current'])
+                self.assertIn('c.observedGeneration == metadata.generation', check['current'])
 
 
 if __name__ == '__main__':

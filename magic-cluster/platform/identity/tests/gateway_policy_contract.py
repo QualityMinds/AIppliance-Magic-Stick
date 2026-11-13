@@ -26,6 +26,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--kubeconfig', required=True)
     parser.add_argument('--context', required=True)
+    parser.add_argument('--seed-legacy-route', action='store_true')
+    parser.add_argument('--require-existing-route', action='store_true')
     args = parser.parse_args()
     if not args.context.startswith('kind-magicstick-cookie-guard-'):
         raise SystemExit('Only the disposable cookie-guard Kind context is permitted')
@@ -47,12 +49,6 @@ def main():
     def apply(*documents):
         call('apply', '-f', '-', data=yaml.safe_dump_all(documents))
 
-    def deny(document, policy=True):
-        result = call('create', '--dry-run=server', '-f', '-', data=yaml.safe_dump(document), ok=False)
-        expected = 'ValidatingAdmissionPolicy' if policy else 'Invalid value'
-        if result.returncode == 0 or expected not in result.stderr:
-            raise AssertionError('Expected an actual API rejection: ' + result.stderr[:1000])
-
     def wait(check, label, seconds=100):
         end = time.monotonic() + seconds
         while time.monotonic() < end:
@@ -61,12 +57,73 @@ def main():
             time.sleep(1)
         raise AssertionError('Timed out: ' + label)
 
+    def render(path):
+        return [item for item in yaml.safe_load_all(call('kustomize', str(ROOT / path)).stdout) if item]
+
+    bootstrap = render('magic-cluster/platform/identity-bootstrap')
+    route_wave = render('magic-cluster/platform/identity/routes')
+    if any(item['kind'] == 'HTTPRoute' for item in bootstrap) or not route_wave or \
+            any(item['kind'] != 'HTTPRoute' for item in route_wave):
+        raise AssertionError('Identity prerequisites and routes must occupy separate apply waves')
+
+    def prerequisite(kind, name):
+        return copy.deepcopy(next(item for item in bootstrap
+                                  if item['kind'] == kind and item['metadata']['name'] == name))
+
+    # The real Flux controller parses these expressions before source lookup.
+    # Deliberately supply no GitRepository: this verifies the native reader's
+    # syntax only, never claims a missing source as a successful reconciliation.
+    source = call('get', 'gitrepository/flux-system', '-n', 'flux-system', ok=False)
+    if source.returncode == 0 or 'NotFound' not in source.stderr:
+        raise SystemExit('The disposable Flux parser fixture requires a confirmed absent source')
+    graph = yaml.safe_load((ROOT / 'magic-cluster/flux/graph/base/08-identity-bootstrap.yaml').read_text())
+    apply(graph)
+    def flux_reader_parsed():
+        item = json.loads(call('get', 'kustomization/identity-bootstrap', '-n', 'flux-system', '-o', 'json').stdout)
+        ready = next((c for c in item.get('status', {}).get('conditions', []) if c['type'] == 'Ready'), {})
+        if ready.get('reason') == 'InvalidCELExpression':
+            raise AssertionError('Native Flux rejected the bootstrap health expressions')
+        return ready.get('reason') == 'ArtifactFailed' and ready.get('observedGeneration') == item['metadata']['generation']
+    wait(flux_reader_parsed, 'native Flux health reader parsed before expected missing-source failure')
+
+    def deny(document, policy=True):
+        result = call('create', '--dry-run=server', '-f', '-', data=yaml.safe_dump(document), ok=False)
+        expected = 'ValidatingAdmissionPolicy' if policy else 'Invalid value'
+        if result.returncode == 0 or expected not in result.stderr:
+            raise AssertionError('Expected an actual API rejection: ' + result.stderr[:1000])
+
     apply({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'identity-system'}})
     route = {'apiVersion': 'gateway.networking.k8s.io/v1', 'kind': 'HTTPRoute',
-             'metadata': {'name': 'fixture', 'namespace': 'identity-system'},
-             'spec': {'parentRefs': [{'name': 'identity-pilot', 'sectionName': 'https'}],
+             'metadata': {'name': 'fixture', 'namespace': 'identity-system',
+                          'labels': {'magicstick.dev/test-fixture': 'callback-bootstrap'}},
+             'spec': {'parentRefs': [{'group': 'gateway.networking.k8s.io', 'kind': 'Gateway',
+                                      'name': 'identity-pilot', 'sectionName': 'https'}],
                       'hostnames': ['guard.fixture.test'],
-                      'rules': [{'backendRefs': [{'name': 'ai-appliance-dashboard-api', 'port': 8080}]}]}}
+                      'rules': [{'matches': [{'path': {'type': 'PathPrefix', 'value': '/'}}],
+                                 'backendRefs': [{'group': '', 'kind': 'Service', 'weight': 1,
+                                                  'name': 'ai-appliance-dashboard-api', 'port': 8080}]}]}}
+    if args.seed_legacy_route:
+        # Upgrade-only preparation, called before admission installation while
+        # the Gateway Backend extension is still disabled. Never remove or
+        # weaken a guard to manufacture the old state.
+        for name in ('magicstick-route-needs-callback-baseline', 'magicstick-route-needs-security-baseline'):
+            binding = call('get', 'validatingadmissionpolicybinding', name, ok=False)
+            if binding.returncode == 0:
+                raise SystemExit('Legacy fixture seeding requires a disposable pre-guard cluster')
+            if 'NotFound' not in binding.stderr:
+                raise SystemExit('Could not confirm absent admission binding for legacy fixture')
+        apply(route)
+        print('Seeded synthetic pre-guard route without a running backend or human credentials.')
+        return
+    previous = call('get', 'httproute/fixture', '-n', 'identity-system', '-o', 'json', ok=False)
+    legacy_uid = None
+    if previous.returncode == 0:
+        legacy = json.loads(previous.stdout)
+        if legacy['spec'] != route['spec'] or legacy['metadata'].get('labels', {}).get('magicstick.dev/test-fixture') != 'callback-bootstrap':
+            raise SystemExit('Unexpected existing test route; refusing to adopt it')
+        legacy_uid = legacy['metadata']['uid']
+    if args.require_existing_route and not legacy_uid:
+        raise SystemExit('The upgrade contract requires its pre-guard route')
     call('apply', '-k', str(ROOT / 'magic-cluster/platform/gateway/callback-backend-admission'))
     wait(lambda: all(item.get('status', {}).get('observedGeneration') == item['metadata']['generation']
                      for item in json.loads(call('get', 'validatingadmissionpolicies', '-o', 'json').stdout)['items']),
@@ -76,7 +133,19 @@ def main():
     if warnings:
         raise AssertionError('Admission CEL type checking produced warnings')
     if call('get', 'envoyextensionpolicy/magicstick-cookie-migration', '-n', 'identity-system', ok=False).returncode:
-        deny(route)  # Fresh-install dependency absent: no unguarded route.
+        fresh = copy.deepcopy(route)
+        fresh['metadata']['name'] = 'fresh-fixture'
+        deny(fresh)  # Fresh-install dependency absent: no unguarded route.
+        combined = [prerequisite('EnvoyExtensionPolicy', 'magicstick-cookie-migration'),
+                    prerequisite('SecurityPolicy', 'magicstick-default-deny'), route]
+        result = call('apply', '--server-side', '--dry-run=server', '-f', '-',
+                      data=yaml.safe_dump_all(combined), ok=False)
+        if result.returncode == 0 or 'magicstick-route-needs-callback-baseline' not in result.stderr:
+            raise AssertionError('The legacy combined Flux dry-run must reproduce the bootstrap deadlock')
+        for kind, name in [('envoyextensionpolicy', 'magicstick-cookie-migration'),
+                           ('securitypolicy', 'magicstick-default-deny')]:
+            if call('get', kind, name, '-n', 'identity-system', ok=False).returncode == 0:
+                raise AssertionError('A rejected dry-run must not persist its baseline prerequisites')
     setup_policy = {'apiVersion': 'gateway.envoyproxy.io/v1alpha1', 'kind': 'SecurityPolicy',
                     'metadata': {'name': 'magicstick-setup-local-only', 'namespace': 'identity-system'},
                     'spec': {'targetRefs': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute', 'name': 'magicstick-setup-local'}],
@@ -140,7 +209,7 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
         for name, port in [('ai-appliance-dashboard-api', 8080), ('magicstick-callback-gate', 8081)]:
             apply({'apiVersion': 'v1', 'kind': 'Service', 'metadata': {'name': name, 'namespace': 'identity-system'},
                    'spec': {'selector': {'app': 'fixture'}, 'ports': [{'port': port, 'targetPort': port}]}})
-        backend = list(yaml.safe_load_all((IDENTITY / 'callback-gate-tls.yaml').read_text()))[-1]
+        backend = prerequisite('Backend', 'magicstick-callback-gate')
         apply(backend)
         invalid = copy.deepcopy(backend)
         invalid['metadata']['name'] = 'unapproved-fixture'
@@ -150,7 +219,7 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
         invalid['metadata']['name'] = 'unsafe-fixture'
         deny(invalid, policy=False)  # The CRD itself forbids skip-verify + CA.
         apply(*yaml.safe_load_all((IDENTITY / 'default-deny-policy.yaml').read_text()))
-        root_gate = yaml.safe_load((IDENTITY / 'cookie-migration-policy.yaml').read_text())
+        root_gate = prerequisite('EnvoyExtensionPolicy', 'magicstick-cookie-migration')
         apply(root_gate)
         gateway = {'apiVersion': 'gateway.networking.k8s.io/v1', 'kind': 'Gateway', 'metadata': {'name': 'identity-pilot', 'namespace': 'identity-system'},
                    'spec': {'gatewayClassName': 'fixture', 'listeners': [{'name': 'https', 'port': 443, 'protocol': 'HTTPS',
@@ -166,11 +235,19 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                        for ancestor in item.get('status', {}).get('ancestors', []) for c in ancestor.get('conditions', []))
         wait(lambda: baseline_accepted('envoyextensionpolicy', 'magicstick-cookie-migration') and
                      baseline_accepted('securitypolicy', 'magicstick-default-deny'), 'current controller baseline acceptance')
+        # The exact route-only product wave now passes the same server-side
+        # dry-run used before Flux apply. No exception or Deny rule was removed.
+        rendered_routes = yaml.safe_dump_all(route_wave).replace(
+            '${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}', 'fixture.test')
+        call('apply', '--server-side', '--dry-run=server', '-f', '-', data=rendered_routes)
+        call('apply', '--server-side', '--dry-run=server', '-f', '-', data=yaml.safe_dump(route))
         policy = {'apiVersion': 'gateway.envoyproxy.io/v1alpha1', 'kind': 'SecurityPolicy',
                   'metadata': {'name': 'fixture', 'namespace': 'identity-system'},
                   'spec': {'targetRefs': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute', 'name': 'fixture'}],
                            'extAuth': {'failOpen': False, 'http': {'backendRefs': [{'name': 'ai-appliance-dashboard-api', 'port': 8080}], 'path': '/internal/session-access'}}}}
         apply(policy, route)
+        if legacy_uid and json.loads(call('get', 'httproute/fixture', '-n', 'identity-system', '-o', 'json').stdout)['metadata']['uid'] != legacy_uid:
+            raise AssertionError('The upgrade replaced its legacy route instead of updating it')
         child_gate = copy.deepcopy(root_gate)
         child_gate['metadata']['name'] = 'fixture'
         child_gate['spec']['targetRefs'] = [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute', 'name': 'fixture'}]
@@ -204,10 +281,18 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
         call('delete', 'envoyextensionpolicy/fixture', '-n', 'identity-system')
         services = json.loads(call('get', 'svc', '-n', 'envoy-gateway-system', '-o', 'json').stdout)['items']
         envoy = next(item['metadata']['name'] for item in services if item['metadata'].get('labels', {}).get('gateway.envoyproxy.io/owning-gateway-name') == 'identity-pilot')
-        forward = subprocess.Popen([*base, '-n', 'envoy-gateway-system', 'port-forward', 'service/' + envoy, ':443'],
+        deployments = json.loads(call('get', 'deployments', '-n', 'envoy-gateway-system', '-l',
+                                      'gateway.envoyproxy.io/owning-gateway-name=identity-pilot,gateway.envoyproxy.io/owning-gateway-namespace=identity-system', '-o', 'json').stdout)['items']
+        if len(deployments) != 1:
+            raise AssertionError('Expected exactly one owned synthetic Gateway deployment')
+        call('rollout', 'status', 'deployment/' + deployments[0]['metadata']['name'],
+             '-n', 'envoy-gateway-system', '--timeout=110s')
+        forward = subprocess.Popen([*base, '-n', 'envoy-gateway-system', 'port-forward', '--address=127.0.0.1', 'service/' + envoy, ':443'],
                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         try:
             line = forward.stdout.readline()
+            if not line.startswith('Forwarding from 127.0.0.1:'):
+                raise AssertionError('Synthetic TLS port-forward did not establish its owned IPv4 loopback listener')
             port = int(line.split('127.0.0.1:')[1].split(' ')[0])
             # Connect to loopback but validate the correct synthetic hostname.
             import http.client

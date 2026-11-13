@@ -27,6 +27,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   as healthy, and retains exact release identities when checking for late resources.
   Permit DNS-qualified native API groups with hyphens in the read-only observer,
   while continuing to reject Secrets, subresources and invalid resource paths.
+- Split identity prerequisites and routes into ordered Flux apply waves. Keep
+  fail-closed route admission active while root policies acquire current
+  controller acceptance, avoiding a whole-wave dry-run bootstrap deadlock on
+  fresh installations and upgrades. Add native server-side dry-run and exact
+  resource-partition counterexamples without changing cookies, credentials,
+  model definitions or application data.
 - Isolate gateway SSO cookies by dashboard or application host and register
   exact, instance-owned login callbacks. Global logout checks the active identity
   session for later protected requests. Legacy gateway token cookies are

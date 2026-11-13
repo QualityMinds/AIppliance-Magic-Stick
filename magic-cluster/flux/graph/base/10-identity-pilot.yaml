@@ -5,11 +5,9 @@ metadata:
   namespace: flux-system
 spec:
   dependsOn:
-    - name: first-run-bootstrap
-    - name: envoy-gateway
-    - name: callback-backend-activation
+    - name: identity-bootstrap
   interval: 10m0s
-  path: ./magic-cluster/platform/identity
+  path: ./magic-cluster/platform/identity/routes
   postBuild:
     substitute:
       var_substitution_enabled: "true"
