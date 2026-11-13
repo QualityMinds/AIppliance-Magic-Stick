@@ -59,6 +59,27 @@ async function main() {
     if (!dashboardCookie || dashboardCookie.domain !== 'dash.fixture.test' || !dashboardCookie.secure || !dashboardCookie.httpOnly || dashboardCookie.path !== '/') {
       throw new Error('Dashboard host-only secure session cookie missing');
     }
+    // Exercise an existing browser, not only an empty cookie jar. Retain the
+    // native Keycloak SSO session while projecting the old broad gateway jar,
+    // including its route helper cookies, onto the shared parent domain.
+    if (process.env.LEGACY_COOKIE_UPGRADE === '1') {
+      phase = 'legacy-cookie-upgrade';
+      if (!first.some(cookie => cookie.name === 'OauthHMAC') || !first.some(cookie => cookie.name === 'RefreshToken')) {
+        throw new Error('Synthetic legacy jar is missing actual OAuth helper cookies');
+      }
+      await context.clearCookies({domain:'dash.fixture.test'});
+      await context.addCookies(first.map(cookie => ({...cookie, domain:'.fixture.test',
+        name:cookie.name === '__Host-MagicStickAccessToken' ? 'MagicStickAccessToken' :
+          cookie.name === '__Host-MagicStickIDToken' ? 'MagicStickIDToken' : cookie.name})));
+      const upgraded = await page.goto(dashboard + '/protected', {waitUntil:'domcontentloaded'});
+      const upgradedCookies = await context.cookies(dashboard);
+      if (!upgraded || upgraded.status() !== 200 || page.url() !== dashboard + '/protected' ||
+          !upgradedCookies.some(cookie => cookie.name === '__Host-MagicStickAccessToken' && cookie.domain === 'dash.fixture.test') ||
+          upgradedCookies.some(cookie => ['MagicStickAccessToken','MagicStickIDToken'].includes(cookie.name))) {
+        process.stderr.write(`Legacy upgrade: HTTP ${upgraded?.status()}, protected ${page.url() === dashboard + '/protected'}, host session ${upgradedCookies.some(cookie => cookie.name === '__Host-MagicStickAccessToken' && cookie.domain === 'dash.fixture.test')}, old named tokens ${upgradedCookies.some(cookie => ['MagicStickAccessToken','MagicStickIDToken'].includes(cookie.name))}\n`);
+        throw new Error('Existing broad cookie jar did not migrate without an authentication loop');
+      }
+    }
     phase = 'gate-stop';
     await control('/stop-gate');
     const offline = await page.goto(dashboard + '/protected', {waitUntil:'domcontentloaded'});
@@ -130,12 +151,25 @@ async function main() {
     const recovered = await page.goto(service + '/protected', {waitUntil:'domcontentloaded'});
     if (!recovered || recovered.status() !== 200) throw new Error('Service did not recover after confirmed readiness');
     phase = 'global-logout';
-    await page.goto(dashboard + '/logout', {waitUntil:'domcontentloaded'});
+    const logout = await page.goto(dashboard + '/logout', {waitUntil:'domcontentloaded'});
+    const logoutAtIdentity = new URL(page.url()).origin === 'https://id.fixture.test';
     const confirm = page.locator('#kc-logout');
-    if (await confirm.isVisible()) await confirm.click();
+    const confirmation = await confirm.isVisible();
+    if (confirmation) await confirm.click();
     const after = await page.goto(service + '/protected', {waitUntil:'domcontentloaded'});
-    if (!after || after.status() !== 403) throw new Error('Other service accepted a logged-out session');
-    process.stdout.write('Trusted HTTPS multi-host login, cookie isolation and global logout: passed\n');
+    const afterUrl = new URL(page.url());
+    const deniedInPlace = after?.status() === 403 && afterUrl.origin === service && afterUrl.pathname === '/protected';
+    const loginRequired = after?.status() === 200 && afterUrl.origin === 'https://id.fixture.test' &&
+      afterUrl.pathname === '/realms/magicstick/protocol/openid-connect/auth' &&
+      afterUrl.searchParams.get('client_id') === 'magicstick-human-gateway-local' &&
+      afterUrl.searchParams.get('redirect_uri') === service + '/oauth2/callback' &&
+      await page.locator('#username').isVisible() && await page.locator('#password').isVisible() &&
+      await page.locator('#kc-login').isVisible();
+    if (!deniedInPlace && !loginRequired) {
+      process.stderr.write(`Logout proof: HTTP ${logout?.status()}, identity ${logoutAtIdentity}, confirmed ${confirmation}; other host HTTP ${after?.status()}, protected ${page.url() === service + '/protected'}, identity ${new URL(page.url()).origin === 'https://id.fixture.test'}, login form ${await page.locator('#username').isVisible()}\n`);
+      throw new Error('Other service accepted a logged-out session');
+    }
+    process.stdout.write(`Trusted HTTPS multi-host login, cookie isolation and global logout (${process.env.LEGACY_COOKIE_UPGRADE === '1' ? 'legacy upgrade' : 'fresh browser'}): passed\n`);
   } finally {await context.close(); await browser.close();}
 }
 

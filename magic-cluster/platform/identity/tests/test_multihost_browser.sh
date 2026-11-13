@@ -41,4 +41,5 @@ docker run --rm --network "$network" \
          mkdir -p "$db"; certutil -N -d "sql:$db" --empty-password; \
          certutil -A -d "sql:$db" -n magicstick-fixture -t "C,," -i /test/ca.pem; \
        done; \
-       node /test/browser.cjs'
+       node /test/browser.cjs; \
+       LEGACY_COOKIE_UPGRADE=1 node /test/browser.cjs'

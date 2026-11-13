@@ -9,6 +9,11 @@ Chromium NSS trust database. It first checks that an untrusted synthetic CA is
 rejected, then imports that CA only into the disposable browser container.
 The pinned Keycloak and Envoy images and the actual Dashboard API guard exercise
 login across distinct HTTPS hosts, host-only token cookies and cross-host logout.
+The trusted profile runs separately with a fresh jar and with an old broad
+gateway jar, including real RefreshToken/HMAC helpers. The latter retains the
+native Keycloak session and uses the product migration Lua. After logout, the
+other host must either deny in place or present the exact trusted Keycloak login
+form for that service; a protected success response never qualifies.
 It also checks that a service configured like LiteLLM preserves its own
 synthetic Authorization header while the guard checks the gateway session.
 An actual Envoy ext_proc filter calls the product gRPC callback gate before

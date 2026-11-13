@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "7eec90487d6c24c25dcd4d6a52e0bb20f4fede8440d11e0b5ae95e0bc3d2e97b",
+  "deploymentReferencesSha256": "1981fdac05a1e6b0779b1df5f5a9f6709398fda596b92fffda35e4e16bf38985",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -3202,8 +3202,8 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/test_multihost_stack.py",
-      "line": 153,
-      "reference": "\"pip install --no-cache-dir --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /app/gate_fixture.py\")"
+      "line": 154,
+      "reference": "\"if ! pip install --timeout 15 --retries 2 --no-cache-dir --disable-pip-version-check \""
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",

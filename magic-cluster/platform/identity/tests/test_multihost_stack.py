@@ -150,7 +150,11 @@ class Stack:
                     "--mount", f"type=bind,source={self.path / 'ca.crt'},target=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt,readonly",
                     "-e", "OIDC_USERINFO_URL=http://keycloak:8080/realms/magicstick/protocol/openid-connect/userinfo",
                     "-e", "OIDC_EXPECTED_ISSUER=" + ISSUER, PYTHON, "sh", "-ec",
-                    "pip install --no-cache-dir --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /app/gate_fixture.py")
+                    "echo 'fixture-stage dependency-install'; "
+                    "if ! pip install --timeout 15 --retries 2 --no-cache-dir --disable-pip-version-check "
+                    "grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; "
+                    "then echo 'fixture-stage dependency-failed'; exit 1; fi; "
+                    "echo 'fixture-stage processor'; exec python /app/gate_fixture.py")
 
         # Envoy requires a regular bootstrap file. Keep it only in a private
         # RAM-backed Docker volume, not on persistent host/container storage or
@@ -197,7 +201,11 @@ except Exception as e:
                     status.append(self.docker("inspect", "--format", "{{.State.Status}}", name, timeout=5))
                 except RuntimeError:
                     status.append("unknown")
-            raise RuntimeError("isolated TLS gateway/guard not ready: " + category + "; envoy/api=" + "/".join(status))
+            api_logs = subprocess.run(["docker", "logs", self.api], capture_output=True, timeout=10, check=False)
+            allowed_stages = {"fixture-stage dependency-install", "fixture-stage dependency-failed", "fixture-stage processor"}
+            stages = [line for line in api_logs.stdout.decode(errors="replace").splitlines() if line in allowed_stages]
+            raise RuntimeError("isolated TLS gateway/guard not ready: " + category + "; envoy/api=" + "/".join(status)
+                               + "; api-stage=" + (stages[-1].removeprefix("fixture-stage ") if stages else "unknown"))
 
     def envoy_config(self):
         def address(host, port):
@@ -236,6 +244,13 @@ except Exception as e:
             "message_timeout": "8s",
             "failure_mode_allow": False,
             "processing_mode": {"request_header_mode": "SEND", "response_header_mode": "SKIP"}}}
+        migration_source = (ROOT / "platform/identity/cookie-migration.lua").read_text(encoding="utf-8")
+        migration_source = migration_source.replace("${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", "fixture.test")
+        migration_source = migration_source.replace("${AI_APPLIANCE_DOMAIN:=magicstick.example.com}", "fixture.test")
+        migration_source = migration_source.replace("${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}", "dash.fixture.test")
+        migration = {"name": "envoy.filters.http.lua", "typed_config": {
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua",
+            "default_source_code": {"inline_string": migration_source}}}
         identity = {"name": "identity", "domains": ["id.fixture.test"], "routes": [
             {"match": {"prefix": "/"}, "route": {"cluster": "keycloak"}, "typed_per_filter_config": {
                 "envoy.filters.http.ext_authz": {"@type": "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute", "disabled": True},
@@ -269,7 +284,7 @@ except Exception as e:
             "access_log": [{"name": "envoy.access_loggers.stdout", "typed_config": {
                 "@type": "type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog",
                 "log_format": {"text_format_source": {"inline_string": "fixture %RESPONSE_CODE% %RESPONSE_CODE_DETAILS%\n"}}}}],
-            "http_filters": [extproc, oauth, jwt, auth, {"name": "envoy.filters.http.router", "typed_config": {"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}
+            "http_filters": [migration, extproc, oauth, jwt, auth, {"name": "envoy.filters.http.router", "typed_config": {"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}
         def tls_gate(name, port, ca_file, hostname):
             result = cluster(name, "api", port)
             result["typed_extension_protocol_options"] = {"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
