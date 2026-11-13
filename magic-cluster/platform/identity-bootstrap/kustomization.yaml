@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../identity
+# Flux dry-runs a complete wave before applying any object. The baseline
+# policies, Gateway, TLS/CA publisher and workloads must therefore reconcile
+# independently of routes which admission correctly rejects before that proof.
+patches:
+  - target:
+      group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    patch: |-
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: unused

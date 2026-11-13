@@ -33,6 +33,7 @@ resources:
   - cookie-migration-policy.yaml
   - default-deny-policy.yaml
   - routes.yaml
+  - routes
   - security-policy.yaml
   - setup-rbac.yaml
   - setup-configmap.yaml
