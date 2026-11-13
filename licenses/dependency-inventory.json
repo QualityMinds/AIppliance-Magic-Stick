@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "08b08d171bed0bb041a54703544df7714822a9d17afe40d6a249d17ca3174fb6",
+  "deploymentReferencesSha256": "1981fdac05a1e6b0779b1df5f5a9f6709398fda596b92fffda35e4e16bf38985",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2102,7 +2102,7 @@
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 100,
+      "line": 102,
       "reference": "node-version: '24'"
     },
     {
@@ -2237,52 +2237,72 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 23,
+      "line": 25,
       "reference": "version: v1.36.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 26,
+      "line": 28,
+      "reference": "version: v3.19.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 31,
       "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 30,
+      "line": 35,
       "reference": "python3 -m pip install pyyaml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 52,
-      "reference": "node-version: \"24\""
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
-      "line": 57,
+      "line": 63,
       "reference": "version: v1.36.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 62,
-      "reference": "version: v2.9.2"
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
       "line": 66,
-      "reference": "python3 -m pip install --user ansible-core"
+      "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
       "line": 70,
+      "reference": "python3 -m pip install pyyaml"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 99,
+      "reference": "node-version: \"24\""
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 104,
+      "reference": "version: v1.36.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 109,
+      "reference": "version: v2.9.2"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 113,
+      "reference": "python3 -m pip install --user ansible-core"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 117,
       "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 75,
+      "line": 122,
       "reference": "sudo apt-get install -y --no-install-recommends apparmor"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 133,
+      "line": 181,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -2522,22 +2542,22 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
-      "line": 34,
+      "line": 35,
       "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:69ed166219d6cba7e0e3c25d4c583d35c51d0d6d75bfdc5524de4adc25037d3e"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 1195,
+      "line": 1299,
       "reference": "\"        installHint: Install kubelogin from https://github.com/int128/kubelogin and ensure kubectl-oidc_login is on PATH.\","
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6825,
+      "line": 6929,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6862,
+      "line": 6966,
       "reference": "if image:"
     },
     {
@@ -3006,8 +3026,13 @@
       "reference": "tag: \"3.4.1\""
     },
     {
+      "file": "magic-cluster/platform/gateway/callback-backend-activation/job.yaml",
+      "line": 81,
+      "reference": "image: python:3.13-alpine"
+    },
+    {
       "file": "magic-cluster/platform/gateway/envoy-gateway/helmrelease.yaml",
-      "line": 23,
+      "line": 35,
       "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"
     },
     {
@@ -3131,8 +3156,13 @@
       "reference": "version: 0.18.3"
     },
     {
+      "file": "magic-cluster/platform/identity/callback-configmaps.yaml",
+      "line": 19,
+      "reference": "version: \"1\""
+    },
+    {
       "file": "magic-cluster/platform/identity/gateway.yaml",
-      "line": 18,
+      "line": 23,
       "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.7@sha256:3d79fb37be70734406e0d3b36189f662a2fd0d202813af492880aa3646426fda"
     },
     {
@@ -3156,18 +3186,38 @@
       "reference": "image: python:3.13-alpine"
     },
     {
+      "file": "magic-cluster/platform/identity/setup-configmap.yaml",
+      "line": 503,
+      "reference": "if pending.get(\"pending-registry\") != raw or pending.get(\"pending-sha256\") != digest:"
+    },
+    {
+      "file": "magic-cluster/platform/identity/tests/gateway_policy_contract.py",
+      "line": 134,
+      "reference": "'pip install --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /code/server.py'],"
+    },
+    {
+      "file": "magic-cluster/platform/identity/tests/test_multihost_browser.sh",
+      "line": 38,
+      "reference": "-ec 'apt-get update -qq && apt-get install -y -qq libnss3-tools >/dev/null; \\"
+    },
+    {
+      "file": "magic-cluster/platform/identity/tests/test_multihost_stack.py",
+      "line": 154,
+      "reference": "\"if ! pip install --timeout 15 --retries 2 --no-cache-dir --disable-pip-version-check \""
+    },
+    {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3412,
+      "line": 3413,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3449,
+      "line": 3450,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4320,
+      "line": 4321,
       "reference": "if not image:"
     },
     {

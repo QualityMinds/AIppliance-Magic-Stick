@@ -60,7 +60,9 @@ class UserAdminDeploymentTests(unittest.TestCase):
         for protected_route, protected_policy in ((route, policy), (public_route, public_policy)):
             self.assertEqual(protected_route["spec"]["rules"][0]["backendRefs"], [{"name": "ai-appliance-dashboard", "namespace": "dashboard", "port": 80}])
             self.assertEqual(protected_policy["spec"]["targetRefs"][0]["name"], protected_route["metadata"]["name"])
-            self.assertEqual(protected_policy["spec"]["oidc"]["cookieNames"]["accessToken"], "MagicStickAccessToken")
+            self.assertEqual(protected_policy["spec"]["oidc"]["cookieNames"]["accessToken"], "__Host-MagicStickAccessToken")
+            self.assertNotIn("cookieDomain", protected_policy["spec"]["oidc"])
+            self.assertFalse(protected_policy["spec"]["extAuth"]["failOpen"])
             self.assertEqual(protected_policy["spec"]["oidc"]["logoutPath"], "/logout")
             self.assertTrue(protected_policy["spec"]["oidc"]["forwardAccessToken"])
 

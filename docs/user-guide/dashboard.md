@@ -18,6 +18,15 @@ feature is installed, sign out and sign in once with the checkbox; an existing
 browser may still carry the earlier, shorter cookie expiry. Administrator-customized policies and
 an external identity provider can impose different limits.
 
+Dashboard and application token cookies are limited to each exact hostname.
+Opening another service reuses the central sign-in without sending the first
+service's token cookies to it. Signing out ends that shared identity session;
+old cookies on another service do not grant continued access. After upgrading,
+sign in again. Legacy Magic Stick token cookies are migrated narrowly, not by
+erasing all application data. If an older browser still reports **Request Header
+Or Cookie Too Large**, clear that appliance site's old cookies once and sign in
+again; do not disable certificate validation or authentication.
+
 ## UI Areas
 
 | Area | Purpose |

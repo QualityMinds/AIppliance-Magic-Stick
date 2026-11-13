@@ -1,5 +1,78 @@
 # Identity validation
 
+## Isolated multi-host HTTPS session check
+
+After installing the locked Dashboard dependencies, run
+`bash magic-cluster/platform/identity/tests/test_multihost_browser.sh` on a
+Docker-enabled host. This uses synthetic credentials and a temporary Linux
+Chromium NSS trust database. It first checks that an untrusted synthetic CA is
+rejected, then imports that CA only into the disposable browser container.
+The pinned Keycloak and Envoy images and the actual Dashboard API guard exercise
+login across distinct HTTPS hosts, host-only token cookies and cross-host logout.
+The trusted profile runs separately with a fresh jar and with an old broad
+gateway jar, including real RefreshToken/HMAC helpers. The latter retains the
+native Keycloak session and uses the product migration Lua. After logout, the
+other host must either deny in place or present the exact trusted Keycloak login
+form for that service; a protected success response never qualifies.
+It also checks that a service configured like LiteLLM preserves its own
+synthetic Authorization header while the guard checks the gateway session.
+An actual Envoy ext_proc filter calls the product gRPC callback gate before
+OAuth; a **synthetic** readiness service supplies stale, additive and ready
+decisions. The browser checks fail-closed behavior on stale status and a stopped
+processor, then verifies recovery after a processor restart. These checks do not
+validate the real Identity service's callback status or its Kubernetes reads.
+The fixture uses handwritten Envoy filter configuration: it does **not** validate
+Envoy Gateway controller translation, actual Gateway API policy acceptance,
+real appliance routing or live hardware. Those remain separate acceptance gates.
+
+On 13 November 2026 this isolated profile passed with its synthetic readiness
+service and verified container/network cleanup. This is not an installed-system
+acceptance result.
+
+The public release checks also run `test_callback_keycloak_load_runtime.py`
+against a disposable, pinned Keycloak. It exercises the actual Identity
+readiness and singleflight functions with synthetic Kubernetes objects: 64
+same-host requests coalesce; 64 distinct occupied checks cause a 65th to return
+503, which recovers to 204 after release. A controlled barrier creates the
+overload; this is not an appliance throughput or latency benchmark.
+
+The callback gate's Envoy Backend carries its CA reference, SNI and TLS
+settings in the Backend itself, rather than relying on an optional attached
+policy. Enabling this Gateway extension increases the cluster-wide attack
+surface. The intended admission guard permits only the immutable callback
+Backend and rejects separate Backend TLS overrides; the Gateway Flux wave
+depends on the guard wave. The Setup and operator identities receive no Backend
+write permission. Manifest ordering and `Ready` alone do not prove that
+admission is active: a fresh install or upgrade must also verify an actual deny
+canary and the live controller's translated TLS/SAN behavior before enabling
+or trusting the feature. This native bootstrap barrier remains an acceptance
+requirement and is not established by the unit tests or the Envoy-only fixture.
+The initial Helm value is disabled. After the controller CRDs exist, a restricted
+bootstrap Job checks compiled policy/binding revisions and submits real dry-run
+deny canaries. RBAC, schema and transport failures do not qualify as admission
+proof. Only a successful, unchanged-revision proof enables the watched Helm
+values override. Identity waits for that Job; failed verification leaves the
+extension disabled. The probe has no Secret permissions or workload controls.
+
+The HTTPS Gateway has both a callback-gate fallback and an independent
+default-deny SecurityPolicy. Losing a route's gate still invokes the Gateway
+gate; losing its authentication policy denies access. Admission prohibits
+removing the baselines, empty/unsafe overrides, skipped request headers and
+moving callback processing after OAuth. New identity routes require both
+baseline resources through admission parameters. Native identity login and the
+exact Mesh enrollment route have explicit native-auth exceptions; a public
+AppInstance retains its UID-bound API guard. Cluster administration and the
+GitOps controller remain trusted: these rules do not protect against an
+administrator removing admission itself.
+
+`Public release checks / gateway-security` creates its own disposable Kind
+cluster and runs `tests/gateway_policy_contract.py` with an explicit kubeconfig
+and identity check. It verifies actual TLS/gRPC Gateway translation, policy
+deletion fallback, rejected unsafe overrides, pre-OAuth ordering and recovery.
+It uses a synthetic readiness service and backend, not human credentials or
+appliance data. This is separate from the real Keycloak multi-host browser test
+and installed-server acceptance. The caller always removes only its own cluster.
+
 ## Run the Pilot
 
 Wait until both Flux waves are ready:
@@ -47,6 +120,17 @@ while testing so the same accepted routes are published through the host mDNS
 responder.
 
 ## Hostname and callback reconciliation
+
+The setup reconciler derives an exact callback set from configured hosts and
+UID-validated instance intent. The operator waits for a fresh matching
+readback acknowledgement before advertising a protected instance route as
+ready. The startup hook verifies a bounded snapshot or the exact bootstrap
+set; callback or origin wildcards are not accepted. Keycloak client updates
+must not run while secret rotation metadata is present, since Keycloak removes
+rotation metadata on a client PUT. An already matching configuration needs no
+write. Native multi-host and static-route readiness checks remain separate
+acceptance gates; neither a rendered manifest nor this contract is proof of a
+working installation.
 
 Run the owning callback and whole-startup counterexamples:
 

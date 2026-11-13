@@ -1,0 +1,25 @@
+# A missing route SecurityPolicy must not expose its backend. Route policies
+# override this baseline, never merge it. Cluster administration is trusted.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: magicstick-default-deny
+  namespace: identity-system
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: Gateway, name: identity-pilot, sectionName: https}
+  authorization:
+    defaultAction: Deny
+---
+# The IdP must be reachable before a user has a browser session. Broker paths
+# retain their more-specific entitlement policy.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: magicstick-local-identity-public
+  namespace: identity-system
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: keycloak}
+  authorization:
+    defaultAction: Allow

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-callback-backend-activation
+  namespace: envoy-gateway-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+data:
+  enabled: "false"

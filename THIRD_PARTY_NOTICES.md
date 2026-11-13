@@ -106,6 +106,10 @@ SSO is feature-gated.
 |---|---|---|---|
 | PyJWT | 2.15.0 | MIT; [PyPI](https://pypi.org/project/PyJWT/2.15.0/) | Standard JWS signing/verification |
 | cryptography | 50.0.1 | Apache-2.0 OR BSD-3-Clause; [PyPI](https://pypi.org/project/cryptography/50.0.1/) | Ed25519 and PEM key handling |
+| grpcio | 1.76.0 | Apache-2.0; the original bundled notice also contains BSD-3-Clause and MPL-2.0 texts; [gRPC release](https://github.com/grpc/grpc/tree/v1.76.0) | Internal Envoy external-processing protocol; the complete original notice is included in runtime notices |
+| xds-protos | 1.76.0 | Apache-2.0; the original gRPC release notice also contains BSD-3-Clause and MPL-2.0 texts; [gRPC package source](https://github.com/grpc/grpc/tree/v1.76.0/tools/distrib/python/xds_protos) | Generated Envoy/xDS protocol messages; the wheel omits a license file, so the exact hash-verified complete original gRPC release notice is included in runtime notices |
+| protobuf | 6.33.6 | BSD-3-Clause; original installed license in the Python notices | Protocol message runtime |
+| typing-extensions | 4.16.0 | PSF-2.0; original installed license in the Python notices | Transitive grpcio dependency; verify target-platform resolution |
 | cffi | 2.1.1 in the audit environment | MIT-0; original installed license in the Python notices | Native FFI dependency; verify target-platform resolution |
 | pycparser | 3.0 in the audit environment | BSD-3-Clause; original installed license in the Python notices | cffi dependency; verify target-platform resolution |
 

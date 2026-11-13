@@ -47,14 +47,24 @@ data:
           "redirectUris": [
             "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
-            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*",
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback",
-            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"
+            "https://anythingllm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-anything-llm-local",
+            "https://litellm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-litellm-local",
+            "https://kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-kubeopencode-local",
+            "https://anythingllm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}/oauth2/callback/static-anything-llm-public",
+            "https://litellm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}/oauth2/callback/static-litellm-public",
+            "https://kubeopencode.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}/oauth2/callback/static-kubeopencode-public"
           ],
           "webOrigins": [
             "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
-            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}",
+            "https://anythingllm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://litellm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://anythingllm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}",
+            "https://litellm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}",
+            "https://kubeopencode.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
           ],
           "attributes": {
             "post.logout.redirect.uris": "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"

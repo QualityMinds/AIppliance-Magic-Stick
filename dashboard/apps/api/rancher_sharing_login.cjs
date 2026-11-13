@@ -17,7 +17,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.locator('#kc-login').click();
       await page.waitForURL(url => url.origin === base && url.pathname === '/');
       const values = await context.cookies(base);
-      if (!values.some(value => value.name === 'MagicStickAccessToken')) throw new Error('No authenticated session cookie.');
+      if (!values.some(value => value.name === '__Host-MagicStickAccessToken')) throw new Error('No authenticated session cookie.');
       cookies[name] = values.map(value => value.name + '=' + value.value).join('; ');
       await context.close();
     }

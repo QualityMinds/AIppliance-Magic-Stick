@@ -128,8 +128,6 @@ data:
         "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP",
         "X-Envoy-External-Address", "X-Envoy-Original-Path", "Forwarded", "Via",
     )
-    AUTH_CACHE_TTL_SECONDS = 30
-    AUTH_CACHE = {}
     ROLE_ACCESS = {
         "user": {"magicstick-user", "magicstick-viewer", "magicstick-operator", "magicstick-admin"},
         "viewer": {"magicstick-viewer", "magicstick-operator", "magicstick-admin"},
@@ -264,10 +262,8 @@ data:
             raise AuthError(401, "authentication required")
         access_token = access_token.strip()
         now = time.time()
-        cache_key = hashlib.sha256(access_token.encode("utf-8")).hexdigest()
-        cached = AUTH_CACHE.get(cache_key)
-        if cached and cached[0] > now:
-            return cached[1]
+        # Check the live Keycloak session on every request. Cached positive
+        # decisions would leave another host usable after central logout.
 
         request = urllib.request.Request(
             OIDC_USERINFO_URL,
@@ -318,7 +314,6 @@ data:
         }
         if local_console:
             principal["localConsole"] = True
-        AUTH_CACHE[cache_key] = (min(now + AUTH_CACHE_TTL_SECONDS, float(claims["exp"])), principal)
         return principal
 
 
@@ -829,8 +824,8 @@ data:
                 if not account.get("enabled"):
                     raise RequestError(409, "the local console account is disabled in the identity provider")
                 _replace_managed_roles(str(account["id"]), set() if level == "off" else ACCESS_LEVEL_ROLES[level])
-                # Drop cached principals so a downgrade applies to the next request.
-                AUTH_CACHE.clear()
+                # Principal checks always consult Keycloak; a downgrade takes
+                # effect on the next request without a positive session cache.
                 result = console_access_payload(account)
             except Exception as error:
                 _audit_failure(principal, "update-console-access", "local-console", request_id, error)
@@ -9283,7 +9278,7 @@ data:
         def log_message(self, format, *args):
             # Broker callbacks can contain authorization codes in their query.
             # Envoy appends that original path to the internal ext_authz prefix.
-            if urllib.parse.urlparse(getattr(self, "path", "")).path.startswith("/internal/federation-license"):
+            if urllib.parse.urlparse(getattr(self, "path", "")).path.startswith("/internal/"):
                 return
             print("%s - %s" % (self.address_string(), format % args), flush=True)
 
@@ -9329,6 +9324,15 @@ data:
             parsed = urllib.parse.urlparse(self.path)
             return parsed.path.rstrip("/") or "/"
 
+        def edge_authorization(self):
+            # LiteLLM preserves its own Authorization header; prefer the
+            # verified gateway cookie for the browser identity in that case.
+            from http.cookies import SimpleCookie
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            cookie = cookies.get("__Host-MagicStickAccessToken")
+            return "Bearer " + cookie.value if cookie else self.headers.get("Authorization", "")
+
         def handle_instance_guard(self):
             parts = self.route().strip("/").split("/")
             if len(parts) < 2 or parts[:2] != ["internal", "instance-access"]:
@@ -9341,22 +9345,19 @@ data:
                 spec = (instance or {}).get("spec") or {}
                 if metadata.get("uid") != parts[3] or metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
                     raise AuthError(403, "Instance is unavailable.")
-                if instance_is_restricted(instance):
-                    authorization = self.headers.get("Authorization", "")
-                    if not authorization:
-                        from http.cookies import SimpleCookie
-                        cookies = SimpleCookie()
-                        cookies.load(self.headers.get("Cookie", ""))
-                        cookie = cookies.get("MagicStickAccessToken")
-                        authorization = "Bearer " + cookie.value if cookie else ""
-                    principal = authenticated_principal(authorization)
+                access = spec.get("access") or {}
+                authentication = access.get("authentication", "sso")
+                if authentication not in {"sso", "none"}:
+                    raise AuthError(403, "Invalid instance authentication.")
+                if authentication == "sso" or instance_is_restricted(instance):
+                    principal = authenticated_principal(self.edge_authorization())
                     require_local_console_transport(principal, self.headers)
-                    access = spec.get("access") or {}
                     role = access.get("role", "user")
                     allowed = MANAGED_REALM_ROLES if role == "user" else ROLE_ACCESS.get(role, set())
                     if not allowed.intersection(principal.get("roles", [])):
                         raise AuthError(403, "Instance access denied.")
-                    require_instance_usage(instance, principal)
+                    if instance_is_restricted(instance):
+                        require_instance_usage(instance, principal)
                 # HTTP ext_authz accepts exactly 200 OK, not arbitrary 2xx.
                 self.send_response(200)
                 self.send_header("Cache-Control", "no-store")
@@ -9369,6 +9370,17 @@ data:
 
         def handle_edge_guard(self):
             path = self.route()
+            if path == "/internal/session-access" or path.startswith("/internal/session-access/"):
+                try:
+                    principal = authenticated_principal(self.edge_authorization())
+                    require_local_console_transport(principal, self.headers)
+                    self.send_response(200)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                except Exception:
+                    self.send_error_json(403, "Session verification unavailable or denied.")
+                return True
             if path != "/internal/federation-license" and not path.startswith("/internal/federation-license/"):
                 return self.handle_instance_guard()
             try:
@@ -10160,6 +10172,8 @@ data:
 
 
     if __name__ == "__main__":
+        from callback_gate import start as start_callback_gate
+        callback_gate_server = start_callback_gate()
         port = int(os.environ.get("PORT", "8080"))
         threading.Thread(target=federation_entitlement_loop, daemon=True, name="federation-entitlement").start()
         threading.Thread(target=regression_cleanup_loop, daemon=True, name="regression-cleanup").start()

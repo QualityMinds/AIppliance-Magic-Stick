@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: BUSL-1.1
 """Contract/security regression tests with ephemeral licenses and identities."""
 import copy
+import base64
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
 import threading
+import time
 import types
 import unittest
 import urllib.error
@@ -72,6 +75,21 @@ class SharingTests(unittest.TestCase):
 
     def principal(self, name):
         return {"subject": name, "username": name, "roles": self.roles[name]}
+
+    def test_logout_revokes_an_otherwise_unexpired_cached_token(self):
+        manifest = yaml.safe_load((ROOT / "magic-cluster/apps/dashboard/dashboard-api.yaml").read_text())
+        code = manifest["data"]["server.py"].replace("SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)", "SSL_CONTEXT = None")
+        server = {"__name__": "session_revocation_test"}
+        exec(compile(code, "server.py", "exec"), server)
+        payload = {"iss": server["OIDC_EXPECTED_ISSUER"], "azp": "magicstick-human-gateway-local",
+                   "exp": time.time() + 300, "sub": "alice", "realm_access": {"roles": ["magicstick-user"]}}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        token = "synthetic." + encoded + ".signature"
+        denied = urllib.error.HTTPError("https://example.local", 401, "revoked", {}, None)
+        with patch("urllib.request.urlopen", side_effect=[io.BytesIO(b'{"sub":"alice"}'), denied]):
+            self.assertEqual(server["authenticated_principal"]("Bearer " + token)["subject"], "alice")
+            with self.assertRaises(server["AuthError"]):
+                server["authenticated_principal"]("Bearer " + token)
 
     def test_sharing_is_available_without_license_service_but_acl_remains_enforced(self):
         with patch("licensing.LicenseService.status", side_effect=AssertionError("Sharing must not read licensing")):
@@ -215,7 +233,14 @@ class SharingTests(unittest.TestCase):
         self.assertEqual(request(guard, "unknown", headers={"X-User": "alice", "X-Auth-Request-User": "alice"})[0], 403)
         self.assertEqual(request(guard, "admin")[0], 403)
         self.assertEqual(request(guard.replace("test-uid", "old-uid"), "alice")[0], 403)
-        self.assertEqual(request(guard, "", headers={"Authorization": "", "Cookie": "MagicStickAccessToken=alice"})[0], 200)
+        self.assertEqual(request(guard, "", headers={"Authorization": "", "Cookie": "__Host-MagicStickAccessToken=alice"})[0], 200)
+        self.assertEqual(request(guard, "", headers={"Authorization": "", "Cookie": "MagicStickAccessToken=alice"})[0], 403)
+        self.assertEqual(request(guard.replace("hermes-private", "hermes-public"), "unknown")[0], 403)
+        self.assertEqual(request(guard.replace("hermes-private", "hermes-public"), "alice")[0], 200)
+        session_guard = "/internal/session-access/anything"
+        self.assertEqual(request(session_guard, "alice")[0], 200)
+        self.assertEqual(request(session_guard, "unknown")[0], 403)
+        self.assertEqual(request(session_guard, "unknown", headers={"Cookie": "__Host-MagicStickAccessToken=alice"})[0], 200)
         self.assertEqual(request("/api/instances/hermes-private/credentials", "admin")[0], 403)
         for path in ("/api/instances", "/api/appliance", "/api/modules", "/api/my-instances", "/api/status", "/api/events"):
             code, body = request(path)

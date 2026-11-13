@@ -119,6 +119,10 @@
 - Optionally select **Remember me** on the local login page to stay signed in
   across browser restarts: seven days idle, thirty days maximum. Unchecked
   sessions keep the thirty-minute idle limit. [Signing in](../user-guide/dashboard.md#signing-in).
+- Browser SSO cookies stay on each dashboard/service hostname instead of growing
+  one appliance-wide cookie header. Services share the central sign-in; global
+  logout invalidates the session across those hosts. Missing gateway protection
+  denies access rather than making an application public.
 
 ## What is not automatic
 

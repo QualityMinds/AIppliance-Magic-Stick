@@ -83,10 +83,24 @@ alone receives only the dashboard **My instances** launchpad and its minimal
 session/instance API; it does not grant control-plane or status access.
 
 AppInstance access uses the same hierarchy at the Envoy edge. OIDC stores the
-Keycloak access token in the shared `MagicStickAccessToken` cookie; Envoy's JWT
-filter validates that token and authorizes the selected minimum
+Keycloak access token in a host-only `__Host-MagicStickAccessToken` cookie;
+Envoy's JWT filter validates that token and authorizes the selected minimum
 `realm_access.roles` value before forwarding to the application. A route can be
 made unauthenticated only with explicit `spec.access.authentication: none`.
+
+Browser token cookies are scoped to the exact application hostname, never the
+shared appliance domain. The login provider remains shared, so visiting another
+service can reuse its sign-in without copying that service's token cookies to
+siblings. A global sign-out invalidates the central session; the edge checks
+session validity before forwarding later requests, even when another host still
+has an old cookie. Legacy Magic Stick token cookies are removed narrowly;
+unrelated application cookies are not erased.
+
+The Gateway denies access when an authentication policy is missing and retains
+the callback check when a route-specific gate disappears. Admission rejects
+unsafe overrides and deletion of these baselines. Fresh activation requires a
+real admission deny probe, not only a rendered manifest. See
+[identity validation](../development/identity-validation.md).
 
 The core [instance-sharing capability](../user-guide/sharing.md) adds
 allow-lists of stable Keycloak user and group IDs. For restricted instances, the

@@ -4,3 +4,4 @@ resources:
   - helmrepository.yaml
   - helmrelease.yaml
   - gateway.yaml
+  - callback-gate-policy.yaml

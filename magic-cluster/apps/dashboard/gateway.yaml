@@ -37,6 +37,14 @@ metadata:
   name: dashboard-local-oidc
   namespace: identity-system
 spec:
+  extAuth:
+    failOpen: false
+    headersToExtAuth: ["Cookie", "Authorization"]
+    http:
+      backendRefs:
+        - name: ai-appliance-dashboard-api
+          port: 8080
+      path: /internal/session-access
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
@@ -52,10 +60,9 @@ spec:
       name: magicstick-human-gateway-client
     redirectURL: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback"
     logoutPath: /logout
-    cookieDomain: "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     cookieNames:
-      accessToken: MagicStickAccessToken
-      idToken: MagicStickIDToken
+      accessToken: __Host-MagicStickAccessToken
+      idToken: __Host-MagicStickIDToken
     forwardAccessToken: true
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -80,6 +87,14 @@ metadata:
   name: dashboard-public-oidc
   namespace: identity-system
 spec:
+  extAuth:
+    failOpen: false
+    headersToExtAuth: ["Cookie", "Authorization"]
+    http:
+      backendRefs:
+        - name: ai-appliance-dashboard-api
+          port: 8080
+      path: /internal/session-access
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
@@ -95,8 +110,7 @@ spec:
       name: magicstick-human-gateway-client
     redirectURL: "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback"
     logoutPath: /logout
-    cookieDomain: "${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
     cookieNames:
-      accessToken: MagicStickAccessToken
-      idToken: MagicStickIDToken
+      accessToken: __Host-MagicStickAccessToken
+      idToken: __Host-MagicStickIDToken
     forwardAccessToken: true
