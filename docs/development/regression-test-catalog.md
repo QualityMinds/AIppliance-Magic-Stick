@@ -163,6 +163,11 @@ disabled services. Empty
 instance-provider bases have no independent HTTP stage; their application
 instances do. Unknown adapters remain visible blockers, not omitted successes.
 Pi Coding Agent is included for installation, access and removal, not inference.
+A 13 November OpenClaw installation failure exposed a root-owned data-volume
+root. The existing APP-02 readiness and APP-10 removal checks must exercise the
+corrected instance; the [owning security counterexamples](../../magic-cluster/apps/ai/tests/openclaw_data_owner.test.cjs)
+also verify that ownership repair never traverses the volume or accepts a
+foreign owner. Local checks do not replace native service acceptance.
 A small owned CPU model may be necessary solely to satisfy an application's
 installation prerequisite; it is not credited as model integration. Keep-data PVC
 retention is checked

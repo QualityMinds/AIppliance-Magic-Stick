@@ -178,6 +178,16 @@ See the [model catalog](model-catalog.md#consumers) for reconciliation details.
 
 OpenClaw uses operator chart 0.40.0 and app 2026.9.8. The app image is pinned by
 multi-platform digest independently of the operator's default image tag.
+On its own persistent volume, a short-lived init container checks the data
+volume root before the gateway starts. It corrects only a root-owned volume root
+to UID/GID 1000, leaves an already correctly owned root unchanged, and refuses
+unexpected ownership or a changed directory. It never changes files below the
+root. This is needed because `fsGroup` alone does not transfer ownership and
+OpenClaw needs to tighten the state directory's permissions. The init container
+runs as root with only `CHOWN`; the OpenClaw service itself remains non-root.
+Clusters enforcing the restricted Pod Security Standard may reject this init
+container, in which case installation remains blocked and requires an approved
+storage ownership solution. No user data is erased or automatically migrated.
 KubeOpenCode uses chart/controller 0.1.9 with pinned controller, server and system
 images; its Magic Stick instance charts also pin OpenCode, executor and attach
 images. Flux updates its CRDs during install and

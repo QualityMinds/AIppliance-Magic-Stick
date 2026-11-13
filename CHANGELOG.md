@@ -23,6 +23,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   as healthy, and retains exact release identities when checking for late resources.
   Permit DNS-qualified native API groups with hyphens in the read-only observer,
   while continuing to reject Secrets, subresources and invalid resource paths.
+  On OpenClaw startup, repair only the instance PVC root's expected root ownership
+  using a short-lived, narrowly scoped CHOWN init container; keep the gateway
+  non-root and refuse foreign owners rather than modifying their files.
 
 - Bound ordinary automatic NVIDIA model memory planning to one eligible physical
   card, not the sum of a scheduling pool. Create/Edit sliders and recommendations

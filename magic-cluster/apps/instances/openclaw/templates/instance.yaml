@@ -44,7 +44,40 @@ spec:
     persistence:
       enabled: true
       size: {{ dig "storage" "size" "10Gi" $values | quote }}
+  # Operator v0.40.0 uses fsGroup but does not own the PVC mount root. The
+  # OpenClaw 2026.9 runtime must be able to fchmod its state directory. This
+  # narrow helper runs after operator initialization, before the gateway, and
+  # only corrects the root of this instance's own data volume.
+  initContainers:
+    - name: ensure-data-owner
+      image: ghcr.io/openclaw/openclaw:2026.9.8@sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8
+      imagePullPolicy: IfNotPresent
+      command: [node, -e]
+      args:
+        - |
+{{ .Files.Get "files/ensure-data-owner.cjs" | indent 10 }}
+          ensureDataOwner(require('node:fs'));
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 1, memory: 128Mi}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        runAsNonRoot: false
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+          add: [CHOWN]
+        seccompProfile: {type: RuntimeDefault}
+      volumeMounts:
+        - {name: data, mountPath: /data}
   security:
+    podSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      runAsNonRoot: true
     networkPolicy:
       enabled: true
       allowedIngressNamespaces: [ai, envoy-gateway-system]

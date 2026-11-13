@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "a2b655ce3b2a2c9945f6a88864e290dba55eaabe3306c01a0da156783c184fa6",
+  "deploymentReferencesSha256": "e1d0ce506db5eeec2f0a28514f3d12a37184d0cfe7d9c9da53c34612ab3b2def",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2669,6 +2669,11 @@
       "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
       "line": 22,
       "reference": "digest: sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8"
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 53,
+      "reference": "image: ghcr.io/openclaw/openclaw:2026.9.8@sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/Chart.yaml",
