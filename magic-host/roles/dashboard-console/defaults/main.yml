@@ -9,7 +9,7 @@ dashboard_console_k3s_binary: /usr/local/bin/k3s
 dashboard_console_namespace: identity-system
 dashboard_console_deployment: magicstick-dashboard-console-runtime
 dashboard_console_label: app.kubernetes.io/name=magicstick-dashboard-console
-dashboard_console_image: ghcr.io/qualityminds/magicstick-dashboard:cli-sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:1a8fb08aed6bbb8dd3c98e0b813f75a0d1fdb40169d26f974d797f927c5d325b
+dashboard_console_image: ghcr.io/qualityminds/magicstick-dashboard:cli-sha-3d1982433ff6e1ec7ca99a1c00d0baea4a878486@sha256:f97bfa39b7a13c3eee9b30da995b974bdc09aad8fefcf3e249f60cd505b10ef3
 dashboard_console_api_url: http://ai-appliance-dashboard-api.identity-system.svc.cluster.local:8080
 dashboard_console_oidc_network_url: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick
 dashboard_console_default_mdns_domain: "{{ ai_appliance_mdns_domain | default('magicstick.local', true) }}"
