@@ -15,6 +15,7 @@ import {recoveryInventory,type ModuleReceipt,type SharingReceipt} from './recove
 import {attestCleanup,verifyReservationReleased} from './cleanup-state.ts';
 import {progressEvent} from './progress.ts';
 import {verifiedKubernetesTermination} from './kubernetes-termination.ts';
+import type {ModuleRuntimeReceipt} from './module-runtime-proof.ts';
 
 const runPattern=/^reg-[0-9a-f-]{36}$/;
 const drainMs=60_000;
@@ -45,6 +46,8 @@ export interface RecoveryAdapters {
   cleanup(journal:ResourceJournal,guard:()=>Promise<void>):Record<ResourceKind,CleanupAdapter>;
   module(original:KubeObject,guard:()=>Promise<void>):{read():Promise<KubeObject>;set(enabled:boolean,parameters:Record<string,string>):Promise<unknown>};
   sharing(identity:SharingReceipt['identity'],guard:()=>Promise<void>):SharingAdapter;
+  moduleRuntime?(receipt:{filename:string;value:ModuleRuntimeReceipt},guard:()=>Promise<void>):{
+    verifyRecoverable():Promise<void>;capture():Promise<unknown>;verifyRestored():Promise<void>};
   cancel():Promise<void>;
 }
 
@@ -58,10 +61,11 @@ export class AutomaticRecovery {
   readonly journals:ResourceJournal[];
   readonly modules:ModuleReceipt[];
   readonly sharing:SharingReceipt[];
+  readonly moduleRuntimes:Array<{filename:string;value:ModuleRuntimeReceipt}>;
   private constructor(runId:string,directory:string,expected:Lease,registration:LabRegistration,
-    journals:ResourceJournal[],modules:ModuleReceipt[],sharing:SharingReceipt[]) {
+    journals:ResourceJournal[],modules:ModuleReceipt[],sharing:SharingReceipt[],moduleRuntimes:Array<{filename:string;value:ModuleRuntimeReceipt}>) {
     this.runId=runId;this.directory=directory;this.expected=expected;this.registration=registration;
-    this.journals=journals;this.modules=modules;this.sharing=sharing;
+    this.journals=journals;this.modules=modules;this.sharing=sharing;this.moduleRuntimes=moduleRuntimes;
   }
   static async prepare(root:string,lease:Lease,registration:LabRegistration,now=Date.now(),requireTermination=false) {
     return atStage('recovery-journal',()=>this.prepareJournal(root,lease,registration,now,requireTermination));
@@ -106,8 +110,9 @@ export class AutomaticRecovery {
       journals.some(journal=>journal.runId===lease.metadata.annotations?.['regression.magicstick.dev/recovery-original-owner'])||
       !lease.spec.holderIdentity&&journals.some(journal=>journal.runId===runId),'RECOVERY');
     if(!lease.spec.holderIdentity)requireSafe(journals.every(journal=>journal.recoveryPlan().length===0)&&
-      modules.length===0&&sharing.length===0,'RECOVERY');
-    return new AutomaticRecovery(runId,directory,lease,registration,journals,modules,sharing);
+      modules.length===0&&sharing.length===0&&inventory.appRuntimes.every(item=>item.state==='removed')&&
+      inventory.moduleRuntimes.every(item=>item.value.state==='verified'),'RECOVERY');
+    return new AutomaticRecovery(runId,directory,lease,registration,journals,modules,sharing,inventory.moduleRuntimes);
   }
   async execute(adapters:RecoveryAdapters) {
     progressEvent({event:'cleanup-state',cleanup:{state:'running',checkedAt:new Date().toISOString(),stage:'recovery-journal'}});
@@ -150,6 +155,7 @@ export class AutomaticRecovery {
     }
     for(const receipt of this.sharing)await atStage('recovery-sharing',async()=> (await BorrowedSharing.resume(receipt.filename,receipt.identity,
       adapters.sharing(receipt.identity,readonly),readonly)).verifyRecoverable());
+    for(const item of this.moduleRuntimes){requireSafe(adapters.moduleRuntime,'RECOVERY');await adapters.moduleRuntime(item,readonly).verifyRecoverable();}
     const filename=join(this.directory,'automatic-recovery.json'),receipt={version:1,runId:this.runId,targetUid:this.registration.applianceUid,
       leaseUid:this.expected.metadata.uid,recoveryOwner:owner,state:'verified',updatedAt:new Date().toISOString()};
     await lease.acquireRecovery(this.expected,this.runId);
@@ -173,11 +179,13 @@ export class AutomaticRecovery {
           }
           await atStage('recovery-resource',()=>journal.cleanup(cleanup,guard));
         }
+        for(const item of this.moduleRuntimes){requireSafe(adapters.moduleRuntime,'RECOVERY');await adapters.moduleRuntime(item,guard).capture();}
         for(const item of this.modules) {
           recoveryStage='recovery-module';
           const borrowed=await BorrowedModule.resume(item.filename,adapters.module(item.original,guard),guard);
           await atStage('recovery-module',async()=>{await borrowed.reconcileUnchanged();await borrowed.restore();});
         }
+        for(const item of this.moduleRuntimes){requireSafe(adapters.moduleRuntime,'RECOVERY');await adapters.moduleRuntime(item,guard).verifyRestored();}
         // Models/apps are gone before changing GPU backends.
         for(const item of this.sharing) {
           recoveryStage='recovery-sharing';
@@ -214,6 +222,7 @@ export class AutomaticRecovery {
 export async function verifyRecoveryClosed(directory:string,identity:{applianceUid:string;nodeUids:string[]},adapters:RecoveryAdapters,
   guard:()=>Promise<void>) {
   const inventory=await recoveryInventory(directory,identity);requireSafe(inventory.open===0,'CLEANUP');
+  for(const item of inventory.moduleRuntimes){requireSafe(adapters.moduleRuntime,'RECOVERY');await adapters.moduleRuntime(item,guard).verifyRestored();}
   for(const journal of inventory.journals)for(const entry of journal.entries) {
     await guard();requireSafe(await adapters.cleanup(journal,guard)[entry.kind].verifyRemoved(entry),'CLEANUP');
   }

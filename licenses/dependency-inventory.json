@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "1981fdac05a1e6b0779b1df5f5a9f6709398fda596b92fffda35e4e16bf38985",
+  "deploymentReferencesSha256": "a3e1bca38f6b5485629fad16a6761026497de23776a73ed2712d4ea20034cf3e",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2382,27 +2382,27 @@
     },
     {
       "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
-      "line": 24,
+      "line": 25,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
-      "line": 25,
+      "line": 26,
       "reference": "tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
     },
     {
       "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
-      "line": 28,
+      "line": 29,
       "reference": "image: ghcr.io/kubeopencode/kubeopencode:v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
     },
     {
       "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
-      "line": 32,
+      "line": 33,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
-      "line": 33,
+      "line": 34,
       "reference": "tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
     },
     {
@@ -2543,7 +2543,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 35,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:69ed166219d6cba7e0e3c25d4c583d35c51d0d6d75bfdc5524de4adc25037d3e"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-eb797e52fc74f1ce02f1736b603285d919133efd@sha256:472efb7cde8db6bb50619f066339f280559f092f2f73c58553a5e285576f42ca"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2563,11 +2563,11 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:2d9aa2921f9643ffec342bdad93c40d792ef5ee26534e8e797cc9f98605149e1"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-eb797e52fc74f1ce02f1736b603285d919133efd@sha256:44d6d8a081b7176c8c67ce59d6a0b75b61b05d864009b2f97cec213c6de12c85"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
-      "line": 713,
+      "line": 739,
       "reference": "self.objects[CORE + \"/configmaps/magicstick-regression-runtime\"][\"data\"][\"image\"] = \"image:latest\""
     },
     {
@@ -2758,7 +2758,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-d7de2d9bafa5df19f0a2982feaf44adfebbe53ce@sha256:3f1930075178d879ad0b5159364d3343dc58bd37695a444bf24e64ab884db0a5\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-c91607c37f55f3962953724efbde3b71d6136116@sha256:1edb367e9661979fc573ea538d8288ee61fe752d2ffed49d5ba7eae307dad7dc\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -2782,12 +2782,12 @@
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/helmrelease.yaml",
-      "line": 31,
+      "line": 32,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/helmrelease.yaml",
-      "line": 32,
+      "line": 33,
       "reference": "tag: v0.5.1"
     },
     {
@@ -2877,17 +2877,17 @@
     },
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
-      "line": 27,
+      "line": 28,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
-      "line": 28,
+      "line": 29,
       "reference": "repository: ghcr.io/paperclipinc/paperclip-operator"
     },
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
-      "line": 29,
+      "line": 30,
       "reference": "tag: v0.19.1"
     },
     {

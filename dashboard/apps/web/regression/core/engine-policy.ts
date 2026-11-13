@@ -1,4 +1,5 @@
 import {labPolicy} from './lab-policy.ts';
+import {serviceRegressionEnabled} from './service-selection.ts';
 
 /** Test selection only. Never use this policy to gate a product engine. */
 export const disabledExperimentalEngines=labPolicy.disabledExperimentalEngines;
@@ -8,7 +9,7 @@ export const engineRegressionEnabled=(engine:string)=>!disabledExperimentalEngin
 export const realtimeRegressionEnabled=()=>engineRegressionEnabled('VLLM-Omni');
 
 export type ProductLiveWorkflow='applications'|'modules'|'credentials';
-export const liveWorkflowEnabled=(workflow:ProductLiveWorkflow)=>!labPolicy.deferredLiveWorkflows.includes(workflow);
+export const liveWorkflowEnabled=(workflow:ProductLiveWorkflow)=>serviceRegressionEnabled()||!labPolicy.deferredLiveWorkflows.includes(workflow);
 /** Test selection only: never disable product apps or their retained cleanup. */
 export const applicationFixtureEnabled=(application:string)=>!labPolicy.deferredApplicationTests.includes(application);
 export const applicationRegressionEnabled=(application:string)=>liveWorkflowEnabled('applications')&&applicationFixtureEnabled(application);

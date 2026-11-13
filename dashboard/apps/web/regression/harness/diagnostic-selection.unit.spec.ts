@@ -9,9 +9,36 @@ import {diagnosticScenarios,diagnosticRequirements,registeredScenarioSource} fro
 import {completeCases,saveReport,type CaseResult} from '../core/report.ts';
 import {ResourceJournal,newRunId} from '../core/journal.ts';
 import {attestCleanup} from '../core/cleanup-state.ts';
-import {privateDirectory,readPrivate} from '../core/private-files.ts';
+import {privateDirectory,readPrivate,writePrivate} from '../core/private-files.ts';
 import {publicResult} from '../core/kubernetes-progress.ts';
 import {owningEnvironment} from '../components/owning.ts';
+import {automaticServiceMatrix,loadServicePlan} from '../core/service-plan.ts';
+import {serviceStages,type ServiceMatrix} from '../core/service-matrix.ts';
+import type {DiagnosticSelection} from '../core/diagnostic-selection.ts';
+import {serviceRegressionEnabled,withNewTestLicenseFixtures} from '../core/service-selection.ts';
+import {remainingRequirements} from '../profiles/remaining-p0.ts';
+
+function serviceCatalogFixture() {
+  return {modules:{basis:{activationMode:'static'},litellm:{activationMode:'moduleactivation'},
+    'model-catalog':{activationMode:'moduleactivation'},'anything-llm':{activationMode:'moduleactivation',requires:['litellm']},
+    'pi-coding':{activationMode:'moduleactivation',requires:['litellm']},'future-service':{activationMode:'moduleactivation',requires:[]}},
+    applications:{'pi-coding':{requiredModules:['pi-coding','litellm']},'future-application':{requiredModules:['future-service']}}};
+}
+function serviceFixture() {return automaticServiceMatrix({modules:{},catalogJson:serviceCatalogFixture()});}
+async function saveServicePlan(directory:string,matrix=serviceFixture()) {
+  const filename=join(directory,'service-profile.json');
+  await writePrivate(filename,{services:{version:1,catalog:serviceCatalogFixture(),matrix,modules:matrix.entries.filter(entry=>entry.kind==='module')
+    .map(entry=>({id:entry.id,approveOptionalModule:true,parameters:{}}))}});
+  process.env.REGRESSION_REMAINING_PROFILE=filename;return matrix;
+}
+function diagnosticManifest(profile:DiagnosticSelection,matrix?:ServiceMatrix) {
+  const mode=diagnosticMode(profile),required=diagnosticRequirements(profile,matrix);
+  const file=profile.phase===5?'regression/administration/services.e2e.spec.ts':profile.phase===2?'regression/models/cpu-model-control.e2e.spec.ts':profile.phase===3?
+    `regression/hardware/${mode==='phase3-validation'?'validation':'multi-gpu'}.e2e.spec.ts`:'regression/hardware/sharing.e2e.spec.ts';
+  const groups=profile.phase===5?[...new Set(required.map(item=>item.variant!.replace(/-[a-z]+-\d{2}$/,'')))] : required.map((_,index)=>String(index));
+  return {version:1,scenarios:groups.map((group,index)=>({id:'selected-'+index,title:profile.title+' '+index,source:{file,line:1},
+    evidence:profile.phase===5?required.filter(item=>item.variant!.startsWith(group+'-')):[required[index]!]}))};
+}
 
 let previous:NodeJS.ProcessEnv;
 test.beforeEach(()=>{previous={...process.env};delete process.env.REGRESSION_SCENARIO_ID;delete process.env.REGRESSION_GPU_CASE;delete process.env.REGRESSION_DIAGNOSTIC_SELECTION;process.env.REGRESSION_TEST_MODE='full';});
@@ -37,12 +64,14 @@ test('HAR-10 real Playwright discovery selects exactly the registered diagnostic
   try {
     for(const profile of diagnosticSelections) {
       const directory=join(output,profile.id);await privateDirectory(directory);
+      const matrix=profile.phase===5?await saveServicePlan(directory):undefined;
       const child=spawnSync(process.execPath,['node_modules/@playwright/test/cli.js','test','--config','regression/playwright.config.ts','--list','--grep',profile.grep],
         {env:{...owningEnvironment(),REGRESSION_MODE:diagnosticMode(profile),REGRESSION_DISCOVER_ONLY:'1',REGRESSION_DIAGNOSTIC_SELECTION:profile.id,
-          REGRESSION_RUN_ID:newRunId(),REGRESSION_RUN_DIR:directory,REGRESSION_INPUT_DIR:directory,NODE_OPTIONS:''},
+          REGRESSION_RUN_ID:newRunId(),REGRESSION_RUN_DIR:directory,REGRESSION_INPUT_DIR:directory,
+          ...(matrix?{REGRESSION_REMAINING_PROFILE:process.env.REGRESSION_REMAINING_PROFILE}:{}),NODE_OPTIONS:''},
         encoding:'utf8',timeout:15_000,maxBuffer:1024*1024});
-      expect(child.error).toBeUndefined();expect(child.status).toBe(0);
-      const scenarios=diagnosticScenarios(JSON.parse(await readPrivate(join(directory,'scenario-selection.json'))),profile);
+      expect(child.error).toBeUndefined();expect(child.status,profile.id+': '+child.stdout.slice(-3000)+' '+child.stderr.slice(-1000)).toBe(0);
+      const scenarios=diagnosticScenarios(JSON.parse(await readPrivate(join(directory,'scenario-selection.json'))),profile,matrix);
       expect(scenarios.length).toBeGreaterThan(0);
       expect(scenarios.every(s=>registeredScenarioSource(profile.phase,s.source.file))).toBe(true);
       if(profile.variants)expect(scenarios.every(s=>s.evidence.every(e=>profile.variants!.includes(e.variant!)))).toBe(true);
@@ -62,19 +91,17 @@ test('HAR-10 real Playwright discovery selects exactly the registered diagnostic
 });
 
 for(const profile of diagnosticSelections)test(`HAR-10 ${profile.id} discovery requires every selected live tuple, not merely one case family`,()=>{
-  const required=diagnosticRequirements(profile),mode=diagnosticMode(profile);
-  const file=profile.phase===2?'regression/models/cpu-model-control.e2e.spec.ts':profile.phase===3?
-    `regression/hardware/${mode==='phase3-validation'?'validation':'multi-gpu'}.e2e.spec.ts`:'regression/hardware/sharing.e2e.spec.ts';
-  const manifest={version:1,scenarios:required.map((e,index)=>({id:'selected-'+index,title:profile.title+' '+index,
-    source:{file,line:1},evidence:[e]}))};
-  expect(diagnosticScenarios(manifest,profile)).toHaveLength(required.length);
-  expect(()=>diagnosticScenarios({...manifest,scenarios:manifest.scenarios.slice(1)},profile)).toThrow('[CONFIG]');
-  expect(()=>diagnosticScenarios({...manifest,scenarios:[...manifest.scenarios,manifest.scenarios[0]]},profile)).toThrow('[CONFIG]');
-  expect(()=>diagnosticScenarios({...manifest,scenarios:manifest.scenarios.map(s=>({...s,source:{file:'regression/harness/foreign.e2e.spec.ts',line:1}}))},profile)).toThrow('[CONFIG]');
+  const matrix=profile.phase===5?serviceFixture():undefined,required=diagnosticRequirements(profile,matrix),mode=diagnosticMode(profile);
+  const manifest=diagnosticManifest(profile,matrix);
+  expect(diagnosticScenarios(manifest,profile,matrix)).toHaveLength(manifest.scenarios.length);
+  expect(()=>diagnosticScenarios({...manifest,scenarios:manifest.scenarios.slice(1)},profile,matrix)).toThrow('[CONFIG]');
+  expect(()=>diagnosticScenarios({...manifest,scenarios:[...manifest.scenarios,manifest.scenarios[0]!]},profile,matrix)).toThrow('[CONFIG]');
+  expect(()=>diagnosticScenarios({...manifest,scenarios:manifest.scenarios.map(s=>({...s,source:{file:'regression/harness/foreign.e2e.spec.ts',line:1}}))},profile,matrix)).toThrow('[CONFIG]');
   process.env.REGRESSION_DIAGNOSTIC_SELECTION=profile.id;
+  process.env.REGRESSION_MODE=mode;
   const rows:CaseResult[]=required.map(r=>({...r,variant:r.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
-  expect(completeCases(mode,rows,profile.caseIds).some(r=>r.reason==='MISSING_EVIDENCE')).toBe(false);
-  expect(completeCases(mode,rows.slice(1),profile.caseIds)).toEqual(expect.arrayContaining([
+  expect(completeCases(mode,rows,profile.caseIds,'PREREQUISITE',false,undefined,matrix).some(r=>r.reason==='MISSING_EVIDENCE')).toBe(false);
+  expect(completeCases(mode,rows.slice(1),profile.caseIds,'PREREQUISITE',false,undefined,matrix)).toEqual(expect.arrayContaining([
     expect.objectContaining({id:'HAR-10',outcome:'Failed',reason:'MISSING_EVIDENCE'})]));
   process.env.REGRESSION_SCENARIO_ID='one-selected-child';
   expect(completeCases(mode,rows.slice(0,1),[rows[0]!.id])).toHaveLength(1);
@@ -86,9 +113,11 @@ test('HAR-07 HAR-10 Kubernetes diagnostic uses the scoped serial launcher and ex
     for(const profile of diagnosticSelections) {
       process.env.REGRESSION_DIAGNOSTIC_SELECTION=profile.id;
       const mode=diagnosticMode(profile);
+      process.env.REGRESSION_MODE=mode;
       const id=newRunId(),directory=join(output,id),journal=await ResourceJournal.create(join(directory,'journal.json'),id,'fixture-appliance');
+      const matrix=profile.phase===5?await saveServicePlan(directory):undefined;
       await attestCleanup(directory,{applianceUid:'fixture-appliance',nodeUids:['fixture-node']});
-      const rows:CaseResult[]=diagnosticRequirements(profile)
+      const rows:CaseResult[]=diagnosticRequirements(profile,matrix)
         .map(r=>({...r,variant:r.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
       await saveReport(directory,id,rows,profile.caseIds,'a'.repeat(40),mode,undefined,
         {cleanup:{state:'verified',checkedAt:new Date().toISOString()},recoveryFenceActive:false,recoveryAttempts:[]});
@@ -130,4 +159,104 @@ test('HAR-07 HAR-10 Kubernetes diagnostic uses the scoped serial launcher and ex
       expect(calls).toBe(3);
     }
   }finally{await rm(output,{recursive:true,force:true});}
+});
+
+test('HAR-10 Kubernetes services export retains the explicit child profile when the parent has no profile environment',async()=>{
+  const output=await mkdtemp(join(tmpdir(),'magicstick-service-parent-'));
+  try {
+    const profile=diagnosticSelection('services',[5],'full')!,mode=diagnosticMode(profile);
+    process.env.REGRESSION_DIAGNOSTIC_SELECTION='services';process.env.REGRESSION_MODE=mode;
+    const id=newRunId(),directory=join(output,id);
+    await ResourceJournal.create(join(directory,'journal.json'),id,'fixture-appliance');
+    const matrix=await saveServicePlan(directory),serviceProfile=process.env.REGRESSION_REMAINING_PROFILE!;
+    await attestCleanup(directory,{applianceUid:'fixture-appliance',nodeUids:['fixture-node']});
+    const rows:CaseResult[]=diagnosticRequirements(profile,matrix).map(item=>({...item,variant:item.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
+    await saveReport(directory,id,rows,profile.caseIds,'a'.repeat(40),mode,undefined,
+      {cleanup:{state:'verified',checkedAt:new Date().toISOString()},recoveryFenceActive:false,recoveryAttempts:[]});
+    delete process.env.REGRESSION_REMAINING_PROFILE;
+    const options={selection:'services',phases:[5],output,uid:'11111111-2222-3333-4444-555555555555',serviceProfile,cancelled:()=>false,
+      execute:async(_args:string[],environment:Record<string,string>)=>{
+        await writePrivate(environment.REGRESSION_CAMPAIGN_RESULT!,{version:1,mode,runId:id,directory,exitCode:0});return 0;
+      }};
+    const result=await runDiagnosticSelection(options);
+    expect(result.exit).toBe(0);expect(result.summary.serviceMatrix).toEqual(matrix);
+    expect(result.summary.counts.Passed).toBe(rows.length);
+    expect(publicResult(result.summary,result.campaign).diagnosticSelection?.id).toBe('services');
+    // A crashed child must still export a scoped failing report, not throw a
+    // second CONFIG error or reuse its previous successful receipt.
+    const crashed=await runDiagnosticSelection({...options,execute:async()=>1});
+    expect(crashed.exit).toBe(1);expect(crashed.runId).not.toBe(id);
+    expect(crashed.summary.counts.Failed).toBeGreaterThan(0);
+    expect(crashed.summary.serviceMatrix).toEqual(matrix);
+    expect(crashed.summary.diagnosticSelection.id).toBe('services');
+    expect(process.env.REGRESSION_REMAINING_PROFILE).toBeUndefined();
+  }finally{await rm(output,{recursive:true,force:true});}
+});
+
+test('HAR-10 services discovery requires Pi and future catalog entries and executes all installation cases before access',()=>{
+  const profile=diagnosticSelection('services',[5],'full')!,matrix=serviceFixture(),manifest=diagnosticManifest(profile,matrix);
+  const reversed={...manifest,scenarios:[...manifest.scenarios].reverse()},selected=diagnosticScenarios(reversed,profile,matrix);
+  const stage=(scenario:typeof selected[number])=>serviceStages.findIndex(value=>scenario.evidence.every(item=>item.variant?.includes('-'+value+'-')));
+  expect(selected.map(stage)).toEqual([...selected.map(stage)].sort((a,b)=>a-b));
+  expect(selected.some(s=>s.evidence.some(item=>item.variant?.includes('application-pi-coding-')))).toBe(true);
+  expect(selected.some(s=>s.evidence.some(item=>item.variant?.includes('application-future-application-')))).toBe(true);
+  const missingPi={...manifest,scenarios:manifest.scenarios.filter(s=>!s.evidence.some(item=>item.variant?.includes('application-pi-coding-')))};
+  expect(()=>diagnosticScenarios(missingPi,profile,matrix)).toThrow('[CONFIG]');
+  expect(()=>diagnosticScenarios(manifest,profile)).toThrow('[CONFIG]');
+  process.env.REGRESSION_DIAGNOSTIC_SELECTION='services';
+  process.env.REGRESSION_MODE='services';
+  const rows:CaseResult[]=diagnosticRequirements(profile,matrix).filter(item=>!item.variant?.includes('application-pi-coding-'))
+    .map(item=>({...item,variant:item.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
+  expect(completeCases('services',rows,profile.caseIds,'PREREQUISITE',false,undefined,matrix))
+    .toEqual(expect.arrayContaining([expect.objectContaining({id:'HAR-10',reason:'MISSING_EVIDENCE',outcome:'Failed'})]));
+});
+
+test('HAR-10 a stray services selection cannot reactivate ordinary Phase 5 or all workflows',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-service-mode-'));
+  try {
+    await saveServicePlan(directory);process.env.REGRESSION_DIAGNOSTIC_SELECTION='services';
+    const deferred=['MOD-03','MOD-04','MOD-10','APP-02','APP-05','APP-06','APP-07','APP-09','APP-10','ACL-01','ACL-02','ACL-04','ACL-06'];
+    for(const mode of ['phase5','phase5-live','all','selftest']) {
+      process.env.REGRESSION_MODE=mode;
+      expect(serviceRegressionEnabled()).toBe(false);
+      expect(remainingRequirements('phase5-live')!.some(row=>deferred.includes(row.id))).toBe(false);
+      await expect(loadServicePlan()).rejects.toMatchObject({code:'CONFIG'});
+    }
+    process.env.REGRESSION_MODE='services';
+    expect(serviceRegressionEnabled()).toBe(true);expect((await loadServicePlan()).matrix).toEqual(serviceFixture());
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-02 services setup skips new license trust work while ordinary setup retains its actual preparation callback',async()=>{
+  let writes=0;
+  process.env.REGRESSION_DIAGNOSTIC_SELECTION='services';process.env.REGRESSION_MODE='services';
+  expect(await withNewTestLicenseFixtures(async()=>{writes++;})).toBe(false);expect(writes).toBe(0);
+  delete process.env.REGRESSION_MODE; // dedicated preparation worker, before test launch
+  expect(await withNewTestLicenseFixtures(async()=>{writes++;})).toBe(false);expect(writes).toBe(0);
+  expect(await withNewTestLicenseFixtures(async()=>{writes++;},true)).toBe(true);expect(writes).toBe(1);
+  delete process.env.REGRESSION_DIAGNOSTIC_SELECTION;
+  expect(await withNewTestLicenseFixtures(async()=>{writes++;})).toBe(true);expect(writes).toBe(2);
+});
+
+test('HAR-02 HAR-10 failed services preparation preserves selection without a plan and cannot produce an empty green report',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-service-preparation-'));
+  try {
+    process.env.REGRESSION_DIAGNOSTIC_SELECTION='services';process.env.REGRESSION_MODE='services';
+    process.env.REGRESSION_REMAINING_PROFILE=join(directory,'missing-plan.json');
+    const selected=diagnosticSelection('services',[5],'full')!,runId=newRunId();
+    await saveReport(directory,runId,[],selected.caseIds,'a'.repeat(40),'services',
+      {version:1,outcome:'Failed',reason:'CONFIG',setupStage:'input-discovery'},
+      {cleanup:{state:'unknown'},recoveryFenceActive:true,recoveryAttempts:[]});
+    const report=JSON.parse(await readPrivate(join(directory,'summary.json')));
+    expect(report.diagnosticSelection).toEqual(diagnosticMetadata(selected));
+    expect(report.counts).toEqual({Passed:0,Failed:1,Blocked:0,Skipped:0,'Not run':0,Flaky:0});
+    expect(report.cases).toEqual([expect.objectContaining({id:'HAR-02',outcome:'Failed',reason:'CONFIG'})]);
+    expect(report.serviceMatrix).toBeUndefined();expect(report.fullPhase5Accepted).toBe(false);
+    for(const filename of ['summary.html','summary.txt','junit.xml']) {
+      const body=await readPrivate(join(directory,filename));expect(body).toContain(selected.title);
+    }
+    expect(await readPrivate(join(directory,'summary.txt'))).toContain('Service inventory is unavailable');
+    await expect(saveReport(directory,newRunId(),[],selected.caseIds,'a'.repeat(40),'services',
+      {version:1,outcome:'Passed'})).rejects.toMatchObject({code:'PRIVATE_FILE'});
+  }finally{await rm(directory,{recursive:true,force:true});}
 });

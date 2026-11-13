@@ -111,7 +111,7 @@ const definitions={
     'Alternatively select a real reviewed disposable key SHA-256 ID. Never select an application key or invent an ID; only automatically owned fixtures are deleted upstream.',
   ]),
 };
-export type PreparationMeasureId=keyof typeof definitions | `app-${'openclaw'|'hermes'|'paperclip'|'kubeopencode'|'odysseus'}`;
+export type PreparationMeasureId=keyof typeof definitions | `app-${'openclaw'|'hermes'|'paperclip'|'kubeopencode'|'pi-coding'|'odysseus'}`;
 export interface PreparationMeasure {id:PreparationMeasureId; blocker:string; missing:string[]; actions:string[];
   approval?:{scope:Approval;command:string}}
 

@@ -48,6 +48,10 @@ Progress is phase-based. The dashboard maps existing status phases such as
 `Disabled`, `WaitingForModules`, `Starting`, `Reconciling`, `Removing`, `Ready`, and
 `Degraded` to visual progress states. These percentages are orientation hints,
 not scheduler- or operator-reported completion percentages.
+Application Helm installs have a 15-minute deadline to accommodate cold image
+pulls. An accepted install is not proof that the application is reachable; check
+its current status and endpoint. This install deadline does not change uninstall
+or retained-data behavior.
 Model Pod creation and runtime startup use indeterminate progress without a
 percentage; failures also do not display a completion percentage.
 For vLLM-Omni, Kubernetes permission/admission failures appear in the installed
@@ -193,6 +197,12 @@ the same PVC as its documents and database. Preferences changed in AnythingLLM
 survive Pod recreation and catalog updates; existing nonempty preferences are
 never replaced by the bootstrap. LiteLLM/Qdrant endpoints and their Secret-backed
 credentials continue to follow the deployment.
+
+With a genuinely empty initial chat catalog, installation leaves the model and
+context preferences unset so the native setup UI is reachable without downloading
+a model. An explicitly selected unavailable model or an inconsistent named
+catalog default still blocks initialization. Reaching setup is installation/access
+evidence only, not a successful model or document-inference test.
 
 Before upgrading an older installation, follow the
 [settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration)

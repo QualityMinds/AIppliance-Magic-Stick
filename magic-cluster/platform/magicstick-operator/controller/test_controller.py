@@ -28,6 +28,18 @@ def load_controller(*, cache_gate=False):
 
 
 class HelmAppInstanceTests(unittest.TestCase):
+    def test_optional_service_helm_installs_allow_cold_image_pulls(self):
+        for path in (
+            "platform/ai/openclaw-operator/helmrelease.yaml",
+            "platform/ai/paperclip-operator/helmrelease.yaml",
+            "platform/ai/agent-sandbox/helmrelease.yaml",
+            "apps/ai/kubeopencode/base/helmrelease.yaml",
+        ):
+            with self.subTest(path=path):
+                release = yaml.safe_load((CLUSTER_ROOT / path).read_text(encoding="utf-8"))
+                self.assertEqual(release["spec"]["install"]["timeout"], "15m0s")
+                self.assertNotIn("timeout", release["spec"].get("uninstall", {}))
+
     @classmethod
     def setUpClass(cls):
         cls.controller = load_controller()
@@ -61,6 +73,8 @@ class HelmAppInstanceTests(unittest.TestCase):
         )
         self.assertEqual(release["spec"]["chart"]["spec"]["sourceRef"]["name"], "magicstick-public")
         self.assertEqual(release["spec"]["targetNamespace"], "ai")
+        self.assertEqual(release["spec"]["install"], {"createNamespace": True, "timeout": "15m0s"})
+        self.assertEqual(release["spec"]["uninstall"], {"keepHistory": False})
         self.assertEqual(
             release["spec"]["values"]["instance"]["values"]["ingress"]["host"],
             "demo.kubeopencode.magicstick.example.com",

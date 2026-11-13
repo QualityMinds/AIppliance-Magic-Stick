@@ -11,6 +11,7 @@ import {diagnosticSelection,diagnosticMetadata} from './diagnostic-selection.ts'
 import {deferredApplicationStep} from './engine-policy.ts';
 import {parseCleanupDiagnostic,cleanupDiagnosticText} from './cleanup-diagnostic.ts';
 import {parseGpuValidationDiagnostic,gpuValidationDiagnosticText} from './gpu-validation-diagnostic.ts';
+import {serviceVariantCase} from './service-matrix.ts';
 
 const count=(n:unknown)=>Number.isSafeInteger(n)&&Number(n)>=0&&Number(n)<=100_000 ? Number(n):0;
 const outcomes=['Passed','Failed','Blocked'] as const;
@@ -70,7 +71,7 @@ export function publicResult(summary:Record<string,any>,campaign:Record<string,a
       executionId=/^[a-f0-9]{24}$/.test(r.executionId)?r.executionId:undefined,
       phase=typeof r.variant==='string'&&/^p[0-8]-/.test(r.variant)?Number(r.variant[1]):undefined;
     return {id:/^[A-Z][A-Z0-9]+-\d{2}$/.test(r.id)?r.id:'HAR-10',outcome:outcomes.includes(r.outcome)?r.outcome:'Blocked',
-      layer:/^[UCBAEON]$/.test(r.layer)?r.layer:'A',variant:typeof r.variant==='string'&&/^[-a-z0-9]{1,100}$/.test(r.variant)?r.variant:'',
+      layer:/^[UCBAEON]$/.test(r.layer)?r.layer:'A',variant:typeof r.variant==='string'&&(/^[-a-z0-9]{1,100}$/.test(r.variant)||r.variant.length<=128&&serviceVariantCase(r.variant)===r.id)?r.variant:'',
       description:caseDescription(r.id).slice(0,1000),reason,message:blockerDescription(reason,r.id,r.variant,r.layer),action:blockedAction(reason,r.blockedBy?.kind),durationMs:Number.isSafeInteger(r.durationMs)&&r.durationMs>=0&&r.durationMs<=86_400_000?r.durationMs:0,
       ...(r.outcome==='Blocked'&&checkedBlocker(r.blockedBy)?{blockedBy:checkedBlocker(r.blockedBy)}:{}),
       ...(phase!==undefined?{phase}:{}),...(stages.includes(r.stage)?{stage:r.stage}:{}),

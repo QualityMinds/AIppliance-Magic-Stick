@@ -103,6 +103,13 @@ lock check; an unexpected permission error remains an error, not an empty lab.
 | `GET /api/regression/runs/<id>/archive`, `/html`, `/junit` | Allowlisted completed report attachment, at most 64 MiB; never private input/journal/log download. |
 | `GET /api/regression/preflight-logs` | Private runner-only bounded diagnostic read; additional exact active-run/generated-account and workload-identity guards below. Never a report download or general administrator log endpoint. |
 
+The fixed Phase 5 `services` diagnostic is offered only with runner capability
+`diagnosticSelectionVersion: "3"`; version 2 retains the existing Phase 2–4
+profiles. It requires full mode and phases `[5]`, keeps its selection immutable
+and never enables deferred workflows in ordinary runs. Its catalog-derived
+installation/access/removal evidence is separate from model integration or
+whole-Phase-5 acceptance.
+
 The optional private diagnostic read requires exactly `runUid`, `namespace`,
 `deployment`, `container`, `deploymentUid`, `generation` and `podUid`, each once.
 Only Dashboard web/API and the Flux kustomize-controller are server-allowlisted;

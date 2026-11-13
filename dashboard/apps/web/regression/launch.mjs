@@ -31,6 +31,8 @@ import {supervisedProcess} from './core/process-supervisor.ts';
 import {assessRunCleanup} from './core/cleanup-state.ts';
 import {phase4Scenarios,diagnosticScenarios,registeredScenarioSource,scenarioGrep} from './core/scenario-selection.ts';
 import {diagnosticForMode} from './core/diagnostic-selection.ts';
+import {loadServicePlan} from './core/service-plan.ts';
+import {ServiceStageGates} from './core/service-stage-gates.ts';
 import {interruptedEvidence} from './core/interrupted-evidence.ts';
 import {executionIdentity} from './core/shared-workflow.ts';
 import {saveExecutionTrace} from './core/execution-trace.ts';
@@ -95,6 +97,7 @@ async function waitChild(current) {
 }
 
 try {
+  requireSafe(mode!=='services'||selectedDiagnostic?.id==='services','CONFIG');
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId),'CONFIG');
   requireSafeStep(mode,runTestMode);
   campaignDeadline=Number(process.env.REGRESSION_CAMPAIGN_DEADLINE??Date.now()+executionBudget.campaignMs-executionBudget.finalReserveMs);
@@ -102,7 +105,7 @@ try {
   process.env.REGRESSION_CAMPAIGN_DEADLINE=String(campaignDeadline);
   requireSafe(!scenarioId||(mode==='phase4-sharing'||selectedDiagnostic)&&/^[a-zA-Z0-9_-]{1,200}$/.test(scenarioId)&&
     required.length>0&&required.every(id=>/^[A-Z][A-Z0-9]+-\d{2}$/.test(id)),'CONFIG');
-  requireSafe([...['5','6','7','8'].flatMap(phase=>[`phase${phase}`,`phase${phase}-fast`,`phase${phase}-fixtures`,`phase${phase}-live`]),'all','selftest', 'phase0', 'phase1', 'phase2','phase3','phase4','phase3-fast','phase4-fast','phase3-fixtures','phase4-fixtures','phase3-gpu','phase3-validation','phase4-sharing', 'phase2-fast', 'phase2-fixtures', 'phase2-readonly',
+  requireSafe([...['5','6','7','8'].flatMap(phase=>[`phase${phase}`,`phase${phase}-fast`,`phase${phase}-fixtures`,`phase${phase}-live`]),'services','all','selftest', 'phase0', 'phase1', 'phase2','phase3','phase4','phase3-fast','phase4-fast','phase3-fixtures','phase4-fixtures','phase3-gpu','phase3-validation','phase4-sharing', 'phase2-fast', 'phase2-fixtures', 'phase2-readonly',
     'phase2-models', 'phase2-faults', 'smoke-fast', 'smoke-fixtures', 'session-smoke', 'core-smoke', 'foundations',
     'phase6-drill','preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover','campaign-recover', 'typecheck', 'cleanup-plan','non-destructive-live'].includes(mode), 'CONFIG');
   requireSafe(mode!=='campaign-recover'||/^reg-[0-9a-f-]{36}$/.test(recoveryRunId??''),'CONFIG');
@@ -155,7 +158,7 @@ try {
       steps:[{index:1,category:'hook',title:'Setup/teardown hook',outcome,durationMs:0,reason,stage:'runner-execution'}]});
     return [...rows,{id:'HAR-10',layer:'A',environment:'live',outcome,durationMs:0,reason,stage:'runner-execution',executionId,executionOutcome:outcome,traceRunId:runId}];
   };
-  if (!aggregate && ((remainingPhase(mode) && !/(?:-fast|-fixtures)$/.test(mode)) || ['phase3-gpu','phase3-validation','phase4-sharing', 'phase2-readonly', 'phase2-models', 'phase2-faults', 'session-smoke',
+  if (!aggregate && ((remainingPhase(mode) && !/(?:-fast|-fixtures)$/.test(mode)) || ['services','phase3-gpu','phase3-validation','phase4-sharing', 'phase2-readonly', 'phase2-models', 'phase2-faults', 'session-smoke',
     'core-smoke', 'foundations', 'preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover','campaign-recover', 'cleanup-plan'].includes(mode))) {
     requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
     await requirePreparation();
@@ -231,10 +234,19 @@ try {
       {timeoutMs:executionBudget.preparationMs});
     child=discovery.child;supervisors.set(child,discovery);requireSafe(await waitChild(child)===0,'CONFIG');
     const manifest=JSON.parse(await readPrivate(join(directory,'scenario-selection.json')));
-    const scenarios=selectedDiagnostic?diagnosticScenarios(manifest,selectedDiagnostic):phase4Scenarios(manifest,!selectedGpuCase,selectedGpuCase?.ids);
+    const serviceMatrix=mode==='services'?(await loadServicePlan()).matrix:undefined;
+    const scenarios=selectedDiagnostic?diagnosticScenarios(manifest,selectedDiagnostic,serviceMatrix):phase4Scenarios(manifest,!selectedGpuCase,selectedGpuCase?.ids);
+    const serviceGates=serviceMatrix?new ServiceStageGates(serviceMatrix):undefined;
     const collected=[],recoveryAttempts=[],executed=new Set();
     for(const scenario of scenarios) {
       if(stopped()){deadlineReached||=Date.now()>=campaignDeadline;break;}
+      const dependent=serviceGates?.blocked(scenario,runId,Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryCause(environment.REGRESSION_RECOVERY_CAUSE));
+      if(dependent) {
+        collected.push(...dependent);executed.add(scenario.id);
+        await saveExecutionTrace(directory,{version:1,runId,executionId:executionIdentity(runId,scenario.id),outcome:'Blocked',durationMs:0,
+          steps:[{index:1,category:'hook',title:'Setup/teardown hook',outcome:'Blocked',durationMs:0,reason:dependent[0].reason,stage:dependent[0].stage}]});
+        continue;
+      }
       const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
       progressEvent({event:'step-start',step:mode,index:scenarios.indexOf(scenario)+1,total:scenarios.length});
       const ids=[...new Set(scenario.evidence.map(e=>e.id))];
@@ -245,8 +257,13 @@ try {
         expectedRunId:allocatedRuns.get(child),sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
       await recordChild(value.result,mode,false);
       executed.add(scenario.id);
-      collected.push(...stepCases(value.report.cases,exit,value.report.acceptable,false));
-      inheritRecoveryCause(environment,value.report.cases,value.recoveryFence);
+      const stageFailure=serviceGates?.record(scenario,{runId:value.result.runId,coordinatorRunId:runId,exit,acceptable:value.report.acceptable,
+        cases:value.report.cases,cleanup:value.cleanup,recoveryFence:value.recoveryFence})??[];
+      for(const failure of stageFailure)await saveExecutionTrace(directory,{version:1,runId,executionId:failure.executionId,outcome:'Failed',durationMs:0,
+        ...(failure.recoveryRequired?{recoveryRequired:true}:{}),
+        steps:[{index:1,category:'hook',title:'Setup/teardown hook',outcome:'Failed',durationMs:0,reason:failure.reason,stage:failure.stage}]});
+      collected.push(...stepCases(value.report.cases,exit,value.report.acceptable,false),...stageFailure);
+      inheritRecoveryCause(environment,[...value.report.cases,...stageFailure],value.recoveryFence);
       if(value.recoveryFence&&!priorFence&&!interruptedSignal) {
         const recoveryReceipt=join(directory,'recovery-result.json');await rm(recoveryReceipt,{force:true});
         child=await spawnStep('campaign-recover',[value.result.runId],{REGRESSION_CAMPAIGN_RESULT:recoveryReceipt});

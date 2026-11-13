@@ -17,13 +17,22 @@ function modelDefaults(chat, embedding, saved, env) {
     const modelId = saved.LITE_LLM_MODEL_PREF || env.MAGICSTICK_INITIAL_CHAT_MODEL || chat.defaultModel;
     const selected = (chat.models || []).find((model) => model.id === modelId);
     if (!saved.LITE_LLM_MODEL_PREF && !selected) {
-      throw new BootstrapError('A catalogued default chat model or an available selected chat model is required for a new LiteLLM configuration');
+      // Installation and the native setup UI must not require downloading a
+      // model. An empty catalog has no choice to seed yet; do not invent one.
+      // Explicit or inconsistent selections still fail rather than fall back.
+      const emptyInitialCatalog = !env.MAGICSTICK_INITIAL_CHAT_MODEL && !chat.defaultModel
+        && Array.isArray(chat.models) && chat.models.length === 0;
+      if (!emptyInitialCatalog) {
+        throw new BootstrapError('A catalogued default chat model or an available selected chat model is required for a new LiteLLM configuration');
+      }
     }
-    defaults.LITE_LLM_MODEL_PREF = modelId;
-    defaults.LITE_LLM_MODEL_TOKEN_LIMIT = String(
-      Number.isSafeInteger(selected?.contextWindow) && selected.contextWindow > 0
-        ? selected.contextWindow : 4096
-    );
+    if (modelId) {
+      defaults.LITE_LLM_MODEL_PREF = modelId;
+      defaults.LITE_LLM_MODEL_TOKEN_LIMIT = String(
+        Number.isSafeInteger(selected?.contextWindow) && selected.contextWindow > 0
+          ? selected.contextWindow : 4096
+      );
+    }
   }
   if ((saved.EMBEDDING_ENGINE || defaults.EMBEDDING_ENGINE) === 'litellm' && !saved.EMBEDDING_MODEL_PREF) {
     const modelId = env.MAGICSTICK_INITIAL_EMBEDDING_MODEL || embedding.defaultModel;

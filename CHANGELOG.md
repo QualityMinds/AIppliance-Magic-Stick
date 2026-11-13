@@ -8,6 +8,25 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Retain the dashboard nginx's four bounded 16 KiB large-header buffers for
+  existing SSO cookie/token headers during host-only cookie migration.
+  Requests exceeding the per-field or total limit remain rejected.
+
+- Add an explicitly selected, catalog-derived Services regression with ordered
+  installation/removal and SSO/public access stages.
+  Include Pi Coding Agent without re-enabling deferred service workflows in
+  ordinary runs; keep Hermes separate. Require exact per-entry evidence and
+  identity-bound runtime removal and interruption recovery. Model integration remains
+  deferred; a small owned model may be required solely to install an application.
+  Preserve AnythingLLM and Qdrant persistent data during module removal, as promised by
+  their keep-data contract. Allow AnythingLLM's native setup with a genuinely empty
+  initial model catalog without inventing a model or replacing saved choices.
+  Local/CI checks and native acceptance remain separate.
+  Allow bounded cold image pulls during application and optional operator Helm
+  installation. Recovery can snapshot a failed Helm install without treating it
+  as healthy, and retains exact release identities when checking for late resources.
+  Permit DNS-qualified native API groups with hyphens in the read-only observer,
+  while continuing to reject Secrets, subresources and invalid resource paths.
 - Isolate gateway SSO cookies by dashboard or application host and register
   exact, instance-owned login callbacks. Global logout checks the active identity
   session for later protected requests. Legacy gateway token cookies are

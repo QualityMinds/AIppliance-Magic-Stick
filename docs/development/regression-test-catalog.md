@@ -142,7 +142,7 @@ dashboard to test a normal Services action.
 ## 5. Application instances and basic application operation
 
 Parameterize the lifecycle across current app-catalog types: OpenClaw, Hermes,
-Paperclip, KubeOpenCode and Odysseus. AnythingLLM has a module/service probe,
+Paperclip, KubeOpenCode, Pi Coding Agent and Odysseus. AnythingLLM has a module/service probe,
 not an invented `AppInstance` type. Every catalog addition needs a reviewed
 adapter/functional probe before it can count as covered.
 
@@ -153,7 +153,22 @@ other applications and isolated Hermes adapter checks remain selected. Reports
 explicitly list the exclusion without synthetic Passed/Blocked rows; a reduced
 Phase 5 run does not certify Hermes or full application coverage. Existing
 Hermes failures and exact old-run cleanup remain unchanged. The separate native
-suite is planned, not yet implemented.
+suite is selected explicitly as **Separate services: installation, SSO/public
+access and removal (including Pi Coding Agent)**. Standard runs keep their
+existing exclusions; this is not a whole-Phase-5 acceptance claim.
+
+The separate selection derives every eligible optional module and application
+from the installed catalogs. All installation/removal scenarios precede access
+checks, each followed by exact removal. Native model integration remains deferred.
+Protected platform/runtime/GPU modules and Hermes are recorded exclusions, not
+disabled services. Empty
+instance-provider bases have no independent HTTP stage; their application
+instances do. Unknown adapters remain visible blockers, not omitted successes.
+Pi Coding Agent is included for installation, access and removal, not inference.
+A small owned CPU model may be necessary solely to satisfy an application's
+installation prerequisite; it is not credited as model integration. Keep-data PVC
+retention is checked
+independently of runtime removal; retained storage is never labelled deleted.
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
@@ -1574,6 +1589,13 @@ through the existing boot owning-suite selection. Public CI also runs
 OOM/restart counters. This focused deployment regression does not replace the
 installed reboot, authentication or inference requirements of BOOT-02.
 
+13 November 2026, AUTH-01/03 and BOOT-02 supporting regression: the dashboard's
+bounded nginx header buffers accept synthetic 8/12 KiB cookie and token fields
+and continue rejecting oversized individual fields. The existing real-container
+suite checks this with the unchanged non-root 128 MiB budget. Cookie scope and
+OIDC policy are unchanged; installed login and API authorization remain separate
+live acceptance gates, not results inferred from synthetic header acceptance.
+
 The same boot owning-suite selects `NvidiaStartupHandoffTests` in the NVIDIA
 host-role tests. Synthetic PCI bindings reproduce Nouveau/unbound first boot,
 mixed AMD/NVIDIA and post-boot release, including NVML/socket failures, manual
@@ -1590,6 +1612,7 @@ adding or splitting cases and document any replacement.
 
 | Case IDs / parameter set | Implementation | Test/procedure | Last reviewed run evidence | Remaining prerequisite |
 |---|---|---|---|---|
+| MOD-03/04, APP-02/05/07/10, ACL-01/02/04/06 · separate catalog-derived Services selection | **Implemented; scoped native acceptance pending** | [Staged selection](../../dashboard/apps/web/regression/administration/services.e2e.spec.ts), [finite per-entry requirements](../../dashboard/apps/web/regression/core/service-matrix.ts), [application counterexamples](../../dashboard/apps/web/regression/administration/app-services.unit.spec.ts), [module/runtime counterexamples](../../dashboard/apps/web/regression/harness/service-probes.unit.spec.ts), existing API/controller and desktop/mobile selection tests | Local owning-layer checks cover installation, actual current runtime, exact SSO/public access, uninstall and identity-bound interrupted cleanup. Pi Coding Agent is included; Hermes and model integration remain deferred. | Matching current-source CI/images, disposable-lab rollout and complete native tuple/cleanup verification remain separate. A minimal owned CPU model is only an application-installation prerequisite, not model-function acceptance. |
 | CPU LIFE-02/ENG-01/09, GPU non-interference · 0.31 CPU model runner | **Owning counterexample reproduced; installed retest pending** | [CPU wrapper policy counterexamples](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), selected Phase 2 [engine contract](../../dashboard/apps/web/regression/models/control.contract.spec.ts), [native configuration check](../../magic-cluster/platform/ai/kubeai/base/verify_vllm_runtime.py) | 2026-10-23: the old wrapper fails the new default-policy counterexample. On one AVX2 lab host, the pinned CPU image with a cold compile cache timed out its first direct HTTP request at the unchanged 90-second limit, even with model compilation disabled. With only the official MRV1 environment selection changed, the same immutable model, BF16 dtype, eight-core quota, 7,656 MiB RAM and 1 GiB KV budget produced HTTP 200 in 50.867 seconds. Both diagnostic resources and workers were independently removed. The correction is CPU-/version-bound and preserves explicit policy, arguments, precision, budgets and GPU paths. | Matching native configuration CI, runner publication/promotion and the ordinary installed CPU inference/Edit/Stop/Start workflow on both appliances. Direct diagnostic success is not routed lifecycle or complete-campaign acceptance; historical failures remain unchanged. |
 | MESH-09 · canonical GitHub Actions check links | **Local counterexample passed; installed retest pending** | [Companion public proof and discovery counterexamples](../../dashboard/apps/web/regression/administration/safety.unit.spec.ts), existing Phase 7 fast/live selections | 2026-10-21: the real successful exact-commit native build returned a canonical `runs/<check-id>` URL instead of the submitted workflow-run URL. The old reader rejected that public proof as `REVISION`. The reader now accepts only the exact repository/check-ID link also returned as `html_url`; foreign, malformed or mismatched links remain rejected, with the trusted App, exact source, workflow attempt and four-platform evidence still required. | Fresh matching runner CI/pin and installed adapter verification. This native packaging proof never substitutes for real cross-appliance Mesh inference. |
 | MGPU-01 · native collective payload dtype | **Local counterexample passed; installed retest pending** | [Every directed peer in two/four-card groups](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), existing Phase 3 fast and GPU selections | 2026-10-21: installed milestones reached NCCL initialization and, with host-mediated transport, all-reduce; point-to-point exchange then stalled. The actual probe inferred Float32 for floating-point send buffers but Int64 for integer-zero receive buffers. Its new owning-layer counterexample rejects that old implementation and passes with explicit Float32 on both allocations, covering every directed pair for two and four ranks. All 45 wrapper tests passed locally. | Matching runner CI/pin, ordinary appliance update and fresh native split/inference acceptance. The direct-transport timeout and independent CPU first-response timeout are not declared fixed by this correction. No historical report is rewritten. |

@@ -33,6 +33,71 @@ function snapshot():PreparationSnapshot {
     readableFiles:['/inputs/username.txt','/inputs/password.txt','/inputs/observer.yaml','/inputs/locker.yaml','/inputs/model-cleaner.yaml']};
 }
 
+function serviceSnapshot():PreparationSnapshot {
+  const observed=snapshot();
+  observed.models.presets.small!.variants=observed.models.presets.small!.variants!.filter(item=>item.engine==='OLlama');
+  observed.models.computeTargets.targets[0]!.engines=['OLlama'];
+  observed.modules={modules:{'anything-llm':{enabled:false,parameters:{}},'pi-coding':{enabled:false,parameters:{}}},
+    catalogJson:{modules:{basis:{activationMode:'static'},litellm:{activationMode:'moduleactivation'},
+      'model-catalog':{activationMode:'moduleactivation'},'anything-llm':{activationMode:'moduleactivation',requires:['litellm']},
+      'pi-coding':{activationMode:'moduleactivation',requires:['litellm']}},
+      applications:{'pi-coding':{requiredModules:['pi-coding','litellm']}}}};
+  observed.readableFiles.push('/inputs/app-cleaner.kubeconfig');return observed;
+}
+
+function serviceScope<T>(action:()=>T):T {
+  const selection=process.env.REGRESSION_DIAGNOSTIC_SELECTION,mode=process.env.REGRESSION_MODE;
+  process.env.REGRESSION_DIAGNOSTIC_SELECTION='services';process.env.REGRESSION_MODE='services';
+  try{return action();}finally{
+    if(selection===undefined)delete process.env.REGRESSION_DIAGNOSTIC_SELECTION;else process.env.REGRESSION_DIAGNOSTIC_SELECTION=selection;
+    if(mode===undefined)delete process.env.REGRESSION_MODE;else process.env.REGRESSION_MODE=mode;
+  }
+}
+
+test('MOD-03 APP-02 service-only preparation needs only the app configuration model, not inference, embeddings, license, Mesh or Kubernetes fixtures',()=>serviceScope(()=>{
+  const observed=serviceSnapshot(),scoped={...options,phases:[5],automatic:true};
+  observed.modelWarnings=['CPU vllmModel: metadata/estimator or reviewed RAM budget needs attention',
+    'CPU ollamaModel: metadata/estimator or reviewed RAM budget needs attention',
+    'CPU vLLM discovery: current paged results and immutable artifact metadata'];
+  const prepared=prepareInputs(source(),observed,scoped,{}),profile=automaticProfile(observed,{},prepared.parsed);
+  expect(prepared.lab).not.toHaveProperty('phase2');expect(prepared.lab).not.toHaveProperty('gpu');
+  expect(prepared.parsed.expected.capabilities).toEqual([{target:'cpu',engines:['OLlama']}]);expect(prepared.lab.smokeModel).toMatchObject({engine:'OLlama',computeTarget:'cpu'});
+  const readiness=inputReadiness(prepared.parsed,profile,observed,scoped)[0]!;
+  expect(readiness.state).toBe('InputsReady');expect(readiness.testExecutionVerified).toBe(false);
+  expect(readiness.cases!.length).toBeGreaterThan(0);
+  expect(readiness.cases!.every(item=>item.state==='InputsReady'&&item.variant.startsWith('p5-services-'))).toBe(true);
+  expect(readiness.cases!.some(item=>/^(?:LIC|K8S|FED|MESH|SEC)-/.test(item.id))).toBe(false);
+  expect(readiness.measures).toEqual([]);
+}));
+
+test('APP-02 service readiness binds app cleaner and actual configuration model only to app entries, without embedding prerequisites',()=>serviceScope(()=>{
+  const observed=serviceSnapshot(),scoped={...options,phases:[5],automatic:true};
+  const prepared=prepareInputs(source(),observed,scoped,{}),profile=automaticProfile(observed,{},prepared.parsed);
+  observed.readableFiles=observed.readableFiles.filter(path=>path!=='/inputs/app-cleaner.kubeconfig');
+  let readiness=inputReadiness(prepared.parsed,profile,observed,scoped)[0]!;
+  expect(readiness.cases!.filter(item=>item.variant.includes('-application-')).every(item=>item.state==='Blocked')).toBe(true);
+  expect(readiness.cases!.filter(item=>item.variant.includes('-module-')).every(item=>item.state==='InputsReady')).toBe(true);
+  expect(readiness.measures.map(item=>item.id)).toEqual(['app-cleaner']);
+  observed.readableFiles.push('/inputs/app-cleaner.kubeconfig');
+  readiness=inputReadiness(prepared.parsed,profile,observed,scoped)[0]!;
+  expect(readiness.cases!.every(item=>item.state==='InputsReady')).toBe(true);expect(readiness.measures).toEqual([]);
+  delete prepared.parsed.smokeModel;observed.models.presets={};
+  readiness=inputReadiness(prepared.parsed,profile,observed,scoped)[0]!;
+  expect(readiness.cases!.filter(item=>item.variant.includes('-application-')).every(item=>item.state==='Blocked')).toBe(true);
+  expect(readiness.cases!.filter(item=>item.variant.includes('-module-')).every(item=>item.state==='InputsReady')).toBe(true);
+  expect(readiness.measures.map(item=>item.id)).toEqual(['cpu-model']);
+}));
+
+test('MOD-03 service-only preparation does not retain stale ordinary vLLM or GPU prerequisites',()=>serviceScope(()=>{
+  const observed=serviceSnapshot(),scoped={...options,phases:[5],automatic:false};
+  const ordinary=serviceScope(()=>prepareInputs(source(),observed,scoped,{}).lab);
+  ordinary.expected.capabilities.push({target:'nvidia-gpu',engines:['VLLM']});
+  ordinary.phase2={notAServiceFixture:true};ordinary.gpu={notAServiceFixture:true};
+  const prepared=prepareInputs(ordinary,observed,scoped,{});
+  expect(prepared.parsed.expected.capabilities).toEqual([{target:'cpu',engines:['OLlama']}]);
+  expect(prepared.lab).not.toHaveProperty('phase2');expect(prepared.lab).not.toHaveProperty('gpu');
+}));
+
 test('MOD-03 deferred optional-service fixtures are never prepared, including retained profiles and enabled services',()=>{
   const observed=snapshot();
   observed.modules={modules:{'agent-sandbox':{enabled:false},service:{enabled:false}},catalogJson:{modules:{
