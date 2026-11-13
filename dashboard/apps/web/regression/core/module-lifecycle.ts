@@ -10,6 +10,7 @@ export const moduleRuntimeResources = ['deployments.apps','statefulsets.apps','d
   'helmreleases.helm.toolkit.fluxcd.io','persistentvolumeclaims'] as const;
 export type ModuleRuntimeResource = typeof moduleRuntimeResources[number];
 export interface ModuleRuntimeObject {resource:ModuleRuntimeResource;object:KubeObject}
+export interface ModuleReleaseBinding {name:string;namespace:string;uid:string;releaseName:string;releaseNamespace:string}
 const objectKey=(item:ModuleRuntimeObject)=>[item.resource,item.object.metadata.namespace,item.object.metadata.name].join('/');
 const fluxOwned=(object:KubeObject,name:string,namespace:string)=>
   object.metadata.labels?.['kustomize.toolkit.fluxcd.io/name']===name &&
@@ -19,7 +20,8 @@ export function moduleRuntimeInventory(objects:readonly ModuleRuntimeObject[],ku
   requireSafe(/^[a-z0-9][a-z0-9-]{0,62}$/.test(kustomizationName),'CONFIG');
   const owned=objects.filter(item=>fluxOwned(item.object,kustomizationName,namespace));
   const missingWorkloads:string[]=[],requiredKinds=new Set(['Deployment','StatefulSet','DaemonSet','Job','Pod','HelmRelease']);
-  let inventoryReady=true;
+  let inventoryReady=true,inventoryKnown=true;
+  const releaseBindings:ModuleReleaseBinding[]=[];
   // Helm does not place the HelmRelease UID on every generated object. Its
   // observed inventory plus exact release annotations supply that read-only
   // attribution; a similar release-name prefix never does.
@@ -29,7 +31,7 @@ export function moduleRuntimeInventory(objects:readonly ModuleRuntimeObject[],ku
     'helmreleases.helm.toolkit.fluxcd.io':'HelmRelease'};
   const inventoryEntries=(source:KubeObject)=>{
     const status=source.status as typeof source.status&{inventory?:{entries?:Array<{id:string}>}};
-    if(!Array.isArray(status?.inventory?.entries)){inventoryReady=false;return [];}
+    if(!Array.isArray(status?.inventory?.entries)){inventoryReady=false;inventoryKnown=false;return [];}
     return status.inventory.entries;
   };
   const expected=(source:KubeObject,helm?:{name:string;namespace:string})=>{
@@ -51,6 +53,7 @@ export function moduleRuntimeInventory(objects:readonly ModuleRuntimeObject[],ku
     requireSafe(kustomization.metadata.name===kustomizationName&&kustomization.metadata.namespace===namespace&&kustomization.metadata.uid,'OWNERSHIP');
     const ready=kustomization.status?.conditions?.find(condition=>condition.type==='Ready');
     if(ready?.status!=='True'||(ready.observedGeneration??kustomization.status?.observedGeneration)!==kustomization.metadata.generation)inventoryReady=false;
+    if((ready?.observedGeneration??kustomization.status?.observedGeneration)!==kustomization.metadata.generation)inventoryKnown=false;
     expected(kustomization);
   }
   const checkedReleases=new Set<string>();
@@ -59,7 +62,18 @@ export function moduleRuntimeInventory(objects:readonly ModuleRuntimeObject[],ku
     if(!release)break;requireSafe(release.object.metadata.uid,'OWNERSHIP');checkedReleases.add(release.object.metadata.uid);
     const status=release.object.status as typeof release.object.status&{inventory?:{entries?:Array<{id:string}>};history?:Array<{name:string;namespace:string;status:string}>};
     const latest=status?.history?.[0];
-    if(!latest||latest.status!=='deployed'){inventoryReady=false;continue;}
+    const current=Number.isSafeInteger(release.object.metadata.generation)&&Number(release.object.metadata.generation)>0&&
+      status?.observedGeneration===release.object.metadata.generation;
+    if(!current||latest?.status!=='deployed')inventoryReady=false;
+    // A failed install still has a real, UID-bound inventory to snapshot before
+    // normal removal. It must never be credited as a healthy installation.
+    if(!current||!latest||!['deployed','failed','superseded','uninstalled','pending-install','pending-upgrade','pending-rollback','uninstalling'].includes(latest.status)||
+      !/^[a-z0-9][a-z0-9.-]{0,252}$/.test(latest.name??'')||!/^[a-z0-9][a-z0-9-]{0,62}$/.test(latest.namespace??'')){
+      inventoryKnown=false;continue;
+    }
+    requireSafe(release.object.metadata.name&&release.object.metadata.namespace,'OWNERSHIP');
+    releaseBindings.push({name:release.object.metadata.name,namespace:release.object.metadata.namespace,uid:release.object.metadata.uid,
+      releaseName:latest.name,releaseNamespace:latest.namespace});
     expected(release.object,latest);
   }
   const uids=new Set(owned.map(item=>item.object.metadata.uid));
@@ -73,7 +87,7 @@ export function moduleRuntimeInventory(objects:readonly ModuleRuntimeObject[],ku
   }
   requireSafe(owned.every(item=>item.object.metadata.uid&&item.object.metadata.name&&item.object.metadata.namespace),'OWNERSHIP');
   const persistent=owned.filter(item=>item.resource==='persistentvolumeclaims');
-  return {runtime:owned.filter(item=>item.resource!=='persistentvolumeclaims'),persistent,missingWorkloads,inventoryReady};
+  return {runtime:owned.filter(item=>item.resource!=='persistentvolumeclaims'),persistent,missingWorkloads,inventoryReady,inventoryKnown,releaseBindings};
 }
 
 /** Ignore only the API server's canonical ServiceAccount projection. Intended
@@ -107,7 +121,7 @@ export function modulePodTemplateMatches(expected:Record<string,unknown>,actual:
   return matches(expected,observed);
 }
 export function moduleInstallationObserved(inventory:ReturnType<typeof moduleRuntimeInventory>) {
-  if(!inventory.inventoryReady||inventory.missingWorkloads.length)return false;
+  if(!inventory.inventoryKnown||!inventory.inventoryReady||inventory.missingWorkloads.length)return false;
   return inventory.runtime.every(({resource,object})=>{
     if(object.metadata.deletionTimestamp)return false;
     if(resource==='pods')return object.status?.phase==='Succeeded'||object.status?.phase==='Running'&&
@@ -180,7 +194,14 @@ export function moduleRemovalObserved(before:ReturnType<typeof moduleRuntimeInve
       beforeUids.add(item.object.metadata.uid);changed=true;
     }
   }
-  return after.runtime.length===0&&(keepData||after.persistent.length===0)&&!current.some(item=>beforeUids.has(item.object.metadata.uid));
+  // The HelmRelease may have vanished before its last chart-created object.
+  // Exact historical release annotations are absence sentinels only, never
+  // authority to delete a matching name or adopt unrelated resources.
+  const remainingReleaseObjects=current.filter(item=>before.releaseBindings.some(binding=>
+    item.object.metadata.annotations?.['meta.helm.sh/release-name']===binding.releaseName&&
+    item.object.metadata.annotations?.['meta.helm.sh/release-namespace']===binding.releaseNamespace));
+  return after.runtime.length===0&&(keepData||after.persistent.length===0)&&!current.some(item=>beforeUids.has(item.object.metadata.uid))&&
+    remainingReleaseObjects.every(item=>keepData&&item.resource==='persistentvolumeclaims'&&!item.object.metadata.deletionTimestamp);
 }
 
 export async function observeModuleRuntime(observer:{list:(resource:string)=>Promise<KubeObject[]>}) {

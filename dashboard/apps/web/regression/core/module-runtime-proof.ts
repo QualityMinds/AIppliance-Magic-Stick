@@ -4,14 +4,14 @@ import type {KubeObject} from './observer.ts';
 import type {ResourceJournal} from './journal.ts';
 import {protectedModule} from './application-modules.ts';
 import {canonical} from './borrowed-sharing.ts';
-import {moduleRuntimeResources,moduleRuntimeInventory,moduleInstallationObserved,moduleRemovalObserved,observeModuleRuntime,type ModuleRuntimeObject} from './module-lifecycle.ts';
+import {moduleRuntimeResources,moduleRuntimeInventory,moduleInstallationObserved,moduleRemovalObserved,observeModuleRuntime,type ModuleRuntimeObject,type ModuleReleaseBinding} from './module-lifecycle.ts';
 import {readPrivate,writePrivate,journalFile} from './private-files.ts';
 import {requireSafe} from './errors.ts';
 import {poll} from './poll.ts';
 
 interface Reference {resource:ModuleRuntimeObject['resource'];name:string;namespace:string;uid:string}
 export interface ModuleRuntimeReceipt {version:1;runId:string;applianceUid:string;original:KubeObject;borrowedReceipt:string;
-  kustomizationName:string;keepData:boolean;runtime:Reference[];persistent:Reference[];state:'observed'|'verified';checkedAt?:string;restored?:KubeObject}
+  kustomizationName:string;keepData:boolean;runtime:Reference[];persistent:Reference[];releaseBindings?:ModuleReleaseBinding[];state:'observed'|'verified';checkedAt?:string;restored?:KubeObject}
 interface Live {journal:ResourceJournal;guard():Promise<void>;config:{expected:{applianceUid:string}};
   observer:{get(resource:string,namespace:string,name:string):Promise<KubeObject>;list(resource:string,namespace?:string):Promise<KubeObject[]>}}
 const ref=(item:ModuleRuntimeObject):Reference=>{const {uid,name,namespace}=item.object.metadata;requireSafe(uid&&name&&namespace,'OWNERSHIP');
@@ -32,6 +32,11 @@ export function requireModuleRuntimeReceipt(value:ModuleRuntimeReceipt,journal:P
     typeof value.keepData==='boolean'&&['observed','verified'].includes(value.state)&&Array.isArray(value.runtime)&&Array.isArray(value.persistent)&&
     [...value.runtime,...value.persistent].length<=2048&&[...value.runtime,...value.persistent].every(item=>moduleRuntimeResources.includes(item.resource)&&
       typeof item.name==='string'&&typeof item.namespace==='string'&&typeof item.uid==='string'&&item.name&&item.namespace&&item.uid),'RECOVERY');
+  if(value.releaseBindings!==undefined)requireSafe(Array.isArray(value.releaseBindings)&&value.releaseBindings.length<=2048&&value.releaseBindings.every(item=>item&&
+      value.runtime.some(ref=>ref.resource==='helmreleases.helm.toolkit.fluxcd.io'&&ref.uid===item.uid&&ref.name===item.name&&ref.namespace===item.namespace)&&
+      typeof item.releaseName==='string'&&/^[a-z0-9][a-z0-9.-]{0,252}$/.test(item.releaseName)&&
+      typeof item.releaseNamespace==='string'&&/^[a-z0-9][a-z0-9-]{0,62}$/.test(item.releaseNamespace))&&
+    new Set(value.releaseBindings.map(item=>item.uid)).size===value.releaseBindings.length,'RECOVERY');
   if(value.state==='verified')requireSafe(Number.isFinite(Date.parse(value.checkedAt??''))&&value.restored?.metadata.uid===original.metadata.uid&&
     Number(value.restored.metadata.generation)>=Number(original.metadata.generation)&&canonical(value.restored.spec)===canonical(original.spec),'RECOVERY');
   return value;
@@ -72,11 +77,21 @@ export class ModuleRuntimeProof {
     if(restored)requireSafe(canonical(current.spec)===canonical(this.initial.original.spec),'CLEANUP');return current;
   }
   async verifyRecoverable(){await this.current();}
-  async capture() {
+  async capture(options:{timeoutMs?:number;intervalMs?:number}={}) {
     const receipt=await this.receipt();await this.current();
-    const inventory=await poll(async()=>{await this.current();return moduleRuntimeInventory(await observeModuleRuntime(this.live.observer),receipt.kustomizationName);},
-      value=>value.inventoryReady,{timeoutMs:300_000,intervalMs:1000,stage:'recovery-module'});await this.current();
-    const next={...receipt,runtime:merge(receipt.runtime,inventory.runtime.map(ref)),persistent:merge(receipt.persistent,inventory.persistent.map(ref)),state:'observed' as const};
+    const inventory=await poll(async()=>{
+      const current=await this.current(),[objects,sources]=await Promise.all([observeModuleRuntime(this.live.observer),
+        this.live.observer.list('kustomizations.kustomize.toolkit.fluxcd.io','flux-system')]);
+      const source=sources.find(item=>item.metadata.name===receipt.kustomizationName),observed=moduleRuntimeInventory(objects,receipt.kustomizationName,'flux-system',source);
+      // An enabled intent may not have materialized its root yet. An empty
+      // workload list alone is not a closed snapshot of that pending install.
+      return {...observed,inventoryKnown:observed.inventoryKnown&&(!current.spec?.enabled||Boolean(source))};
+    },value=>value.inventoryKnown,{timeoutMs:options.timeoutMs??300_000,intervalMs:options.intervalMs??1000,stage:'recovery-module'});await this.current();
+    for(const binding of inventory.releaseBindings){const previous=receipt.releaseBindings?.find(item=>item.uid===binding.uid);
+      requireSafe(!previous||canonical(previous)===canonical(binding),'CONFLICT');}
+    const releaseBindings=[...(receipt.releaseBindings??[]),...inventory.releaseBindings.filter(item=>!receipt.releaseBindings?.some(previous=>previous.uid===item.uid))];
+    const next={...receipt,runtime:merge(receipt.runtime,inventory.runtime.map(ref)),persistent:merge(receipt.persistent,inventory.persistent.map(ref)),
+      releaseBindings,state:'observed' as const};
     await writePrivate(this.filename,next);return next;
   }
   async verifyRestored(options:{timeoutMs?:number;intervalMs?:number}={}) {
@@ -85,7 +100,7 @@ export class ModuleRuntimeProof {
       const current=await this.current(true),[objects,sources]=await Promise.all([observeModuleRuntime(this.live.observer),
         this.live.observer.list('kustomizations.kustomize.toolkit.fluxcd.io','flux-system')]);
       const source=sources.find(item=>item.metadata.name===receipt.kustomizationName),before={runtime:receipt.runtime.map(object),persistent:receipt.persistent.map(object),
-        inventoryReady:true,missingWorkloads:[]};
+        inventoryReady:true,inventoryKnown:true,releaseBindings:receipt.releaseBindings??[],missingWorkloads:[]};
       if(!receipt.original.spec!.enabled)return {current,ready:!source&&moduleRemovalObserved(before,objects,receipt.kustomizationName,receipt.keepData)};
       const inventory=moduleRuntimeInventory(objects,receipt.kustomizationName,'flux-system',source);
       if(receipt.keepData)for(const previous of receipt.persistent)requireSafe(objects.some(item=>item.resource===previous.resource&&

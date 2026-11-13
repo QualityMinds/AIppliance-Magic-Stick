@@ -18,6 +18,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   their keep-data contract. Allow AnythingLLM's native setup with a genuinely empty
   initial model catalog without inventing a model or replacing saved choices.
   Local/CI checks and native acceptance remain separate.
+  Allow bounded cold image pulls during application and optional operator Helm
+  installation. Recovery can snapshot a failed Helm install without treating it
+  as healthy, and retains exact release identities when checking for late resources.
 
 - Bound ordinary automatic NVIDIA model memory planning to one eligible physical
   card, not the sum of a scheduling pool. Create/Edit sliders and recommendations

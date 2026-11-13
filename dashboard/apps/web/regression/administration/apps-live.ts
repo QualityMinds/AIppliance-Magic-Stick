@@ -352,7 +352,7 @@ export async function applicationServiceStage(live:LiveFoundation,browser:Browse
       username:actor.user.username,password:actor.password,initialPassword:actor.initialPassword,subject:actor.user.id,role:'magicstick-user'}}));
     for(const fixture of fixtures) {
       const page=await live.context.newPage();let name:string|undefined;
-      try {
+      await withCleanup(async()=>{
         name=await apps.createInUi(page,fixture.type,'app-'+fixture.type,model.client.name);
         const ready=await apps.ready(name);await verifyGateway();
         if(stage==='access') {
@@ -390,10 +390,10 @@ export async function applicationServiceStage(live:LiveFoundation,browser:Browse
           }
         }
         await removeInUi(page,name,fixture.type);name=undefined;await verifyGateway();
-      }finally{await page.close();if(name)await apps.remove(name);}
+      },()=>withCleanup(()=>page.close(),async()=>{if(name)await apps.remove(name);}));
       if(stage==='access') {
         const publicPage=await live.context.newPage();let publicName:string|undefined;
-        try {
+        await withCleanup(async()=>{
           await publicPage.goto(live.config.dashboardUrl+'/#/services');await publicPage.getByRole('button',{name:'Create Instance',exact:true}).click();
           await publicPage.getByRole('dialog').getByRole('combobox',{name:'Access',exact:true}).selectOption('none');
           await expect(publicPage.getByRole('dialog').getByText(/public|without login/i).first()).toBeVisible();
@@ -415,7 +415,7 @@ export async function applicationServiceStage(live:LiveFoundation,browser:Browse
           const protectedOrigin=new URL(fixture.originTemplate.replace('{name}',protectedName.slice(fixture.type.length+1))).origin;
           await registerRuntimeDnsOrigins([protectedOrigin],live.config.dashboardUrl);await verifySso(protectedName,protectedReady.item.metadata!.uid!,protectedOrigin);
           await removeInUi(publicPage,protectedName,fixture.type);await verifyGateway();
-        }finally{await publicPage.close();if(publicName)await apps.remove(publicName);}
+        },()=>withCleanup(()=>publicPage.close(),async()=>{if(publicName)await apps.remove(publicName);}));
       }
     }
     const remaining=Object.values((await apps.api.api.instances()).instances).flat().map(item=>`${item.metadata?.uid}:${item.metadata?.generation}`).sort().join(',');

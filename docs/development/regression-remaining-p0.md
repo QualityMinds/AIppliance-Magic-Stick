@@ -130,6 +130,11 @@ routes, test identities and keys. A failed read is not proof of absence.
 Runtime snapshots survive an interrupted scenario. Restoring a module's saved
 settings does not complete recovery until the matching runtime state is also
 independently verified; unresolved state fences later writes.
+For a failed Helm installation, recovery records the current, attributable
+inventory and exact release identity without crediting installation readiness.
+Late chart-created workloads still prevent a cleanup pass. Missing or stale
+inventory remains unknown. Kubernetes diagnostic reports use the same validated
+service profile as the child run; missing evidence is not silently accepted.
 
 <a id="if-cleanup-is-blocked"></a>
 

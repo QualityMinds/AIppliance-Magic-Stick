@@ -5790,7 +5790,9 @@ data:
                 "targetNamespace": target_namespace,
                 "storageNamespace": APPLIANCE_NAMESPACE,
                 "suspend": bool(suspend),
-                "install": {"createNamespace": True},
+                # Cold appliance installs may need to pull a large immutable
+                # application image before Helm can observe a ready workload.
+                "install": {"createNamespace": True, "timeout": "15m0s"},
                 "upgrade": {"cleanupOnFail": True},
                 "uninstall": {"keepHistory": False},
                 "chart": {

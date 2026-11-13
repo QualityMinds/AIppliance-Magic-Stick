@@ -234,14 +234,14 @@ export function liveReportScope(mode?: string) {
 
 /** Allowlisted output only. Never serialize a Playwright response, error or attachment. */
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
-  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup}) {
+  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup;serviceProfile?:string}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),limited=runTestMode==='non-destructive';
   const diagnostic=diagnosticForMode(mode);
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
   let servicePlan:Awaited<ReturnType<typeof loadServicePlan>>|undefined;
   if(mode==='services') {
-    try {servicePlan=await loadServicePlan();}
+    try {servicePlan=await loadServicePlan(lifecycle?.serviceProfile);}
     catch(error) {
       // Preparation may fail before an inventory can be created. Keep its
       // original failure and scoped selection; do not invent a green empty

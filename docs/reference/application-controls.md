@@ -48,6 +48,10 @@ Progress is phase-based. The dashboard maps existing status phases such as
 `Disabled`, `WaitingForModules`, `Starting`, `Reconciling`, `Removing`, `Ready`, and
 `Degraded` to visual progress states. These percentages are orientation hints,
 not scheduler- or operator-reported completion percentages.
+Application Helm installs have a 15-minute deadline to accommodate cold image
+pulls. An accepted install is not proof that the application is reachable; check
+its current status and endpoint. This install deadline does not change uninstall
+or retained-data behavior.
 Model Pod creation and runtime startup use indeterminate progress without a
 percentage; failures also do not display a completion percentage.
 For vLLM-Omni, Kubernetes permission/admission failures appear in the installed

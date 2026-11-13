@@ -19,9 +19,9 @@ export function automaticServiceMatrix(payload:ModulesPayload):ServiceMatrix {
   return serviceMatrix(payload,reviewed);
 }
 export interface ServicePlan {version:1;catalog:NonNullable<ModulesPayload['catalogJson']>;matrix:ServiceMatrix;modules:Array<{approveOptionalModule:true;id:string;parameters:Record<string,string>}>}
-export async function loadServicePlan():Promise<ServicePlan> {
-  requireSafe(serviceRegressionEnabled()&&process.env.REGRESSION_REMAINING_PROFILE,'CONFIG');
-  const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE)),plan=profile.services as ServicePlan;
+export async function loadServicePlan(filename=process.env.REGRESSION_REMAINING_PROFILE):Promise<ServicePlan> {
+  requireSafe(serviceRegressionEnabled()&&filename,'CONFIG');
+  const profile=JSON.parse(await readPrivate(filename)),plan=profile.services as ServicePlan;
   requireSafe(plan?.version===1&&Array.isArray(plan.modules)&&plan.matrix?.version===1&&plan.catalog?.modules&&plan.catalog.applications,'CONFIG');
   // The accepted catalog snapshot is separate from selection metadata. Rebuild
   // reviewed capabilities here so a saved plan cannot authorize its own adapter

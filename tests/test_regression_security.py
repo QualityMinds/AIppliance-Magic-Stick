@@ -74,6 +74,10 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertTrue(all(set(rule['verbs']) <= {'get', 'list', 'watch'} for rule in role['rules']))
         core = next(rule for rule in role['rules'] if rule['apiGroups'] == [''])
         self.assertTrue({'resourcequotas', 'limitranges'} <= set(core['resources']))
+        schema = next(rule for rule in role['rules'] if rule['apiGroups'] == ['apiextensions.k8s.io'])
+        self.assertEqual(schema['resources'], ['customresourcedefinitions'])
+        self.assertEqual(schema['resourceNames'], ['openclawinstances.openclaw.rocks', 'instances.paperclip.inc'])
+        self.assertEqual(schema['verbs'], ['get'])
 
     def test_automatic_setup_service_preserves_linux_runner_isolation_and_normal_read_only_inputs(self):
         compose = yaml.safe_load((ROOT / 'dashboard/apps/web/regression/compose.yaml').read_text())

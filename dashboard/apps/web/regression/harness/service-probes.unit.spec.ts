@@ -236,6 +236,45 @@ test('MOD-03 current Pod templates allow only canonical API ServiceAccount admis
     expect(modulePodTemplateMatches(template,{...actual,containers:[container]})).toBe(false);
 });
 
+test('MOD-04 a failed current Helm install has a known cleanup inventory but never passes installation',annotation,()=>{
+  const release:ModuleRuntimeObject={resource:'helmreleases.helm.toolkit.fluxcd.io',object:{metadata:{name:'operator',namespace:'flux-system',uid:'release-uid',generation:1,
+    labels:{'kustomize.toolkit.fluxcd.io/name':'app-synthetic','kustomize.toolkit.fluxcd.io/namespace':'flux-system'}},
+    status:{observedGeneration:1,history:[{name:'native-operator',namespace:'operator-system',status:'failed'}],
+      inventory:{entries:[{id:'operator-system_operator_apps_Deployment'}]}} as any}};
+  const deployment:ModuleRuntimeObject={resource:'deployments.apps',object:{metadata:{name:'operator',namespace:'operator-system',uid:'deployment-uid',
+    annotations:{'meta.helm.sh/release-name':'native-operator','meta.helm.sh/release-namespace':'operator-system'}}}};
+  const inventory=moduleRuntimeInventory([release,deployment],'app-synthetic');
+  expect(inventory.inventoryKnown).toBe(true);expect(inventory.inventoryReady).toBe(false);
+  expect(moduleInstallationObserved(inventory)).toBe(false);
+  expect(inventory.runtime.map(item=>item.object.metadata.uid).sort()).toEqual(['deployment-uid','release-uid']);
+  expect(inventory.releaseBindings).toEqual([{name:'operator',namespace:'flux-system',uid:'release-uid',releaseName:'native-operator',releaseNamespace:'operator-system'}]);
+  const withoutInventory={...release,object:{...release.object,status:{...release.object.status,inventory:undefined}}};
+  expect(moduleRuntimeInventory([withoutInventory,deployment],'app-synthetic').inventoryKnown).toBe(false);
+  const stale={...release,object:{...release.object,status:{...release.object.status,observedGeneration:0}}};
+  expect(moduleRuntimeInventory([stale,deployment],'app-synthetic').inventoryKnown).toBe(false);
+  const invalidHistory={...release,object:{...release.object,status:{...release.object.status,
+    conditions:[{type:'Ready',status:'True'}],history:[{name:'../foreign',namespace:'operator-system',status:'deployed'}]}} as any};
+  expect(moduleInstallationObserved(moduleRuntimeInventory([invalidHistory],'app-synthetic'))).toBe(false);
+  expect(()=>moduleRuntimeInventory([release,{...deployment,object:{metadata:{...deployment.object.metadata,
+    annotations:{'meta.helm.sh/release-name':'foreign','meta.helm.sh/release-namespace':'operator-system'}}}}],'app-synthetic')).toThrow('[OWNERSHIP]');
+});
+
+test('MOD-04 exact Helm release bindings detect late chart resources after the release root disappears',annotation,()=>{
+  const release:ModuleRuntimeObject={resource:'helmreleases.helm.toolkit.fluxcd.io',object:{metadata:{name:'operator',namespace:'flux-system',uid:'release-uid',generation:1,
+    labels:{'kustomize.toolkit.fluxcd.io/name':'app-synthetic','kustomize.toolkit.fluxcd.io/namespace':'flux-system'}},
+    status:{observedGeneration:1,history:[{name:'native-operator',namespace:'operator-system',status:'failed'}],inventory:{entries:[]}} as any}};
+  const before=moduleRuntimeInventory([release],'app-synthetic');
+  const late:ModuleRuntimeObject={resource:'deployments.apps',object:{metadata:{name:'late',namespace:'operator-system',uid:'late-uid',
+    annotations:{'meta.helm.sh/release-name':'native-operator','meta.helm.sh/release-namespace':'operator-system'}}}};
+  expect(moduleRemovalObserved(before,[late],'app-synthetic',true)).toBe(false);
+  const foreign={...late,object:{metadata:{...late.object.metadata,annotations:{...late.object.metadata.annotations,'meta.helm.sh/release-name':'native-operator-other'}}}};
+  expect(moduleRemovalObserved(before,[foreign],'app-synthetic',true)).toBe(true);
+  const retained={...late,resource:'persistentvolumeclaims' as const};
+  expect(moduleRemovalObserved(before,[retained],'app-synthetic',true)).toBe(true);
+  expect(moduleRemovalObserved(before,[retained],'app-synthetic',false)).toBe(false);
+  expect(moduleRemovalObserved(before,[{...retained,object:{metadata:{...retained.object.metadata,deletionTimestamp:new Date().toISOString()}}}],'app-synthetic',true)).toBe(false);
+});
+
 test('APP-10 app cleanup derives native kinds from the catalog and tracks all UID descendants without deleting foreign resources',annotation,()=>{
   const catalog={modules:{operator:{requiredCrds:['instances.paperclip.inc'],requires:['sandbox']},
     sandbox:{requiredCrds:['sandboxes.agents.x-k8s.io']}},applications:{paperclip:{requiredModules:['operator'],requiredCrds:['instances.paperclip.inc']}}};
@@ -258,6 +297,21 @@ test('APP-10 app cleanup derives native kinds from the catalog and tracks all UI
   expect(appRuntimeRemovalObserved(receipt,[latePod,lateJob,foreign]).removed).toBe(false);
   expect(appRuntimeRemovalObserved(receipt,[foreign]).removed).toBe(true);
   expect(()=>appRuntimeRemovalObserved(receipt,[{...native,object:{metadata:{...native.object.metadata,uid:'replacement'}}}])).toThrow('[OWNERSHIP]');
+});
+
+test('APP-10 ignores unrelated cluster-scoped catalog objects without weakening exact owned UID checks',annotation,()=>{
+  const receipt:AppRuntimeReceipt={version:1,runId:newRunId(),applianceUid:'fixture',name:'owned',uid:'app-uid',generation:1,
+    resources:[...appRuntimeResources,'kubeopencodeconfigs.kubeopencode.io'],
+    runtime:[{resource:'deployments.apps',namespace:'ai',name:'owned',uid:'workload-uid'}],persistent:[],state:'observed'};
+  const cluster:AppRuntimeObject={resource:'kubeopencodeconfigs.kubeopencode.io',object:{metadata:{name:'cluster',uid:'cluster-uid'}}};
+  const owned:AppRuntimeObject={resource:'deployments.apps',object:{metadata:{name:'owned',namespace:'ai',uid:'workload-uid'}}};
+  expect(appRuntimeRemovalObserved(receipt,[cluster]).removed).toBe(true);
+  expect(appRuntimeRemovalObserved(receipt,[cluster,owned]).removed).toBe(false);
+  expect(()=>appRuntimeRemovalObserved(receipt,[cluster,{...owned,object:{metadata:{...owned.object.metadata,uid:'replacement'}}}])).toThrow('[OWNERSHIP]');
+  expect(()=>appRuntimeRemovalObserved(receipt,[cluster,{...owned,object:{metadata:{name:'owned',namespace:'ai'}}}])).toThrow('[OWNERSHIP]');
+  // An actually associated cluster object is still a residual, never ignored.
+  const associated={...cluster,object:{metadata:{...cluster.object.metadata,ownerReferences:[{uid:'app-uid',kind:'AppInstance'}]}}};
+  expect(appRuntimeRemovalObserved(receipt,[associated]).removed).toBe(false);
 });
 
 test('APP-10 app deletion snapshots are durable and keep native-list failures unknown and persistent data separate',annotation,async()=>{

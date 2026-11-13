@@ -21,7 +21,7 @@ import {assessCleanup} from '../core/cleanup-state.ts';
 import {recoveryInventory} from '../core/recovery-inventory.ts';
 import {AppRuntimeProof} from '../core/app-lifecycle.ts';
 import {ModuleRuntimeProof} from '../core/module-runtime-proof.ts';
-import type {ModuleRuntimeObject} from '../core/module-lifecycle.ts';
+import {moduleRuntimeInventory,moduleInstallationObserved,type ModuleRuntimeObject} from '../core/module-lifecycle.ts';
 
 test('HAR-06 HAR-09 cleanup always runs without replacing the original scenario error', async () => {
   const primary = new HarnessError('DEADLINE', 'Failed', 'model-ready');
@@ -99,7 +99,10 @@ test('HAR-07 durable app runtime snapshots fence interrupted deletion and are im
 test('HAR-07 interrupted service restoration independently verifies durable runtime absence before releasing recovery',async()=>isolated(async directory=>{
   const f=await fixture(directory),borrowedFile=join(f.path,'borrowed-module.json');
   let objects:ModuleRuntimeObject[]=[];
-  const observer={get:async()=>structuredClone(f.module.current),list:async(resource:string)=>objects.filter(item=>item.resource===resource).map(item=>item.object)};
+  const source={metadata:{name:'app-optional-fixture',namespace:'flux-system',uid:'source-uid',generation:1},
+    status:{observedGeneration:1,conditions:[{type:'Ready',status:'True'}],inventory:{entries:[{id:'ai_owned-pod__Pod'}]}}};
+  const observer={get:async()=>structuredClone(f.module.current),list:async(resource:string)=>resource==='kustomizations.kustomize.toolkit.fluxcd.io'?
+    f.module.current.spec?.enabled?[source]:[]:objects.filter(item=>item.resource===resource).map(item=>item.object)};
   const live={journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},observer};
   const proof=new ModuleRuntimeProof(live,f.original,borrowedFile,'app-optional-fixture',true);
   await proof.capture();const borrowed=new BorrowedModule(f.original,borrowedFile,f.adapters.module(f.original,async()=>{}),async()=>{});
@@ -121,6 +124,62 @@ test('HAR-07 interrupted service restoration independently verifies durable runt
   const text=await readPrivate(proof.filename);
   f.module.current={...f.module.current,metadata:{...f.module.current.metadata,resourceVersion:'later-status-write'},status:{phase:'Disabled',message:'Refreshed'}};
   await proof.verifyRestored();expect(await readPrivate(proof.filename)).toBe(text);expect((await assessCleanup(f.path,true)).state).toBe('verified');
+}));
+
+test('HAR-07 failed Helm installation can be snapshotted and restored without crediting installation or losing late resources',async()=>{
+  for(const residual of [false,true])await isolated(async directory=>{
+    const f=await fixture(directory),borrowedFile=join(f.path,'borrowed-module.json');let objects:ModuleRuntimeObject[]=[];
+    const source={metadata:{name:'app-optional-fixture',namespace:'flux-system',uid:'source-uid',generation:1},
+      status:{observedGeneration:1,conditions:[{type:'Ready',status:'True'}],inventory:{entries:[{id:'flux-system_operator_helm.toolkit.fluxcd.io_HelmRelease'}]}}};
+    const live={journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},
+      observer:{get:async()=>structuredClone(f.module.current),list:async(resource:string)=>resource==='kustomizations.kustomize.toolkit.fluxcd.io'?
+        f.module.current.spec?.enabled?[source]:[]:objects.filter(item=>item.resource===resource).map(item=>item.object)}};
+    const proof=new ModuleRuntimeProof(live,f.original,borrowedFile,'app-optional-fixture',true);await proof.capture();
+    await new BorrowedModule(f.original,borrowedFile,f.adapters.module(f.original,async()=>{}),async()=>{}).change(true,{});
+    const annotations={'meta.helm.sh/release-name':'exact-release','meta.helm.sh/release-namespace':'operator-system'};
+    objects=[{resource:'helmreleases.helm.toolkit.fluxcd.io',object:{metadata:{name:'operator',namespace:'flux-system',uid:'helm-uid',generation:1,
+      labels:{'kustomize.toolkit.fluxcd.io/name':'app-optional-fixture','kustomize.toolkit.fluxcd.io/namespace':'flux-system'}},
+      status:{observedGeneration:1,history:[{name:'exact-release',namespace:'operator-system',status:'failed'}],
+        inventory:{entries:[{id:'operator-system_controller_apps_Deployment'}]}} as any}},
+      {resource:'deployments.apps',object:{metadata:{name:'controller',namespace:'operator-system',uid:'deployment-uid',annotations}}}];
+    expect(moduleInstallationObserved(moduleRuntimeInventory(objects,'app-optional-fixture'))).toBe(false);
+    await proof.capture();
+    expect(JSON.parse(await readPrivate(proof.filename)).releaseBindings[0]).toMatchObject({uid:'helm-uid',releaseName:'exact-release'});
+    const module=f.adapters.module;
+    f.adapters.module=(original,guard)=>{const adapter=module(original,guard);return {...adapter,set:async(enabled,parameters)=>{
+      await adapter.set(enabled,parameters);if(!enabled)objects=residual?[{resource:'services',object:{metadata:{name:'late',namespace:'operator-system',uid:'late-uid',annotations}}}]:[];
+    }};};
+    f.adapters.moduleRuntime=(receipt,guard)=>{const current=()=>ModuleRuntimeProof.resume({...live,guard},receipt.filename);
+      return {verifyRecoverable:async()=>{await (await current()).verifyRecoverable();},capture:async()=>(await current()).capture(),
+        verifyRestored:async()=>{await (await current()).verifyRestored({timeoutMs:20,intervalMs:1});}};};
+    const recover=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);
+    if(residual){await expect(recover.execute(f.adapters)).rejects.toMatchObject({code:'DEADLINE',stage:'recovery-module'});
+      expect(f.store.value.spec.holderIdentity).not.toBe('');
+      expect(JSON.parse(await readPrivate(proof.filename)).state).toBe('observed');}
+    else {await recover.execute(f.adapters);expect(f.store.value.spec.holderIdentity).toBe('');
+      expect((await assessCleanup(f.path,true)).state).toBe('verified');}
+    expect(f.module.current.spec?.enabled).toBe(false);
+  });
+});
+
+test('HAR-07 an enabled service cannot snapshot empty pending or stale Flux inventory as complete',async()=>isolated(async directory=>{
+  const f=await fixture(directory),borrowedFile=join(f.path,'borrowed-module.json');let sources:KubeObject[]=[];
+  const live={journal:f.journal,config:{expected:{applianceUid:registration.applianceUid}},guard:async()=>{},
+    observer:{get:async()=>structuredClone(f.module.current),list:async(resource:string)=>resource==='kustomizations.kustomize.toolkit.fluxcd.io'?sources:[]}};
+  const proof=new ModuleRuntimeProof(live,f.original,borrowedFile,'app-optional-fixture',true);await proof.capture();
+  await new BorrowedModule(f.original,borrowedFile,f.adapters.module(f.original,async()=>{}),async()=>{}).change(true,{});
+  const before=await readPrivate(proof.filename);
+  await expect(proof.capture({timeoutMs:20,intervalMs:1})).rejects.toMatchObject({code:'DEADLINE',stage:'recovery-module'});
+  const source={metadata:{name:'app-optional-fixture',namespace:'flux-system',uid:'source-uid',generation:1},status:{observedGeneration:0}};
+  sources=[source];await expect(proof.capture({timeoutMs:20,intervalMs:1})).rejects.toMatchObject({code:'DEADLINE'});
+  sources=[{...source,status:{observedGeneration:0,inventory:{entries:[]}}} as any];
+  await expect(proof.capture({timeoutMs:20,intervalMs:1})).rejects.toMatchObject({code:'DEADLINE'});
+  expect(await readPrivate(proof.filename)).toBe(before);
+  // Known current inventory is sufficient for a removal snapshot, not a pass
+  // for an unhealthy installation. No intent or Lease is changed by capture.
+  sources=[{...source,status:{observedGeneration:1,conditions:[{type:'Ready',status:'False'}],inventory:{entries:[]}}} as any];
+  expect((await proof.capture({timeoutMs:20,intervalMs:1})).state).toBe('observed');
+  expect(f.module.current.spec?.enabled).toBe(true);expect(f.store.value.spec.holderIdentity).toBe(f.runId);
 }));
 
 test('HAR-07 service runtime unknown reads and replacement module UIDs retain their fence without cleanup writes',async()=>isolated(async directory=>{

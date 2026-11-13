@@ -161,6 +161,38 @@ test('HAR-07 HAR-10 Kubernetes diagnostic uses the scoped serial launcher and ex
   }finally{await rm(output,{recursive:true,force:true});}
 });
 
+test('HAR-10 Kubernetes services export retains the explicit child profile when the parent has no profile environment',async()=>{
+  const output=await mkdtemp(join(tmpdir(),'magicstick-service-parent-'));
+  try {
+    const profile=diagnosticSelection('services',[5],'full')!,mode=diagnosticMode(profile);
+    process.env.REGRESSION_DIAGNOSTIC_SELECTION='services';process.env.REGRESSION_MODE=mode;
+    const id=newRunId(),directory=join(output,id);
+    await ResourceJournal.create(join(directory,'journal.json'),id,'fixture-appliance');
+    const matrix=await saveServicePlan(directory),serviceProfile=process.env.REGRESSION_REMAINING_PROFILE!;
+    await attestCleanup(directory,{applianceUid:'fixture-appliance',nodeUids:['fixture-node']});
+    const rows:CaseResult[]=diagnosticRequirements(profile,matrix).map(item=>({...item,variant:item.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
+    await saveReport(directory,id,rows,profile.caseIds,'a'.repeat(40),mode,undefined,
+      {cleanup:{state:'verified',checkedAt:new Date().toISOString()},recoveryFenceActive:false,recoveryAttempts:[]});
+    delete process.env.REGRESSION_REMAINING_PROFILE;
+    const options={selection:'services',phases:[5],output,uid:'11111111-2222-3333-4444-555555555555',serviceProfile,cancelled:()=>false,
+      execute:async(_args:string[],environment:Record<string,string>)=>{
+        await writePrivate(environment.REGRESSION_CAMPAIGN_RESULT!,{version:1,mode,runId:id,directory,exitCode:0});return 0;
+      }};
+    const result=await runDiagnosticSelection(options);
+    expect(result.exit).toBe(0);expect(result.summary.serviceMatrix).toEqual(matrix);
+    expect(result.summary.counts.Passed).toBe(rows.length);
+    expect(publicResult(result.summary,result.campaign).diagnosticSelection?.id).toBe('services');
+    // A crashed child must still export a scoped failing report, not throw a
+    // second CONFIG error or reuse its previous successful receipt.
+    const crashed=await runDiagnosticSelection({...options,execute:async()=>1});
+    expect(crashed.exit).toBe(1);expect(crashed.runId).not.toBe(id);
+    expect(crashed.summary.counts.Failed).toBeGreaterThan(0);
+    expect(crashed.summary.serviceMatrix).toEqual(matrix);
+    expect(crashed.summary.diagnosticSelection.id).toBe('services');
+    expect(process.env.REGRESSION_REMAINING_PROFILE).toBeUndefined();
+  }finally{await rm(output,{recursive:true,force:true});}
+});
+
 test('HAR-10 services discovery requires Pi and future catalog entries and executes all installation cases before access',()=>{
   const profile=diagnosticSelection('services',[5],'full')!,matrix=serviceFixture(),manifest=diagnosticManifest(profile,matrix);
   const reversed={...manifest,scenarios:[...manifest.scenarios].reverse()},selected=diagnosticScenarios(reversed,profile,matrix);

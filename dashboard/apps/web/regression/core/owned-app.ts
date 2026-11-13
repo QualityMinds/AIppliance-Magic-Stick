@@ -13,6 +13,7 @@ import type {ApplicationAdapter} from './application-adapters.ts';
 import {waitOpenCodeBackend} from './opencode-backend.ts';
 import {AppRuntimeProof,appRuntimeAssociated} from './app-lifecycle.ts';
 import {modulePodTemplateMatches} from './module-lifecycle.ts';
+import {advanceNativeBinding,type NativeBinding,type NativeSchema} from './native-defaults.ts';
 
 export const appTypes=['openclaw','hermes','paperclip','kubeopencode','pi-coding','odysseus'] as const;
 export type AppType=typeof appTypes[number];
@@ -140,22 +141,41 @@ export function nativeAppBackendReady(type:NativeApplication,name:string,namespa
     configured.every(container=>pod.status?.containerStatuses?.some(status=>status.name===container.name&&status.ready&&status.imageID)));
 }
 
-async function waitNativeAppBackend(live:LiveFoundation,type:NativeApplication,name:string,namespace:string,identities:Map<string,{uid:string;generation:number}>) {
+export async function waitNativeAppBackend(live:LiveFoundation,type:NativeApplication,name:string,namespace:string,identities:Map<string,NativeBinding>) {
   const resource=nativeApplications[type].resource;
   const catalog=(await live.api.modules()).catalogJson?.applications?.[type];
   requireSafe(Array.isArray(catalog?.requiredCrds)&&catalog.requiredCrds.includes(resource),'CONFIG');
-  return poll(async()=>{
+  const crdResource='customresourcedefinitions.apiextensions.k8s.io';
+  const readSchema=async()=>{
+    await live.guard();const crd=await live.observer.get(crdResource,undefined,resource);
+    const versions=crd.spec?.versions as Array<{name?:string;served?:boolean;schema?:{openAPIV3Schema?:{properties?:{spec?:NativeSchema}}}}> | undefined;
+    const names=crd.spec?.names as {kind?:string}|undefined;
+    const schema=versions?.find(version=>version.name==='v1alpha1'&&version.served===true)?.schema?.openAPIV3Schema?.properties?.spec;
+    requireSafe(crd.metadata.name===resource&&crd.metadata.uid&&Number.isSafeInteger(crd.metadata.generation)&&
+      Number(crd.metadata.generation)>0&&crd.spec?.group===resource.split('.').slice(1).join('.')&&
+      names?.kind===nativeApplications[type].kind&&schema?.type==='object'&&schema.properties,'CONFIG');
+    return {uid:crd.metadata.uid,generation:Number(crd.metadata.generation),schema};
+  };
+  const pinnedSchema=await readSchema();
+  const verifySchema=async()=>{const current=await readSchema();requireSafe(current.uid===pinnedSchema.uid&&
+    current.generation===pinnedSchema.generation,'CONFLICT');};
+  const result=await poll(async()=>{
     await live.guard();
     const [instances,services,statefulsets,deployments,replicas,pods]=await Promise.all([resource,'services','statefulsets.apps','deployments.apps','replicasets.apps','pods']
       .map(resource=>live.observer.list(resource,namespace)));
     const native=instances!.find(item=>item.metadata.name===name);if(!native)return false;
     const observed=nativeInstanceIdentity(type,name,namespace,native),previous=identities.get(name);
-    if(!previous)identities.set(name,observed);
+    requireSafe(native.spec&&typeof native.spec==='object','CONFIG');
+    if(previous&&observed.generation!==previous.generation)await verifySchema();
+    const binding=advanceNativeBinding(previous,{...observed,spec:native.spec,observedGeneration:native.status?.observedGeneration},pinnedSchema.schema);
+    if(!binding)return false;
+    identities.set(name,binding);
     const managed=(native.status as {managedResources?:{statefulSet?:string;deployment?:string}})?.managedResources;
     const workloads=managed?.statefulSet===name?statefulsets!:managed?.deployment===name?deployments!:[];
     return nativeAppBackendReady(type,name,namespace,native,services!.find(item=>item.metadata.name===name),
-      workloads.find(item=>item.metadata.name===name),replicas!,pods!,previous??observed);
+      workloads.find(item=>item.metadata.name===name),replicas!,pods!,binding);
   },Boolean,{timeoutMs:900_000,intervalMs:1500,stage:'app-ready'});
+  await verifySchema();return result;
 }
 
 export function verifyAppCleanerRules(review:{status?:{incomplete?:boolean;resourceRules?:Array<{apiGroups:string[];resources:string[];verbs:string[]}>}}) {
@@ -200,7 +220,7 @@ export class OwnedAppClient {
   readonly api:AdministrationApi;
   readonly permits:ExactDashboardRequest[]=[];
   private readonly owned=new Map<string,{uid:string;generation:number}>();
-  private readonly native=new Map<string,{uid:string;generation:number}>();
+  private readonly native=new Map<string,NativeBinding>();
   readonly live:LiveFoundation;
   readonly cleaner:AppCleaner;
   readonly runtime:AppRuntimeProof;
@@ -295,7 +315,9 @@ export class OwnedAppClient {
       const children=await this.live.observer.list('helmreleases.helm.toolkit.fluxcd.io',target.namespace);
       return {item,observed,target,children:children.filter(child=>child.metadata.name===target.name)};
     },value=>appReleaseReady(value.item,value.observed,value.children,owned,value.target.namespace),
-    {timeoutMs:900_000,intervalMs:1500,stage:'app-ready'}));
+    // Helm has a 15 minute cold-install budget; allow chart reconciliation
+    // and status propagation beyond that without treating acceptance as Ready.
+    {timeoutMs:1_200_000,intervalMs:1500,stage:'app-ready'}));
     if(ready.item.spec?.application==='kubeopencode')await atStage('app-ready',()=>
       waitOpenCodeBackend(this.live,name,String(ready.item.spec?.targetNamespace)));
     if(['pi-coding','odysseus'].includes(String(ready.item.spec?.application)))await atStage('app-ready',()=>

@@ -20,7 +20,7 @@ export interface AppRuntimeReceipt {version:1;runId:string;applianceUid:string;n
   resources:string[];runtime:RuntimeReference[];persistent:RuntimeReference[];state:'observed'|'removed';
   verification?:{runtimeAbsent:true;persistent:Array<RuntimeReference&{state:'retained'|'removed'}>};removedAt?:string}
 const nativeResource=/^[a-z][a-z0-9]*(?:\.[a-z0-9][a-z0-9-]*){2,}$/;
-const referenceKey=(item:RuntimeReference)=>[item.resource,item.namespace,item.name].join('/');
+const referenceKey=(item:Pick<RuntimeReference,'resource'|'namespace'|'name'>)=>[item.resource,item.namespace,item.name].join('/');
 const referenceOrder=(a:RuntimeReference,b:RuntimeReference)=>referenceKey(a).localeCompare(referenceKey(b))||a.uid.localeCompare(b.uid);
 const reference=(item:AppRuntimeObject):RuntimeReference=>{
   requireSafe(item.object.metadata.name&&item.object.metadata.namespace&&item.object.metadata.uid,'OWNERSHIP');
@@ -63,7 +63,12 @@ export function appRuntimeInventory(objects:readonly AppRuntimeObject[],name:str
 }
 export function appRuntimeRemovalObserved(receipt:AppRuntimeReceipt,current:readonly AppRuntimeObject[]) {
   for(const previous of [...receipt.runtime,...receipt.persistent]) {
-    const same=current.find(item=>referenceKey(reference(item))===referenceKey(previous));
+    // Catalog CRD lists can contain unrelated cluster-scoped configuration.
+    // Select the exact namespaced receipt identity before checking its UID;
+    // do not mistake an unrelated object's missing namespace for an ownership
+    // change. Capture and receipt validation remain strict for owned objects.
+    const same=current.find(item=>referenceKey({resource:item.resource,namespace:item.object.metadata.namespace??'',
+      name:item.object.metadata.name??''})===referenceKey(previous));
     requireSafe(!same||same.object.metadata.uid===previous.uid,'OWNERSHIP');
   }
   const after=appRuntimeInventory(current,receipt.name,receipt.uid,[...receipt.runtime,...receipt.persistent]);

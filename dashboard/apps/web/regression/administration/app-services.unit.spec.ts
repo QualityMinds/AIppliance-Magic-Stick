@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {applicationStageIds,applicationServiceStage,applicationSsoChallenge,applicationPageReady,validateAppFixtures,prepareApplicationInstallModel} from './apps-live.ts';
-import {directAppBackendReady,nativeAppBackendReady,appResourceAssociated} from '../core/owned-app.ts';
+import {directAppBackendReady,nativeAppBackendReady,waitNativeAppBackend,appResourceAssociated} from '../core/owned-app.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {ResourceJournal,newRunId} from '../core/journal.ts';
@@ -9,9 +9,36 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {LiveFoundation} from '../core/live-foundation.ts';
+import {advanceNativeBinding,nativeDefaultsOnly} from '../core/native-defaults.ts';
 import type {LocalModelFixture} from '../core/config.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('APP-02 native initialization permits only exact declared defaults while preserving existing intent',annotation,()=>{
+  const schema={type:'object',properties:{image:{type:'object',properties:{digest:{type:'string'}}},
+    autoUpdate:{type:'object',properties:{enabled:{type:'boolean',default:false},checkInterval:{type:'string',default:'24h'}}},
+    runtimeDeps:{type:'object',properties:{python:{type:'boolean'}}}}};
+  const before={image:{digest:'sha256:owned'}},initialized={...before,autoUpdate:{enabled:false,checkInterval:'24h'},runtimeDeps:{}};
+  expect(nativeDefaultsOnly(before,initialized,schema)).toBe(true);
+  expect(nativeDefaultsOnly(before,{...initialized,image:{digest:'sha256:foreign'}},schema)).toBe(false);
+  expect(nativeDefaultsOnly(before,{...initialized,autoUpdate:{enabled:true,checkInterval:'24h'}},schema)).toBe(false);
+  expect(nativeDefaultsOnly(before,{...initialized,runtimeDeps:{python:true}},schema)).toBe(false);
+  expect(nativeDefaultsOnly(before,{...initialized,unknown:false},schema)).toBe(false);
+  expect(nativeDefaultsOnly(before,{autoUpdate:{enabled:false}},schema)).toBe(false);
+  expect(nativeDefaultsOnly({ports:[1,2]},{ports:[2,1]},{type:'object',properties:{ports:{type:'array'}}})).toBe(false);
+  expect(nativeDefaultsOnly({flag:false},{},{type:'object',properties:{flag:{type:'boolean',default:false}}})).toBe(false);
+});
+test('APP-02 native initialization pins UID immediately and freezes the first observed defaulted generation',annotation,()=>{
+  const schema={type:'object',properties:{image:{type:'string'},autoUpdate:{type:'object',properties:{enabled:{type:'boolean',default:false}}}}};
+  const initial={uid:'owned',generation:1,spec:{image:'pinned'},observedGeneration:0},first=advanceNativeBinding(undefined,initial,schema)!;
+  const next={uid:'owned',generation:2,spec:{image:'pinned',autoUpdate:{enabled:false}},observedGeneration:1};
+  expect(advanceNativeBinding(first,next,schema)).toBeUndefined();
+  const stable=advanceNativeBinding(first,{...next,observedGeneration:2},schema)!;
+  expect(stable).toMatchObject({uid:'owned',generation:2,initialized:true});
+  expect(()=>advanceNativeBinding(first,{...next,uid:'foreign',observedGeneration:2},schema)).toThrow('[OWNERSHIP]');
+  expect(()=>advanceNativeBinding(first,{...next,spec:{image:'foreign'},observedGeneration:2},schema)).toThrow('[CONFLICT]');
+  expect(()=>advanceNativeBinding(first,{...next,spec:{...next.spec,autoUpdate:{enabled:true}},observedGeneration:2},schema)).toThrow('[CONFLICT]');
+  expect(()=>advanceNativeBinding(stable,{...next,generation:3,observedGeneration:3},schema)).toThrow('[OWNERSHIP]');
+});
 test('APP-02 installation prerequisite uses the real journal prefix without exceeding native KubeAI name admission',annotation,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'magicstick-service-name-'));
   try {
@@ -75,6 +102,23 @@ function nativeFixture(type:'openclaw'|'paperclip',deployment=false) {
       spec:{containers:[{name:type,image}]},status:{phase:'Running',conditions:[{type:'Ready',status:'True'}],containerStatuses:[{name:type,ready:true,imageID:'registry.fixture/native@sha256:'+'b'.repeat(64)}]}};
   return {name,namespace,native,service,workload,replicas,pod,owned:{uid,generation:2}};
 }
+test('APP-02 native readiness pins the exact CRD schema through the live observer',annotation,async()=>{
+  const f=nativeFixture('openclaw'), resource='openclawinstances.openclaw.rocks', schema={type:'object',properties:{image:{type:'object'}}};
+  const crd:KubeObject={metadata:{name:resource,uid:'crd-uid',generation:1},spec:{group:'openclaw.rocks',names:{kind:'OpenClawInstance'},
+    versions:[{name:'v1alpha1',served:true,schema:{openAPIV3Schema:{properties:{spec:schema}}}}]}};
+  const objects:Record<string,KubeObject[]>={[resource]:[f.native],services:[f.service],'statefulsets.apps':[f.workload],
+    'deployments.apps':[],'replicasets.apps':f.replicas,pods:[f.pod]};
+  let reads=0,drift=false;
+  const live={guard:async()=>{},api:{modules:async()=>({catalogJson:{applications:{openclaw:{requiredCrds:[resource]}}}})},
+    observer:{get:async(kind:string,namespace:undefined,name:string)=>{
+      expect(kind).toBe('customresourcedefinitions.apiextensions.k8s.io');expect(namespace).toBeUndefined();expect(name).toBe(resource);
+      reads++;return drift&&reads===2?{...crd,metadata:{...crd.metadata,uid:'replacement'}}:crd;
+    },list:async(kind:string,namespace:string)=>{expect(namespace).toBe(f.namespace);return objects[kind]??[];}}} as unknown as LiveFoundation;
+  await expect(waitNativeAppBackend(live,'openclaw',f.name,f.namespace,new Map())).resolves.toBe(true);
+  expect(reads).toBe(2);
+  reads=0;drift=true;
+  await expect(waitNativeAppBackend(live,'openclaw',f.name,f.namespace,new Map())).rejects.toThrow('[CONFLICT]');
+});
 for(const type of ['openclaw','paperclip'] as const)test('APP-02 '+type+' installation requires its current native CR and exact owned runtime, not Helm acceptance',annotation,()=>{
   const f=nativeFixture(type),ready=(native=f.native,service=f.service,workload=f.workload,pods=[f.pod])=>
     nativeAppBackendReady(type,f.name,f.namespace,native,service,workload,f.replicas,pods,f.owned);

@@ -158,6 +158,7 @@ try {
   if(selectedDiagnostic) {
     progress.consume({version:1,event:'phase-start',phase:selectedDiagnostic.phase});await save();
     const diagnostic=await runDiagnosticSelection({selection:selectedDiagnostic.id,phases,output,uid,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,
+      serviceProfile:environment.REGRESSION_REMAINING_PROFILE,
       execute:(args,extra)=>execute(process.execPath,[fileURLToPath(new URL('./launch.mjs',import.meta.url)),...args],{...environment,...extra}),
       cancelled:()=>interrupted});
     ({directory,summary,campaign,exit}=diagnostic);
@@ -192,7 +193,8 @@ try {
       reason:interrupted?'CANCELLED':error instanceof HarnessError?error.code:'UNEXPECTED',
       ...(error instanceof HarnessError&&error.stage?{stage:error.stage}:{}),
       ...(recovery?{executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:snapshot.outcome}:{})}],[id],process.env.REGRESSION_SOURCE_REVISION,recovery?'recover':selectedDiagnostic?diagnosticMode(selectedDiagnostic):'all',
-      recovery?recoveryDiagnostic:undefined,{cleanup:snapshot.cleanup,recoveryFenceActive:snapshot.cleanup.state!=='verified',recoveryAttempts:[]});
+      recovery?recoveryDiagnostic:undefined,{cleanup:snapshot.cleanup,recoveryFenceActive:snapshot.cleanup.state!=='verified',recoveryAttempts:[],
+        serviceProfile:environment.REGRESSION_REMAINING_PROFILE});
     // The displayed result must match the exported infrastructure/cancellation
     // report, not retain an earlier green campaign after export failed.
     snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});
