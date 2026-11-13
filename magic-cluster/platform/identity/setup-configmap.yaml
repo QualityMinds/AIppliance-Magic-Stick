@@ -21,6 +21,7 @@ data:
     import urllib.error
     import urllib.parse
     import urllib.request
+    from concurrent.futures import Future
     from http.cookies import SimpleCookie
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -37,6 +38,11 @@ data:
     SETUP_PATH = f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/{NAMESPACE}/appliancesetups/local"
     SECRETS_PATH = f"/api/v1/namespaces/{NAMESPACE}/secrets"
     SETTINGS_PATH = f"/api/v1/namespaces/{SETTINGS_NAMESPACE}/configmaps/ai-appliance-settings"
+    CALLBACKS_PATH = f"/api/v1/namespaces/{NAMESPACE}/configmaps/magicstick-oidc-callbacks"
+    CALLBACKS_STATUS_PATH = f"/api/v1/namespaces/{NAMESPACE}/configmaps/magicstick-oidc-callbacks-status"
+    CALLBACK_GATE_CA_PATH = f"/api/v1/namespaces/{NAMESPACE}/configmaps/magicstick-callback-gate-ca"
+    CALLBACK_GATE_CA_FILE = "/var/run/magicstick-callback-gate-ca/ca.crt"
+    KEYCLOAK_ENDPOINTS_PATH = f"/api/v1/namespaces/{NAMESPACE}/endpoints/keycloak"
     LOCAL_ROUTE_PATH = f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/httproutes/magicstick-setup-local"
     DASHBOARD_ROUTE_PATH = f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/httproutes/dashboard-local"
     DASHBOARD_POLICY_PATH = f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{NAMESPACE}/securitypolicies/dashboard-local-oidc"
@@ -61,6 +67,9 @@ data:
     RECOVERY_MIGRATIONS_COMPLETE = set()
     COMPLETION_IN_PROGRESS = threading.Event()
     SETUP_LOCK = threading.RLock()
+    CALLBACK_READINESS_LIMIT = threading.BoundedSemaphore(64)
+    CALLBACK_READINESS_LOCK = threading.Lock()
+    CALLBACK_READINESS_INFLIGHT = {}
     INCOMPLETE_PHASES = {"Pending", "Claimed", "Applying", "Failed"}
     DRAFT_FIELDS = {"applianceName", "mdnsDomain", "timezone", "language", "publicDomain",
                     "username", "displayName", "email"}
@@ -367,6 +376,333 @@ data:
             "grant_type": "client_credentials", "client_id": KEYCLOAK_CLIENT_ID, "client_secret": KEYCLOAK_CLIENT_SECRET,
         })
         return payload["access_token"]
+
+
+    def callback_dns_part(value, fallback):
+        result = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+        return result or fallback
+
+
+    def callback_domains():
+        settings = (get_resource(SETTINGS_PATH) or {}).get("data") or {}
+        local = settings.get("AI_APPLIANCE_MDNS_DOMAIN")
+        if not local:
+            name = settings.get("AI_APPLIANCE_MDNS_NAME") or settings.get("AI_APPLIANCE_DASHBOARD_MDNS_NAME")
+            local = (str(name).strip().strip(".") + ".local") if name else "magicstick.local"
+        def normalize(value):
+            return ".".join(callback_dns_part(part, "") for part in str(value).strip().strip(".").split(".") if callback_dns_part(part, ""))
+        local = normalize(local)
+        local = local if local.endswith(".local") else "magicstick.local"
+        public = normalize(settings.get("AI_APPLIANCE_DOMAIN") or "magicstick.example.com")
+        public = public if public and not public.endswith(".local") else "magicstick.example.com"
+        dashboard = normalize(settings.get("AI_APPLIANCE_DASHBOARD_HOST") or public)
+        dashboard = dashboard if dashboard and not dashboard.endswith(".local") else public
+        for domain in (local, public, dashboard):
+            if len(domain) > 253 or not all(DNS_LABEL.fullmatch(label) for label in domain.split(".")):
+                raise ValueError("invalid callback domain")
+        if not local.endswith(".local") or public.endswith(".local"):
+            raise ValueError("invalid callback domain scope")
+        return local, public, dashboard
+
+
+    def callback_registration(raw):
+        if not isinstance(raw, str) or len(raw.encode("utf-8")) > 131072:
+            raise ValueError("invalid callback registry")
+        data = json.loads(raw)
+        if not isinstance(data, dict) or set(data) != {"version", "entries"} or data["version"] != 1 or not isinstance(data["entries"], list) or len(data["entries"]) > 256:
+            raise ValueError("invalid callback registry")
+        local, public, dashboard = callback_domains()
+        redirects = {f"https://{local}/oauth2/callback", f"https://{dashboard}/oauth2/callback", f"https://auth-pilot.{local}/oauth2/callback"}
+        origins = {f"https://{local}", f"https://{dashboard}", f"https://auth-pilot.{local}"}
+        for service, route in (("anythingllm", "anything-llm"), ("litellm", "litellm"), ("kubeopencode", "kubeopencode")):
+            for scope, domain in (("local", local), ("public", public)):
+                host = f"{service}.{domain}"
+                redirects.add(f"https://{host}/oauth2/callback/static-{route}-{scope}")
+                origins.add(f"https://{host}")
+        seen = set()
+        for entry in data["entries"]:
+            if not isinstance(entry, dict) or set(entry) != {"uid", "name", "application", "local", "public"}:
+                raise ValueError("invalid callback entry")
+            name, uid, application = entry["name"], entry["uid"], entry["application"]
+            if not all(isinstance(value, str) and DNS_LABEL.fullmatch(value) for value in (name, application)) or not isinstance(uid, str) or not INSTALLATION_ID.fullmatch(uid) or (name, uid) in seen:
+                raise ValueError("invalid callback identity")
+            seen.add((name, uid))
+            item = get_resource(f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/appinstances/{name}") or {}
+            meta, spec = item.get("metadata") or {}, item.get("spec") or {}
+            access = spec.get("access") or {}
+            if meta.get("uid") != uid or meta.get("deletionTimestamp") or spec.get("application") != application or spec.get("enabled", True) is False or (access.get("authentication") or "sso") != "sso":
+                raise ValueError("callback owner changed")
+            short = str((spec.get("values") or {}).get("name") or name or "default").strip()
+            if short.startswith(application + "-"):
+                short = short[len(application) + 1:]
+            prefix = callback_dns_part(short, "default") + "." + callback_dns_part(application, "instance")
+            for scope, domain in (("local", local), ("public", public)):
+                suffix = scope
+                route = callback_dns_part(name, "instance")[:62-len(suffix)].rstrip("-") + "-" + suffix
+                expected = f"https://{prefix}.{domain}/oauth2/callback/{route}"
+                allowed = scope == "local" or (access.get("exposure") or "localAndPublic") == "localAndPublic"
+                if entry[scope] != (expected if allowed else ""):
+                    raise ValueError("callback owner URL mismatch")
+                if allowed:
+                    redirects.add(expected)
+                    origins.add(f"https://{prefix}.{domain}")
+        redirects, origins = sorted(redirects), sorted(origins)
+        # Keep the durable snapshot within the strict startup helper's bounded
+        # JSON projection parser, including its wrapper field and whitespace.
+        if any(len(json.dumps(items, separators=(",", ":")).encode("utf-8")) > 8100
+               for items in (redirects, origins)):
+            raise ValueError("callback registry exceeds bootstrap limit")
+        return redirects, origins, "##".join(origin + "/" for origin in origins)
+
+
+    def keycloak_endpoint_uid():
+        endpoints = get_resource(KEYCLOAK_ENDPOINTS_PATH) or {}
+        subsets = endpoints.get("subsets") or []
+        addresses = [item for subset in subsets for item in (subset.get("addresses") or [])]
+        if len(addresses) != 1 or any(subset.get("notReadyAddresses") for subset in subsets):
+            raise ValueError("identity endpoint unavailable or changing")
+        target = addresses[0].get("targetRef") or {}
+        uid = str(target.get("uid") or "")
+        if target.get("kind") != "Pod" or not INSTALLATION_ID.fullmatch(uid):
+            raise ValueError("identity endpoint owner unknown")
+        return uid
+
+
+    def sync_oidc_callbacks():
+        resource = get_resource(CALLBACKS_PATH)
+        status = get_resource(CALLBACKS_STATUS_PATH)
+        if not resource or not status:
+            return
+        raw = (resource.get("data") or {}).get("callbacks.json")
+        endpoint_uid = keycloak_endpoint_uid()
+        domains = json.dumps(callback_domains(), separators=(",", ":"))
+        redirects, origins, logout = callback_registration(raw)
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        token = keycloak_token()
+        path = "/admin/realms/magicstick/clients"
+        clients, _ = keycloak_request("GET", path + "?" + urllib.parse.urlencode({"clientId": "magicstick-human-gateway-local"}), token=token)
+        if not isinstance(clients, list) or len(clients) != 1 or clients[0].get("clientId") != "magicstick-human-gateway-local" or not clients[0].get("id"):
+            raise ValueError("callback client identity mismatch")
+        client_id = clients[0]["id"]
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", client_id):
+            raise ValueError("callback client identity mismatch")
+        client, _ = keycloak_request("GET", path + "/" + client_id, token=token)
+        if client.get("id") != client_id or client.get("clientId") != "magicstick-human-gateway-local":
+            raise ValueError("callback client identity mismatch")
+        if sorted(set(client.get("redirectUris") or [])) != redirects or sorted(set(client.get("webOrigins") or [])) != origins or (client.get("attributes") or {}).get("post.logout.redirect.uris") != logout:
+            attributes = client.get("attributes") or {}
+            # Keycloak's client update clears previous rotation metadata even
+            # without a secret in the PUT. Do not change an active rotation.
+            rotation_fields = ("client.secret.expiration.time", "client.secret.remaining.expiration.time",
+                               "client.secret.rotated", "client.secret.rotated.creation.time",
+                               "client.secret.rotated.expiration.time")
+            if any(attributes.get(field) for field in rotation_fields):
+                raise ValueError("client secret rotation requires review")
+            kube_request("PATCH", CALLBACKS_STATUS_PATH, {"data": {"pending-registry": raw, "pending-sha256": digest}}, "application/merge-patch+json")
+            pending = (get_resource(CALLBACKS_STATUS_PATH) or {}).get("data") or {}
+            if pending.get("pending-registry") != raw or pending.get("pending-sha256") != digest:
+                raise ValueError("callback pending barrier not verified")
+            # Never send the client secret or unrelated client fields back to
+            # Keycloak: its admin event records the request representation.
+            keycloak_request("PUT", path + "/" + client_id, token=token, body={
+                "id": client_id, "clientId": "magicstick-human-gateway-local",
+                "redirectUris": redirects, "webOrigins": origins,
+                "attributes": {"post.logout.redirect.uris": logout},
+            })
+        observed, _ = keycloak_request("GET", path + "/" + client_id, token=token)
+        if observed.get("id") != client_id or observed.get("clientId") != "magicstick-human-gateway-local" or sorted(set(observed.get("redirectUris") or [])) != redirects or sorted(set(observed.get("webOrigins") or [])) != origins or (observed.get("attributes") or {}).get("post.logout.redirect.uris") != logout:
+            raise ValueError("callback verification failed")
+        # Verify the input was not replaced while Keycloak was reconciled.
+        if (((get_resource(CALLBACKS_PATH) or {}).get("data") or {}).get("callbacks.json") != raw
+                or keycloak_endpoint_uid() != endpoint_uid
+                or json.dumps(callback_domains(), separators=(",", ":")) != domains):
+            raise ValueError("callback registry changed")
+        kube_request("PATCH", CALLBACKS_STATUS_PATH, {"data": {
+            "version": "1", "desired-sha256": digest, "verified-sha256": digest,
+            "verified-at": now(), "client-id": "magicstick-human-gateway-local",
+            "verified-registry": raw, "domains.json": domains, "keycloak-pod-uid": endpoint_uid,
+            "pending-registry": "", "pending-sha256": "",
+            "redirects.json": json.dumps(redirects, separators=(",", ":")),
+            "origins.json": json.dumps(origins, separators=(",", ":")), "logout": logout,
+        }}, "application/merge-patch+json")
+
+
+    def callback_static_readiness(host):
+        status = (get_resource(CALLBACKS_STATUS_PATH) or {}).get("data") or {}
+        raw = status.get("verified-registry", "")
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        checked = datetime.datetime.fromisoformat(str(status.get("verified-at", "")).replace("Z", "+00:00"))
+        age = (datetime.datetime.now(datetime.timezone.utc) - checked).total_seconds()
+        domains = json.dumps(callback_domains(), separators=(",", ":"))
+        uid = keycloak_endpoint_uid()
+        if not (status.get("version") == "1" and status.get("client-id") == "magicstick-human-gateway-local"
+                and status.get("desired-sha256") == digest == status.get("verified-sha256")
+                and status.get("domains.json") == domains and status.get("keycloak-pod-uid") == uid and 0 <= age <= 30):
+            return False
+        redirects, origins = json.loads(status["redirects.json"]), json.loads(status["origins.json"])
+        if not isinstance(redirects, list) or not isinstance(origins, list):
+            return False
+        static_redirects, static_origins, _ = callback_registration('{"entries":[],"version":1}')
+        if not set(static_redirects).issubset(redirects) or not set(static_origins).issubset(origins):
+            return False
+        expected_host = "https://" + host
+        host_redirects = {item for item in static_redirects if urllib.parse.urlsplit(item).netloc == host}
+        allowed_redirects, allowed_origins = set(redirects), set(origins)
+        allowed_logouts = {status.get("logout", "")}
+        pending_raw = status.get("pending-registry", "")
+        pending_hash = status.get("pending-sha256", "")
+        if pending_raw or pending_hash:
+            if hashlib.sha256(pending_raw.encode("utf-8")).hexdigest() != pending_hash:
+                return False
+            pending_document = json.loads(pending_raw)
+            if pending_document.get("version") != 1 or not isinstance(pending_document.get("entries"), list):
+                return False
+            pending_redirects, pending_origins = list(static_redirects), list(static_origins)
+            for entry in pending_document["entries"]:
+                for field in ("local", "public"):
+                    value = entry.get(field, "")
+                    if not value:
+                        continue
+                    url = urllib.parse.urlsplit(value)
+                    if url.scheme != "https" or not url.netloc or url.query or url.fragment or "*" in value or not re.fullmatch(r"/oauth2/callback/[a-z0-9-]+", url.path):
+                        return False
+                    pending_redirects.append(value)
+                    pending_origins.append("https://" + url.netloc)
+            pending_logout = "##".join(origin + "/" for origin in sorted(set(pending_origins)))
+            allowed_redirects.update(pending_redirects)
+            allowed_origins.update(pending_origins)
+            allowed_logouts.add(pending_logout)
+        if not host_redirects:
+            # Dynamic hosts must still belong to the same currently enabled
+            # AppInstance in verified, desired and (when present) pending.
+            verified = json.loads(raw).get("entries", [])
+            desired_raw = ((get_resource(CALLBACKS_PATH) or {}).get("data") or {}).get("callbacks.json", "")
+            desired = json.loads(desired_raw).get("entries", [])
+            matches = [entry for entry in verified if any(
+                urllib.parse.urlsplit(entry.get(field, "")).netloc == host for field in ("local", "public"))]
+            if len(matches) != 1 or matches[0] not in desired:
+                return False
+            if pending_raw and matches[0] not in pending_document["entries"]:
+                return False
+            verified_redirects, _, _ = callback_registration(json.dumps({"version": 1, "entries": matches}))
+            host_redirects = {item for item in verified_redirects if urllib.parse.urlsplit(item).netloc == host}
+        if not host_redirects:
+            return False
+        token = keycloak_token()
+        path = "/admin/realms/magicstick/clients"
+        clients, _ = keycloak_request("GET", path + "?" + urllib.parse.urlencode({"clientId": "magicstick-human-gateway-local"}), token=token)
+        if not isinstance(clients, list) or len(clients) != 1 or clients[0].get("clientId") != "magicstick-human-gateway-local":
+            return False
+        client_id = str(clients[0].get("id") or "")
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", client_id):
+            return False
+        client, _ = keycloak_request("GET", path + "/" + client_id, token=token)
+        actual_redirects = set(client.get("redirectUris") or [])
+        actual_origins = set(client.get("webOrigins") or [])
+        actual_logout = (client.get("attributes") or {}).get("post.logout.redirect.uris") or ""
+        return (client.get("id") == client_id and client.get("clientId") == "magicstick-human-gateway-local"
+                and host_redirects.issubset(actual_redirects) and actual_redirects.issubset(allowed_redirects)
+                and expected_host in actual_origins and actual_origins.issubset(allowed_origins)
+                and actual_logout in allowed_logouts and expected_host + "/" in actual_logout.split("##")
+                and keycloak_endpoint_uid() == uid
+                and json.dumps(callback_domains(), separators=(",", ":")) == domains
+                and ((get_resource(CALLBACKS_STATUS_PATH) or {}).get("data") or {}) == status)
+
+
+    def gateway_callback_readiness(host):
+        try:
+            return gateway_callback_observation(host)
+        except Exception:
+            return False
+
+
+    def gateway_callback_observation(host):
+        # The Gateway-wide fallback also sees native JWT/API-key and anonymous
+        # instance routes. Their own SecurityPolicy remains mandatory: the
+        # independent Gateway default-deny rejects a missing route policy.
+        # Never infer a positive callback decision from a failed policy read.
+        def observe():
+            route_list = get_resource('/apis/gateway.networking.k8s.io/v1/namespaces/' + NAMESPACE + '/httproutes')
+            policy_list = get_resource('/apis/gateway.envoyproxy.io/v1alpha1/namespaces/' + NAMESPACE + '/securitypolicies')
+            for value in (route_list, policy_list):
+                if (not isinstance(value, dict) or not isinstance(value.get('items'), list)
+                        or (value.get('metadata') or {}).get('continue')):
+                    raise ValueError('gateway observation incomplete')
+            routes = []
+            for route in route_list['items']:
+                spec = route.get('spec') or {}
+                parents = spec.get('parentRefs') or []
+                if not any(ref.get('name') == 'identity-pilot' and ref.get('namespace', NAMESPACE) == NAMESPACE
+                           and ref.get('sectionName', 'https') == 'https' for ref in parents):
+                    continue
+                hosts = spec.get('hostnames') or ['*']
+                if any(value.lower() == host or value == '*' or
+                       (value.startswith('*.') and host.endswith(value[1:]) and host != value[2:]) for value in hosts):
+                    routes.append(route)
+            names = {route['metadata']['name'] for route in routes}
+            policies = []
+            for policy in policy_list['items']:
+                spec = policy.get('spec') or {}
+                if spec.get('targetSelectors'):
+                    raise ValueError('unverified gateway policy selector')
+                if any(ref.get('kind') == 'HTTPRoute' and ref.get('group') == 'gateway.networking.k8s.io'
+                       and ref.get('namespace', NAMESPACE) == NAMESPACE and ref.get('name') in names
+                       for ref in spec.get('targetRefs') or []):
+                    policies.append(policy)
+            projection = []
+            for kind, items in (('route', routes), ('policy', policies)):
+                for item in items:
+                    meta = item.get('metadata') or {}
+                    if not meta.get('uid') or not meta.get('generation') or meta.get('deletionTimestamp'):
+                        raise ValueError('gateway identity is unavailable')
+                    projection.append([kind, meta['name'], meta['uid'], meta['generation'], item.get('spec')])
+            return json.dumps(sorted(projection), sort_keys=True), policies, bool(routes)
+        before, policies, present = observe()
+        if not present:
+            return False
+        redirects = [policy['spec']['oidc'].get('redirectURL', '') for policy in policies if policy.get('spec', {}).get('oidc')]
+        if redirects:
+            if any(urllib.parse.urlsplit(url).scheme != 'https' or urllib.parse.urlsplit(url).netloc != host for url in redirects):
+                return False  # Renamed route with a stale callback must not start OAuth.
+            if not callback_readiness_singleflight(host):
+                return False
+            status = (get_resource(CALLBACKS_STATUS_PATH) or {}).get('data') or {}
+            registered = json.loads(status.get('redirects.json', 'null'))
+            if not isinstance(registered, list) or not set(redirects).issubset(registered):
+                return False
+        after, _, _ = observe()
+        return before == after
+
+
+    def callback_readiness_singleflight(host):
+        # Coalesce only checks that overlap in time; never cache a completed
+        # positive decision across later requests.
+        if (not isinstance(host, str) or len(host) > 253
+                or not all(DNS_LABEL.fullmatch(label) for label in host.split("."))):
+            return False
+        with CALLBACK_READINESS_LOCK:
+            future = CALLBACK_READINESS_INFLIGHT.get(host)
+            owner = future is None
+            if owner:
+                future = Future()
+                CALLBACK_READINESS_INFLIGHT[host] = future
+        if not owner:
+            try:
+                return bool(future.result(timeout=6))
+            except Exception:
+                return False
+        acquired = CALLBACK_READINESS_LIMIT.acquire(blocking=False)
+        try:
+            result = bool(acquired and callback_static_readiness(host))
+        except Exception:
+            result = False
+        finally:
+            if acquired:
+                CALLBACK_READINESS_LIMIT.release()
+        with CALLBACK_READINESS_LOCK:
+            future.set_result(result)
+            CALLBACK_READINESS_INFLIGHT.pop(host, None)
+        return result
 
 
     def keycloak_roles(token):
@@ -710,8 +1046,31 @@ data:
             apply_resource(collection, item, resource)
 
 
+    def sync_callback_gate_ca():
+        # cert-manager's CA injector does not target ConfigMaps. Copy only the
+        # projected public CA, never the serving certificate's private key.
+        with open(CALLBACK_GATE_CA_FILE, encoding="ascii") as ca_file:
+            certificate = ca_file.read()
+        ssl.create_default_context(cadata=certificate)  # reject missing/invalid PEM
+        current = get_resource(CALLBACK_GATE_CA_PATH)
+        if current is None:
+            raise RuntimeError("callback gate CA ConfigMap not yet available")
+        if (current.get("data") or {}).get("ca.crt") != certificate:
+            kube_request("PATCH", CALLBACK_GATE_CA_PATH,
+                         {"metadata": {"resourceVersion": current["metadata"]["resourceVersion"]},
+                          "data": {"ca.crt": certificate}}, "application/merge-patch+json")
+
+
     def reconcile_loop():
         while True:
+            try:
+                sync_callback_gate_ca()
+            except Exception as error:
+                print("callback gate CA reconciliation failed:", type(error).__name__, flush=True)
+            try:
+                sync_oidc_callbacks()
+            except Exception as error:
+                print("callback reconciliation failed:", type(error).__name__, flush=True)
             try:
                 reconcile_once()
             except Exception as error:
@@ -976,7 +1335,13 @@ data:
         def do_GET(self):
             try:
                 path = self.path.split("?", 1)[0]
-                if path in {"/", "/setup", "/setup/"}:
+                if path == "/internal/callback-readiness":
+                    host = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("host", [""])
+                    gateway = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get('gateway') == ['1']
+                    check = gateway_callback_readiness if gateway else callback_readiness_singleflight
+                    available = len(host) == 1 and bool(re.fullmatch(r'[a-z0-9.-]{1,253}', host[0])) and check(host[0])
+                    self.send_bytes(204 if available else 503, b"", "text/plain")
+                elif path in {"/", "/setup", "/setup/"}:
                     self.send_bytes(200, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
                 elif path == "/setup/style.css":
                     self.send_bytes(200, STYLE_CSS.encode("utf-8"), "text/css; charset=utf-8")
@@ -1097,6 +1462,10 @@ data:
                 COMPLETION_IN_PROGRESS.clear()
 
 
+    class SetupHttpServer(ThreadingHTTPServer):
+        request_queue_size = 128
+
+
     if __name__ == "__main__":
         threading.Thread(target=reconcile_loop, daemon=True).start()
-        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+        SetupHttpServer(("0.0.0.0", PORT), Handler).serve_forever()

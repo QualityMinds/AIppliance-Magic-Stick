@@ -83,6 +83,11 @@ of viewer, operator, or administrator. An unauthenticated route is available
 only through the explicit `Public without login` choice. Exposure can be local
 only or both local and public; hostnames remain derived and are not user-entered.
 
+SSO uses host-only token cookies and a callback on the instance's own hostname.
+Sibling services do not receive these cookies. Explicitly public instances keep
+their UID-bound instance guard; removing a route's policy does not silently make
+it public because the shared Gateway denies unprotected routes by default.
+
 The operator, not the instance chart or dashboard, creates `HTTPRoute`,
 `SecurityPolicy`, and `ReferenceGrant` resources. Both local and public links
 are reported in `AppInstance.status` and displayed on the instance card. The

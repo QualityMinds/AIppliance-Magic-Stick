@@ -4,6 +4,7 @@ resources:
   - configmap.yaml
   - deployment.yaml
   - gateway.yaml
+  - callback-gate-policy.yaml
   - litellm-masterkey-secret.yaml
   - litellm-postgresql-secret.yaml
   - litellm-azure-secret.yaml

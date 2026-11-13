@@ -4,3 +4,4 @@ resources:
   - namespace.yaml
   - oci-repository.yaml
   - helmrelease.yaml
+  - callback-activation.yaml

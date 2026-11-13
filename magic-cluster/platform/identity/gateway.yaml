@@ -6,6 +6,11 @@ metadata:
 spec:
   # Authenticate browser sessions before checking per-instance authorization.
   filterOrder:
+    # Lua still precedes OAuth on routes where no ExtProc is configured.
+    - name: envoy.filters.http.lua
+      before: envoy.filters.http.oauth2
+    - name: envoy.filters.http.ext_proc
+      before: envoy.filters.http.oauth2
     - name: envoy.filters.http.ext_authz
       after: envoy.filters.http.jwt_authn
   provider:

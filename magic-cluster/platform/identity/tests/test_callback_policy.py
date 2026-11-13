@@ -19,9 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "keycloak-callback-policy.sh"
 REDIRECTS = ["https://auth-pilot.renamed.example.local/oauth2/callback",
              "https://renamed.example.local/oauth2/callback",
-             "https://renamed.example.local/oauth2/callback/*",
              "https://dashboard.example.com/oauth2/callback",
-             "https://dashboard.example.com/oauth2/callback/*"]
+             ]
 ORIGINS = ["https://auth-pilot.renamed.example.local", "https://renamed.example.local",
            "https://dashboard.example.com"]
 LOGOUT = "https://renamed.example.local/##https://dashboard.example.com/"
@@ -82,6 +81,8 @@ elif operation=="get" and resource=="clients/"+client["id"]:
         if failure=="extra-origin" and field=="webOrigins": value=value+["https://unrelated.example.com"]
         if state.get("rawField")==field: print(state["rawProjection"])
         else: print(json.dumps({field:value},indent=2))
+    elif field=="attributes":
+        print(json.dumps({"attributes": client.get("attributes", {})}))
     else: fail()
 elif operation=="update" and resource=="clients/"+client["id"]:
     if failure in ("write","permission","auth"):
@@ -136,7 +137,7 @@ class CallbackPolicyTests(unittest.TestCase):
         self.assertEqual(state["client"]["attributes"], {"unrelated": "keep", "post.logout.redirect.uris": LOGOUT})
         for field in ("id", "clientId", "enabled", "secret"):
             self.assertEqual(state["client"][field], self.initial[field])
-        self.assertEqual([c["operation"] for c in state["calls"]], ["get", "update", "get", "get", "get"])
+        self.assertEqual([c["operation"] for c in state["calls"]], ["get", "get", "get", "get", "update", "get", "get", "get", "get"])
 
     def test_repeat_is_idempotent_and_does_not_create_or_grant_anything(self):
         result, first = self.invoke()
@@ -145,6 +146,27 @@ class CallbackPolicyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(first["client"], second["client"])
         self.assertTrue(all(c["operation"] in {"get", "update"} for c in second["calls"]))
+
+    def test_secret_rotation_metadata_prevents_any_client_write(self):
+        state = {"client": copy.deepcopy(self.initial)}
+        state["client"]["attributes"]["client.secret.rotated"] = "synthetic-private"
+        self.state_path.write_text(json.dumps(state))
+        result, state = self.invoke(reset=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ROTATION", result.stderr)
+        self.assertNotIn("synthetic-private", result.stdout + result.stderr)
+        self.assertNotIn("updates", state)
+
+    def test_correct_callbacks_and_rotation_need_no_write(self):
+        state = {"client": copy.deepcopy(self.initial)}
+        state["client"].update(redirectUris=REDIRECTS, webOrigins=ORIGINS)
+        state["client"]["attributes"].update({"post.logout.redirect.uris": LOGOUT,
+                                                "client.secret.rotated": "synthetic-private"})
+        self.state_path.write_text(json.dumps(state))
+        result, state = self.invoke(reset=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("updates", state)
+        self.assertNotIn("synthetic-private", result.stdout + result.stderr)
 
     def test_equal_local_public_hosts_accept_keycloaks_set_deduplication(self):
         result, _ = self.invoke(redirects=REDIRECTS + [REDIRECTS[0]], origins=ORIGINS + [ORIGINS[0]])
@@ -202,8 +224,10 @@ class CallbackPolicyTests(unittest.TestCase):
         session.write_text("#!/bin/sh\nexit 0\n")
         script = script.replace("/opt/magicstick/keycloak-session-policy.sh", str(session))
         script = script.replace("/tmp/kcadm-client-sync.config", str(self.directory / "sync.config"))
+        script = script.replace("/opt/magicstick-callback-status", str(self.directory / "callback-status"))
         script = script.replace("${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", "renamed.example.local")
         script = script.replace("${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}", "dashboard.example.com")
+        script = script.replace("${AI_APPLIANCE_DOMAIN:=magicstick.example.com}", "example.com")
         helpers = ("sync_user_admin_client", "sync_federation_admin_client", "sync_kubernetes_client_and_groups", "sync_dashboard_cli_client", "sync_console_client")
         stubs = "\n".join(name + "() { return " + ("1" if name == failed_helper else "0") + "; }" for name in helpers)
         script = script.replace("attempt=0", stubs + "\nattempt=0", 1)
@@ -243,9 +267,34 @@ class CallbackPolicyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("did not complete", result.stderr)
         state = json.loads(self.state_path.read_text())
-        self.assertEqual(len(state["updates"]), 1, "Elapsed budget must prevent the next otherwise allowed retry")
+        self.assertEqual(sum(call["resource"] == "clients" for call in state["calls"]), 1,
+                         "Elapsed budget must prevent the next otherwise allowed retry")
 
-    def test_whole_hook_rejects_failed_or_unverified_callback_sync(self):
+    def test_whole_hook_never_overwrites_runtime_callbacks(self):
+        existing = copy.deepcopy(self.initial)
+        existing["redirectUris"] = REDIRECTS + ["https://demo.openclaw.renamed.example.local/oauth2/callback/demo-local"]
+        existing["webOrigins"] = ORIGINS + ["https://demo.openclaw.renamed.example.local"]
+        existing["attributes"]["post.logout.redirect.uris"] = LOGOUT
+        status = self.directory / "callback-status"
+        status.mkdir()
+        for name, value in {"desired-sha256": "verified", "verified-sha256": "verified",
+                            "client-id": "magicstick-human-gateway-local",
+                            "redirects.json": json.dumps(existing["redirectUris"]),
+                            "origins.json": json.dumps(existing["webOrigins"]), "logout": LOGOUT}.items():
+            (status / name).write_text(value)
+        self.state_path.write_text(json.dumps({"client": existing}))
+        result = subprocess.run(["/bin/sh", "-ec", self.hook()],
+                                env={**self.env, "MAGICSTICK_SETUP_CLIENT_SECRET": "CHANGEME"},
+                                text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.state_path.read_text())
+        self.assertEqual(set(state["client"]["redirectUris"]), set(existing["redirectUris"]))
+        self.assertEqual(set(state["client"]["webOrigins"]), set(existing["webOrigins"]))
+        self.assertEqual(state["client"]["attributes"]["unrelated"], "keep")
+        self.assertEqual(state["client"]["attributes"]["post.logout.redirect.uris"], LOGOUT)
+        self.assertNotIn("private-fixture", result.stdout + result.stderr)
+
+    def test_whole_hook_rejects_failed_bootstrap_callback_write(self):
         for failure in ("permission", "stale", "identity-change"):
             with self.subTest(failure=failure):
                 self.state_path.write_text(json.dumps({"client": self.initial, "failure": failure}))
@@ -255,8 +304,23 @@ class CallbackPolicyTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("Synchronized scoped", result.stdout)
                 self.assertNotIn("private-fixture", result.stdout + result.stderr)
-                self.assertIn("did not complete", result.stderr)
-                self.assertFalse((self.directory / "sync.config").exists())
+
+    def test_whole_hook_rejects_wildcard_in_runtime_snapshot(self):
+        status = self.directory / "callback-status"
+        status.mkdir()
+        redirects = REDIRECTS + ["https://anything.example.com/oauth2/*"]
+        for name, value in {"desired-sha256": "verified", "verified-sha256": "verified",
+                            "client-id": "magicstick-human-gateway-local",
+                            "redirects.json": json.dumps(redirects),
+                            "origins.json": json.dumps(ORIGINS), "logout": LOGOUT}.items():
+            (status / name).write_text(value)
+        self.state_path.write_text(json.dumps({"client": self.initial}))
+        result = subprocess.run(["/bin/sh", "-ec", self.hook()],
+                                env={**self.env, "MAGICSTICK_SETUP_CLIENT_SECRET": "CHANGEME"},
+                                text=True, capture_output=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CONFIG", result.stderr)
+        self.assertNotIn("updates", json.loads(self.state_path.read_text()))
 
     def test_whole_hook_waits_for_completion_instead_of_background_success(self):
         self.state_path.write_text(json.dumps({"client": self.initial}))

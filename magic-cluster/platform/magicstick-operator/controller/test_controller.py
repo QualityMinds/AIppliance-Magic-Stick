@@ -109,7 +109,7 @@ class HelmAppInstanceTests(unittest.TestCase):
 
     def test_hermes_route_strips_edge_session_cookies_before_upstream(self):
         instance = {
-            "metadata": {"name": "hermes-demo"},
+            "metadata": {"name": "hermes-demo", "uid": "fixture-hermes-uid"},
             "spec": {"application": "hermes", "targetNamespace": "ai", "values": {}},
         }
         definition = {"route": {"serviceName": "instance", "port": 9119, "stripCookies": True}}
@@ -129,7 +129,7 @@ class HelmAppInstanceTests(unittest.TestCase):
 
     def test_generates_sso_protected_local_and_public_routes_by_default(self):
         instance = {
-            "metadata": {"name": "kubeopencode-demo"},
+            "metadata": {"name": "kubeopencode-demo", "uid": "fixture-kubeopencode-uid"},
             "spec": {"application": "kubeopencode", "targetNamespace": "ai", "values": {"name": "demo"}},
         }
         definition = {
@@ -150,7 +150,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(local_route["spec"]["rules"][0]["backendRefs"][0], {"name": "demo", "namespace": "ai", "port": 4096})
         self.assertEqual(local_route["spec"]["rules"][0]["timeouts"], {"request": "0s"})
         local_callback = next(route for route in routes if route["metadata"]["name"].endswith("-local-callback"))
-        self.assertEqual(local_callback["spec"]["hostnames"], ["magicstick.local"])
+        self.assertEqual(local_callback["spec"]["hostnames"], ["demo.kubeopencode.magicstick.local"])
         self.assertNotIn("timeouts", local_callback["spec"]["rules"][0])
         self.assertEqual(
             local_callback["spec"]["rules"][0]["matches"][0]["path"],
@@ -161,8 +161,9 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(access["publicURL"], "https://demo.kubeopencode.magicstick.example.com/")
         policy = policies[0]
         self.assertEqual(len(policy["spec"]["targetRefs"]), 2)
-        self.assertEqual(policy["spec"]["oidc"]["redirectURL"], "https://magicstick.local/oauth2/callback/kubeopencode-demo-local")
-        self.assertEqual(policy["spec"]["jwt"]["providers"][0]["extractFrom"]["cookies"], ["MagicStickAccessToken"])
+        self.assertEqual(policy["spec"]["oidc"]["redirectURL"], "https://demo.kubeopencode.magicstick.local/oauth2/callback/kubeopencode-demo-local")
+        self.assertNotIn("cookieDomain", policy["spec"]["oidc"])
+        self.assertEqual(policy["spec"]["jwt"]["providers"][0]["extractFrom"]["cookies"], ["__Host-MagicStickAccessToken"])
         self.assertIn("magicstick-admin", policy["spec"]["authorization"]["rules"][0]["principal"]["jwt"]["claims"][0]["values"])
 
     def test_rejects_unsupported_application_route_timeout(self):
@@ -195,6 +196,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         policies = [resource for resource in resources if resource["kind"] == "SecurityPolicy"]
         self.assertEqual(len(policies), 1)
         self.assertNotIn("oidc", policies[0]["spec"])
+        self.assertFalse(any(resource["kind"] == "EnvoyExtensionPolicy" for resource in resources))
         self.assertFalse(policies[0]["spec"]["extAuth"]["failOpen"])
         self.assertEqual(access["authentication"], "none")
         self.assertEqual(access["publicURL"], "")
@@ -223,15 +225,22 @@ class HelmAppInstanceTests(unittest.TestCase):
         with patch.dict(controller, {"apply_resource": lambda resource: applied.append(resource), "get_applied_resource": lambda resource: None}):
             status = controller["sync_app_instance_access"](instance, definition)
         self.assertFalse(status["accessGuardReady"])
-        self.assertEqual(applied[0]["kind"], "SecurityPolicy")
+        policy_kinds = {item["kind"] for item in applied if item["kind"] in {"SecurityPolicy", "EnvoyExtensionPolicy"}}
+        self.assertEqual(policy_kinds, {"SecurityPolicy", "EnvoyExtensionPolicy"})
+        self.assertLess(max(index for index, item in enumerate(applied) if item["kind"] in policy_kinds),
+                        min(index for index, item in enumerate(applied) if item["kind"] == "HTTPRoute"))
         for resource in applied:
             if resource["kind"] == "HTTPRoute":
                 self.assertTrue(all(not rule["backendRefs"] for rule in resource["spec"]["rules"]))
 
         def accepted(resource):
-            return {"metadata": {**resource["metadata"], "generation": 3}, "status": {"ancestors": [{"conditions": [{"type": "Accepted", "status": "True", "observedGeneration": 3}]}]}}
+            return {"metadata": {**resource["metadata"], "generation": 3, "uid": "gate-uid", "resourceVersion": "7"}, "status": {"ancestors": [{"conditions": [{"type": "Accepted", "status": "True", "observedGeneration": 3}]}]}}
         applied.clear()
-        with patch.dict(controller, {"apply_resource": lambda resource: applied.append(resource), "get_applied_resource": accepted}):
+        with patch.dict(controller, {"apply_resource": lambda resource: applied.append(resource), "get_applied_resource": accepted, "CALLBACK_REGISTRY_READY": False}):
+            self.assertFalse(controller["sync_app_instance_access"](instance, definition)["accessGuardReady"])
+        self.assertTrue(all(not rule["backendRefs"] for resource in applied if resource["kind"] == "HTTPRoute" for rule in resource["spec"]["rules"]))
+        applied.clear()
+        with patch.dict(controller, {"apply_resource": lambda resource: applied.append(resource), "get_applied_resource": accepted, "CALLBACK_REGISTRY_READY": True, "CALLBACK_ADMITTED_UIDS": {"immutable-test-uid"}}):
             self.assertTrue(controller["sync_app_instance_access"](instance, definition)["accessGuardReady"])
         self.assertTrue(all(rule["backendRefs"] for resource in applied if resource["kind"] == "HTTPRoute" for rule in resource["spec"]["rules"]))
 
@@ -239,8 +248,160 @@ class HelmAppInstanceTests(unittest.TestCase):
             value = accepted(resource)
             value["metadata"]["generation"] = 4
             return value
-        with patch.dict(controller, {"apply_resource": lambda resource: None, "get_applied_resource": stale}):
+        with patch.dict(controller, {"apply_resource": lambda resource: None, "get_applied_resource": stale, "CALLBACK_REGISTRY_READY": True, "CALLBACK_ADMITTED_UIDS": {"immutable-test-uid"}}):
             self.assertFalse(controller["sync_app_instance_access"](instance, definition)["accessGuardReady"])
+
+    def test_callback_gate_rejects_foreign_owner_and_deletes_with_preconditions(self):
+        controller = load_controller()
+        instance = {"metadata": {"name": "openclaw-demo", "uid": "owner-uid"},
+                    "spec": {"application": "openclaw"}}
+        def current(resource):
+            if resource["kind"] != "EnvoyExtensionPolicy" or not resource["metadata"]["name"].endswith("-local-gate"):
+                return None
+            return {"metadata": {"uid": "gate-uid", "resourceVersion": "42", "labels": {
+                "appliance.magicstick.dev/owner-uid": "foreign-uid"}}}
+        with patch.dict(controller, {"get_applied_resource": current}):
+            with self.assertRaisesRegex(ValueError, "unowned callback gate"):
+                controller["sync_app_instance_access"](instance, {}, enabled=False)
+        def owned(resource):
+            value = current(resource)
+            if value:
+                value["metadata"]["labels"]["appliance.magicstick.dev/owner-uid"] = "owner-uid"
+            return value
+        deleted = []
+        with patch.dict(controller, {"get_applied_resource": owned, "delete_json": lambda path, body: deleted.append((path, body))}):
+            controller["sync_app_instance_access"](instance, {}, enabled=False)
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(deleted[0][1]["preconditions"], {"uid": "gate-uid", "resourceVersion": "42"})
+
+    def test_callback_registry_requires_exact_fresh_ack(self):
+        import hashlib
+        import json
+        from datetime import datetime, timezone, timedelta
+        controller = load_controller()
+        instance = {"metadata": {"name": "kubeopencode-demo", "uid": "uid-1"},
+                    "spec": {"application": "kubeopencode", "values": {"name": "demo"}}}
+        current = {"metadata": {"resourceVersion": "1"}, "data": {}}
+        status = {"data": {}}
+        patches = []
+        def read(path):
+            return status if path.endswith("-status") else current
+        def patch_resource(path, body):
+            patches.append(body)
+            current["data"].update(body["data"])
+        with patch.dict(controller, {"get_json": read, "patch_json": patch_resource}):
+            self.assertFalse(controller["reconcile_callback_registry"]([instance]))
+            desired = current["data"]["callbacks.json"]
+            parsed = json.loads(desired)
+            self.assertEqual(parsed["entries"][0]["local"], "https://demo.kubeopencode.magicstick.local/oauth2/callback/kubeopencode-demo-local")
+            self.assertEqual(patches[0]["metadata"]["resourceVersion"], "1")
+            digest = hashlib.sha256(desired.encode()).hexdigest()
+            status["data"] = {"version": "1", "client-id": "magicstick-human-gateway-local",
+                              "desired-sha256": digest, "verified-sha256": digest,
+                              "verified-registry": desired,
+                              "verified-at": datetime.now(timezone.utc).isoformat()}
+            self.assertTrue(controller["reconcile_callback_registry"]([instance]))
+            status["data"]["verified-sha256"] = "wrong"
+            self.assertFalse(controller["reconcile_callback_registry"]([instance]))
+            status["data"]["verified-sha256"] = digest
+            status["data"]["verified-at"] = (datetime.now(timezone.utc) - timedelta(seconds=61)).isoformat()
+            self.assertFalse(controller["reconcile_callback_registry"]([instance]))
+
+    def test_callback_overflow_preserves_verified_instances(self):
+        import hashlib
+        import json
+        from datetime import datetime, timezone
+        controller = load_controller()
+        instances = [{"metadata": {"name": "hermes-z" + str(i).zfill(3), "uid": "uid-" + str(i)},
+                      "spec": {"application": "hermes", "values": {"name": "z" + str(i).zfill(3)}}}
+                     for i in range(120)]
+        current = {"metadata": {"resourceVersion": "1"}, "data": {}}
+        status = {"data": {}}
+        writes = []
+        def read(path):
+            return status if path.endswith("-status") else current
+        def write(_path, body):
+            writes.append(body)
+            current["data"].update(body["data"])
+        with patch.dict(controller, {"get_json": read, "patch_json": write}):
+            self.assertFalse(controller["reconcile_callback_registry"](instances))
+            raw = current["data"]["callbacks.json"]
+            entries = json.loads(raw)["entries"]
+            self.assertTrue(entries)
+            self.assertLess(len(entries), len(instances))
+            original_uids = {entry["uid"] for entry in entries}
+            digest = hashlib.sha256(raw.encode()).hexdigest()
+            status["data"] = {"version": "1", "client-id": "magicstick-human-gateway-local",
+                              "desired-sha256": digest, "verified-sha256": digest,
+                              "verified-registry": raw,
+                              "verified-at": datetime.now(timezone.utc).isoformat()}
+            extra = {"metadata": {"name": "hermes-aaa", "uid": "uid-new"},
+                     "spec": {"application": "hermes", "values": {"name": "aaa"}}}
+            writes.clear()
+            self.assertTrue(controller["reconcile_callback_registry"]([extra] + instances))
+            self.assertEqual(writes, [], "overflow must not rewrite the confirmed registry")
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], original_uids)
+            self.assertIn("uid-new", controller["CALLBACK_REJECTED_UIDS"])
+            definition = {"route": {"serviceName": "instance", "port": 9119}}
+            def accepted(resource):
+                return {"metadata": {**resource["metadata"], "generation": 1, "uid": "gate-uid", "resourceVersion": "7"}, "status": {"ancestors": [{"conditions": [{"type": "Accepted", "status": "True", "observedGeneration": 1}]}]}}
+            applied = []
+            with patch.dict(controller, {"CALLBACK_REGISTRY_READY": True, "apply_resource": lambda value: applied.append(value), "get_applied_resource": accepted}):
+                result = controller["sync_app_instance_access"](extra, definition)
+            self.assertFalse(result["accessGuardReady"])
+            self.assertTrue(result["callbackCapacityExceeded"])
+            self.assertTrue(all(not rule["backendRefs"] for value in applied if value["kind"] == "HTTPRoute" for rule in value["spec"]["rules"]))
+
+    def test_callback_staging_keeps_only_exact_verified_live_owners(self):
+        import hashlib
+        from datetime import datetime, timezone
+        controller = load_controller()
+        first = {"metadata": {"name": "hermes-first", "uid": "uid-first"},
+                 "spec": {"application": "hermes", "values": {"name": "first"}}}
+        second = {"metadata": {"name": "hermes-second", "uid": "uid-second"},
+                  "spec": {"application": "hermes", "values": {"name": "second"}}}
+        current = {"metadata": {"resourceVersion": "1"}, "data": {}}
+        status = {"data": {}}
+        def read(path):
+            return status if path.endswith("-status") else current
+        def write(_path, body):
+            current["data"].update(body["data"])
+        def confirm():
+            raw = current["data"]["callbacks.json"]
+            digest = hashlib.sha256(raw.encode()).hexdigest()
+            status["data"] = {"version": "1", "client-id": "magicstick-human-gateway-local",
+                              "desired-sha256": digest, "verified-sha256": digest,
+                              "verified-registry": raw, "verified-at": datetime.now(timezone.utc).isoformat()}
+        with patch.dict(controller, {"get_json": read, "patch_json": write}):
+            self.assertFalse(controller["reconcile_callback_registry"]([first]))
+            confirm()
+            self.assertTrue(controller["reconcile_callback_registry"]([first]))
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], {"uid-first"})
+            self.assertTrue(controller["reconcile_callback_registry"]([first, second]))
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], {"uid-first"})
+            confirm()
+            self.assertTrue(controller["reconcile_callback_registry"]([first, second]))
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], {"uid-first", "uid-second"})
+            changed = {**first, "spec": {**first["spec"], "values": {"name": "changed"}}}
+            self.assertTrue(controller["reconcile_callback_registry"]([changed, second]))
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], {"uid-second"})
+            # Identity has announced an in-flight PUT for the changed host.
+            # Reverting the owner before that PUT's ACK must not reactivate
+            # the stale original callback merely because it used to be valid.
+            pending = current["data"]["callbacks.json"]
+            status["data"]["pending-registry"] = pending
+            status["data"]["pending-sha256"] = hashlib.sha256(pending.encode()).hexdigest()
+            self.assertTrue(controller["reconcile_callback_registry"]([first, second]))
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], {"uid-second"})
+            status["data"]["pending-sha256"] = "wrong"
+            self.assertFalse(controller["reconcile_callback_registry"]([first, second]))
+            status["data"].pop("pending-registry")
+            status["data"].pop("pending-sha256")
+            self.assertTrue(controller["reconcile_callback_registry"]([second]))
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], {"uid-second"})
+            recreated = {**second, "metadata": {"name": "hermes-second", "uid": "uid-replacement"}}
+            self.assertTrue(controller["reconcile_callback_registry"]([recreated]))
+            self.assertEqual(controller["CALLBACK_ADMITTED_UIDS"], set())
 
     def test_sharing_reconciliation_has_no_license_probe(self):
         controller = load_controller()

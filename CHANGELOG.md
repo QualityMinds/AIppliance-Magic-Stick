@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Isolate gateway SSO cookies by dashboard or application host and register
+  exact, instance-owned login callbacks. Global logout checks the active identity
+  session for later protected requests. Legacy gateway token cookies are
+  migrated without deleting unrelated application cookies; users sign in again.
+  Native Gateway defaults and admission guards preserve callback/authentication
+  checks when route policies are missing or weakened. Backend activation requires
+  a real, revision-bound admission deny probe; no additional proxy is introduced.
 - The privacy policy now also covers the project's TikTok profile in both
   languages: providers, joint controllership for profile statistics, transfer
   safeguards and TikTok's privacy policy.

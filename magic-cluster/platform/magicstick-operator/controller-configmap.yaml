@@ -75,6 +75,7 @@ data:
         ("gateway.networking.k8s.io", "HTTPRoute"): "httproutes",
         ("gateway.networking.k8s.io", "ReferenceGrant"): "referencegrants",
         ("gateway.envoyproxy.io", "SecurityPolicy"): "securitypolicies",
+        ("gateway.envoyproxy.io", "EnvoyExtensionPolicy"): "envoyextensionpolicies",
         ("networking.k8s.io", "NetworkPolicy"): "networkpolicies",
         ("apps", "Deployment"): "deployments",
         ("amd.com", "DeviceConfig"): "deviceconfigs",
@@ -5364,6 +5365,7 @@ data:
             "app.kubernetes.io/managed-by": "magicstick-operator",
             "appliance.magicstick.dev/appinstance": metadata.get("name"),
             "appliance.magicstick.dev/application": application,
+            "appliance.magicstick.dev/owner-uid": metadata.get("uid"),
         }
 
 
@@ -5499,10 +5501,9 @@ data:
                     "clientSecret": {"name": OIDC_CLIENT_SECRET_NAME},
                     "redirectURL": redirect_url,
                     "logoutPath": "/logout",
-                    "cookieDomain": cookie_domain,
                     "cookieNames": {
-                        "accessToken": "MagicStickAccessToken",
-                        "idToken": "MagicStickIDToken",
+                        "accessToken": "__Host-MagicStickAccessToken",
+                        "idToken": "__Host-MagicStickIDToken",
                     },
                     "forwardAccessToken": True,
                 },
@@ -5514,7 +5515,7 @@ data:
                             "uri": "http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/certs",
                             "backendRefs": [{"name": "keycloak", "port": 8080}],
                         },
-                        "extractFrom": {"cookies": ["MagicStickAccessToken"]},
+                        "extractFrom": {"cookies": ["__Host-MagicStickAccessToken"]},
                     }],
                 },
                 "authorization": {
@@ -5534,6 +5535,23 @@ data:
                         },
                     }],
                 },
+            },
+        }
+
+
+    def app_instance_callback_gate(instance, policy_name, route_names):
+        owner_uid = str((instance.get("metadata") or {}).get("uid") or "")
+        if not owner_uid:
+            raise ValueError("Cannot bind callback gate without an instance UID")
+        return {
+            "apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyExtensionPolicy",
+            "metadata": {"name": policy_name, "namespace": IDENTITY_NAMESPACE,
+                         "labels": {**access_resource_labels(instance), "appliance.magicstick.dev/owner-uid": owner_uid}},
+            "spec": {
+                "targetRefs": [{"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": route} for route in route_names],
+                "lua": [{"type": "ValueRef", "valueRef": {"group": "", "kind": "ConfigMap", "name": "magicstick-cookie-migration"}}],
+                "extProc": [{"backendRefs": [{"group": "gateway.envoyproxy.io", "kind": "Backend", "name": "magicstick-callback-gate"}],
+                             "failOpen": False, "messageTimeout": "8s", "processingMode": {"request": {}}}],
             },
         }
 
@@ -5586,10 +5604,11 @@ data:
         ))
         if authentication == "sso":
             local_callback_path = "/oauth2/callback/" + local_route_name
+            resources.append(app_instance_callback_gate(instance, managed_resource_name(name, "local-gate"), [local_route_name, local_callback_name]))
             resources.append(app_instance_callback_route(
                 instance,
                 local_callback_name,
-                mdns_domain(),
+                local_host,
                 local_callback_path,
                 service_name,
                 service_port,
@@ -5598,7 +5617,7 @@ data:
                 instance,
                 local_policy_name,
                 [local_route_name, local_callback_name],
-                "https://" + mdns_domain() + local_callback_path,
+                "https://" + local_host + local_callback_path,
                 mdns_domain(),
                 required_role,
             ))
@@ -5618,10 +5637,11 @@ data:
             public_url = "https://" + public_host + "/"
             if authentication == "sso":
                 public_callback_path = "/oauth2/callback/" + public_route_name
+                resources.append(app_instance_callback_gate(instance, managed_resource_name(name, "public-gate"), [public_route_name, public_callback_name]))
                 resources.append(app_instance_callback_route(
                     instance,
                     public_callback_name,
-                    dashboard_public_host(),
+                    public_host,
                     public_callback_path,
                     service_name,
                     service_port,
@@ -5630,7 +5650,7 @@ data:
                     instance,
                     public_policy_name,
                     [public_route_name, public_callback_name],
-                    "https://" + dashboard_public_host() + public_callback_path,
+                    "https://" + public_host + public_callback_path,
                     public_domain(),
                     required_role,
                 ))
@@ -5654,8 +5674,116 @@ data:
             {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute", "metadata": {"name": managed_resource_name(name, "public-callback"), "namespace": IDENTITY_NAMESPACE}},
             {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy", "metadata": {"name": managed_resource_name(name, "local-sso"), "namespace": IDENTITY_NAMESPACE}},
             {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy", "metadata": {"name": managed_resource_name(name, "public-sso"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyExtensionPolicy", "metadata": {"name": managed_resource_name(name, "local-gate"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyExtensionPolicy", "metadata": {"name": managed_resource_name(name, "public-gate"), "namespace": IDENTITY_NAMESPACE}},
             {"apiVersion": "gateway.networking.k8s.io/v1beta1", "kind": "ReferenceGrant", "metadata": {"name": managed_resource_name(name, "route-access"), "namespace": target_namespace}},
         ]
+
+
+    CALLBACK_REGISTRY_READY = False
+    CALLBACK_ADMITTED_UIDS = set()
+    CALLBACK_REJECTED_UIDS = set()
+
+
+    def callback_registry_fits(entries):
+        # Mirror the identity reconciler's conservative 8100-byte bootstrap
+        # bound. Account for the static callbacks before admitting instances.
+        local, public, dashboard = mdns_domain(), public_domain(), dashboard_public_host()
+        redirects = {f"https://{local}/oauth2/callback", f"https://{dashboard}/oauth2/callback", f"https://auth-pilot.{local}/oauth2/callback"}
+        origins = {f"https://{local}", f"https://{dashboard}", f"https://auth-pilot.{local}"}
+        for service, route in (("anythingllm", "anything-llm"), ("litellm", "litellm"), ("kubeopencode", "kubeopencode")):
+            for scope, domain in (("local", local), ("public", public)):
+                host = f"{service}.{domain}"
+                redirects.add(f"https://{host}/oauth2/callback/static-{route}-{scope}")
+                origins.add(f"https://{host}")
+        for entry in entries:
+            for scope in ("local", "public"):
+                url = entry[scope]
+                if url:
+                    parsed = urllib.parse.urlsplit(url)
+                    redirects.add(url)
+                    origins.add(parsed.scheme + "://" + parsed.netloc)
+        return len(entries) <= 256 and all(len(json.dumps(sorted(values), separators=(",", ":")).encode("utf-8")) <= 8100 for values in (redirects, origins))
+
+
+    def reconcile_callback_registry(instances):
+        global CALLBACK_ADMITTED_UIDS, CALLBACK_REJECTED_UIDS
+        CALLBACK_ADMITTED_UIDS = set()
+        CALLBACK_REJECTED_UIDS = set()
+        base = "/api/v1/namespaces/" + IDENTITY_NAMESPACE + "/configmaps/"
+        current = get_json(base + "magicstick-oidc-callbacks")
+        raw_current = (current.get("data") or {}).get("callbacks.json") or '{"entries":[],"version":1}'
+        previous = json.loads(raw_current)
+        if not isinstance(previous, dict) or previous.get("version") != 1 or not isinstance(previous.get("entries"), list):
+            raise ValueError("Invalid existing callback registry")
+        entries = []
+        for instance in instances:
+            metadata = instance.get("metadata") or {}
+            spec = instance.get("spec") or {}
+            if metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
+                continue
+            authentication, _, exposure = app_instance_access_config(instance)
+            if authentication != "sso":
+                continue
+            name = metadata.get("name")
+            uid = metadata.get("uid")
+            application = spec.get("application") or ""
+            if not name or not uid or not application:
+                raise ValueError("Cannot register callback without exact instance identity")
+            local = "https://" + app_instance_local_host(instance, application) + "/oauth2/callback/" + managed_resource_name(name, "local")
+            public = ""
+            if exposure == "localAndPublic":
+                public = "https://" + app_instance_public_host(instance, application) + "/oauth2/callback/" + managed_resource_name(name, "public")
+            entries.append({"uid": uid, "name": name, "application": application, "local": local, "public": public})
+        # Keep existing, unchanged identities first. A newly created instance
+        # that would overflow the Keycloak bootstrap bound must not evict a
+        # previously accepted instance or invalidate its verified registry.
+        entries.sort(key=lambda entry: (entry not in previous["entries"], entry["name"], entry["uid"]))
+        admitted = []
+        for entry in entries:
+            if callback_registry_fits(admitted + [entry]):
+                admitted.append(entry)
+            else:
+                CALLBACK_REJECTED_UIDS.add(entry["uid"])
+        entries = sorted(admitted, key=lambda entry: (entry["name"], entry["uid"]))
+        desired = json.dumps({"version": 1, "entries": entries}, sort_keys=True, separators=(",", ":"))
+        if (current.get("data") or {}).get("callbacks.json") != desired:
+            patch_json(base + "magicstick-oidc-callbacks", {"metadata": {"resourceVersion": (current.get("metadata") or {}).get("resourceVersion")}, "data": {"callbacks.json": desired}})
+        status = (get_json(base + "magicstick-oidc-callbacks-status").get("data") or {})
+        try:
+            checked = datetime.fromisoformat(status.get("verified-at", "").replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - checked).total_seconds()
+            raw_verified = status.get("verified-registry", "")
+            verified = json.loads(raw_verified)
+            verified_entries = verified["entries"]
+            digest = hashlib.sha256(raw_verified.encode("utf-8")).hexdigest()
+            if (not isinstance(verified, dict) or verified.get("version") != 1
+                    or not isinstance(verified_entries, list)):
+                return False
+        except (ValueError, TypeError, KeyError):
+            return False
+        if not (status.get("version") == "1" and status.get("client-id") == OIDC_CLIENT_ID
+                and status.get("desired-sha256") == digest and status.get("verified-sha256") == digest
+                and 0 <= age <= 60):
+            return False
+        pending_entries = verified_entries
+        raw_pending = status.get("pending-registry", "")
+        if raw_pending:
+            try:
+                pending = json.loads(raw_pending)
+                if (not isinstance(pending, dict) or pending.get("version") != 1
+                        or not isinstance(pending.get("entries"), list)
+                        or status.get("pending-sha256") != hashlib.sha256(raw_pending.encode("utf-8")).hexdigest()):
+                    return False
+                pending_entries = pending["entries"]
+            except (ValueError, TypeError):
+                return False
+        # A previous confirmed entry is safe during an additive update only if
+        # its complete UID/name/type/URLs still match the live resource, new
+        # desired set, and any identity PUT already in flight. Never reuse an
+        # ACK for changed or deleted owners.
+        CALLBACK_ADMITTED_UIDS = {entry["uid"] for entry in entries if entry in verified_entries and entry in pending_entries}
+        return True
 
 
     def sync_app_instance_access(instance, definition, enabled=True):
@@ -5667,16 +5795,36 @@ data:
         for reference in app_instance_access_refs(instance):
             metadata = reference["metadata"]
             key = (reference["apiVersion"], reference["kind"], metadata["namespace"], metadata["name"])
-            if key not in desired_keys and get_applied_resource(reference):
-                delete_applied_resource(reference)
+            current = get_applied_resource(reference) if key not in desired_keys else None
+            if current:
+                if reference["kind"] == "EnvoyExtensionPolicy":
+                    actual = current.get("metadata") or {}
+                    expected_uid = str((instance.get("metadata") or {}).get("uid") or "")
+                    if ((actual.get("labels") or {}).get("appliance.magicstick.dev/owner-uid") != expected_uid
+                            or not expected_uid or not actual.get("uid") or not actual.get("resourceVersion")):
+                        raise ValueError("Cannot delete an unowned callback gate")
+                    path = resource_path(reference["apiVersion"], reference["kind"], metadata["namespace"], metadata["name"])
+                    delete_json(path, {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {
+                        "uid": actual["uid"], "resourceVersion": actual["resourceVersion"]}})
+                else:
+                    delete_applied_resource(reference)
         # Install the guard before routing to an application. A new/unaccepted
         # policy gets a route with no backend, never a transient public route.
-        guard_ready = bool(enabled)
+        guard_ready = bool(enabled) and (access_status["authentication"] != "sso" or (CALLBACK_REGISTRY_READY and (instance.get("metadata") or {}).get("uid") in CALLBACK_ADMITTED_UIDS))
         for resource in desired:
-            if resource["kind"] != "SecurityPolicy":
+            if resource["kind"] not in ("SecurityPolicy", "EnvoyExtensionPolicy"):
                 continue
             digest = hashlib.sha256(json.dumps(resource["spec"], sort_keys=True).encode()).hexdigest()
             resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/access-guard-spec"] = digest
+            if resource["kind"] == "EnvoyExtensionPolicy":
+                previous = get_applied_resource(resource)
+                if previous:
+                    old = previous.get("metadata") or {}
+                    expected_uid = resource["metadata"]["labels"]["appliance.magicstick.dev/owner-uid"]
+                    if ((old.get("labels") or {}).get("appliance.magicstick.dev/owner-uid") != expected_uid
+                            or not old.get("uid") or not old.get("resourceVersion")):
+                        raise ValueError("Cannot adopt an unowned callback gate")
+                    resource["metadata"]["resourceVersion"] = old["resourceVersion"]
             apply_resource(resource)
             current = get_applied_resource(resource) or {}
             current_metadata = current.get("metadata") or {}
@@ -5686,13 +5834,14 @@ data:
             accepted = bool(conditions) and all(item.get("status") == "True" and item.get("observedGeneration") == current_metadata.get("generation") for item in conditions)
             guard_ready = guard_ready and accepted and (current_metadata.get("annotations") or {}).get("appliance.magicstick.dev/access-guard-spec") == digest
         for resource in desired:
-            if resource["kind"] == "SecurityPolicy":
+            if resource["kind"] in ("SecurityPolicy", "EnvoyExtensionPolicy"):
                 continue
             if resource["kind"] == "HTTPRoute" and not guard_ready:
                 for rule in resource["spec"].get("rules", []):
                     rule["backendRefs"] = []
             apply_resource(resource)
         access_status["accessGuardReady"] = guard_ready
+        access_status["callbackCapacityExceeded"] = (instance.get("metadata") or {}).get("uid") in CALLBACK_REJECTED_UIDS
         return access_status
 
 
@@ -5876,8 +6025,9 @@ data:
         ready = ready_condition(current)
         if not access_status.get("accessGuardReady"):
             phase = "Reconciling"
-            reason = "WaitingForAccessGuard"
-            message = "Waiting for Envoy to accept the instance access guard."
+            reason = "CallbackCapacityExceeded" if access_status.get("callbackCapacityExceeded") else "WaitingForAccessGuard"
+            message = ("SSO callback capacity is full. Remove an unused instance before enabling this one."
+                       if access_status.get("callbackCapacityExceeded") else "Waiting for Envoy to accept the instance access guard and verified callbacks.")
         elif ready.get("status") == "True":
             phase = "Ready"
             reason = ready.get("reason") or "HelmReleaseReady"
@@ -5970,6 +6120,7 @@ data:
 
 
     def reconcile_once():
+        global CALLBACK_REGISTRY_READY
         RegressionRuns(globals()).reconcile_all()
         catalog = load_catalog()
         app_catalog = load_app_catalog()
@@ -5979,6 +6130,11 @@ data:
         source = ((current.get("spec") or {}).get("source") or {"kind": "GitRepository", "name": "flux-system", "namespace": FLUX_NAMESPACE})
         activations = module_activations()
         instances = app_instances()
+        try:
+            CALLBACK_REGISTRY_READY = reconcile_callback_registry(instances)
+        except Exception as error:
+            CALLBACK_REGISTRY_READY = False
+            print("OIDC callback registry unavailable:", type(error).__name__, flush=True)
         models = model_activations()
         nodes = list_items("/api/v1/nodes")
         crd_names = existing_crd_names()

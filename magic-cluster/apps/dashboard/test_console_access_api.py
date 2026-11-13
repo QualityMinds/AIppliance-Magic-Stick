@@ -51,7 +51,6 @@ class ConsoleAccessTests(unittest.TestCase):
         self.originals = {name: self.server[name] for name in names}
         self.original_urlopen = self.server["urllib"].request.urlopen
         self.server["IDENTITY_MANAGEMENT_MODE"] = "keycloak"
-        self.server["AUTH_CACHE"].clear()
         self.audit = []
         self.server["audit_user_action"] = lambda *args, **_kwargs: self.audit.append(args[1:4])
         self.roles = {"magicstick-user", "magicstick-admin"}
@@ -89,7 +88,6 @@ class ConsoleAccessTests(unittest.TestCase):
     def tearDown(self):
         self.server.update(self.originals)
         self.server["urllib"].request.urlopen = self.original_urlopen
-        self.server["AUTH_CACHE"].clear()
 
     def test_console_client_is_a_trusted_token_client(self):
         self.assertIn("magicstick-console", self.server["OIDC_EXPECTED_CLIENT_IDS"])
@@ -207,14 +205,12 @@ class ConsoleAccessTests(unittest.TestCase):
         result = self.server["get_console_access"](human)
         self.assertEqual((result["available"], result["accessLevel"]), (False, "off"))
 
-    def test_update_changes_roles_clears_cached_principals_and_audits(self):
-        self.server["AUTH_CACHE"]["stale"] = (time.time() + 30, self.principal)
-
+    def test_update_changes_live_roles_and_audits(self):
         result = self.server["update_console_access"](self.principal, {"accessLevel": "operator"}, "request-1")
 
         self.assertEqual(result["accessLevel"], "operator")
         self.assertEqual(self.roles, {"magicstick-user", "magicstick-operator"})
-        self.assertEqual(self.server["AUTH_CACHE"], {})
+        self.assertNotIn("AUTH_CACHE", self.server)
         self.assertEqual(self.audit, [("update-console-access", "local-console:operator", "success")])
 
     def test_update_off_removes_every_managed_role(self):

@@ -11,6 +11,46 @@ permissions:
   contents: read
 
 jobs:
+  gateway-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      KUBECONFIG: ${{ runner.temp }}/cookie-guard-kubeconfig
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.0
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      - name: Install checksum-verified isolated cluster tooling
+        run: |
+          curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo 'aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind-linux-amd64' | sha256sum --check
+          sudo install -m 0755 kind-linux-amd64 /usr/local/bin/kind
+          rm kind-linux-amd64
+          python3 -m pip install pyyaml
+      - name: Create disposable Gateway cluster
+        run: kind create cluster --name magicstick-cookie-guard-ci --kubeconfig "$KUBECONFIG" --wait 120s --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+      - name: Install exact Gateway initially without Backend extension
+        run: |
+          kubectl apply -k magic-cluster/platform/gateway/callback-backend-admission
+          helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.5 -n envoy-gateway-system --create-namespace --wait --timeout 180s
+          kubectl create namespace identity-system
+          kubectl apply -f magic-cluster/platform/gateway/envoy-gateway/callback-activation.yaml
+          kubectl apply -k magic-cluster/platform/gateway/callback-backend-activation
+          kubectl wait --for=condition=Complete job/magicstick-callback-admission-probe -n envoy-gateway-system --timeout=240s
+          test "$(kubectl get cm magicstick-callback-backend-activation -n envoy-gateway-system -o jsonpath='{.data.enabled}')" = true
+          helm upgrade eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.5 -n envoy-gateway-system --reuse-values --set config.envoyGateway.extensionApis.enableBackend=true --wait --timeout 180s
+      - name: Verify native policy deletion, TLS, pre-OAuth order and safe recovery
+        run: python3 magic-cluster/platform/identity/tests/gateway_policy_contract.py --kubeconfig "$KUBECONFIG" --context kind-magicstick-cookie-guard-ci
+      - name: Remove disposable Gateway cluster
+        if: always()
+        run: kind delete cluster --name magicstick-cookie-guard-ci --kubeconfig "$KUBECONFIG"
+
   setup-upgrade:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -37,9 +77,16 @@ jobs:
         run: kind delete cluster --name magicstick-identity-upgrade
 
   release-checks:
+    needs: [setup-upgrade, gateway-security]
+    if: always()
     runs-on: ubuntu-24.04
 
     steps:
+      - name: Require native installation and Gateway security gates
+        if: needs.setup-upgrade.result != 'success' || needs.gateway-security.result != 'success'
+        run: |
+          echo 'Native setup/Gateway security did not qualify; release checks cannot pass.'
+          exit 1
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -77,6 +124,7 @@ jobs:
       - name: Check source license and publication metadata contracts
         run: |
           python3 tools/license_audit.py --check
+          python3 -m unittest tests.test_collect_python_notices
           python3 -m unittest tests/test_license_release.py tests/test_license_audit.py tests/test_license_kdns.py tests.test_release_catalog tests.test_product_release tests.test_release_bootstrap tests.test_trunk_promotion tests.test_trunk_policy
 
       - name: Secret scan current tree
@@ -148,6 +196,26 @@ jobs:
         env:
           MAGICSTICK_RUN_NGINX_CONTAINER_TESTS: "1"
         run: python3 -m unittest -v tests.test_nginx_runtime
+
+      - name: Check cookie migration with pinned Envoy
+        env:
+          MAGICSTICK_RUN_ENVOY_CONTAINER_TESTS: "1"
+        run: python3 -m unittest discover -s magic-cluster/platform/identity/tests -p test_cookie_migration_envoy.py -v
+
+      - name: Check callback reconciliation with pinned Keycloak
+        timeout-minutes: 6
+        env:
+          MAGICSTICK_RUN_KEYCLOAK_CONTAINER_TESTS: "1"
+          MAGICSTICK_PROBE_UNSAFE_ROTATION: ""
+        run: |
+          python3 -m unittest discover -s magic-cluster/platform/identity/tests -p test_callback_keycloak_runtime.py -v
+          MAGICSTICK_PROBE_UNSAFE_ROTATION=guard python3 -m unittest discover -s magic-cluster/platform/identity/tests -p test_callback_keycloak_runtime.py -v
+
+      - name: Check callback readiness fanout and overload with pinned Keycloak
+        timeout-minutes: 4
+        env:
+          MAGICSTICK_RUN_KEYCLOAK_CONTAINER_TESTS: "1"
+        run: python3 -m unittest discover -s magic-cluster/platform/identity/tests -p test_callback_keycloak_load_runtime.py -v
 
       - name: Check dashboard clients
         working-directory: dashboard

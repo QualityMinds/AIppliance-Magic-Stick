@@ -99,7 +99,7 @@ without dashboard-management grants. Follow the current shared role contract.
 | AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. Verify automatic short-token refresh, normal idle expiry and the absolute Remember me maximum despite activity. | U+C+B+A | P0 · identity |
 | AUTH-04 | Test every mutation family with viewer/ordinary-user sessions and direct API requests, not only hidden controls. Model/module/app operations follow role policy; all administrator-only operations are denied. | C+A+E | P0 · identity |
 | AUTH-05 | Omit or forge browser CSRF/origin headers on cookie-authenticated mutations. Reject without saved intent; valid same-origin and supported terminal Bearer requests still work. | U+C+A | P0 · identity |
-| AUTH-06 | Log out and revisit/reload a protected page with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
+| AUTH-06 | Log out and revisit/reload protected dashboard and application hosts with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
 | AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
@@ -744,6 +744,22 @@ remain unknown, and a rejection is not overwritten by a later success claim.
 Local/CI fixture qualification, installed-image delivery and a fresh native HW-06
 retest are separate gates. No historical response, old success or hardware
 acceptance is inferred by this change; phase/exclusion policies are unchanged.
+
+### 2026-11-13 — host-scoped gateway sessions
+
+The host-only SSO work adds owning counterexamples for callback ownership,
+identity readback, rotation-safe reconciliation, legacy token-cookie migration,
+and a fail-closed session guard. The pinned Envoy and Keycloak container checks
+are distinct from multi-host trusted-browser and installed-appliance acceptance.
+The latter remain required; isolated fixtures and a synthetic load probe cannot
+be reported as live login or logout success. Existing application cookies are
+not bulk-deleted, and older generic OAuth cookies with unknown ownership may
+require a documented browser-side reset. Historical results remain unchanged.
+AUTH-01/02/03/06 also retain a separate real Gateway-controller contract in
+`Public release checks / gateway-security`: fresh admission dependencies,
+revision-bound activation, missing route gate/authentication policies, rejected
+weakened overrides and pre-OAuth ordering. The synthetic backend/readiness probe
+does not claim installed A/E evidence or a new registered service test.
 
 ### 2026-11-05 — configured identity callback reconciliation
 

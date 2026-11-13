@@ -5,6 +5,7 @@ metadata:
   namespace: identity-system
   annotations:
     configmap.reloader.stakater.com/reload: ai-appliance-dashboard-api,magicstick-license-trust,magicstick-license-official-trust
+    secret.reloader.stakater.com/reload: magicstick-callback-gate-tls
   labels:
     app: ai-appliance-dashboard-api
     app.kubernetes.io/component: api
@@ -39,6 +40,8 @@ spec:
           ports:
             - containerPort: 8080
               name: api
+            - containerPort: 8081
+              name: callback-gate
           env:
             - name: LICENSE_NAMESPACE
               valueFrom:
@@ -135,6 +138,9 @@ spec:
             runAsUser: 65532
             runAsGroup: 65532
           volumeMounts:
+            - name: callback-gate-tls
+              mountPath: /etc/magicstick-callback-gate
+              readOnly: true
             - name: license-official-trust
               mountPath: /etc/magicstick-license-official
               readOnly: true
@@ -148,6 +154,9 @@ spec:
             - name: api-tmp
               mountPath: /tmp
       volumes:
+        - name: callback-gate-tls
+          secret:
+            secretName: magicstick-callback-gate-tls
         - name: license-official-trust
           configMap:
             name: magicstick-license-official-trust

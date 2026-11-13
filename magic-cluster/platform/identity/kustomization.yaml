@@ -13,7 +13,16 @@ configMapGenerator:
     namespace: identity-system
     files:
       - nginx.conf=auth-pilot-nginx.conf
+  - name: magicstick-cookie-migration
+    namespace: identity-system
+    options:
+      disableNameSuffixHash: true
+    files:
+      - lua=cookie-migration.lua
 resources:
+  - callback-configmaps.yaml
+  - callback-gate-policy.yaml
+  - callback-gate-tls.yaml
   - secrets.yaml
   - postgresql.yaml
   - keycloak-realm.yaml
@@ -21,6 +30,8 @@ resources:
   - pilot-certificate.yaml
   - kubernetes-access-rbac.yaml
   - gateway.yaml
+  - cookie-migration-policy.yaml
+  - default-deny-policy.yaml
   - routes.yaml
   - security-policy.yaml
   - setup-rbac.yaml

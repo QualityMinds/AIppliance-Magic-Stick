@@ -28,8 +28,9 @@ explicit promotion candidates. Verify promotion and live convergence separately 
 The React frontend is the only browser dashboard, deployed as
 `dashboard/ai-appliance-dashboard`. Open `https://<mDNS-domain>/` (by default
 `https://magicstick.local/`) or the configured public-domain root. The existing
-Service, primary routes, OIDC callbacks and `MagicStickAccessToken` cookie names
-are retained. The local route keeps `lab42.io/mdns.enabled: "true"`, so kdns
+Service and primary routes remain in place. Each SSO host uses its own callback
+and host-only `__Host-MagicStickAccessToken` cookie. The local route keeps
+`lab42.io/mdns.enabled: "true"`, so kdns
 publishes the primary hostname when the route is accepted and the Gateway has
 an address. First-run setup and the physical CLI/TUI console keep their existing
 handoff URLs and do not require another dashboard address.
@@ -214,6 +215,9 @@ MAGICSTICK_RUN_NGINX_CONTAINER_TESTS=1 python3 -m unittest -v tests.test_nginx_r
 
 The tests check HTTP responses, exactly one worker, no cgroup OOM events and no
 container restarts; they need Docker and no appliance access.
+The dashboard nginx retains four on-demand 16 KiB large-header buffers. Each
+individual field must fit one buffer; the synthetic header tests verify both
+accepted and rejected sizes without storing credentials.
 
 The API Dockerfile has one final runtime containing the BSL-licensed
 `magicstick_core` package, license texts and third-party notices.

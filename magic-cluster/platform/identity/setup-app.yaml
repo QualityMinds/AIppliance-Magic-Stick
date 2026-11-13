@@ -91,6 +91,9 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            - name: callback-gate-ca
+              mountPath: /var/run/magicstick-callback-gate-ca
+              readOnly: true
             - name: app
               mountPath: /app/server.py
               subPath: server.py
@@ -98,6 +101,13 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: callback-gate-ca
+          secret:
+            secretName: magicstick-callback-gate-tls
+            optional: true
+            items:
+              - key: ca.crt
+                path: ca.crt
         - name: app
           configMap:
             name: magicstick-setup
