@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -40,6 +41,7 @@ class Stack:
         self.keycloak = self.network + "-keycloak"
         self.api = self.network + "-api"
         self.envoy = self.network + "-envoy"
+        self.bootstrap_volume = self.network + "-bootstrap"
         self.tmp = tempfile.TemporaryDirectory(prefix="magicstick-multihost-")
         self.path = Path(self.tmp.name)
         self.public_tmp = tempfile.TemporaryDirectory(prefix="magicstick-multihost-ca-")
@@ -51,11 +53,12 @@ class Stack:
         # concurrent local edit cannot create a mixed-version test run.
         self.gate_source = (ROOT.parent / "dashboard/apps/api/callback_gate.py").read_text(encoding="utf-8")
 
-    def docker(self, *args, timeout=180):
+    def docker(self, *args, timeout=180, environment=None, input_data=None):
         # Never include Docker's stderr in an exception: import/config files
         # contain synthetic credentials and must remain private too.
         result = subprocess.run(["docker", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                timeout=timeout, check=False)
+                                timeout=timeout, check=False, input=input_data,
+                                env=None if environment is None else {**os.environ, **environment})
         if result.returncode:
             raise RuntimeError("isolated Docker " + args[0] + " failed")
         return result.stdout.decode().strip()
@@ -100,30 +103,43 @@ class Stack:
                  "users": [{"username": "fixture-user", "enabled": True, "emailVerified": True,
                    "firstName": "Fixture", "lastName": "User", "email": "fixture@example.com",
                    "realmRoles": ["magicstick-user"], "credentials": [{"type": "password", "value": "fixture-password", "temporary": False}]}]}
-        realm_file = self.file("realm.json", realm, True)
-        environment = self.file("keycloak.env", "KC_BOOTSTRAP_ADMIN_USERNAME=fixture-admin\nKC_BOOTSTRAP_ADMIN_PASSWORD=" + self.admin_password + "\nKC_HOSTNAME=" + ISSUER.removesuffix("/realms/magicstick") + "\nKC_HTTP_ENABLED=true\nKC_PROXY_HEADERS=xforwarded\n")
+        environment = {'KC_BOOTSTRAP_ADMIN_USERNAME': 'fixture-admin', 'KC_BOOTSTRAP_ADMIN_PASSWORD': self.admin_password,
+                       'KC_HOSTNAME': ISSUER.removesuffix('/realms/magicstick'), 'KC_HTTP_ENABLED': 'true', 'KC_PROXY_HEADERS': 'xforwarded'}
         self.docker("network", "create", "--subnet", f"10.253.{secrets.randbelow(240) + 1}.0/24", self.network)
         self.docker("run", "-d", "--name", self.keycloak, "--network", self.network, "--network-alias", "keycloak",
-                    "-p", "127.0.0.1::8080", "--env-file", str(environment), "--mount",
-                    f"type=bind,source={realm_file},target=/opt/keycloak/data/import/realm.json,readonly",
-                    KEYCLOAK, "start-dev", "--import-realm")
+                    '-p', '127.0.0.1::8080', *[value for key in environment for value in ('-e', key)],
+                    KEYCLOAK, 'start-dev', environment=environment)
         port = self.docker("port", self.keycloak, "8080/tcp").rsplit(":", 1)[1]
         for _ in range(150):
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/realms/magicstick/.well-known/openid-configuration", timeout=2) as response:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/realms/master/.well-known/openid-configuration", timeout=2) as response:
                     if response.status == 200:
                         break
             except OSError:
                 time.sleep(1)
         else:
             raise RuntimeError("isolated Keycloak did not become ready")
+        token_request = urllib.request.Request(f'http://127.0.0.1:{port}/realms/master/protocol/openid-connect/token',
+            data=urllib.parse.urlencode({'grant_type': 'password', 'client_id': 'admin-cli', 'username': 'fixture-admin', 'password': self.admin_password}).encode(),
+            headers={'Content-Type': 'application/x-www-form-urlencoded'})
+        with urllib.request.urlopen(token_request, timeout=5) as response:
+            admin_token = json.load(response)['access_token']
+        import_request = urllib.request.Request(f'http://127.0.0.1:{port}/admin/realms', data=json.dumps(realm).encode(),
+            headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + admin_token}, method='POST')
+        with urllib.request.urlopen(import_request, timeout=10) as response:
+            response.read()
 
         api_manifest = ROOT / "apps/dashboard/dashboard-api.yaml"
         source = yaml.safe_load(api_manifest.read_text(encoding="utf-8"))["data"]["server.py"]
         api_file = self.file("server.py", source, True)
         gate_file = self.file("callback_gate.py", self.gate_source, True)
         gate_fixture = self.file("gate_fixture.py", (ROOT / "platform/identity/tests/multihost_gate_fixture.py").read_text(encoding="utf-8"), True)
+        # Mount the RAM-backed volume in the long-lived fixture API before
+        # writing it: tmpfs contents disappear when their last mount closes.
+        self.docker("volume", "create", "--driver", "local", "--opt", "type=tmpfs", "--opt", "device=tmpfs",
+                    "--opt", "o=size=1m,uid=65532,gid=65532,mode=0700", self.bootstrap_volume)
         self.docker("run", "-d", "--name", self.api, "--network", self.network, "--network-alias", "api",
+                    "--mount", f"type=volume,source={self.bootstrap_volume},target=/bootstrap",
                     "--mount", f"type=bind,source={api_file},target=/app/server.py,readonly",
                     "--mount", f"type=bind,source={gate_file},target=/app/callback_gate.py,readonly",
                     "--mount", f"type=bind,source={gate_fixture},target=/app/gate_fixture.py,readonly",
@@ -136,12 +152,18 @@ class Stack:
                     "-e", "OIDC_EXPECTED_ISSUER=" + ISSUER, PYTHON, "sh", "-ec",
                     "pip install --no-cache-dir --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /app/gate_fixture.py")
 
-        config_file = self.file("envoy.json", self.envoy_config(), True)
+        # Envoy requires a regular bootstrap file. Keep it only in a private
+        # RAM-backed Docker volume, not on persistent host/container storage or
+        # in process arguments. The distroless Envoy image runs as uid 65532.
+        self.docker("exec", "-i", "--user", "65532:65532", self.api, "python", "-c",
+                    "import os,sys; fd=os.open('/bootstrap/envoy.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o400); "
+                    "stream=os.fdopen(fd,'wb'); stream.write(sys.stdin.buffer.read()); stream.close()",
+                    input_data=json.dumps(self.envoy_config()).encode())
         self.docker("run", "-d", "--name", self.envoy, "--network", self.network,
                     "--network-alias", "id.fixture.test", "--network-alias", "dash.fixture.test", "--network-alias", "service.fixture.test",
                     "--network-alias", "bad-ca.fixture.test", "--network-alias", "bad-host.fixture.test", "--network-alias", "expired.fixture.test",
-                    "--mount", f"type=bind,source={config_file},target=/etc/envoy/fixture.json,readonly",
-                    ENVOY, "-c", "/etc/envoy/fixture.json", "--disable-hot-restart", "--log-level", "error")
+                    "--mount", f"type=volume,source={self.bootstrap_volume},target=/bootstrap,readonly",
+                    ENVOY, "-c", "/bootstrap/envoy.json", "--disable-hot-restart", "--log-level", "error")
         # Execute inside the network and validate the generated CA normally.
         category = "unknown"
         checker = """import ssl,urllib.request
@@ -288,6 +310,12 @@ except Exception as e:
                     errors.append("container")
             except RuntimeError:
                 errors.append("container-unverified")
+        subprocess.run(["docker", "volume", "rm", self.bootstrap_volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
+        try:
+            if self.docker("volume", "ls", "-q", "--filter", f"name=^{self.bootstrap_volume}$", timeout=30):
+                errors.append("bootstrap-volume")
+        except RuntimeError:
+            errors.append("bootstrap-volume-unverified")
         subprocess.run(["docker", "network", "rm", self.network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
         try:
             if self.docker("network", "ls", "-q", "--filter", f"name=^{self.network}$", timeout=30):

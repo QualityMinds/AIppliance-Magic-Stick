@@ -117,7 +117,9 @@ class CallbackGateTests(unittest.TestCase):
         for manifest in ("magic-cluster/platform/identity/setup-rbac.yaml", "magic-cluster/platform/magicstick-operator/rbac.yaml"):
             for doc in yaml.safe_load_all((root / manifest).read_text()):
                 for rule in (doc or {}).get("rules", []):
-                    if "gateway.envoyproxy.io" in rule.get("apiGroups", []):
+                    groups = rule.get("apiGroups", [])
+                    self.assertIsInstance(groups, list)
+                    if any(group == "gateway.envoyproxy.io" for group in groups):
                         self.assertNotIn("backends", rule.get("resources", []))
 
     def test_production_server_requires_tls_and_verifies_peer_name_ca_and_expiry(self):

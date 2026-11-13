@@ -39,13 +39,13 @@ async function main() {
     phase = 'stale-gate';
     await control('/control?mode=stale');
     let gated = await page.goto(dashboard + '/protected', {waitUntil:'domcontentloaded'});
-    if (!gated || gated.status() !== 503 || !page.url().startsWith(dashboard)) {
+    if (!gated || gated.status() !== 503 || new URL(page.url()).origin !== dashboard) {
       throw new Error('Stale callback readiness did not gate before login');
     }
     await control('/control?mode=additive');
     phase = 'additive-gate';
     gated = await page.goto(service + '/protected', {waitUntil:'domcontentloaded'});
-    if (!gated || gated.status() !== 503 || !page.url().startsWith(service)) {
+    if (!gated || gated.status() !== 503 || new URL(page.url()).origin !== service) {
       throw new Error('Unconfirmed additive service was not fenced');
     }
     phase = 'dashboard-login';
@@ -62,7 +62,7 @@ async function main() {
     phase = 'gate-stop';
     await control('/stop-gate');
     const offline = await page.goto(dashboard + '/protected', {waitUntil:'domcontentloaded'});
-    if (!offline || offline.status() < 400 || !page.url().startsWith(dashboard)) {
+    if (!offline || offline.status() < 400 || new URL(page.url()).origin !== dashboard) {
       throw new Error('Unavailable gRPC processor did not fail closed');
     }
     phase = 'gate-restart';

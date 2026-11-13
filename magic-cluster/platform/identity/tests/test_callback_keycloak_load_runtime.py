@@ -42,16 +42,12 @@ class KeycloakReadinessLoadTests(unittest.TestCase):
                        "serviceAccountClientId": "magicstick-setup",
                        "clientRoles": {"realm-management": ["manage-clients", "view-clients"]}}]}
         with tempfile.TemporaryDirectory(prefix="magicstick-readiness-load-") as directory:
-            realm_file, env_file = Path(directory) / "realm.json", Path(directory) / "env"
-            realm_file.write_text(json.dumps(realm), encoding="utf-8")
-            env_file.write_text("KC_BOOTSTRAP_ADMIN_USERNAME=fixture-admin\nKC_BOOTSTRAP_ADMIN_PASSWORD=" + admin_password + "\n", encoding="utf-8")
-            os.chmod(realm_file, 0o644)
-            os.chmod(env_file, 0o600)
+            environment = {**os.environ, 'KC_BOOTSTRAP_ADMIN_USERNAME': 'fixture-admin', 'KC_BOOTSTRAP_ADMIN_PASSWORD': admin_password}
             http = None
             try:
                 subprocess.run(["docker", "run", "-d", "--name", name, "--publish", "127.0.0.1::8080",
-                    "--env-file", str(env_file), "--volume", f"{realm_file}:/opt/keycloak/data/import/realm.json:ro",
-                    IMAGE, "start-dev", "--import-realm"], check=True, stdout=subprocess.DEVNULL,
+                    '-e', 'KC_BOOTSTRAP_ADMIN_USERNAME', '-e', 'KC_BOOTSTRAP_ADMIN_PASSWORD',
+                    IMAGE, "start-dev"], env=environment, check=True, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL, timeout=180)
                 port = subprocess.check_output(["docker", "port", name, "8080/tcp"], text=True).strip().rsplit(":", 1)[1]
                 base = "http://127.0.0.1:" + port
@@ -71,13 +67,14 @@ class KeycloakReadinessLoadTests(unittest.TestCase):
                         return (json.loads(raw) if raw else {}), response.headers
                 for _ in range(150):
                     try:
-                        request("POST", "/realms/master/protocol/openid-connect/token", form={
+                        admin, _ = request("POST", "/realms/master/protocol/openid-connect/token", form={
                             "grant_type": "password", "client_id": "admin-cli", "username": "fixture-admin", "password": admin_password})
                         break
                     except (OSError, ValueError):
                         time.sleep(1)
                 else:
                     self.fail("Isolated Keycloak did not become ready")
+                request('POST', '/admin/realms', token=admin['access_token'], body=realm)
 
                 entries, owners = [], {}
                 for number in range(65):

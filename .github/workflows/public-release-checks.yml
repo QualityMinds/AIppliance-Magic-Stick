@@ -14,9 +14,9 @@ jobs:
   gateway-security:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    env:
-      KUBECONFIG: ${{ runner.temp }}/cookie-guard-kubeconfig
     steps:
+      - name: Isolate Kubernetes credentials to the runner temporary directory
+        run: echo "KUBECONFIG=$RUNNER_TEMP/cookie-guard-kubeconfig" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

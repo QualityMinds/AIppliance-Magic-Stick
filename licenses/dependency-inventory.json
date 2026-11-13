@@ -3202,7 +3202,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/test_multihost_stack.py",
-      "line": 137,
+      "line": 153,
       "reference": "\"pip install --no-cache-dir --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /app/gate_fixture.py\")"
     },
     {

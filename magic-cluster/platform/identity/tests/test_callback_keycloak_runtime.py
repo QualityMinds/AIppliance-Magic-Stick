@@ -56,17 +56,13 @@ class CallbackKeycloakRuntimeTests(unittest.TestCase):
                 "client.secret.rotated.expiration.time": str(int(time.time()) + 3600),
             })
         with tempfile.TemporaryDirectory(prefix="magicstick-keycloak-callback-") as directory:
-            realm_file = Path(directory) / "realm.json"
-            env_file = Path(directory) / "keycloak.env"
-            realm_file.write_text(json.dumps(realm), encoding="utf-8")
-            env_file.write_text(f"KC_BOOTSTRAP_ADMIN_USERNAME=fixture-admin\nKC_BOOTSTRAP_ADMIN_PASSWORD={admin_password}\nKC_FEATURES=client-secret-rotation\n", encoding="utf-8")
-            os.chmod(realm_file, 0o644)
-            os.chmod(env_file, 0o600)
+            environment = {**os.environ, 'KC_BOOTSTRAP_ADMIN_USERNAME': 'fixture-admin',
+                           'KC_BOOTSTRAP_ADMIN_PASSWORD': admin_password, 'KC_FEATURES': 'client-secret-rotation'}
             try:
                 subprocess.run(["docker", "run", "-d", "--name", name, "--publish", "127.0.0.1::8080",
-                    "--env-file", str(env_file), "--volume", f"{realm_file}:/opt/keycloak/data/import/realm.json:ro",
-                    IMAGE, "start-dev", "--import-realm"], check=True, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE, timeout=180)
+                    '-e', 'KC_BOOTSTRAP_ADMIN_USERNAME', '-e', 'KC_BOOTSTRAP_ADMIN_PASSWORD', '-e', 'KC_FEATURES',
+                    IMAGE, "start-dev"], env=environment, check=True, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=180)
                 endpoint = subprocess.check_output(["docker", "port", name, "8080/tcp"], text=True).strip()
                 base = "http://127.0.0.1:" + endpoint.rsplit(":", 1)[1]
 
@@ -96,6 +92,9 @@ class CallbackKeycloakRuntimeTests(unittest.TestCase):
                         time.sleep(1)
                 self.assertIsNotNone(admin, "isolated Keycloak did not become ready")
                 admin_token = admin["access_token"]
+                # Import over the isolated loopback API, never a plaintext
+                # credential file or a secret-bearing command-line argument.
+                request('POST', '/admin/realms', token=admin_token, body=realm)
                 clients, _ = request("GET", "/admin/realms/magicstick/clients?clientId=magicstick-human-gateway-local", token=admin_token)
                 self.assertEqual(len(clients), 1)
                 client_path = "/admin/realms/magicstick/clients/" + clients[0]["id"]
