@@ -47,7 +47,9 @@ class WebsiteTests(unittest.TestCase):
     legal_pairs = {'imprint.html': 'impressum.html', 'privacy.html': 'datenschutz.html'}
     # Link targets that differ only by language are compared as their English form.
     language_pairs = {**legal_pairs, 'de.html': 'index.html', 'editionen.html': 'editions.html',
-                      'https://www.microsoft.com/de-de/': 'https://www.microsoft.com/en-us/'}
+                      'https://www.microsoft.com/de-de/': 'https://www.microsoft.com/en-us/',
+                      'https://www.tiktok.com/legal/page/eea/privacy-policy/de-DE':
+                          'https://www.tiktok.com/legal/page/eea/privacy-policy/en'}
     public = 'https://magic-stick.ai/'
 
     @property

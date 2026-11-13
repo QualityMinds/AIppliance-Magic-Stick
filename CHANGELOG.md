@@ -8,6 +8,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- The privacy policy now also covers the project's TikTok profile in both
+  languages: providers, joint controllership for profile statistics, transfer
+  safeguards and TikTok's privacy policy.
 - Redesign the terminal dashboard as a text version of the browser dashboard.
   It now has the same pages in a list on the left, with the System sections,
   panels, status badges and buttons of the web interface, designed for a
