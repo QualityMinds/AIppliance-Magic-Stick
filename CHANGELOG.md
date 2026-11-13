@@ -21,6 +21,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   Allow bounded cold image pulls during application and optional operator Helm
   installation. Recovery can snapshot a failed Helm install without treating it
   as healthy, and retains exact release identities when checking for late resources.
+  Permit DNS-qualified native API groups with hyphens in the read-only observer,
+  while continuing to reject Secrets, subresources and invalid resource paths.
 
 - Bound ordinary automatic NVIDIA model memory planning to one eligible physical
   card, not the sum of a scheduling pool. Create/Edit sliders and recommendations
