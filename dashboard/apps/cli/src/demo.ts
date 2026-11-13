@@ -8,15 +8,29 @@ const demoSnapshot = (): DashboardSnapshot => ({
   appliance: {metadata: {name: 'demo'}, status: {phase: 'Ready'}},
   modules: {
     modules: {
-      litellm: {displayName: 'LiteLLM', enabled: true, status: {phase: 'Ready'}},
-      kubeai: {displayName: 'KubeAI', enabled: true, status: {phase: 'Ready'}},
-      hermes: {displayName: 'Hermes', enabled: true, status: {phase: 'Ready'}},
-      paperclip: {displayName: 'Paperclip', enabled: false, status: {phase: 'Disabled'}},
+      litellm: {displayName: 'LiteLLM', enabled: true, activationMode: 'moduleactivation', status: {phase: 'Ready'}},
+      kubeai: {displayName: 'KubeAI', enabled: true, activationMode: 'moduleactivation', status: {phase: 'Ready'}},
+      hermes: {displayName: 'Hermes', enabled: true, activationMode: 'moduleactivation', status: {phase: 'Ready'}},
+      paperclip: {displayName: 'Paperclip', enabled: false, activationMode: 'moduleactivation', status: {phase: 'Disabled'}},
+      gateway: {displayName: 'Gateway', enabled: true, activationMode: 'static', status: {phase: 'Ready'}},
+    },
+    catalogJson: {
+      modules: {
+        litellm: {displayName: 'LiteLLM', group: 'runtime', order: 10, activationMode: 'moduleactivation', description: 'OpenAI-compatible API for all models.'},
+        kubeai: {displayName: 'KubeAI', group: 'runtime', order: 20, activationMode: 'moduleactivation', description: 'Local model serving.'},
+        hermes: {displayName: 'Hermes', group: 'apps', order: 30, activationMode: 'moduleactivation'},
+        paperclip: {displayName: 'Paperclip', group: 'apps', order: 40, activationMode: 'moduleactivation'},
+        gateway: {displayName: 'Gateway', group: 'platform', order: 50, activationMode: 'static', description: 'Routes for dashboards and applications.'},
+      },
+      applications: {
+        hermes: {displayName: 'Hermes', requiredModules: ['hermes', 'litellm']},
+        paperclip: {displayName: 'Paperclip', requiredModules: ['paperclip', 'litellm']},
+      },
     },
   },
-  instances: {instances: {hermes: [{metadata: {name: 'demo'}, status: {phase: 'Ready'}}]}},
+  instances: {instances: {hermes: [{metadata: {name: 'demo'}, status: {phase: 'Ready', url: 'https://demo.hermes.example.com'}}]}},
   models: {
-    models: [{name: 'demo-chat'}], presets: {},
+    models: [{id: 'demo-chat', name: 'demo-chat', type: 'chat'}], presets: {},
     activations: [{metadata: {name: 'demo-chat'}, spec: {type: 'local', local: {engine: 'VLLM', computeTarget: 'cpu'}}, status: {phase: 'Ready'}}],
     computeTargets: {default: 'cpu', targets: [{id: 'cpu', kind: 'cpu', available: true, engines: ['VLLM']}]},
     computeMemory: {devices: [{id: 'cpu', name: 'Demo CPU', totalMi: 32768, freeMi: 24576, unreservedMi: 24576}]},
@@ -55,5 +69,7 @@ export const createDemoRuntime = (): Runtime => {
     settings: {apiUrl: '', issuer: '', clientId: ''},
     login: unavailable,
     logout: unavailable,
+    sessionKind: () => 'none',
+    localConsole: false,
   };
 };

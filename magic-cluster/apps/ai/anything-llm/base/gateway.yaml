@@ -46,7 +46,7 @@ spec:
     - name: identity-pilot
       sectionName: https
   hostnames:
-    - "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "anythingllm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
   rules:
     - matches:
         - path:
@@ -63,6 +63,14 @@ metadata:
   name: static-anything-llm-local-sso
   namespace: identity-system
 spec:
+  extAuth:
+    failOpen: false
+    headersToExtAuth: ["Cookie", "Authorization"]
+    http:
+      backendRefs:
+        - name: ai-appliance-dashboard-api
+          port: 8080
+      path: /internal/session-access
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
@@ -79,12 +87,11 @@ spec:
     clientID: magicstick-human-gateway-local
     clientSecret:
       name: magicstick-human-gateway-client
-    redirectURL: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-anything-llm-local"
+    redirectURL: "https://anythingllm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-anything-llm-local"
     logoutPath: /logout
-    cookieDomain: "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     cookieNames:
-      accessToken: MagicStickAccessToken
-      idToken: MagicStickIDToken
+      accessToken: __Host-MagicStickAccessToken
+      idToken: __Host-MagicStickIDToken
     forwardAccessToken: true
   jwt:
     providers:
@@ -97,7 +104,7 @@ spec:
               port: 8080
         extractFrom:
           cookies:
-            - MagicStickAccessToken
+            - __Host-MagicStickAccessToken
   authorization:
     defaultAction: Deny
     rules:
@@ -146,7 +153,7 @@ spec:
     - name: identity-pilot
       sectionName: https
   hostnames:
-    - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+    - "anythingllm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
   rules:
     - matches:
         - path:
@@ -163,6 +170,14 @@ metadata:
   name: static-anything-llm-public-sso
   namespace: identity-system
 spec:
+  extAuth:
+    failOpen: false
+    headersToExtAuth: ["Cookie", "Authorization"]
+    http:
+      backendRefs:
+        - name: ai-appliance-dashboard-api
+          port: 8080
+      path: /internal/session-access
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
@@ -179,12 +194,11 @@ spec:
     clientID: magicstick-human-gateway-local
     clientSecret:
       name: magicstick-human-gateway-client
-    redirectURL: "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/static-anything-llm-public"
+    redirectURL: "https://anythingllm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}/oauth2/callback/static-anything-llm-public"
     logoutPath: /logout
-    cookieDomain: "${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
     cookieNames:
-      accessToken: MagicStickAccessToken
-      idToken: MagicStickIDToken
+      accessToken: __Host-MagicStickAccessToken
+      idToken: __Host-MagicStickIDToken
     forwardAccessToken: true
   jwt:
     providers:
@@ -197,7 +211,7 @@ spec:
               port: 8080
         extractFrom:
           cookies:
-            - MagicStickAccessToken
+            - __Host-MagicStickAccessToken
   authorization:
     defaultAction: Deny
     rules:

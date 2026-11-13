@@ -26,6 +26,8 @@ React browser dashboard
 Terminal client (CLI or TUI)
   -> Keycloak Device Authorization Flow
   -> Envoy Gateway JWT validation on api.<mDNS-domain>
+Attached appliance monitor (TUI)
+  -> automatic magicstick-console service-account token, cluster-internal only
 Both
   -> Dashboard Backend API
      -> Kubernetes API

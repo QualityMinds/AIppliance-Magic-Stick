@@ -1,0 +1,54 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: magicstick-callback-gate
+  namespace: identity-system
+spec:
+  dnsNames:
+    - magicstick-callback-gate.identity-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: identity-pilot-ca
+  secretName: magicstick-callback-gate-tls
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-callback-gate-ca
+  namespace: identity-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: magicstick-callback-gate
+  namespace: identity-system
+spec:
+  selector:
+    app: ai-appliance-dashboard-api
+  ports:
+    - name: grpc
+      port: 8081
+      targetPort: callback-gate
+      appProtocol: kubernetes.io/h2c
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: magicstick-callback-gate
+  namespace: identity-system
+spec:
+  endpoints:
+    - fqdn:
+        hostname: magicstick-callback-gate.identity-system.svc.cluster.local
+        port: 8081
+  appProtocols:
+    - gateway.envoyproxy.io/h2c
+  tls:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: magicstick-callback-gate-ca
+    sni: magicstick-callback-gate.identity-system.svc.cluster.local
+    insecureSkipVerify: false

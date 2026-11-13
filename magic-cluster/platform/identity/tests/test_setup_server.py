@@ -87,6 +87,10 @@ class SetupGatewayTests(unittest.TestCase):
         self.assertIn(f"const envoyImage = '{expected}';", fixture.read_text(encoding="utf-8"))
         self.assertEqual(source["spec"]["ref"]["tag"], "v1.8.5")
         self.assertEqual(identity_proxy["spec"]["filterOrder"], [{
+            "name": "envoy.filters.http.lua", "before": "envoy.filters.http.oauth2",
+        }, {
+            "name": "envoy.filters.http.ext_proc", "before": "envoy.filters.http.oauth2",
+        }, {
             "name": "envoy.filters.http.ext_authz", "after": "envoy.filters.http.jwt_authn",
         }])
 

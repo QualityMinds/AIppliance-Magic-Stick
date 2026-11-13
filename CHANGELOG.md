@@ -8,10 +8,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
-- Raise the dashboard nginx's bounded large-header buffers to four 16 KiB
-  buffers so legitimate SSO cookie/token headers do not hit the old 8 KiB
-  per-field limit. Cookie scope, authentication and authorization remain unchanged;
-  requests exceeding the new limit are still rejected.
+- Retain the dashboard nginx's four bounded 16 KiB large-header buffers for
+  existing SSO cookie/token headers during host-only cookie migration.
+  Requests exceeding the per-field or total limit remain rejected.
 
 - Add an explicitly selected, catalog-derived Services regression with ordered
   installation/removal and SSO/public access stages.
@@ -28,6 +27,53 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   as healthy, and retains exact release identities when checking for late resources.
   Permit DNS-qualified native API groups with hyphens in the read-only observer,
   while continuing to reject Secrets, subresources and invalid resource paths.
+- Isolate gateway SSO cookies by dashboard or application host and register
+  exact, instance-owned login callbacks. Global logout checks the active identity
+  session for later protected requests. Legacy gateway token cookies are
+  migrated without deleting unrelated application cookies; users sign in again.
+  Native Gateway defaults and admission guards preserve callback/authentication
+  checks when route policies are missing or weakened. Backend activation requires
+  a real, revision-bound admission deny probe; no additional proxy is introduced.
+- The privacy policy now also covers the project's TikTok profile in both
+  languages: providers, joint controllership for profile statistics, transfer
+  safeguards and TikTok's privacy policy.
+- Redesign the terminal dashboard as a text version of the browser dashboard.
+  It now has the same pages in a list on the left, with the System sections,
+  panels, status badges and buttons of the web interface, designed for a
+  terminal 120 columns wide. A cursor moves between elements with the arrow
+  keys or Tab and uses them with Enter, the bottom line is a hotkey bar for
+  the current page, and dialogs open over the page. Terminals that report the
+  mouse, such as SSH clients, also accept clicks and wheel scrolling. The former flat tabs
+  and their `a`/`d`/`e` row shortcuts are replaced: Settings, License, Users
+  and Hardware are sections of **System**, and row actions are buttons. Text
+  selection with the mouse needs Shift while the dashboard is open.
+- Support a mouse on the attached appliance monitor without a graphical
+  desktop. A host helper turns the kernel's mouse device into mouse reports for
+  the terminal dashboard, which draws the pointer itself; clicks and the wheel
+  work as in an SSH terminal. Takes effect once the updated host role and CLI
+  image are both installed; otherwise, or without a mouse, the monitor keeps
+  working with the keyboard. `dashboard_console_mouse_enabled: false` switches
+  it off.
+- Add browser actions to the terminal dashboard: create and remove application
+  instances, show service and instance credentials on request, change instance
+  sharing (administrators), and start, stop or restart models. The create form
+  sends the same request as the browser form. Stopping, restarting, removing
+  and saving a sharing policy ask for confirmation first. Editing model
+  settings, model logs, Mesh and Computer power remain in the browser.
+- Sign the attached appliance monitor in automatically. The terminal dashboard
+  no longer needs a device login from a second device, so the appliance can be
+  operated at the machine itself while the network is unavailable. **Security
+  note:** after this update, physical access to the attached keyboard grants
+  Administrator dashboard access by default, on existing installations too.
+  Administrators can lower it to Operator or Viewer or switch it off under
+  **System → Settings → Local console**, in the TUI or with
+  `magicstick console-access`; lower levels apply immediately and cannot be
+  raised from the console itself. The console identity is accepted only on
+  the cluster-internal API connection, so its secret is useless from the
+  network. `x` now switches to a personal device login
+  and back. The console runtime no longer requires the image registry to
+  restart. Takes effect once the updated platform revision, CLI image and host
+  role are installed; older combinations keep the device login.
 
 - Bound ordinary automatic NVIDIA model memory planning to one eligible physical
   card, not the sum of a scheduling pool. Create/Edit sliders and recommendations

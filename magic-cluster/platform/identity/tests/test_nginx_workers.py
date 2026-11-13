@@ -58,6 +58,26 @@ class NginxWorkerContractTests(unittest.TestCase):
         self.assertEqual(step["env"]["MAGICSTICK_RUN_NGINX_CONTAINER_TESTS"], "1")
         self.assertIn("tests.test_nginx_runtime", step["run"])
 
+    def test_cookie_migration_runs_in_pinned_envoy_in_ci(self):
+        workflow = yaml.load((ROOT / ".github/workflows/public-release-checks.yml").read_text(),
+                             Loader=yaml.BaseLoader)
+        step = next(item for item in workflow["jobs"]["release-checks"]["steps"]
+                    if item.get("name") == "Check cookie migration with pinned Envoy")
+        self.assertEqual(step["env"]["MAGICSTICK_RUN_ENVOY_CONTAINER_TESTS"], "1")
+        self.assertIn("test_cookie_migration_envoy.py", step["run"])
+        self.assertNotIn("if", step)
+
+    def test_callback_update_and_rotation_guard_run_in_pinned_keycloak_in_ci(self):
+        workflow = yaml.load((ROOT / ".github/workflows/public-release-checks.yml").read_text(),
+                             Loader=yaml.BaseLoader)
+        step = next(item for item in workflow["jobs"]["release-checks"]["steps"]
+                    if item.get("name") == "Check callback reconciliation with pinned Keycloak")
+        self.assertEqual(step["env"]["MAGICSTICK_RUN_KEYCLOAK_CONTAINER_TESTS"], "1")
+        self.assertIn("test_callback_keycloak_runtime.py", step["run"])
+        self.assertIn("MAGICSTICK_PROBE_UNSAFE_ROTATION=guard", step["run"])
+        self.assertEqual(step["timeout-minutes"], "6")
+        self.assertNotIn("if", step)
+
 
 if __name__ == "__main__":
     unittest.main()

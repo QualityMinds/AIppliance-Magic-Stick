@@ -1,0 +1,250 @@
+# The Gateway baseline is a required dependency, not best-effort decoration.
+# Cluster administrators can remove admission itself and remain trusted. Normal
+# runtime identities cannot weaken or delete either baseline.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-callback-gate-policies
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.envoyproxy.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [envoyextensionpolicies]
+  validations:
+    - expression: >-
+        request.operation != 'DELETE' ||
+        !(request.namespace == 'identity-system' && request.name == 'magicstick-cookie-migration')
+      message: The mandatory Gateway callback gate cannot be deleted.
+    - expression: >-
+        request.operation == 'DELETE' || (
+          request.namespace == 'identity-system' && !has(object.spec.targetSelectors) &&
+          object.spec.targetRefs.size() > 0 &&
+          object.spec.targetRefs.all(r, r.group == 'gateway.networking.k8s.io' &&
+            (!has(r.namespace) || r.namespace == 'identity-system') &&
+            (r.kind == 'HTTPRoute' || (r.kind == 'Gateway' && r.name == 'identity-pilot' &&
+              object.metadata.name == 'magicstick-cookie-migration' && r.sectionName == 'https'))) &&
+          (object.metadata.name != 'magicstick-cookie-migration' ||
+            (object.spec.targetRefs.size() == 1 && object.spec.targetRefs[0].kind == 'Gateway')) &&
+          !has(object.spec.wasm) && !has(object.spec.dynamicModules) &&
+          object.spec.lua.size() == 1 && object.spec.lua[0].type == 'ValueRef' &&
+          object.spec.lua[0].valueRef.group == '' && object.spec.lua[0].valueRef.kind == 'ConfigMap' &&
+          object.spec.lua[0].valueRef.name == 'magicstick-cookie-migration' &&
+          object.spec.extProc.size() == 1 && object.spec.extProc[0].failOpen == false &&
+          has(object.spec.extProc[0].processingMode.request) &&
+          !has(object.spec.extProc[0].processingMode.request.body) &&
+          !has(object.spec.extProc[0].processingMode.request.attributes) &&
+          !has(object.spec.extProc[0].processingMode.response) &&
+          (!has(object.spec.extProc[0].processingMode.allowModeOverride) ||
+           object.spec.extProc[0].processingMode.allowModeOverride == false) &&
+          !has(object.spec.extProc[0].backendRef) && !has(object.spec.extProc[0].backendSettings) &&
+          !has(object.spec.extProc[0].metadata) &&
+          object.spec.extProc[0].messageTimeout == '8s' &&
+          object.spec.extProc[0].backendRefs.size() == 1 &&
+          object.spec.extProc[0].backendRefs[0].group == 'gateway.envoyproxy.io' &&
+          object.spec.extProc[0].backendRefs[0].kind == 'Backend' &&
+          object.spec.extProc[0].backendRefs[0].name == 'magicstick-callback-gate' &&
+          object.spec.extProc[0].backendRefs[0].weight > 0 &&
+          (!has(object.spec.extProc[0].backendRefs[0].fallback) || object.spec.extProc[0].backendRefs[0].fallback == false) &&
+          (!has(object.spec.extProc[0].backendRefs[0].namespace) ||
+            object.spec.extProc[0].backendRefs[0].namespace == 'identity-system')
+        )
+      message: Every extension policy must retain the mandatory fail-closed callback gate and migration filter.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-callback-gate-policies
+spec:
+  policyName: magicstick-callback-gate-policies
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-security-baseline
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.envoyproxy.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [securitypolicies]
+  validations:
+    - expression: >-
+        request.operation != 'DELETE' ||
+        !(request.namespace == 'identity-system' && request.name == 'magicstick-default-deny')
+      message: The Gateway default-deny baseline cannot be deleted.
+    - expression: >-
+        request.operation == 'DELETE' || (
+          request.namespace == 'identity-system' && !has(object.spec.targetSelectors) &&
+          !has(object.spec.mergeType) && object.spec.targetRefs.size() > 0 &&
+          object.spec.targetRefs.all(r, r.group == 'gateway.networking.k8s.io' &&
+            (!has(r.namespace) || r.namespace == 'identity-system') &&
+            (r.kind == 'HTTPRoute' || (r.kind == 'Gateway' && r.name == 'identity-pilot' &&
+              object.metadata.name == 'magicstick-default-deny' && r.sectionName == 'https'))) &&
+          (object.metadata.name != 'magicstick-default-deny' ||
+            (object.spec.targetRefs.size() == 1 && object.spec.targetRefs[0].kind == 'Gateway' &&
+             object.spec.authorization.defaultAction == 'Deny' && !has(object.spec.authorization.rules))) &&
+          (
+            (object.spec.targetRefs.all(r, r.kind == 'HTTPRoute' && r.name == 'keycloak') &&
+             object.metadata.name == 'magicstick-local-identity-public') ||
+            (object.spec.targetRefs.all(r, r.kind == 'HTTPRoute' && r.name == 'private-mesh-enrollment') &&
+             object.metadata.name == 'private-mesh-enrollment-native-auth') ||
+            (object.metadata.name == 'magicstick-setup-local-only' &&
+             object.spec.targetRefs.all(r, r.kind == 'HTTPRoute' && r.name in ['magicstick-setup-direct', 'magicstick-setup-local']) &&
+             object.spec.authorization.defaultAction == 'Deny' && object.spec.authorization.rules.size() == 1 &&
+             object.spec.authorization.rules[0].action == 'Allow' &&
+             object.spec.authorization.rules[0].principal.clientCIDRs.all(c, c in ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '::1/128', 'fc00::/7', 'fe80::/10'])) ||
+            (has(object.spec.extAuth) && object.spec.extAuth.failOpen == false &&
+             object.spec.extAuth.http.backendRefs.size() == 1 &&
+             object.spec.extAuth.http.backendRefs[0].name == 'ai-appliance-dashboard-api' &&
+             object.spec.extAuth.http.backendRefs[0].port == 8080 &&
+             (!has(object.spec.extAuth.http.backendRefs[0].namespace) ||
+              object.spec.extAuth.http.backendRefs[0].namespace == 'identity-system') &&
+             (object.spec.extAuth.http.path == '/internal/session-access' ||
+              (object.spec.extAuth.http.path == '/internal/federation-license' &&
+               object.metadata.name == 'keycloak-federation-license' &&
+               object.spec.targetRefs.all(r, r.kind == 'HTTPRoute' && r.name == 'keycloak-federation')) ||
+              (has(object.metadata.labels) && 'appliance.magicstick.dev/appinstance' in object.metadata.labels &&
+               'appliance.magicstick.dev/owner-uid' in object.metadata.labels &&
+               object.spec.extAuth.http.path == '/internal/instance-access/' +
+                 object.metadata.labels['appliance.magicstick.dev/appinstance'] + '/' +
+                 object.metadata.labels['appliance.magicstick.dev/owner-uid']))) ||
+            (object.metadata.name == 'dashboard-api-local-jwt' && has(object.spec.jwt) &&
+             object.spec.targetRefs.all(r, r.kind == 'HTTPRoute' && r.name == 'dashboard-api-local') &&
+             object.spec.authorization.defaultAction == 'Deny') ||
+            object.metadata.name == 'magicstick-default-deny'
+          ) &&
+          (!has(object.spec.oidc) || (!has(object.spec.oidc.cookieDomain) &&
+            object.spec.oidc.cookieNames.accessToken == '__Host-MagicStickAccessToken' &&
+            object.spec.oidc.cookieNames.idToken == '__Host-MagicStickIDToken'))
+        )
+      message: Route policies must preserve authentication; only exact native identity/enrollment routes can be public.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-security-baseline
+spec:
+  policyName: magicstick-security-baseline
+  validationActions: [Deny]
+---
+# A new route is rejected if either root policy is missing. paramRef resolves
+# the dependency in admission, rather than trusting Flux ordering alone.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-route-needs-callback-baseline
+spec:
+  failurePolicy: Fail
+  paramKind: {apiVersion: gateway.envoyproxy.io/v1alpha1, kind: EnvoyExtensionPolicy}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [httproutes]
+  matchConditions:
+    - name: identity-gateway
+      expression: >-
+        object.spec.parentRefs.exists(r, r.name == 'identity-pilot' &&
+          (has(r.namespace) ? r.namespace == 'identity-system' : request.namespace == 'identity-system'))
+  validations:
+    - expression: >-
+        params != null && !has(params.metadata.deletionTimestamp) &&
+        params.spec.extProc.size() == 1 && params.spec.extProc[0].failOpen == false &&
+        has(params.status.ancestors) && params.status.ancestors.exists(a,
+          a.controllerName == 'gateway.envoyproxy.io/gatewayclass-controller' &&
+          a.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' &&
+            c.observedGeneration == params.metadata.generation))
+      message: The mandatory callback baseline must exist before an identity route can be admitted.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-route-needs-callback-baseline
+spec:
+  policyName: magicstick-route-needs-callback-baseline
+  validationActions: [Deny]
+  paramRef:
+    name: magicstick-cookie-migration
+    namespace: identity-system
+    parameterNotFoundAction: Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-route-needs-security-baseline
+spec:
+  failurePolicy: Fail
+  paramKind: {apiVersion: gateway.envoyproxy.io/v1alpha1, kind: SecurityPolicy}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [httproutes]
+  matchConditions:
+    - name: identity-gateway
+      expression: >-
+        object.spec.parentRefs.exists(r, r.name == 'identity-pilot' &&
+          (has(r.namespace) ? r.namespace == 'identity-system' : request.namespace == 'identity-system'))
+  validations:
+    - expression: >-
+        params != null && !has(params.metadata.deletionTimestamp) &&
+        params.spec.authorization.defaultAction == 'Deny' &&
+        has(params.status.ancestors) && params.status.ancestors.exists(a,
+          a.controllerName == 'gateway.envoyproxy.io/gatewayclass-controller' &&
+          a.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' &&
+            c.observedGeneration == params.metadata.generation))
+      message: The default-deny baseline must exist before an identity route can be admitted.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-route-needs-security-baseline
+spec:
+  policyName: magicstick-route-needs-security-baseline
+  validationActions: [Deny]
+  paramRef:
+    name: magicstick-default-deny
+    namespace: identity-system
+    parameterNotFoundAction: Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-callback-filter-order
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.envoyproxy.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [envoyproxies]
+  matchConditions:
+    - name: protected-proxy
+      expression: request.namespace == 'identity-system' && object.metadata.name == 'identity-pilot'
+  validations:
+    - expression: >-
+        object.spec.filterOrder.size() == 3 &&
+        object.spec.filterOrder[0].name == 'envoy.filters.http.lua' &&
+        object.spec.filterOrder[0].before == 'envoy.filters.http.oauth2' &&
+        object.spec.filterOrder[1].name == 'envoy.filters.http.ext_proc' &&
+        object.spec.filterOrder[1].before == 'envoy.filters.http.oauth2' &&
+        object.spec.filterOrder[2].name == 'envoy.filters.http.ext_authz' &&
+        object.spec.filterOrder[2].after == 'envoy.filters.http.jwt_authn'
+      message: Callback verification must remain before OAuth and authorization after verified identity.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-callback-filter-order
+spec:
+  policyName: magicstick-callback-filter-order
+  validationActions: [Deny]

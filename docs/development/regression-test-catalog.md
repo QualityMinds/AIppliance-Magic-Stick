@@ -99,10 +99,12 @@ without dashboard-management grants. Follow the current shared role contract.
 | AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. Verify automatic short-token refresh, normal idle expiry and the absolute Remember me maximum despite activity. | U+C+B+A | P0 · identity |
 | AUTH-04 | Test every mutation family with viewer/ordinary-user sessions and direct API requests, not only hidden controls. Model/module/app operations follow role policy; all administrator-only operations are denied. | C+A+E | P0 · identity |
 | AUTH-05 | Omit or forge browser CSRF/origin headers on cookie-authenticated mutations. Reject without saved intent; valid same-origin and supported terminal Bearer requests still work. | U+C+A | P0 · identity |
-| AUTH-06 | Log out and revisit/reload a protected page with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
+| AUTH-06 | Log out and revisit/reload protected dashboard and application hosts with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
 | AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
+| AUTH-11 | Open the attached appliance console without any saved login. It signs in as the Local console service account with no prompt, browser or stored token; a saved user login takes precedence and logout returns to the automatic session. A missing, empty or rejected console secret and a switched-off level fall back to the device login instead of failing, while an unreachable API or identity provider is never replaced by a login prompt. Switching users can be cancelled without losing the working session. | U+C | P1 · identity |
+| AUTH-12 | Change the Local console level (Off, Viewer, Operator, Administrator) from Web, CLI and TUI through the shared API. Only a live administrator can change it; the console's authorization follows its current Keycloak roles instead of stale token claims, so a downgrade applies to the next request and a downgraded console cannot restore itself. A console-client token for any other account, invalid levels and an unprovisioned identity are rejected without a role write. A console token is honoured only on the direct in-cluster connection: any gateway or frontend-proxy header, or an unknown transport, is refused, and the network API route denies the identity before its role rule, while proxied human sessions are unaffected. Startup reconciliation grants the default exactly once and never re-grants after an opt-out; the identity stays out of human-user lists and administrator counts. | U+C | P1 · identity |
 | AUTH-10 | Simulate Keycloak/API unavailability. Distinguish authentication service failure from bad credentials; do not allow cached privilege or an unauthenticated fallback. | U+C+B | P0 · fast |
 
 ## 3. Navigation, Overview and System Status
@@ -632,6 +634,91 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+### 2026-11-12 — mouse on the attached appliance monitor
+
+Host helper `magic-host/roles/dashboard-console/files/console-mouse.py` plus a
+TUI-drawn pointer; no case ID, variant or selection profile changes, no API
+change. Host role (C, selected by the existing `dashboard-console` discovery in
+`public-release-checks.yml`): `test_console_mouse.py` covers packet decoding
+and resynchronisation, wheel packets, tracking of the mouse modes the program
+requested (including a split sequence), cell movement and clamping, SGR
+reports for clicks, movement and wheel, silence while nothing was requested,
+and the proxy on a pseudo-terminal with a FIFO as the mouse device (keyboard
+and mouse merged in order, direct execution without a device, exit status).
+`test_role.py` checks that the launcher keeps the direct keyboard path without
+helper, device or opt-in. CLI/TUI (U): `tui-pointer.test.ts` checks the drawn
+pointer, movement reports requested only with the console pointer, row-only
+repaints on movement and the unchanged behaviour in other terminals;
+`commands.test.ts` checks that only the console command honours the launcher's
+pointer flag. Not covered, and not claimed: a real `/dev/input/mice` on the
+appliance (including the wheel-protocol switch), the pointer on the real
+console font, and movement speed on real hardware. These need a manual check
+on the test appliance.
+
+### 2026-11-12 — browser actions in the terminal dashboard
+
+The TUI gains create/remove instance, service and instance credentials,
+instance sharing and model start/stop/restart, all through existing API routes;
+no case ID, variant or selection profile changes and no API change. The
+create-instance payload moved from the browser page into
+`dashboard/packages/core` so both clients send the same request (APP-area
+create cases keep their existing browser and live coverage; the browser form's
+behaviour is unchanged and its 437 web tests pass). Unit (U):
+`dashboard/apps/web/src/InstanceCreateCore.test.ts` pins the payload per
+application, the `<instance-name>.<instance-type>.<domain>` hostname and the
+rejected drafts. `dashboard/apps/cli/src/tui-actions.test.ts` drives the TUI
+against a live-shaped runtime: the create payload and name validation, removal
+only after confirmation (by mouse), credentials fetched on request and gone
+after closing, a sharing policy saved with the loaded revision after the
+confirmation names who gets access, stop with the saved model revision after
+confirmation, the explained refusal without a revision, and operator/viewer
+button visibility. UX-04 remains the owning case for the shared client
+contract. Not covered: these TUI flows against a live appliance; the API's own
+authorization for these routes is covered by its existing suites, not re-run
+here.
+
+### 2026-11-12 — terminal dashboard laid out like the browser dashboard
+
+Presentation change of the TUI only; no case ID, variant or selection profile
+changes. UX-04 and the TUI part of AUTH-12 keep their unit (U) coverage in
+`dashboard/apps/cli/src`, rewritten for the new layout: `tui.test.ts` checks
+the role-filtered pages and System sections against the browser's, the page
+fallback for a role without access, button visibility per role and activation
+mode, the unchanged memory and hardware wording, cursor movement between the
+page list and the page, Tab order, scrolling, the cursor surviving a refresh,
+mouse-report decoding and hit testing, dialogs and masked secrets.
+`tui-console.test.ts`, `license-tui.test.ts`, `tui-runtime.test.ts` and
+`demo.test.ts` drive the same console-access, license, animation and offline
+flows through the new navigation. No API, authorization or workload path
+changed, so no API (C) or live case was added. Not covered: a real terminal's
+rendering of the frame glyphs on the appliance console, and mouse input on the
+attached monitor, which is not implemented.
+
+### 2026-11-12 — automatic sign-in of the attached appliance console
+
+New AUTH-11/AUTH-12 cover the Local console identity at its owning layers.
+API (C): `test_console_access_api.py` rejects stale token roles, foreign
+subjects on the console client, self-restoration after a downgrade, invalid
+levels and an unprovisioned identity, and checks cache invalidation and audit.
+The same file rejects a console token carrying each proxy header or no known
+transport, through the real request handler too, and keeps proxied human
+sessions working; `test_user_admin_deployment.py` checks the ordered gateway
+deny rule. Envoy's evaluation of that rule is not exercised locally.
+Identity (C): `test_console_identity.py` runs the extracted startup function
+against a synthetic `kcadm` for upgrade creation, once-only default grant,
+retry after a failed grant and a preserved opt-out; `test_callback_policy.py`
+propagates its failure. Host role (C): the Secret mount is optional, read-only
+and never passed on a command line. CLI/TUI (U): credential exchange, session
+precedence, in-memory token, fallback and non-fallback errors, cancellable user
+switching and the Settings form. Web (U): changed/reverted/refetched drafts,
+unavailable state and rejected saves. Client-credential, `userinfo`, role
+removal and wrong-secret behaviour were confirmed once against a local
+Keycloak 26.6.3 container; that is upstream verification, not installed
+acceptance. No selection profile or phase is changed: the physical console is
+outside the browser/API runner, so there is no B/A/E/O evidence. A native
+check of an offline console, the installed Secret/pod wiring and an upgrade
+of an existing realm remains open.
+
 ### 2026-11-12 — MEM-01/05 automatic NVIDIA single-card memory
 
 The existing Phase 2 owning/component and API-contract selections reproduce the
@@ -672,6 +759,22 @@ remain unknown, and a rejection is not overwritten by a later success claim.
 Local/CI fixture qualification, installed-image delivery and a fresh native HW-06
 retest are separate gates. No historical response, old success or hardware
 acceptance is inferred by this change; phase/exclusion policies are unchanged.
+
+### 2026-11-13 — host-scoped gateway sessions
+
+The host-only SSO work adds owning counterexamples for callback ownership,
+identity readback, rotation-safe reconciliation, legacy token-cookie migration,
+and a fail-closed session guard. The pinned Envoy and Keycloak container checks
+are distinct from multi-host trusted-browser and installed-appliance acceptance.
+The latter remain required; isolated fixtures and a synthetic load probe cannot
+be reported as live login or logout success. Existing application cookies are
+not bulk-deleted, and older generic OAuth cookies with unknown ownership may
+require a documented browser-side reset. Historical results remain unchanged.
+AUTH-01/02/03/06 also retain a separate real Gateway-controller contract in
+`Public release checks / gateway-security`: fresh admission dependencies,
+revision-bound activation, missing route gate/authentication policies, rejected
+weakened overrides and pre-OAuth ordering. The synthetic backend/readiness probe
+does not claim installed A/E evidence or a new registered service test.
 
 ### 2026-11-05 — configured identity callback reconciliation
 

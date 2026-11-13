@@ -28,8 +28,9 @@ explicit promotion candidates. Verify promotion and live convergence separately 
 The React frontend is the only browser dashboard, deployed as
 `dashboard/ai-appliance-dashboard`. Open `https://<mDNS-domain>/` (by default
 `https://magicstick.local/`) or the configured public-domain root. The existing
-Service, primary routes, OIDC callbacks and `MagicStickAccessToken` cookie names
-are retained. The local route keeps `lab42.io/mdns.enabled: "true"`, so kdns
+Service and primary routes remain in place. Each SSO host uses its own callback
+and host-only `__Host-MagicStickAccessToken` cookie. The local route keeps
+`lab42.io/mdns.enabled: "true"`, so kdns
 publishes the primary hostname when the route is accepted and the Gateway has
 an address. First-run setup and the physical CLI/TUI console keep their existing
 handoff URLs and do not require another dashboard address.
@@ -60,7 +61,7 @@ The React implementation retains the established tab-by-tab feature contract:
 | Mesh | Administrator-only top-level page immediately after API Access; optional module activation, membership, invitations, local-model sharing, relay configuration, and status. Former Settings Mesh links redirect here. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
 | Federated SSO | Entitlement status, stable issuer and per-provider callback, OIDC/SAML metadata validation, redacted provider state, exact role mappings, guarded save/delete, and local-recovery guidance. |
-| System | Category tabs for Settings, License, Users, Hardware, System Status and Computer power. Settings retains its own subtabs. System Status has a separate role-filtered tab bar: Overview resource counts and summaries; GPU Operators; Flux reasons/messages; Network & routes; administrator-only Model cache at `#/system/status/model-cache`; and license-free administrator regression execution/reports at `#/system/status/regression`. Only the selected status tool mounts and queries its API, independent of resource-status loading/errors. Old `#/system/model-cache` and `#/system/regression` hashes redirect to the matching nested status page. Existing Settings, License and Users compatibility links and administrator-only power controls remain intact. |
+| System | Category tabs for Settings, License, Users, Hardware, System Status and Computer power. Settings retains its own subtabs, including the identity-gated Local console level (`/api/console-access`, shared with the CLI `console-access` command and the TUI Settings tab). System Status has a separate role-filtered tab bar: Overview resource counts and summaries; GPU Operators; Flux reasons/messages; Network & routes; administrator-only Model cache at `#/system/status/model-cache`; and license-free administrator regression execution/reports at `#/system/status/regression`. Only the selected status tool mounts and queries its API, independent of resource-status loading/errors. Old `#/system/model-cache` and `#/system/regression` hashes redirect to the matching nested status page. Existing Settings, License and Users compatibility links and administrator-only power controls remain intact. |
 
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
@@ -221,11 +222,12 @@ MAGICSTICK_RUN_NGINX_CONTAINER_TESTS=1 python3 -m unittest -v tests.test_nginx_r
 
 The tests check HTTP responses, exactly one worker, no cgroup OOM events and no
 container restarts; they need Docker and no appliance access.
-The dashboard accepts large request headers with four on-demand 16 KiB buffers;
-each individual header field must fit one buffer. The bounded SSO-header hotfix
-does not change cookie domains, OIDC callbacks, authentication or authorization.
-Runtime tests accept synthetic 8/12 KiB cookies and token headers, reject an
-oversized field, and retain the existing 128 MiB non-root runtime budget.
+The dashboard nginx retains four on-demand 16 KiB large-header buffers. Each
+individual field must fit one buffer; the synthetic header tests verify both
+accepted and rejected sizes without storing credentials.
+They test header parsing, not authentication, and retain the existing 128 MiB
+non-root runtime budget. Host-only cookie migration and OIDC/logout checks remain
+separate identity acceptance gates.
 
 The API Dockerfile has one final runtime containing the BSL-licensed
 `magicstick_core` package, license texts and third-party notices.

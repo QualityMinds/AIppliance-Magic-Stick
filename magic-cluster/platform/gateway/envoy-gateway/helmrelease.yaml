@@ -12,9 +12,21 @@ spec:
   interval: 10m0s
   releaseName: envoy-gateway
   timeout: 10m0s
+  valuesFrom:
+    - kind: ConfigMap
+      name: magicstick-callback-backend-activation
+      valuesKey: enabled
+      targetPath: config.envoyGateway.extensionApis.enableBackend
+      optional: true
   upgrade:
     crds: ${AI_APPLIANCE_ENVOY_CRDS_POLICY:=Skip}
   values:
+    # First boot is disabled. Only the restricted real-API deny-canary Job
+    # activates the watched valuesFrom override after admission is enforced.
+    config:
+      envoyGateway:
+        extensionApis:
+          enableBackend: false
     # Patch releases fix auth-filter crashes. Attached EnvoyProxy resources also
     # pin this image because their default Replace merge does not inherit it.
     global:

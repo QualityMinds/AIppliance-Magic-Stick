@@ -83,6 +83,11 @@ spec:
                 secretKeyRef:
                   name: magicstick-federation-admin-client
                   key: client-secret
+            - name: MAGICSTICK_CONSOLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-console-client
+                  key: client-secret
             - name: KC_HOSTNAME
               value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
             - name: KC_HTTP_ENABLED
@@ -460,6 +465,62 @@ spec:
                           --realm magicstick >/dev/null 2>&1 || return 1
                         rm -f "$federation_admin_config"
                       }
+                      sync_console_client() {
+                        # Confidential service-account client for the physical appliance
+                        # console. Its default administrator access is granted exactly once;
+                        # later changes belong to the dashboard console-access setting.
+                        console_client_uuid="$(client_uuid magicstick-console)"
+                        if [ -z "$console_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-console \
+                            -s name='Magic Stick local appliance console' \
+                            -s enabled=true \
+                            -s clientAuthenticatorType=client-secret \
+                            -s "secret=$MAGICSTICK_CONSOLE_CLIENT_SECRET" \
+                            -s standardFlowEnabled=false \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=true \
+                            -s publicClient=false \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          console_client_uuid="$(client_uuid magicstick-console)"
+                        fi
+                        [ -n "$console_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$console_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick local appliance console' \
+                          -s enabled=true \
+                          -s clientAuthenticatorType=client-secret \
+                          -s "secret=$MAGICSTICK_CONSOLE_CLIENT_SECRET" \
+                          -s standardFlowEnabled=false \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=true \
+                          -s publicClient=false \
+                          -s 'redirectUris=[]' \
+                          -s 'webOrigins=[]' \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+                        [ -n "$(user_uuid service-account-magicstick-console)" ] || return 1
+                        if /opt/keycloak/bin/kcadm.sh get "clients/$console_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick 2>/dev/null \
+                          | grep -Eq '"magicstick\.console\.defaultAccessApplied"[[:space:]]*:[[:space:]]*"true"'; then
+                          return 0
+                        fi
+                        /opt/keycloak/bin/kcadm.sh add-roles \
+                          --config "$config" \
+                          --target-realm magicstick \
+                          --uusername service-account-magicstick-console \
+                          --rolename magicstick-user \
+                          --rolename magicstick-admin >/dev/null 2>&1 || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$console_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s 'attributes."magicstick.console.defaultAccessApplied"=true' >/dev/null 2>&1 || return 1
+                      }
                       sync_callbacks() {
                         /opt/keycloak/bin/kcadm.sh config credentials \
                           --config "$config" \
@@ -469,15 +530,40 @@ spec:
                           --secret "$MAGICSTICK_SETUP_CLIENT_SECRET" >/dev/null 2>&1 || return 1
                         human_gateway_client_uuid="$(client_uuid magicstick-human-gateway-local)"
                         [ -n "$human_gateway_client_uuid" ] || return 1
-                        /bin/sh /opt/magicstick/keycloak-callback-policy.sh \
-                          "$config" "$human_gateway_client_uuid" \
-                          '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
-                          '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
-                          'https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' || return 1
+                        human_gateway_identity="$(/opt/keycloak/bin/kcadm.sh get "clients/$human_gateway_client_uuid" --config "$config" --realm magicstick --fields id,clientId --format csv --noquotes 2>/dev/null | tr -d '\r')" || return 1
+                        [ "$human_gateway_identity" = "$human_gateway_client_uuid,magicstick-human-gateway-local" ] || return 1
+                        # Reapply only a complete, previously verified runtime
+                        # snapshot. A fresh install or domain change uses the
+                        # exact static bootstrap until setup revalidates owners.
+                        callback_bootstrap=1
+                        callback_status=/opt/magicstick-callback-status
+                        callback_desired="$(cat "$callback_status/desired-sha256" 2>/dev/null || true)"
+                        callback_verified="$(cat "$callback_status/verified-sha256" 2>/dev/null || true)"
+                        callback_client="$(cat "$callback_status/client-id" 2>/dev/null || true)"
+                        callback_redirects="$(cat "$callback_status/redirects.json" 2>/dev/null || true)"
+                        callback_origins="$(cat "$callback_status/origins.json" 2>/dev/null || true)"
+                        callback_logout="$(cat "$callback_status/logout" 2>/dev/null || true)"
+                        if [ -n "$callback_desired" ] && [ "$callback_desired" = "$callback_verified" ] && [ "$callback_client" = magicstick-human-gateway-local ] && [ -n "$callback_logout" ]; then
+                          case "$callback_redirects" in *'"https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback"'*) callback_bootstrap=0 ;; esac
+                          case "$callback_redirects" in *'"https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback"'*) ;; *) callback_bootstrap=1 ;; esac
+                          case "$callback_origins" in *'"https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"'*) ;; *) callback_bootstrap=1 ;; esac
+                          case "$callback_origins" in *'"https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"'*) ;; *) callback_bootstrap=1 ;; esac
+                        fi
+                        if [ "$callback_bootstrap" = 1 ]; then
+                            /bin/sh /opt/magicstick/keycloak-callback-policy.sh \
+                              "$config" "$human_gateway_client_uuid" \
+                              '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://anythingllm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-anything-llm-local","https://litellm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-litellm-local","https://kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-kubeopencode-local","https://anythingllm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}/oauth2/callback/static-anything-llm-public","https://litellm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}/oauth2/callback/static-litellm-public","https://kubeopencode.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}/oauth2/callback/static-kubeopencode-public"]' \
+                              '["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}","https://anythingllm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://litellm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://anythingllm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}","https://litellm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}","https://kubeopencode.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"]' \
+                              'https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' || return 1
+                        else
+                            /bin/sh /opt/magicstick/keycloak-callback-policy.sh "$config" "$human_gateway_client_uuid" \
+                              "$callback_redirects" "$callback_origins" "$callback_logout" || return 1
+                        fi
                         sync_user_admin_client || { echo 'Keycloak client sync: USER_ADMIN failed' >&2; return 1; }
                         sync_federation_admin_client || { echo 'Keycloak client sync: FEDERATION_ADMIN failed' >&2; return 1; }
                         sync_kubernetes_client_and_groups || { echo 'Keycloak client sync: KUBERNETES failed' >&2; return 1; }
                         sync_dashboard_cli_client || { echo 'Keycloak client sync: DASHBOARD_CLI failed' >&2; return 1; }
+                        sync_console_client || { echo 'Keycloak client sync: CONSOLE failed' >&2; return 1; }
                       }
                       attempt=0
                       deadline=$(( $(date +%s) + 600 ))
@@ -601,6 +687,9 @@ spec:
                 - ALL
             runAsNonRoot: true
           volumeMounts:
+            - name: callback-status
+              mountPath: /opt/magicstick-callback-status
+              readOnly: true
             - name: session-policy
               mountPath: /opt/magicstick
               readOnly: true
@@ -608,6 +697,9 @@ spec:
               mountPath: /opt/keycloak/data/import
               readOnly: true
       volumes:
+        - name: callback-status
+          configMap:
+            name: magicstick-oidc-callbacks-status
         - name: session-policy
           configMap:
             name: keycloak-session-policy

@@ -23,9 +23,9 @@ describe('license TUI controls', () => {
     const key = (value: string) => stdin.emit('data', Buffer.from(value));
     try {
       await vi.advanceTimersByTimeAsync(0);
-      for (let i = 0; i < 6; i++) key('l');
-      expect(writes.at(-1)).toContain('[ License ]');
-      key('a'); key('/tmp/test-license.json'); key('\r');
+      key('7'); key('l'); key('l'); key('\r'); // System → section bar → License
+      expect(writes.at(-1)).toContain('[■ License ]');
+      key('i'); key('/tmp/test-license.json'); key('\r');
       await vi.advanceTimersByTimeAsync(0);
       expect(inspect).toHaveBeenCalledWith('test-document');
       expect(writes.at(-1)).toContain('Activate license');

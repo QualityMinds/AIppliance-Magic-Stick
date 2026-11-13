@@ -32,6 +32,12 @@ magicstick CLI or TUI
      -> short-lived access token with the same Magic Stick realm roles
   -> Envoy JWT policy on api.<mDNS-domain>
   -> dashboard control-plane API authorization
+
+attached appliance monitor (TUI)
+  -> confidential magicstick-console client, secret mounted in-cluster only
+     -> short-lived token of the local console service account, no user or browser
+  -> cluster-internal dashboard API, which reads the console's current roles
+     from Keycloak on every authorization
 ```
 
 Applications trust one stable local issuer. External enterprise identity
@@ -77,10 +83,24 @@ alone receives only the dashboard **My instances** launchpad and its minimal
 session/instance API; it does not grant control-plane or status access.
 
 AppInstance access uses the same hierarchy at the Envoy edge. OIDC stores the
-Keycloak access token in the shared `MagicStickAccessToken` cookie; Envoy's JWT
-filter validates that token and authorizes the selected minimum
+Keycloak access token in a host-only `__Host-MagicStickAccessToken` cookie;
+Envoy's JWT filter validates that token and authorizes the selected minimum
 `realm_access.roles` value before forwarding to the application. A route can be
 made unauthenticated only with explicit `spec.access.authentication: none`.
+
+Browser token cookies are scoped to the exact application hostname, never the
+shared appliance domain. The login provider remains shared, so visiting another
+service can reuse its sign-in without copying that service's token cookies to
+siblings. A global sign-out invalidates the central session; the edge checks
+session validity before forwarding later requests, even when another host still
+has an old cookie. Legacy Magic Stick token cookies are removed narrowly;
+unrelated application cookies are not erased.
+
+The Gateway denies access when an authentication policy is missing and retains
+the callback check when a route-specific gate disappears. Admission rejects
+unsafe overrides and deletion of these baselines. Fresh activation requires a
+real admission deny probe, not only a rendered manifest. See
+[identity validation](../development/identity-validation.md).
 
 The core [instance-sharing capability](../user-guide/sharing.md) adds
 allow-lists of stable Keycloak user and group IDs. For restricted instances, the
@@ -98,6 +118,20 @@ None of these clients reuse browser cookies, client secrets, or each other's
 client ID. Unattended machine integrations still need their own policy and
 credential lifecycle; a renewable human device session is not a service
 account.
+
+The monitor attached to the appliance is the one deliberate exception to a
+personal login. It signs in automatically as the **Local console** service
+account so the appliance stays operable at the machine itself without a network
+or a second device. Physical access to that keyboard therefore equals the
+configured dashboard access: Administrator by default, or Operator, Viewer or
+Off as chosen by an administrator. The identity has dashboard roles only, is
+hidden from user lists, cannot be used to sign in to the browser dashboard or
+`kubectl`, and a console with a lowered level cannot raise it again. Its tokens
+are accepted only on the cluster-internal API connection, never through a
+network-facing route. Root on the host, Kubernetes cluster administrators and
+Keycloak administrators can read the generated secret; they already hold
+equivalent or broader access. See
+[automatic sign-in](../reference/cli.md#automatic-sign-in).
 
 ## Browser session lifetime
 
@@ -186,6 +220,8 @@ The current implementation provides:
 - dashboard API token validation, a minimal user launchpad and viewer/operator/admin authorization
 - a public `magicstick-cli` device-flow client and the JWT-protected,
   mDNS-published `api.<mDNS-domain>` route used by the CLI and TUI
+- a confidential `magicstick-console` service-account client for automatic
+  sign-in of the attached monitor, with an administrator-controlled access level
 - protected local and public routes for LiteLLM, AnythingLLM, and KubeOpenCode
   with a minimum `magicstick-user` role
 - LiteLLM-specific OIDC token forwarding disabled after edge authorization, so

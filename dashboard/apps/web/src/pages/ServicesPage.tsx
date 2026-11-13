@@ -5,7 +5,11 @@ import {
   canAdminister,
   effectiveModuleStatus,
   flattenInstances,
+  instanceCreatePayload,
+  instanceHasCredentials,
+  instanceModelRequired,
   instanceResourceLinks,
+  instanceStorageDefault,
   missingApplicationModules,
   moduleResourceLinks,
   phaseInProgress,
@@ -29,21 +33,6 @@ import {InstanceSharingDialog, SharingFields} from './InstanceSharing';
 type ApplicationOption = {id: string; label: string; definition: ApplicationCatalogEntry; missing: string[]};
 type Credentials = {title: string; entries: Array<{key: string; value: string}>};
 
-const defaults: Record<string, {storage: string}> = {
-  openclaw: {storage: '20Gi'}, hermes: {storage: '10Gi'}, paperclip: {storage: '5Gi'},
-  odysseus: {storage: '20Gi'}, kubeopencode: {storage: '5Gi'}, 'pi-coding': {storage: '5Gi'},
-};
-
-const dnsPart = (value: string, fallback: string) => value.trim().toLowerCase()
-  .replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').replace(/--+/g, '-') || fallback;
-
-const instanceHost = (type: string, name: string, publicDomain: string) => {
-  const cleanType = dnsPart(type, 'instance');
-  let cleanName = dnsPart(name, 'default');
-  if (cleanName.startsWith(`${cleanType}-`)) cleanName = cleanName.slice(cleanType.length + 1) || 'default';
-  return `${cleanName}.${cleanType}.${publicDomain.replace(/^\.|\.$/g, '')}`;
-};
-
 const CreateInstanceDialog = ({open, initialType, applications, models, instances, publicDomain, admin, onClose, onCreated}: {
   open: boolean;
   initialType?: string;
@@ -59,7 +48,7 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
   const [type, setType] = useState(initialType && applications.some((item) => item.id === initialType && !item.missing.length) ? initialType : firstAvailable);
   const [name, setName] = useState('default');
   const [model, setModel] = useState(models[0] ?? '');
-  const [storage, setStorage] = useState(defaults[type]?.storage ?? '5Gi');
+  const [storage, setStorage] = useState(instanceStorageDefault(type));
   const [authentication, setAuthentication] = useState('sso');
   const [role, setRole] = useState('user');
   const [exposure, setExposure] = useState('localAndPublic');
@@ -78,54 +67,24 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
   const [searxngStorage, setSearxngStorage] = useState('1Gi');
   const [ntfyStorage, setNtfyStorage] = useState('1Gi');
   const current = applications.find((item) => item.id === type);
-  const modelRequired = ['openclaw', 'hermes', 'paperclip', 'kubeopencode', 'odysseus', 'pi-coding'].includes(type);
+  const modelRequired = instanceModelRequired(type);
   const openClawInstances = instances.filter((item) => item.type === 'openclaw' && item.value.spec?.enabled !== false && String(item.value.status?.phase ?? '').toLowerCase() !== 'removing');
   const hermesInstances = instances.filter((item) => item.type === 'hermes' && item.value.spec?.enabled !== false && String(item.value.status?.phase ?? '').toLowerCase() !== 'removing');
 
   const mutation = useMutation({
     mutationFn: async () => {
       if (!type || current?.missing.length) throw new Error('Select an application whose required services are ready.');
-      if (modelRequired && !model) throw new Error('Select a deployed chat model.');
-      if (type === 'paperclip' && openClawEnabled && !openClawInstanceRef) throw new Error('Select an OpenClaw instance or disable its gateway.');
-      if (type === 'paperclip' && hermesEnabled && !hermesInstanceRef) throw new Error('Select a Hermes instance or disable its gateway.');
-      const host = instanceHost(type, name, publicDomain || 'magicstick.example.com');
-      const base = {
-        name, enabled: true, namespace: 'ai', model: model || 'CHANGEME_MODEL',
-        access: {authentication, role, exposure, ...(sharing.mode === 'selected' ? {sharing} : {})},
-      } as Record<string, unknown>;
-      if (type === 'openclaw' || type === 'hermes' || type === 'pi-coding') {
-        base.storage = {size: storage}; base.ingress = {enabled: false, host};
-      }
-      if (type === 'paperclip') {
-        base.storage = {size: storage};
-        base.database = {managed: {storageSize: postgresStorage}};
-        base.ingress = {enabled: false, host};
-        base.admin = {email: adminEmail, name: 'Admin'};
-        base.agentExecution = {
-          defaultModel: `litellm/${model.replace(/^(litellm|openai)\//, '')}`,
-          maxConcurrentAgents: Math.max(1, Math.min(10, Math.trunc(maxConcurrentAgents))),
-          openCode: {enabled: openCodeEnabled},
-          openClaw: {enabled: openClawEnabled, instanceRef: openClawInstanceRef},
-          hermes: {enabled: hermesEnabled, instanceRef: hermesInstanceRef},
-        };
-      }
-      if (type === 'kubeopencode') {
-        base.server = {enabled: true, ingress: {enabled: false, host}};
-        base.agentTemplates = [{name: template, description: 'Default coding agent template'}];
-      }
-      if (type === 'odysseus') {
-        base.storage = {size: storage}; base.chroma = {storage: {size: chromaStorage}};
-        base.searxng = {storage: {size: searxngStorage}}; base.ntfy = {storage: {size: ntfyStorage}};
-        base.ingress = {enabled: false, host};
-      }
-      await api.createInstance(type, base);
+      await api.createInstance(type, instanceCreatePayload({
+        type, name, model, storage, authentication, role, exposure, sharing, adminEmail, postgresStorage, maxConcurrentAgents,
+        openCodeEnabled, openClawEnabled, openClawInstanceRef, hermesEnabled, hermesInstanceRef, template, chromaStorage, searxngStorage, ntfyStorage,
+      }, publicDomain));
     },
     onSuccess: async () => { await onCreated(); onClose(); },
   });
 
   return <Dialog open={open} title="Create Instance" description="Choose an application and configure only its supported values." onClose={onClose}>
     <form className="stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
-      <Field label="Application"><select value={type} onChange={(event) => { const next = event.target.value; setType(next); setStorage(defaults[next]?.storage ?? '5Gi'); }} required>
+      <Field label="Application"><select value={type} onChange={(event) => { const next = event.target.value; setType(next); setStorage(instanceStorageDefault(next)); }} required>
         <option value="">Select an available application</option>
         {applications.map((item) => <option key={item.id} value={item.id} disabled={Boolean(item.missing.length)}>{item.label}{item.missing.length ? ' · unavailable' : ''}</option>)}
       </select></Field>
@@ -268,7 +227,7 @@ export const ServicesPage = ({session}: {session: Session}) => {
     const enabled = item.value.spec?.enabled !== false;
     const phase = item.value.status?.phase ?? (enabled ? 'Requested' : 'Suspended');
     const access = item.value.spec?.access?.authentication === 'none' ? 'public without login' : `SSO: ${item.value.spec?.access?.role ?? 'user'}`;
-    const credentialsAvailable = ['openclaw', 'odysseus', 'paperclip'].includes(item.type) && String(phase).toLowerCase() !== 'removing';
+    const credentialsAvailable = instanceHasCredentials(item.type) && String(phase).toLowerCase() !== 'removing';
     const restricted = item.value.spec?.access?.sharing?.mode === 'selected';
     return <article className="service-instance" key={item.name}><div className="service-row"><div><strong>{item.name}</strong><small>{item.value.spec?.targetNamespace ?? 'ai'} · {access}</small></div><div className="actions"><StatusBadge phase={phase} />
       {credentialsAvailable && mutable && <Button variant="ghost" onClick={async () => { try { const result = await api.instanceCredentials(item.name); setCredentials({title: result.title ?? item.name, entries: result.credentials ?? []}); } catch (reason) { setOperationError(reason); } }}>Credentials</Button>}

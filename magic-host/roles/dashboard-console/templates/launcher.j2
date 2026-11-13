@@ -12,6 +12,10 @@ REFRESH_SECONDS={{ dashboard_console_refresh_seconds | quote }}
 RETRY_SECONDS={{ dashboard_console_retry_seconds | quote }}
 SETUP_NAMESPACE={{ dashboard_console_setup_namespace | quote }}
 SETUP_RESOURCE={{ dashboard_console_setup_resource | quote }}
+CONSOLE_SECRET_FILE={{ (dashboard_console_client_secret_directory ~ '/client-secret') | quote }}
+MOUSE_ENABLED={{ dashboard_console_mouse_enabled | bool | string | lower | quote }}
+MOUSE_HELPER={{ dashboard_console_mouse_helper | quote }}
+MOUSE_DEVICE={{ dashboard_console_mouse_device | quote }}
 
 mdns_domain() {
   local value
@@ -70,13 +74,23 @@ while true; do
   domain="$(mdns_domain)"
   issuer="https://id.${domain}/realms/magicstick"
   draw_waiting 'Verbinde die interaktive TUI ...'
-  "${KUBECTL[@]}" -n "$NAMESPACE" exec -i -t "$pod" -c runtime -- \
+  # With a mouse helper and device present, the TUI session runs behind the helper,
+  # which adds mouse reports to the keyboard input. Otherwise it runs directly.
+  mouse=()
+  pointer=0
+  if [[ "$MOUSE_ENABLED" == "true" && -x "$MOUSE_HELPER" && -r "$MOUSE_DEVICE" ]]; then
+    mouse=("$MOUSE_HELPER" --device "$MOUSE_DEVICE" --)
+    pointer=1
+  fi
+  ${mouse[@]+"${mouse[@]}"} "${KUBECTL[@]}" -n "$NAMESPACE" exec -i -t "$pod" -c runtime -- \
     env \
       TERM=linux \
+      MAGICSTICK_CONSOLE_POINTER="$pointer" \
       MAGICSTICK_CONFIG_HOME=/var/lib/magicstick-console \
       MAGICSTICK_API_URL="$API_URL" \
       MAGICSTICK_ISSUER="$issuer" \
       MAGICSTICK_OIDC_NETWORK_URL="$OIDC_NETWORK_URL" \
+      MAGICSTICK_CONSOLE_CLIENT_SECRET_FILE="$CONSOLE_SECRET_FILE" \
       /usr/local/bin/magicstick-dashboard console --no-open --refresh "$REFRESH_SECONDS" || true
 
   draw_waiting 'TUI wurde beendet; sie wird gleich neu gestartet.'

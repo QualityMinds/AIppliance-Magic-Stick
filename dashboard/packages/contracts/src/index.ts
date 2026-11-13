@@ -8,9 +8,21 @@ export const sessionSchema = z.object({
   roles: z.array(z.string()).default([]),
   identityManagementAvailable: z.boolean().default(false),
   identityManagementMode: z.string().default('external'),
+  /** True for the automatic session of the physical appliance console. */
+  localConsole: z.boolean().optional(),
 }).passthrough();
 
 export type Session = z.infer<typeof sessionSchema>;
+
+/** Access granted to the attached appliance console without a login; `off` requires a user sign-in. */
+export type ConsoleAccessLevel = 'off' | 'viewer' | 'operator' | 'admin';
+export const CONSOLE_ACCESS_LEVELS: readonly ConsoleAccessLevel[] = ['off', 'viewer', 'operator', 'admin'];
+export interface ConsoleAccess {
+  /** False until the appliance has provisioned the local console identity. */
+  available: boolean;
+  accessLevel: ConsoleAccessLevel;
+  accessLevels?: ConsoleAccessLevel[];
+}
 
 export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
 export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;

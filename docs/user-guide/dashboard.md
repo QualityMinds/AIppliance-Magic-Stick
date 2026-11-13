@@ -18,6 +18,15 @@ feature is installed, sign out and sign in once with the checkbox; an existing
 browser may still carry the earlier, shorter cookie expiry. Administrator-customized policies and
 an external identity provider can impose different limits.
 
+Dashboard and application token cookies are limited to each exact hostname.
+Opening another service reuses the central sign-in without sending the first
+service's token cookies to it. Signing out ends that shared identity session;
+old cookies on another service do not grant continued access. After upgrading,
+sign in again. Legacy Magic Stick token cookies are migrated narrowly, not by
+erasing all application data. If an older browser still reports **Request Header
+Or Cookie Too Large**, clear that appliance site's old cookies once and sign in
+again; do not disable certificate validation or authentication.
+
 ## UI Areas
 
 | Area | Purpose |
@@ -29,7 +38,8 @@ an external identity provider can impose different limits.
 | Mesh | Administrator-only page directly below API Access for Private Mesh setup, membership, invitations, local-model sharing, and relay settings. Existing Settings Mesh links open this page. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System → Settings → Federated SSO | Free Registered or Commercial: validates OIDC discovery or SAML metadata, stores providers in Keycloak, and maps exact upstream claim/attribute values to fixed Magic Stick roles. |
-| System | Groups Settings, License, Users, Hardware, System Status, and Computer power behind one primary navigation item. Settings contains the Domains, Federated SSO, Network, and Updates subtabs. System Status contains Overview, GPU Operators, Flux, Network & routes, Model cache, and Regression tests. Administration areas retain their role, identity, and entitlement restrictions; Hardware and the read-only status tabs remain available to every dashboard role. Model cache and Regression tests are administrator-only; Computer power remains an administrator-only System tab immediately after System Status. |
+| System → Settings → Local console | Lets administrators choose which access the monitor and keyboard attached to the appliance have without a login: Administrator (default), Operator, Viewer, or Off. See [automatic sign-in](../reference/cli.md#automatic-sign-in). |
+| System | Groups Settings, License, Users, Hardware, System Status, and Computer power behind one primary navigation item. Settings contains the Domains, Federated SSO, Network, Updates, and Local console subtabs. System Status contains Overview, GPU Operators, Flux, Network & routes, Model cache, and Regression tests. Administration areas retain their role, identity, and entitlement restrictions; Hardware and the read-only status tabs remain available to every dashboard role. Model cache and Regression tests are administrator-only; Computer power remains an administrator-only System tab immediately after System Status. |
 
 Mesh has a direct link at `#/mesh`. Settings subtabs have direct links at `#/system/settings/<section>`; Domains
 is the default at `#/system/settings`. Former `#/system/network` and

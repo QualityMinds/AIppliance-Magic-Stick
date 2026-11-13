@@ -33,7 +33,9 @@ spec:
       containers:
         - name: runtime
           image: {{ dashboard_console_image }}
-          imagePullPolicy: Always
+          # The image is digest-pinned; never require the registry to restart
+          # the local console, which must also come up without a network.
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -ec
@@ -76,6 +78,9 @@ spec:
               mountPath: /var/lib/magicstick-console
             - name: tmp
               mountPath: /tmp
+            - name: console-client
+              mountPath: {{ dashboard_console_client_secret_directory }}
+              readOnly: true
       volumes:
         - name: state
           hostPath:
@@ -83,3 +88,13 @@ spec:
             type: Directory
         - name: tmp
           emptyDir: {}
+        # Optional: an appliance whose platform revision predates automatic
+        # console sign-in keeps starting and falls back to the device login.
+        - name: console-client
+          secret:
+            secretName: {{ dashboard_console_client_secret }}
+            optional: true
+            defaultMode: 0440
+            items:
+              - key: client-secret
+                path: client-secret

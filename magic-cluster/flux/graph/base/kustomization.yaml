@@ -4,7 +4,9 @@ resources:
   - 00-infrastructure-basis.yaml
   - 02-first-run-bootstrap.yaml
   - 03-hardware-discovery.yaml
+  - 04-callback-backend-admission.yaml
   - 05-envoy-gateway.yaml
+  - 07-callback-backend-activation.yaml
   - 10-identity-pilot.yaml
   - 15-magicstick-operator.yaml
   - 30-apps.yaml

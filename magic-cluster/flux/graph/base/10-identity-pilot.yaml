@@ -7,6 +7,7 @@ spec:
   dependsOn:
     - name: first-run-bootstrap
     - name: envoy-gateway
+    - name: callback-backend-activation
   interval: 10m0s
   path: ./magic-cluster/platform/identity
   postBuild:

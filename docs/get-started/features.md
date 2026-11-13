@@ -116,9 +116,17 @@
   separately; an old report without cleanup evidence is not labelled clean.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
+- Operate the appliance at its own monitor and keyboard without logging in: the
+  terminal dashboard signs in automatically, also without a network connection.
+  Administrators can lower its access or switch it off, and any user can switch
+  to their own account. [Automatic sign-in](../reference/cli.md#automatic-sign-in).
 - Optionally select **Remember me** on the local login page to stay signed in
   across browser restarts: seven days idle, thirty days maximum. Unchecked
   sessions keep the thirty-minute idle limit. [Signing in](../user-guide/dashboard.md#signing-in).
+- Browser SSO cookies stay on each dashboard/service hostname instead of growing
+  one appliance-wide cookie header. Services share the central sign-in; global
+  logout invalidates the session across those hosts. Missing gateway protection
+  denies access rather than making an application public.
 
 ## What is not automatic
 

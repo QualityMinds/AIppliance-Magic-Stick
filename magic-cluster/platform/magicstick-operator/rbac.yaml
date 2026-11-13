@@ -121,6 +121,7 @@ rules:
       - gateway.envoyproxy.io
     resources:
       - securitypolicies
+      - envoyextensionpolicies
     verbs:
       - get
       - list
@@ -375,6 +376,35 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: magicstick-offloading-profiles
+subjects:
+  - kind: ServiceAccount
+    name: magicstick-operator
+    namespace: ai-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-operator-callbacks
+  namespace: identity-system
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [magicstick-oidc-callbacks]
+    verbs: [get, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [magicstick-oidc-callbacks-status]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-operator-callbacks
+  namespace: identity-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: magicstick-operator-callbacks
 subjects:
   - kind: ServiceAccount
     name: magicstick-operator

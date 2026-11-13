@@ -1,6 +1,7 @@
 import type {
   ApiAccessPayload,
   Appliance,
+  ConsoleAccess,
   InstancesPayload,
   KubernetesAccessPayload,
   ModelsPayload,
@@ -25,6 +26,7 @@ export interface DashboardSnapshot {
   users?: UsersPayload;
   apiAccess?: ApiAccessPayload;
   kubernetesAccess?: KubernetesAccessPayload;
+  consoleAccess?: ConsoleAccess;
   license?: LicenseStatus;
   licenseError?: string;
   loadedAt: number;
@@ -33,12 +35,14 @@ export interface DashboardSnapshot {
 export const loadSnapshot = async (api: MagicStickApi): Promise<DashboardSnapshot> => {
   const session = await api.session();
   const admin = canAdminister(session);
-  const [appliance, modules, instances, models, status, settings, users, apiAccess, kubernetesAccess] = await Promise.all([
+  const [appliance, modules, instances, models, status, settings, users, apiAccess, kubernetesAccess, consoleAccess] = await Promise.all([
     api.appliance(), api.modules(), api.instances(), api.models(), api.status(),
     admin ? api.settings() : Promise.resolve(undefined),
     admin && session.identityManagementAvailable !== false ? api.users() : Promise.resolve(undefined),
     admin ? api.apiAccess() : Promise.resolve(undefined),
     admin && session.identityManagementAvailable !== false ? api.kubernetesAccess() : Promise.resolve(undefined),
+    // Optional: an appliance API from before automatic console sign-in has no such route.
+    admin && session.identityManagementAvailable !== false ? api.consoleAccess().catch(() => undefined) : Promise.resolve(undefined),
   ]);
   let license: LicenseStatus | undefined;
   let licenseError: string | undefined;
@@ -46,5 +50,5 @@ export const loadSnapshot = async (api: MagicStickApi): Promise<DashboardSnapsho
     try { license = await api.licenseStatus(); }
     catch { licenseError = 'License status unavailable. Core functions are unaffected.'; }
   }
-  return {session, appliance, modules, instances, models, status, settings, users, apiAccess, kubernetesAccess, license, licenseError, loadedAt: Date.now()};
+  return {session, appliance, modules, instances, models, status, settings, users, apiAccess, kubernetesAccess, consoleAccess, license, licenseError, loadedAt: Date.now()};
 };
