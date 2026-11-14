@@ -173,6 +173,14 @@ their differences in synthetic state; denied changes, failed reads and stale
 readback fail. These fixtures do not prove a particular native write returned
 403 and do not authorize a manual role assignment on an appliance.
 
+The pinned Keycloak callback runtime profile also exercises the native `kcadm`
+field selector. Selecting only `attributes` returns an empty parent map; it is
+not evidence that logout or secret-rotation attributes are absent. The shell
+helper explicitly reads the logout field and every existing rotation-fence
+field. The unchanged helper runs through a synthetic scoped, non-persisting CLI
+adapter for idempotent readback and refused rotation writes. No real credential
+or client representation is exported, and this fixture is not an appliance test.
+
 For authorized native acceptance, first confirm idle state and the installed
 Git/Flux revision. After regular convergence, confirm the new Keycloak Pod is
 Ready and read only the existing human gateway client's identity, redirect URIs

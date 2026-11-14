@@ -60,6 +60,12 @@ runs Ansible and gives Flux the same commit after all checks. The existing
 15-minute convergence timer does not authorize an update over active workloads.
 Software rollback cannot undo database migrations or Ubuntu upgrades.
 
+The managed public source explicitly clears obsolete branch/tag selectors when
+applying its approved commit. An older bootstrap's branch must not constrain a
+new commit from another reviewed source. This normal, repeated apply preserves
+the source object's identity; it does not delete the source or change a fixed
+selection into a moving branch.
+
 ## Three separate update paths
 
 | Layer | Managed through | Important boundary |

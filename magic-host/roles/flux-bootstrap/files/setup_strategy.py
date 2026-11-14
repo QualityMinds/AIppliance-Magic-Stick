@@ -15,6 +15,7 @@ NAMESPACE = "identity-system"
 TARGET = {"type": "Recreate"}
 OWNER = {"kustomize.toolkit.fluxcd.io/name": "identity-pilot",
          "kustomize.toolkit.fluxcd.io/namespace": "flux-system"}
+OWNER_NAMES = frozenset(("identity-pilot", "identity-bootstrap"))
 
 
 def migration_patch(deployment):
@@ -25,7 +26,8 @@ def migration_patch(deployment):
             or meta.get("name") != NAME or meta.get("namespace") != NAMESPACE
             or not meta.get("uid") or not meta.get("resourceVersion")
             or meta.get("deletionTimestamp")
-            or any(meta.get("labels", {}).get(k) != v for k, v in OWNER.items())
+            or meta.get("labels", {}).get("kustomize.toolkit.fluxcd.io/namespace") != "flux-system"
+            or meta.get("labels", {}).get("kustomize.toolkit.fluxcd.io/name") not in OWNER_NAMES
             or spec.get("selector") != {"matchLabels": {"app.kubernetes.io/name": NAME}}
             or type(spec.get("replicas")) is not int or spec["replicas"] not in (0, 1)):
         raise ValueError("Setup strategy migration refused an unexpected Deployment identity or shape.")

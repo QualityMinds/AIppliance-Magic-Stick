@@ -53,6 +53,27 @@ class SetupStrategyTests(unittest.TestCase):
         self.assertFalse(migration.migrate(lambda args, body=None: calls.append(args)))
         self.assertEqual(len(calls), 1)
 
+    def test_canonical_new_bootstrap_owner_can_converge_again(self):
+        for strategy in ({"type": "Recreate"}, {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": "25%"}}):
+            value = deployment()
+            value["metadata"]["labels"]["kustomize.toolkit.fluxcd.io/name"] = "identity-bootstrap"
+            value["spec"]["strategy"] = strategy
+            patch = migration.migration_patch(value)
+            if strategy == migration.TARGET:
+                self.assertIsNone(patch)
+            else:
+                self.assertEqual(patch[-1], {"op": "replace", "path": "/spec/strategy", "value": migration.TARGET})
+                self.assertEqual([item["path"] for item in patch if item["op"] == "test"],
+                                 ["/metadata/uid", "/metadata/resourceVersion", "/spec/strategy"])
+
+    def test_other_flux_owner_or_namespace_is_not_adopted(self):
+        for field, value in (("kustomize.toolkit.fluxcd.io/name", "unrelated"),
+                             ("kustomize.toolkit.fluxcd.io/namespace", "unrelated")):
+            item = deployment()
+            item["metadata"]["labels"][field] = value
+            with self.assertRaises(ValueError):
+                migration.migration_patch(item)
+
     def test_foreign_or_modified_identity_is_not_patched(self):
         for mutate in (lambda d: d["metadata"].update(uid=""),
                        lambda d: d["metadata"].update(resourceVersion=""),
