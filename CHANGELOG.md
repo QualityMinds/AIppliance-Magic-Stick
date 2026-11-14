@@ -12,6 +12,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   Preserve the source UID and fixed revision instead of retaining an old branch
   that prevents checkout of the new commit. Add owning role renders and a real
   Kubernetes apply counterexample; installed rollout remains separate evidence.
+  Keep the exact old/new identity-wave ownership allowlist in setup strategy
+  migration, so a completed bootstrap transfer also permits the next convergence.
 - Split identity prerequisites and routes into ordered Flux apply waves. Keep
   fail-closed route admission active while root policies acquire current
   controller acceptance, avoiding a whole-wave dry-run bootstrap deadlock on

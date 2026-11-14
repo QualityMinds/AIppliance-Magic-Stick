@@ -10,7 +10,10 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
    to `Recreate` with an atomic UID/resourceVersion-bound strategy patch. This
    removes legacy server-defaulted `rollingUpdate` fields without replacing the
    Deployment or changing its Pod template. Missing/already migrated objects are
-   no-ops; unexpected ownership or concurrent changes fail explicitly. See
+   no-ops. Both the legacy `identity-pilot` and canonical `identity-bootstrap`
+   owners in `flux-system` are recognized, so a completed ownership transfer does
+   not block later convergence; unrelated owners still fail. Concurrent changes
+   fail explicitly. See
    [identity recovery](../../../docs/administration/troubleshooting/identity.md).
 3. **Bootstrap Flux** — supports two modes:
    - `github`: runs `flux bootstrap github` against a CLI-owned seed path, then applies the deployment-owned `magicstick-sync.yaml`.

@@ -73,8 +73,15 @@ def main():
         assert applied["metadata"]["uid"] == original["metadata"]["uid"]
         assert applied["spec"] == {**original["spec"], "strategy": {"type": "Recreate"}}
         command(["apply", "--server-side", "--field-manager=kustomize-controller", "-f", "-", "-o", "json"], desired)
+        command(["label", "deployment", setup_strategy.NAME,
+                 "kustomize.toolkit.fluxcd.io/name=identity-bootstrap", "--overwrite"])
+        with patch.object(setup_strategy, "NAMESPACE", namespace):
+            assert not setup_strategy.migrate(command)
+        retained = command(["get", "deployment", setup_strategy.NAME, "-o", "json"])
+        assert retained["metadata"]["uid"] == original["metadata"]["uid"]
+        assert retained["spec"] == applied["spec"]
         assert not command(["get", "pods", "-o", "json"])["items"]
-        print("AUTH-09 setup upgrade: legacy SSA failure (including null), stale-write rejection, migration, repeated migration and Flux-like apply passed; no Pods started.")
+        print("AUTH-09 setup upgrade: legacy SSA failure (including null), stale-write rejection, migration, repeated migration, canonical ownership transfer and Flux-like apply passed; no Pods started.")
     finally:
         if namespace_uid:
             execute(["delete", "--raw", "/api/v1/namespaces/" + namespace, "-f", "-"],
