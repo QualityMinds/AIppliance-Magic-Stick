@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "31f4b18a4872a6b1a36d91865943895b96d2cb431a403f1d35738c0f77ca9a6c",
+  "deploymentReferencesSha256": "9d154aae3594ed25fef284c251fcceba0d8aec4036da658ce4f0003a84c26de8",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2548,7 +2548,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 35,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-3d1982433ff6e1ec7ca99a1c00d0baea4a878486@sha256:5db8b99bbbea6749f9ad9821a6cde84728af5f62f007bbf5b4fe50fb48311932"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-485146bc6bdfcb338d8d87ca0c9fa3c4099a4d08@sha256:03d57a35cb2744c9679efbd55141e80a85b0e060680fda59f86968a197b00869"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2568,7 +2568,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-3d1982433ff6e1ec7ca99a1c00d0baea4a878486@sha256:535fcc3a1df606d4e1619e9388e78c3ac2f6800bec50fae8420da7f658dc3148"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-485146bc6bdfcb338d8d87ca0c9fa3c4099a4d08@sha256:4fd9e75dd07dee71bc226f9ebe4677bd11068af4d3d116e883b2ccdbf5f80624"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
@@ -2763,7 +2763,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-3d1982433ff6e1ec7ca99a1c00d0baea4a878486@sha256:92778af10728e82bcf314602103ca522b5fbfdac462fe010f0671172bfccf813\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-485146bc6bdfcb338d8d87ca0c9fa3c4099a4d08@sha256:d065cdcdc91135e33d2796098a85c37005151f4dcb06ac96306ecc98bb11bddd\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -3197,7 +3197,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/gateway_policy_contract.py",
-      "line": 228,
+      "line": 270,
       "reference": "'pip install --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /code/server.py'],"
     },
     {
