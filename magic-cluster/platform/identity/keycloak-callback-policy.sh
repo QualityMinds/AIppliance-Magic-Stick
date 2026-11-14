@@ -12,6 +12,9 @@ client=${2:?The existing human gateway client UUID is required}
 redirects=${3:?Configured redirect URIs are required}
 origins=${4:?Configured web origins are required}
 logout=${5:?Configured logout callbacks are required}
+# Selecting only the parent "attributes" yields an empty map in native kcadm.
+# Read the exact children needed for logout verification and the rotation fence.
+attribute_fields='attributes(post.logout.redirect.uris,client.secret.expiration.time,client.secret.remaining.expiration.time,client.secret.rotated,client.secret.rotated.creation.time,client.secret.rotated.expiration.time)'
 fail() { printf 'Keycloak callback sync: %s; no callback success attested.\n' "$1" >&2; exit 1; }
 case "$client" in ''|*[!a-zA-Z0-9_-]*) fail IDENTITY ;; esac
 
@@ -126,7 +129,7 @@ verify_logout() {
 identity || fail IDENTITY
 # Keycloak client PUT clears previous secret rotation metadata even if the
 # update does not contain a client secret. Never reset an active rotation.
-attributes=$("$KCADM" get "clients/$client" --config "$config" --realm magicstick --fields attributes 2>/dev/null) || fail ROTATION_READ
+attributes=$("$KCADM" get "clients/$client" --config "$config" --realm magicstick --fields "$attribute_fields" 2>/dev/null) || fail ROTATION_READ
 current_redirects=$(observed_values redirectUris) || fail VERIFY_REDIRECTS
 current_origins=$(observed_values webOrigins) || fail VERIFY_ORIGINS
 if [ "$current_redirects" = "$expected_redirects" ] && [ "$current_origins" = "$expected_origins" ] && verify_logout "$attributes"; then
@@ -152,7 +155,7 @@ unset diagnostic
 identity || fail IDENTITY
 verify_list redirectUris "$expected_redirects" || fail VERIFY_REDIRECTS
 verify_list webOrigins "$expected_origins" || fail VERIFY_ORIGINS
-attributes=$("$KCADM" get "clients/$client" --config "$config" --realm magicstick --fields attributes 2>/dev/null) || fail VERIFY_LOGOUT
+attributes=$("$KCADM" get "clients/$client" --config "$config" --realm magicstick --fields "$attribute_fields" 2>/dev/null) || fail VERIFY_LOGOUT
 verify_logout "$attributes" || { unset attributes; fail VERIFY_LOGOUT; }
 unset attributes
 printf 'Keycloak callback sync: verified existing human gateway client.\n'

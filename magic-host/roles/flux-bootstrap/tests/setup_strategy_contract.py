@@ -74,7 +74,7 @@ def main():
         assert applied["spec"] == {**original["spec"], "strategy": {"type": "Recreate"}}
         command(["apply", "--server-side", "--field-manager=kustomize-controller", "-f", "-", "-o", "json"], desired)
         command(["label", "deployment", setup_strategy.NAME,
-                 "kustomize.toolkit.fluxcd.io/name=identity-bootstrap", "--overwrite"])
+                 "kustomize.toolkit.fluxcd.io/name=identity-bootstrap", "--overwrite", "-o", "json"])
         with patch.object(setup_strategy, "NAMESPACE", namespace):
             assert not setup_strategy.migrate(command)
         retained = command(["get", "deployment", setup_strategy.NAME, "-o", "json"])

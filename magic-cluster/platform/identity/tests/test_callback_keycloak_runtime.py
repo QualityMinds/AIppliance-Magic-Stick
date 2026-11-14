@@ -7,6 +7,7 @@ the process never prints client secrets, tokens or full client representations.
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import tempfile
@@ -102,6 +103,55 @@ class CallbackKeycloakRuntimeTests(unittest.TestCase):
                 before_secret, _ = request("GET", client_path + "/client-secret", token=admin_token)
                 self.assertTrue(before_secret.get("value") == gateway_secret, "synthetic client secret was not imported")
                 self.assertIn("client.secret.creation.time", before.get("attributes") or {}, "secret creation metadata was not imported")
+                shell_source = (Path(__file__).resolve().parents[1] / "keycloak-callback-policy.sh").read_text()
+                attribute_fields = re.search(r"^attribute_fields='([^']+)'$", shell_source, re.M).group(1)
+                # Preserve the product script byte-for-byte. Only its transport
+                # adapter supplies the existing synthetic scoped login without
+                # persisting credentials, tokens or a plaintext environment file.
+                wrapper = Path(directory) / "native-kcadm"
+                wrapper.write_text('''#!/bin/bash
+set -euo pipefail
+filtered=()
+while (($#)); do
+  case "$1" in
+    --config|--realm) [[ $# -ge 2 ]] || exit 2; shift 2 ;;
+    *) filtered+=("$1"); shift ;;
+  esac
+done
+exec /opt/keycloak/bin/kcadm.sh "${filtered[@]}" --no-config \\
+  --server http://localhost:8080 --realm magicstick --client magicstick-setup \\
+  --secret "${SYNTHETIC_SETUP_SECRET:?}"
+''')
+                wrapper.chmod(0o755)  # Public adapter code only, no credential contents.
+                copied = subprocess.run(["docker", "cp", str(wrapper), name + ":/tmp/native-callback-kcadm"],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertTrue(copied.returncode == 0, "synthetic native CLI adapter was not installed")
+                native_environment = {**os.environ, "SYNTHETIC_SETUP_SECRET": setup_secret}
+                native_exec = ["docker", "exec", "-i", "-e", "SYNTHETIC_SETUP_SECRET",
+                               "-e", "KCADM=/tmp/native-callback-kcadm", name]
+
+                def native_projection(fields):
+                    result = subprocess.run([*native_exec, "/tmp/native-callback-kcadm", "get", client_path.removeprefix("/admin/realms/magicstick/"),
+                                             "--fields", fields], env=native_environment,
+                                            capture_output=True, text=True, timeout=60)
+                    self.assertTrue(result.returncode == 0, "synthetic scoped native CLI read failed")
+                    return json.loads(result.stdout)
+
+                parent = native_projection("attributes")
+                self.assertTrue(parent.get("attributes") == {}, "native parent-only projection counterexample changed")
+                selected = native_projection(attribute_fields)
+                field_names = attribute_fields[len("attributes("):-1].split(",")
+                expected_attributes = {key: value for key, value in (before.get("attributes") or {}).items()
+                                       if key in field_names}
+                self.assertTrue(selected.get("attributes") == expected_attributes,
+                                "native explicit child readback lost logout or rotation metadata")
+
+                def native_shell(redirects, origins, logout):
+                    return subprocess.run([*native_exec, "/bin/sh", "-s", "--", "/dev/null", before["id"],
+                                           json.dumps(redirects), json.dumps(origins), logout],
+                                          input=shell_source, env=native_environment,
+                                          capture_output=True, text=True, timeout=120)
+
                 if probe_rotation:
                     keys = {"client.secret.expiration.time", "client.secret.remaining.expiration.time",
                             "client.secret.rotated", "client.secret.rotated.creation.time", "client.secret.rotated.expiration.time"}
@@ -109,6 +159,12 @@ class CallbackKeycloakRuntimeTests(unittest.TestCase):
                     before_rotated, _ = request("GET", client_path + "/client-secret/rotated", token=admin_token)
                     self.assertTrue(before_rotated.get("value") == rotated_secret, "rotated synthetic secret was not imported")
                     if rotation_mode == "guard":
+                        guarded_shell = native_shell(["https://fixture.local/oauth2/callback"],
+                                                     ["https://fixture.local"], "https://fixture.local/")
+                        self.assertTrue(guarded_shell.returncode != 0 and "sync: ROTATION;" in guarded_shell.stderr,
+                                        "native shell did not fence a rotated synthetic client")
+                        self.assertTrue(rotated_secret not in guarded_shell.stdout + guarded_shell.stderr,
+                                        "native shell exported synthetic rotation material")
                         raw = json.dumps({"version": 1, "entries": []}, separators=(",", ":"))
                         def guarded_resource(path):
                             if path == setup.KEYCLOAK_ENDPOINTS_PATH:
@@ -181,6 +237,13 @@ class CallbackKeycloakRuntimeTests(unittest.TestCase):
                 after, _ = request("GET", client_path, token=admin_token)
                 after_secret, _ = request("GET", client_path + "/client-secret", token=admin_token)
                 self.assertTrue(before_secret == after_secret, "client secret or secret metadata changed")
+                if not probe_rotation:
+                    verified_shell = native_shell(json.loads(status["redirects.json"]),
+                                                  json.loads(status["origins.json"]), status["logout"])
+                    self.assertTrue(verified_shell.returncode == 0 and "verified existing human gateway client" in verified_shell.stdout,
+                                    "native shell rejected already verified synthetic callbacks")
+                    after_shell, _ = request("GET", client_path, token=admin_token)
+                    self.assertTrue(after_shell == after, "idempotent native shell changed the synthetic client")
                 verify_client_credentials()
                 ignored = {"redirectUris", "webOrigins", "attributes"}
                 changed = sorted(key for key in set(before) | set(after) if key not in ignored and before.get(key) != after.get(key))

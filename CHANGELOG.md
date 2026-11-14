@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Read explicit native Keycloak attribute children for logout verification and
+  the existing secret-rotation fence. A parent-only CLI projection looked empty
+  and prevented the startup hook from accepting already verified callbacks.
+  Cover the real pinned CLI, unchanged shell helper and refused rotation writes
+  with synthetic scoped credentials; no role or authentication bypass is added.
 - Clear obsolete public Flux source selectors when applying an approved commit.
   Preserve the source UID and fixed revision instead of retaining an old branch
   that prevents checkout of the new commit. Add owning role renders and a real
