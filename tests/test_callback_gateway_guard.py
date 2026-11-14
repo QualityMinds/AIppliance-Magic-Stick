@@ -3,6 +3,7 @@ import importlib.util
 import subprocess
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import yaml
@@ -12,6 +13,9 @@ DIRECTORY = ROOT / 'magic-cluster/platform/gateway'
 spec = importlib.util.spec_from_file_location('callback_activation', DIRECTORY / 'callback-backend-activation/activate.py')
 activation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(activation)
+native_spec = importlib.util.spec_from_file_location('native_gateway_contract', ROOT / 'magic-cluster/platform/identity/tests/gateway_policy_contract.py')
+native = importlib.util.module_from_spec(native_spec)
+native_spec.loader.exec_module(native)
 
 
 class ActivationTests(unittest.TestCase):
@@ -70,6 +74,22 @@ class ActivationTests(unittest.TestCase):
 
 
 class BootstrapCompositionTests(unittest.TestCase):
+    def test_either_exact_missing_parameter_guard_qualifies(self):
+        for name in native.DEPENDENCY_GUARDS:
+            result = SimpleNamespace(returncode=1, stderr="ValidatingAdmissionPolicy '" + name +
+                                     "' denied request: no params found for policy binding with Deny parameterNotFoundAction")
+            self.assertTrue(native.combined_wave_denied(result))
+        for raw in ('Forbidden RBAC', 'Invalid schema', "ValidatingAdmissionPolicy 'unrelated' denied request: no params found",
+                    "ValidatingAdmissionPolicy 'magicstick-route-needs-callback-baseline' denied stale status"):
+            self.assertFalse(native.combined_wave_denied(SimpleNamespace(returncode=1, stderr=raw)))
+        self.assertFalse(native.combined_wave_denied(SimpleNamespace(returncode=0, stderr='no params found')))
+
+    def test_native_failure_diagnostics_never_export_raw_fields(self):
+        result = SimpleNamespace(returncode=1, stderr="Forbidden credential=never-export bearer=never-export https://private.fixture.test/?token=never-export")
+        diagnostic = native.operation_failure(result)
+        self.assertEqual(diagnostic, {'exitCode': 1, 'statusReason': 'Forbidden', 'admissionPolicies': [], 'missingParameters': False})
+        self.assertNotIn('never-export', str(diagnostic))
+
     def test_native_gate_covers_fresh_and_existing_route_upgrades(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/public-release-checks.yml').read_text())
         gate = workflow['jobs']['gateway-security']
