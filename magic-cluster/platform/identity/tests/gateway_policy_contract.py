@@ -20,6 +20,29 @@ import yaml
 ROOT = Path(__file__).resolve().parents[4]
 IDENTITY = ROOT / 'magic-cluster/platform/identity'
 PYTHON = 'python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e'
+DEPENDENCY_GUARDS = ('magicstick-route-needs-callback-baseline', 'magicstick-route-needs-security-baseline')
+GUARDS = (*DEPENDENCY_GUARDS, 'magicstick-callback-backend-only', 'magicstick-no-backend-tls-overrides',
+          'magicstick-callback-ca-writers', 'magicstick-callback-gate-policies',
+          'magicstick-security-baseline', 'magicstick-callback-filter-order')
+
+
+def operation_failure(result):
+    """Preserve fixed Kubernetes causes, never raw stderr/manifests/credentials."""
+    raw = result.stderr or ''
+    status = next((name for name in ('Forbidden', 'Unauthorized', 'Invalid', 'NotFound', 'Conflict')
+                   if name in raw), 'unknown')
+    return {'exitCode': result.returncode, 'statusReason': status,
+            'admissionPolicies': [name for name in GUARDS if "ValidatingAdmissionPolicy '" + name + "'" in raw],
+            'missingParameters': 'no params found' in raw}
+
+
+def combined_wave_denied(result):
+    reason = operation_failure(result)
+    # Kubernetes may report either missing parameter binding first. An
+    # unrelated policy, RBAC/schema/transport failure or successful dry-run is
+    # not the intended counterexample.
+    return bool(result.returncode and reason['missingParameters'] and
+                any(name in reason['admissionPolicies'] for name in DEPENDENCY_GUARDS))
 
 
 def main():
@@ -38,7 +61,7 @@ def main():
         if ok and result.returncode:
             # Only controlled synthetic manifests are submitted. Avoid dumping
             # commands/manifests, even though these identities are synthetic.
-            raise RuntimeError('Isolated Kubernetes operation failed: ' + result.stderr[:1000])
+            raise RuntimeError('Isolated Kubernetes operation failed: ' + json.dumps(operation_failure(result), sort_keys=True))
         return result
 
     nodes = json.loads(call('get', 'nodes', '-o', 'json').stdout)['items']
@@ -90,7 +113,7 @@ def main():
         result = call('create', '--dry-run=server', '-f', '-', data=yaml.safe_dump(document), ok=False)
         expected = 'ValidatingAdmissionPolicy' if policy else 'Invalid value'
         if result.returncode == 0 or expected not in result.stderr:
-            raise AssertionError('Expected an actual API rejection: ' + result.stderr[:1000])
+            raise AssertionError('Expected an actual API rejection: ' + json.dumps(operation_failure(result), sort_keys=True))
 
     apply({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'identity-system'}})
     route = {'apiVersion': 'gateway.networking.k8s.io/v1', 'kind': 'HTTPRoute',
@@ -140,8 +163,10 @@ def main():
                     prerequisite('SecurityPolicy', 'magicstick-default-deny'), route]
         result = call('apply', '--server-side', '--dry-run=server', '-f', '-',
                       data=yaml.safe_dump_all(combined), ok=False)
-        if result.returncode == 0 or 'magicstick-route-needs-callback-baseline' not in result.stderr:
-            raise AssertionError('The legacy combined Flux dry-run must reproduce the bootstrap deadlock')
+        if not combined_wave_denied(result):
+            raise AssertionError('The combined Flux dry-run must reproduce the bootstrap deadlock: ' +
+                                 json.dumps(operation_failure(result), sort_keys=True))
+        print('Confirmed combined-wave admission denial: ' + json.dumps(operation_failure(result), sort_keys=True))
         for kind, name in [('envoyextensionpolicy', 'magicstick-cookie-migration'),
                            ('securitypolicy', 'magicstick-default-deny')]:
             if call('get', kind, name, '-n', 'identity-system', ok=False).returncode == 0:

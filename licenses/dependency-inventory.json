@@ -3197,7 +3197,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/gateway_policy_contract.py",
-      "line": 203,
+      "line": 228,
       "reference": "'pip install --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /code/server.py'],"
     },
     {
