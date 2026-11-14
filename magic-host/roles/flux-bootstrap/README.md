@@ -16,6 +16,13 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
    - `github`: runs `flux bootstrap github` against a CLI-owned seed path, then applies the deployment-owned `magicstick-sync.yaml`.
    - `readonly-public`: installs controllers when absent, creates a public Git source for this repository, applies cluster-local settings, and reconciles the public profile without writing to Git. Existing controllers are not reinstalled on every convergence run.
 
+   Managed hosts give Flux the approved full commit. The sync manifest explicitly
+   clears other reference selectors, including a branch retained from an older
+   bootstrap manager. A stale branch would restrict checkout to that branch even
+   when the commit belongs to the newly selected source. Normal client-side apply
+   preserves the GitRepository UID and unrelated settings; no source deletion,
+   mutable fallback or maintenance-state edit is used.
+
 ## Variables
 
 | Variable | Required for auto-bootstrap | Description |
