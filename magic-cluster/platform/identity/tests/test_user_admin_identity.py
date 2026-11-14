@@ -69,7 +69,8 @@ def realm_import():
 
 
 def identity_gateway_documents():
-    return [document for document in load_documents("gateway.yaml") if document]
+    return [document for name in ("gateway.yaml", "routes/routes.yaml")
+            for document in load_documents(name) if document]
 
 
 class UserAdminIdentityTests(unittest.TestCase):

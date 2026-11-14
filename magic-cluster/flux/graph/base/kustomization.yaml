@@ -7,6 +7,7 @@ resources:
   - 04-callback-backend-admission.yaml
   - 05-envoy-gateway.yaml
   - 07-callback-backend-activation.yaml
+  - 08-identity-bootstrap.yaml
   - 10-identity-pilot.yaml
   - 15-magicstick-operator.yaml
   - 30-apps.yaml

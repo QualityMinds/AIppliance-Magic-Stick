@@ -2237,72 +2237,77 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 25,
+      "line": 29,
       "reference": "version: v1.36.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 28,
+      "line": 32,
       "reference": "version: v3.19.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 31,
-      "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
       "line": 35,
-      "reference": "python3 -m pip install pyyaml"
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
-      "line": 63,
-      "reference": "version: v1.36.0"
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
-      "line": 66,
       "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 70,
+      "line": 39,
       "reference": "python3 -m pip install pyyaml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 99,
-      "reference": "node-version: \"24\""
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
-      "line": 104,
-      "reference": "version: v1.36.0"
-    },
-    {
-      "file": ".github/workflows/public-release-checks.yml",
-      "line": 109,
+      "line": 44,
       "reference": "version: v2.9.2"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 113,
+      "line": 83,
+      "reference": "version: v1.36.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 86,
+      "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 90,
+      "reference": "python3 -m pip install pyyaml"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 119,
+      "reference": "node-version: \"24\""
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 124,
+      "reference": "version: v1.36.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 129,
+      "reference": "version: v2.9.2"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 133,
       "reference": "python3 -m pip install --user ansible-core"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 117,
+      "line": 137,
       "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 122,
+      "line": 142,
       "reference": "sudo apt-get install -y --no-install-recommends apparmor"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 181,
+      "line": 201,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -3177,7 +3182,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/routes.yaml",
-      "line": 93,
+      "line": 55,
       "reference": "image: nginx:1.27.5-alpine"
     },
     {
@@ -3192,7 +3197,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/gateway_policy_contract.py",
-      "line": 134,
+      "line": 228,
       "reference": "'pip install --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /code/server.py'],"
     },
     {

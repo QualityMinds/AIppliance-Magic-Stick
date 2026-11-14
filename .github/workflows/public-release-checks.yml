@@ -14,6 +14,10 @@ jobs:
   gateway-security:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        bootstrap: [fresh, upgrade]
     steps:
       - name: Isolate Kubernetes credentials to the runner temporary directory
         run: echo "KUBECONFIG=$RUNNER_TEMP/cookie-guard-kubeconfig" >> "$GITHUB_ENV"
@@ -35,18 +39,34 @@ jobs:
           python3 -m pip install pyyaml
       - name: Create disposable Gateway cluster
         run: kind create cluster --name magicstick-cookie-guard-ci --kubeconfig "$KUBECONFIG" --wait 120s --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+      - uses: fluxcd/flux2/action@v2.9.2
+        with:
+          version: v2.9.2
+      - name: Install native Flux health evaluator in the disposable cluster
+        run: flux install --version=v2.9.2 --components=source-controller,kustomize-controller --watch-all-namespaces=false --timeout=3m
       - name: Install exact Gateway initially without Backend extension
         run: |
-          kubectl apply -k magic-cluster/platform/gateway/callback-backend-admission
+          if [ '${{ matrix.bootstrap }}' = fresh ]; then
+            kubectl apply -k magic-cluster/platform/gateway/callback-backend-admission
+          fi
           helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.5 -n envoy-gateway-system --create-namespace --wait --timeout 180s
           kubectl create namespace identity-system
+          if [ '${{ matrix.bootstrap }}' = upgrade ]; then
+            python3 magic-cluster/platform/identity/tests/gateway_policy_contract.py --kubeconfig "$KUBECONFIG" --context kind-magicstick-cookie-guard-ci --seed-legacy-route
+            kubectl apply -k magic-cluster/platform/gateway/callback-backend-admission
+          fi
           kubectl apply -f magic-cluster/platform/gateway/envoy-gateway/callback-activation.yaml
           kubectl apply -k magic-cluster/platform/gateway/callback-backend-activation
           kubectl wait --for=condition=Complete job/magicstick-callback-admission-probe -n envoy-gateway-system --timeout=240s
           test "$(kubectl get cm magicstick-callback-backend-activation -n envoy-gateway-system -o jsonpath='{.data.enabled}')" = true
           helm upgrade eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.5 -n envoy-gateway-system --reuse-values --set config.envoyGateway.extensionApis.enableBackend=true --wait --timeout 180s
       - name: Verify native policy deletion, TLS, pre-OAuth order and safe recovery
-        run: python3 magic-cluster/platform/identity/tests/gateway_policy_contract.py --kubeconfig "$KUBECONFIG" --context kind-magicstick-cookie-guard-ci
+        run: |
+          if [ '${{ matrix.bootstrap }}' = upgrade ]; then
+            python3 magic-cluster/platform/identity/tests/gateway_policy_contract.py --kubeconfig "$KUBECONFIG" --context kind-magicstick-cookie-guard-ci --require-existing-route
+          else
+            python3 magic-cluster/platform/identity/tests/gateway_policy_contract.py --kubeconfig "$KUBECONFIG" --context kind-magicstick-cookie-guard-ci
+          fi
       - name: Remove disposable Gateway cluster
         if: always()
         run: kind delete cluster --name magicstick-cookie-guard-ci --kubeconfig "$KUBECONFIG"

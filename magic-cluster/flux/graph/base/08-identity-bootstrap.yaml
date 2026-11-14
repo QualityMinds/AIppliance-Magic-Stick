@@ -1,0 +1,50 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: identity-bootstrap
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: first-run-bootstrap
+    - name: envoy-gateway
+    - name: callback-backend-activation
+  interval: 10m0s
+  path: ./magic-cluster/platform/identity-bootstrap
+  postBuild:
+    substitute:
+      var_substitution_enabled: "true"
+    substituteFrom:
+      - kind: ConfigMap
+        name: ai-appliance-settings
+        optional: true
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # Route-targeted policies cannot be Accepted before the next wave creates
+  # their routes. Check the root baselines and the original identity workloads
+  # explicitly, not every policy in this deliberately route-free wave.
+  wait: false
+  healthChecks:
+    - {apiVersion: apps/v1, kind: StatefulSet, name: keycloak-postgresql, namespace: identity-system}
+    - {apiVersion: apps/v1, kind: Deployment, name: keycloak, namespace: identity-system}
+    - {apiVersion: apps/v1, kind: Deployment, name: magicstick-setup, namespace: identity-system}
+    - {apiVersion: apps/v1, kind: Deployment, name: auth-pilot, namespace: identity-system}
+    - {apiVersion: gateway.envoyproxy.io/v1alpha1, kind: EnvoyExtensionPolicy, name: magicstick-cookie-migration, namespace: identity-system}
+    - {apiVersion: gateway.envoyproxy.io/v1alpha1, kind: SecurityPolicy, name: magicstick-default-deny, namespace: identity-system}
+  healthCheckExprs:
+    - apiVersion: gateway.envoyproxy.io/v1alpha1
+      kind: EnvoyExtensionPolicy
+      current: >-
+        has(status.ancestors) && status.ancestors.exists(a,
+          a.controllerName == 'gateway.envoyproxy.io/gatewayclass-controller' &&
+          a.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' &&
+            c.observedGeneration == metadata.generation))
+    - apiVersion: gateway.envoyproxy.io/v1alpha1
+      kind: SecurityPolicy
+      current: >-
+        has(status.ancestors) && status.ancestors.exists(a,
+          a.controllerName == 'gateway.envoyproxy.io/gatewayclass-controller' &&
+          a.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' &&
+            c.observedGeneration == metadata.generation))
+  timeout: 15m0s

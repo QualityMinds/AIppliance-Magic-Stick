@@ -54,6 +54,24 @@ proof. Only a successful, unchanged-revision proof enables the watched Helm
 values override. Identity waits for that Job; failed verification leaves the
 extension disabled. The probe has no Secret permissions or workload controls.
 
+The neutral Flux graph then reconciles the route-free `identity-bootstrap`
+wave, waits for both root policies' current-generation Accepted proof and the
+identity workloads, and finally applies `identity-pilot`'s route-only base.
+Keep these stages separate: a whole-wave server-side dry-run cannot create its
+own missing admission parameters. The native Gateway contract reproduces that
+rejected combined-wave upgrade, verifies that its dry-run persisted no root
+policy, then verifies the actual route-only product wave after baseline proof.
+Unit renders also require both waves to be a disjoint, unchanged partition of
+the aggregate identity resources. Installed rollout must independently verify
+resource UIDs/ownership, all Flux revisions and actual routing.
+The native CI gate runs fresh and upgrade profiles separately. The latter seeds
+its synthetic route before admission is installed while Backend remains off,
+then requires the same route UID throughout the guarded update. It never
+disables an installed guard to simulate the old state. Both profiles use the
+actual pinned Flux controller to parse the health expressions; the deliberately
+missing source used for that parser probe is an expected failure, not successful
+Flux reconciliation or installed-system acceptance.
+
 The HTTPS Gateway has both a callback-gate fallback and an independent
 default-deny SecurityPolicy. Losing a route's gate still invokes the Gateway
 gate; losing its authentication policy denies access. Admission prohibits
