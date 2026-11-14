@@ -14,6 +14,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 import yaml
 
@@ -43,6 +44,46 @@ def combined_wave_denied(result):
     # not the intended counterexample.
     return bool(result.returncode and reason['missingParameters'] and
                 any(name in reason['admissionPolicies'] for name in DEPENDENCY_GUARDS))
+
+
+def verify_source_ref_apply(call):
+    """Real Flux CRD/client-apply semantics, not successful Git reconciliation.
+
+    The caller already verified its disposable cluster. Its source controller
+    watches flux-system only; these synthetic identity-system objects fetch
+    nothing and start no Pods. The caller removes its entire owned cluster.
+    """
+    name = 'source-ref-' + uuid.uuid4().hex[:12]
+    old = {'apiVersion': 'source.toolkit.fluxcd.io/v1', 'kind': 'GitRepository',
+           'metadata': {'name': name, 'namespace': 'identity-system'},
+           'spec': {'url': 'https://example.com/synthetic-source.git', 'interval': '1m',
+                    'ignore': '/synthetic-unrelated\n',
+                    'ref': {'branch': 'obsolete-fixture', 'commit': 'a' * 40}}}
+
+    def write(verb, document):
+        return json.loads(call(verb, '-f', '-', '-o', 'json', data=yaml.safe_dump(document)).stdout)
+
+    original = write('create', old)  # Deliberately no last-applied annotation.
+    desired = copy.deepcopy(old)
+    desired['spec'].pop('ignore')
+    desired['spec']['ref'] = {'commit': 'b' * 40}
+    retained = write('apply', desired)
+    assert retained['metadata']['uid'] == original['metadata']['uid']
+    assert retained['spec']['ref'] == {'branch': 'obsolete-fixture', 'commit': 'b' * 40}
+    # This exact null-bearing map is required by the owning role-render tests.
+    desired['spec']['ref'] = dict.fromkeys(('branch', 'tag', 'semver', 'name', 'commit'))
+    desired['spec']['ref']['commit'] = 'b' * 40
+    fixed = write('apply', desired)
+    expected = {**original['spec'], 'ref': {'commit': 'b' * 40}}
+    assert fixed['metadata']['uid'] == original['metadata']['uid'] and fixed['spec'] == expected
+    repeated = write('apply', desired)
+    assert repeated['metadata']['uid'] == original['metadata']['uid'] and repeated['spec'] == expected
+    desired['metadata']['name'] += '-fresh'
+    fresh = write('apply', desired)
+    assert fresh['spec']['ref'] == {'commit': 'b' * 40}
+    print('CHANNEL-06 source reference API: obsolete selector retained without explicit null; '
+          'commit-only upgrade, unchanged UID/unrelated fields, repeated apply and fresh create passed. '
+          'Git checkout and installed convergence remain separate.')
 
 
 def main():
@@ -116,6 +157,7 @@ def main():
             raise AssertionError('Expected an actual API rejection: ' + json.dumps(operation_failure(result), sort_keys=True))
 
     apply({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'identity-system'}})
+    verify_source_ref_apply(call)
     route = {'apiVersion': 'gateway.networking.k8s.io/v1', 'kind': 'HTTPRoute',
              'metadata': {'name': 'fixture', 'namespace': 'identity-system',
                           'labels': {'magicstick.dev/test-fixture': 'callback-bootstrap'}},

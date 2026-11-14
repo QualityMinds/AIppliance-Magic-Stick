@@ -269,12 +269,9 @@
             namespace: flux-system
           spec:
             interval: 1m0s
-            ref:
-          {% if magicstick_public_resolved_commit | default('') | length > 0 %}
-              commit: {{ magicstick_public_resolved_commit | to_json }}
-          {% else %}
-              {{ magicstick_public_ref_kind }}: {{ magicstick_public_ref | to_json }}
-          {% endif %}
+            # Explicit nulls remove selectors left by an older field manager.
+            # In particular, branch + commit restricts Flux to that branch.
+            ref: {{ {'branch': none, 'tag': none, 'semver': none, 'name': none, 'commit': none} | combine({'commit': magicstick_public_resolved_commit} if magicstick_public_resolved_commit | default('') | length > 0 else {magicstick_public_ref_kind: magicstick_public_ref}) | to_json }}
             url: {{ magicstick_public_repo | to_json }}
           ---
           apiVersion: kustomize.toolkit.fluxcd.io/v1
