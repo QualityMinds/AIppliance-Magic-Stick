@@ -82,7 +82,12 @@ elif operation=="get" and resource=="clients/"+client["id"]:
         if state.get("rawField")==field: print(state["rawProjection"])
         else: print(json.dumps({field:value},indent=2))
     elif field=="attributes":
-        print(json.dumps({"attributes": client.get("attributes", {})}))
+        # Native kcadm's parent-only projection omits the child attributes.
+        # Pretending this was the full map concealed the installed hook bug.
+        print(json.dumps({"attributes": {}}))
+    elif field.startswith("attributes(") and field.endswith(")"):
+        selected=field[len("attributes("):-1].split(",")
+        print(json.dumps({"attributes": {k:v for k,v in client.get("attributes",{}).items() if k in selected}}))
     else: fail()
 elif operation=="update" and resource=="clients/"+client["id"]:
     if failure in ("write","permission","auth"):
@@ -146,6 +151,18 @@ class CallbackPolicyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(first["client"], second["client"])
         self.assertTrue(all(c["operation"] in {"get", "update"} for c in second["calls"]))
+
+    def test_native_attribute_children_are_explicit_for_logout_and_rotation(self):
+        result, state = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        projections = [call["field"] for call in state["calls"] if call["field"].startswith("attributes")]
+        expected = {"post.logout.redirect.uris", "client.secret.expiration.time",
+                    "client.secret.remaining.expiration.time", "client.secret.rotated",
+                    "client.secret.rotated.creation.time", "client.secret.rotated.expiration.time"}
+        self.assertTrue(projections)
+        for fields in projections:
+            self.assertTrue(fields.startswith("attributes(") and fields.endswith(")"))
+            self.assertEqual(set(fields[len("attributes("):-1].split(",")), expected)
 
     def test_secret_rotation_metadata_prevents_any_client_write(self):
         state = {"client": copy.deepcopy(self.initial)}
