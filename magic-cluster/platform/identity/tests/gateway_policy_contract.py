@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import ssl
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -25,6 +26,18 @@ DEPENDENCY_GUARDS = ('magicstick-route-needs-callback-baseline', 'magicstick-rou
 GUARDS = (*DEPENDENCY_GUARDS, 'magicstick-callback-backend-only', 'magicstick-no-backend-tls-overrides',
           'magicstick-callback-ca-writers', 'magicstick-callback-gate-policies',
           'magicstick-security-baseline', 'magicstick-callback-filter-order')
+
+
+def fixture_cookie_migration():
+    """Supply the same explicit synthetic hosts as the real TLS listener.
+
+    This disposable API contract applies directly, without Flux substitution.
+    Unexpanded product defaults would silently exclude guard.fixture.test.
+    """
+    script = (IDENTITY / 'cookie-migration.lua').read_text()
+    return (script.replace('${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}', 'fixture.test')
+            .replace('${AI_APPLIANCE_DOMAIN:=magicstick.example.com}', 'fixture.test')
+            .replace('${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}', 'guard.fixture.test'))
 
 
 def operation_failure(result):
@@ -84,6 +97,133 @@ def verify_source_ref_apply(call):
     print('CHANNEL-06 source reference API: obsolete selector retained without explicit null; '
           'commit-only upgrade, unchanged UID/unrelated fields, repeated apply and fresh create passed. '
           'Git checkout and installed convergence remain separate.')
+
+
+def migration_controller():
+    # Reuse the owning test loader, not a second controller implementation.
+    # All API traffic is subsequently bound to the caller's disposable context.
+    directory = ROOT / 'magic-cluster/platform/magicstick-operator'
+    sys.path.insert(0, str(directory / 'controller'))
+    try:
+        from test_controller import load_controller
+        return load_controller()
+    finally:
+        sys.path.pop(0)
+
+
+def seed_instance_access(call):
+    controller = migration_controller()
+    directory = ROOT / 'magic-cluster/platform/magicstick-operator'
+    call('apply', '-f', str(directory / 'crds/appinstances.appliance.magicstick.dev.yaml'))
+    call('wait', '--for=condition=Established', 'crd/appinstances.appliance.magicstick.dev', '--timeout=30s')
+    for namespace in ('ai-system', 'ai'):
+        call('apply', '-f', '-', data=yaml.safe_dump({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': namespace}}))
+    instance = {'apiVersion': 'appliance.magicstick.dev/v1alpha1', 'kind': 'AppInstance',
+                'metadata': {'name': 'hermes-cookie-migration', 'namespace': 'ai-system',
+                             'finalizers': [controller['APPINSTANCE_FINALIZER']]},
+                'spec': {'application': 'hermes', 'enabled': True, 'targetNamespace': 'ai',
+                         'values': {'name': 'cookie-migration', 'model': 'litellm/stopped-fixture'}}}
+    instance = json.loads(call('create', '-f', '-', '-o', 'json', data=yaml.safe_dump(instance)).stdout)
+    catalog = json.loads(yaml.safe_load((directory / 'app-catalog.yaml').read_text())['data']['applications.json'])
+    desired, _ = controller['app_instance_access_resources'](instance, catalog['applications']['hermes'])
+    for item in desired:
+        if item['kind'] == 'EnvoyExtensionPolicy':
+            continue
+        item['metadata']['labels'].pop('appliance.magicstick.dev/owner-uid', None)
+        name = item['metadata']['name']
+        root = 'magicstick.local' if '-local' in name else 'magicstick.example.com'
+        if item['kind'] == 'HTTPRoute' and name.endswith('-callback'):
+            item['spec']['hostnames'] = [root]
+        if item['kind'] == 'SecurityPolicy':
+            item['spec']['oidc']['redirectURL'] = 'https://' + root + '/oauth2/callback/' + name.removesuffix('-sso')
+            item['spec']['oidc']['cookieDomain'] = root
+            item['spec']['oidc'].pop('cookieNames')
+            item['spec']['jwt']['providers'][0]['extractFrom']['cookies'] = ['AccessToken-legacy']
+        call('create', '-f', '-', data=yaml.safe_dump(item))
+
+
+def verify_instance_access_migration(call):
+    controller = migration_controller()
+    directory = ROOT / 'magic-cluster/platform/magicstick-operator'
+    catalog = json.loads(yaml.safe_load((directory / 'app-catalog.yaml').read_text())['data']['applications.json'])
+
+    def request(method, path, body=None, content_type='application/json'):
+        if method == 'GET':
+            result = call('get', '--raw', path, ok=False)
+        elif method == 'POST':
+            result = call('create', '-f', '-', '-o', 'json', data=yaml.safe_dump(body), ok=False)
+        elif method == 'PATCH':
+            parts = path.strip('/').split('/')
+            assert parts[0] == 'apis' and parts[3] == 'namespaces'
+            mode = {'application/json-patch+json': 'json', 'application/merge-patch+json': 'merge'}[content_type]
+            subresource = ['--subresource=status'] if parts[-1] == 'status' else []
+            result = call('patch', parts[5] + '.' + parts[1], parts[6], '-n', parts[4],
+                          '--type=' + mode, '--patch=' + json.dumps(body), '-o', 'json', *subresource, ok=False)
+        else:
+            raise AssertionError('Unexpected controller operation in the native migration fixture')
+        if result.returncode:
+            reason = operation_failure(result)['statusReason']
+            code = {'NotFound': 404, 'Forbidden': 403, 'Unauthorized': 401, 'Conflict': 409, 'Invalid': 422}.get(reason)
+            if code:
+                raise urllib.error.HTTPError('synthetic-api', code, reason, {}, None)
+            details = operation_failure(result)
+            if method == 'PATCH' and content_type == 'application/json-patch+json':
+                observed = json.loads(call('get', '--raw', path.removesuffix('/status')).stdout)
+                expected = {op['path']: op['value'] for op in body if op['op'] == 'test'}
+                details['uidPreconditionMatched'] = observed['metadata']['uid'] == expected.get('/metadata/uid')
+                details['versionPreconditionMatched'] = observed['metadata']['resourceVersion'] == expected.get('/metadata/resourceVersion')
+            raise RuntimeError('Native migration API operation failed: ' + json.dumps(details, sort_keys=True))
+        return json.loads(result.stdout)
+
+    controller.update(request_json=request,
+        model_catalog_models=lambda namespace: [], ensure_module_activation=lambda *args, **kwargs: None,
+        module_ready=lambda *args: True, crd_exists=lambda *args: True)
+    def no_provisioning(*args, **kwargs):
+        raise AssertionError('Invalid model context must not provision a workload or key')
+    controller.update(apply_resource=no_provisioning, reconcile_service_key=no_provisioning)
+    path = '/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/appinstances/hermes-cookie-migration'
+    instance = controller['get_json'](path)
+    resources, _ = controller['app_instance_access_resources'](instance, catalog['applications']['hermes'])
+    originals = {(item['kind'], item['metadata']['name']): controller['get_applied_resource'](item)
+                 for item in resources if item['kind'] != 'EnvoyExtensionPolicy'}
+    phase, _ = controller['reconcile_instance'](instance, {}, catalog, {'name': 'synthetic-unavailable'})
+    observed = controller['get_json'](path)
+    assert phase == 'Degraded' and observed['status']['conditions'][0]['reason'] == 'InvalidModelContext'
+    assert observed['status']['accessGuardReady'] is False
+    for reference in resources:
+        current = controller['get_applied_resource'](reference)
+        old = originals.get((reference['kind'], reference['metadata']['name']))
+        if old:
+            assert current['metadata']['uid'] == old['metadata']['uid']
+        if reference['kind'] == 'HTTPRoute':
+            assert current['spec']['hostnames'] == reference['spec']['hostnames']
+            assert all(not rule.get('backendRefs') for rule in current['spec']['rules'])
+        if reference['kind'] == 'SecurityPolicy':
+            assert current['spec']['oidc']['redirectURL'] == reference['spec']['oidc']['redirectURL']
+            assert 'cookieDomain' not in current['spec']['oidc']
+    # Real API rejection of each precondition, with a corresponding successful
+    # patch differing only in that test value. No raw error text is published.
+    route = next(item for item in resources if item['kind'] == 'HTTPRoute')
+    for field in ('uid', 'resourceVersion'):
+        current = controller['get_applied_resource'](route)
+        operations = [{'op': 'test', 'path': '/metadata/' + name, 'value': current['metadata'][name]}
+                      for name in ('uid', 'resourceVersion')]
+        operations.append({'op': 'replace', 'path': '/spec', 'value': current['spec']})
+        invalid = copy.deepcopy(operations)
+        invalid[0 if field == 'uid' else 1]['value'] += '-stale'
+        result = call('patch', 'httproute', current['metadata']['name'], '-n', 'identity-system',
+                      '--type=json', '--patch=' + json.dumps(invalid), ok=False)
+        assert result.returncode, 'A stale native precondition was accepted'
+        unchanged = controller['get_applied_resource'](route)
+        assert unchanged['metadata']['uid'] == current['metadata']['uid'] and unchanged['spec'] == current['spec']
+        request('PATCH', controller['resource_path'](route['apiVersion'], route['kind'],
+                route['metadata']['namespace'], route['metadata']['name']), operations, 'application/json-patch+json')
+    # No test backend, HelmRelease, key, model or identity credential is created.
+    # Remove these synthetic route scopes before the independent Gateway probes.
+    for reference in resources:
+        call('delete', reference['kind'], reference['metadata']['name'], '-n', reference['metadata']['namespace'])
+    print('APP-04/05/11, ACL-01: stopped-model legacy SSO migration passed the real API/admission; '
+          'same resource UIDs, closed backends, invalid-context status and stale UID/RV rejection verified.')
 
 
 def main():
@@ -178,6 +318,7 @@ def main():
             if 'NotFound' not in binding.stderr:
                 raise SystemExit('Could not confirm absent admission binding for legacy fixture')
         apply(route)
+        seed_instance_access(call)
         print('Seeded synthetic pre-guard route without a running backend or human credentials.')
         return
     previous = call('get', 'httproute/fixture', '-n', 'identity-system', '-o', 'json', ok=False)
@@ -251,6 +392,16 @@ import callback_gate
 class Handler(BaseHTTPRequestHandler):
  def log_message(self, *args): pass
  def do_GET(self):
+  if self.path.startswith('/internal/session-access/reauth'):
+   navigation=(self.headers.get('Accept') == 'text/html' and self.headers.get('Sec-Fetch-Mode') == 'navigate' and self.headers.get('Sec-Fetch-Dest') == 'document')
+   self.send_response(303 if navigation else 401)
+   if navigation:
+    self.send_header('Location', '/')
+    self.send_header('Cache-Control', 'no-store')
+    for name in ('__Host-MagicStickAccessToken', '__Host-MagicStickIDToken'):
+     self.send_header('Set-Cookie', name + '=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax')
+    self.send_header('Set-Cookie', '__Host-MagicStickReauth=1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax')
+   self.send_header('Content-Length', '0'); self.end_headers(); return
   self.send_response(200); self.end_headers(); self.wfile.write(b'backend reached')
 server=callback_gate.start(cert_dir='/tls')
 # The decision is synthetic; the real product gRPC stream/TLS is unchanged.
@@ -262,7 +413,7 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
         fixture = fixture.replace("callback_gate.ready=lambda host: Path('/tmp/ready').exists()", "callback_gate.STATUS_URL='http://127.0.0.1:8082/status'")
         fixture = fixture.replace('server=callback_gate.start(cert_dir=', "from threading import Thread\nclass Status(Handler):\n def do_GET(self):\n  self.send_response(204 if Path('/tmp/ready').exists() else 503); self.end_headers()\nThread(target=ThreadingHTTPServer(('127.0.0.1',8082),Status).serve_forever,daemon=True).start()\nserver=callback_gate.start(cert_dir=")
         migration = {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'magicstick-cookie-migration', 'namespace': 'identity-system'},
-                     'data': {'lua': (IDENTITY / 'cookie-migration.lua').read_text()}}
+                     'data': {'lua': fixture_cookie_migration()}}
         apply(migration, {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'fixture-code', 'namespace': 'identity-system'},
                           'data': {'callback_gate.py': (ROOT / 'dashboard/apps/api/callback_gate.py').read_text(), 'server.py': fixture}})
         pod = {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'fixture', 'namespace': 'identity-system', 'labels': {'app': 'fixture'}},
@@ -302,6 +453,8 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                        for ancestor in item.get('status', {}).get('ancestors', []) for c in ancestor.get('conditions', []))
         wait(lambda: baseline_accepted('envoyextensionpolicy', 'magicstick-cookie-migration') and
                      baseline_accepted('securitypolicy', 'magicstick-default-deny'), 'current controller baseline acceptance')
+        if args.require_existing_route:
+            verify_instance_access_migration(call)
         # The exact route-only product wave now passes the same server-side
         # dry-run used before Flux apply. No exception or Deny rule was removed.
         rendered_routes = yaml.safe_dump_all(route_wave).replace(
@@ -311,7 +464,9 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
         policy = {'apiVersion': 'gateway.envoyproxy.io/v1alpha1', 'kind': 'SecurityPolicy',
                   'metadata': {'name': 'fixture', 'namespace': 'identity-system'},
                   'spec': {'targetRefs': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute', 'name': 'fixture'}],
-                           'extAuth': {'failOpen': False, 'http': {'backendRefs': [{'name': 'ai-appliance-dashboard-api', 'port': 8080}], 'path': '/internal/session-access'}}}}
+                           'extAuth': {'failOpen': False,
+                                       'headersToExtAuth': ['Cookie', 'Authorization', 'Accept', 'Sec-Fetch-Mode', 'Sec-Fetch-Dest'],
+                                       'http': {'backendRefs': [{'name': 'ai-appliance-dashboard-api', 'port': 8080}], 'path': '/internal/session-access'}}}}
         apply(policy, route)
         if legacy_uid and json.loads(call('get', 'httproute/fixture', '-n', 'identity-system', '-o', 'json').stdout)['metadata']['uid'] != legacy_uid:
             raise AssertionError('The upgrade replaced its legacy route instead of updating it')
@@ -369,12 +524,12 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     import socket
                     sock = socket.create_connection(('127.0.0.1', port), timeout=5)
                     self.sock = context.wrap_socket(sock, server_hostname='guard.fixture.test')
-            def status():
+            def probe(path='/', headers=None):
                 connection = Connection('guard.fixture.test', timeout=5)
                 try:
-                    connection.request('GET', '/', headers={'Host': 'guard.fixture.test', 'Cookie': 'synthetic=marker'})
+                    connection.request('GET', path, headers={'Host': 'guard.fixture.test', 'Cookie': 'synthetic=marker', **(headers or {})})
                     response = connection.getresponse()
-                    result = response.status
+                    result = response.status, response.headers
                     response.read()
                     return result
                 except ssl.SSLCertVerificationError as error:
@@ -383,6 +538,9 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     return None
                 finally:
                     connection.close()
+            def status():
+                result = probe()
+                return result[0] if result else None
             wait(lambda: status() == 503, 'missing child gate retains parent fail-closed decision')
             call('exec', '-n', 'identity-system', 'fixture', '--', 'python', '-c', "from pathlib import Path; Path('/tmp/ready').touch()")
             wait(lambda: status() == 200, 'healthy root fallback')
@@ -390,6 +548,22 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
             wait(lambda: status() == 403, 'missing route authentication falls back to deny')
             apply(policy)
             wait(lambda: status() == 200, 'restored route authentication')
+            # The real pinned controller must forward every denied-response
+            # Set-Cookie and Location, not merely accept our Policy schema.
+            navigation = {'Accept': 'text/html', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document'}
+            result = probe('/reauth', navigation)
+            if not result or result[0] != 303 or result[1].get('Location') != '/':
+                raise AssertionError('Translated ext_authz lost the reauthentication redirect')
+            cookies = result[1].get_all('Set-Cookie') or []
+            if len(cookies) != 3 or len({item.split('=', 1)[0] for item in cookies}) != 3 or any('Domain=' in item for item in cookies):
+                raise AssertionError('Translated ext_authz lost host-only denial cookies')
+            result = probe('/reauth', {'Accept': 'application/json'})
+            if not result or result[0] != 401 or result[1].get('Location') or result[1].get('Set-Cookie'):
+                raise AssertionError('Translated API denial changed browser state')
+            result = probe('/', {'Cookie': '__Host-MagicStickReauth=1'})
+            if not result or result[0] != 200 or result[1].get_all('Set-Cookie') != [
+                    '__Host-MagicStickReauth=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax']:
+                raise AssertionError('Translated successful response did not clear its own loop fence')
             call('exec', '-n', 'identity-system', 'fixture', '--', 'python', '-c', "from pathlib import Path; Path('/tmp/ready').unlink()")
             wait(lambda: status() == 503, 'callback not ready fails closed again')
             # Prove real controller order before OAuth, not just handwritten

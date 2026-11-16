@@ -29,7 +29,8 @@ class NginxRuntimeTests(unittest.TestCase):
         return result.stdout
 
     def assert_header_response(self, name, url, headers, expected_status):
-        # Synthetic non-credentials only; never report header contents.
+        # These are deliberately synthetic, non-credential values. Report only
+        # header names, byte counts and status, never their contents.
         args = ["docker", "exec", name, "wget", "-S", "-O", "/dev/null"]
         for key, value in headers.items():
             args += ["--header", key + ": " + value]
@@ -42,6 +43,8 @@ class NginxRuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode == 0, expected_status == 200, description)
 
     def exercise_dashboard_headers(self, name):
+        # Test parsing on the real static backend, not authentication. Gateway
+        # and API authorization must remain covered by their existing tests.
         url = "http://127.0.0.1:8080/"
         for size in (8 * 1024, 12 * 1024):
             for header, prefix in (("Cookie", "synthetic-session="),
@@ -55,6 +58,7 @@ class NginxRuntimeTests(unittest.TestCase):
         for header in ("Cookie", "Authorization"):
             with self.subTest(header=header, bytes=17 * 1024):
                 self.assert_header_response(name, url, {header: "x" * (17 * 1024)}, 400)
+        # Individual fields fit, but the entire request must remain bounded.
         self.assert_header_response(name, url, {
             "X-Synthetic-" + str(index): "x" * (12 * 1024) for index in range(8)
         }, 400)

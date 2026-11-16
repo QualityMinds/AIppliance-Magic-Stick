@@ -249,7 +249,7 @@ class RegressionApiTests(unittest.TestCase):
         payload = self.diagnostic()
         offered = self.service.list()["diagnosticSelections"]
         catalog = json.loads(self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"]["data"]["diagnostics.json"])
-        self.assertEqual({p["id"]: p["phase"] for p in offered}, {p["id"]: p["phase"] for p in catalog["profiles"]})
+        self.assertEqual({p["id"]: p["phase"] for p in offered}, {p["id"]: p["phase"] for p in catalog["profiles"] if p["phase"] != 5})
         self.assertNotIn("grep", json.dumps(offered))
         run = self.service.start(ACTOR, payload)
         self.assertEqual(run["phases"], [4])
@@ -270,6 +270,32 @@ class RegressionApiTests(unittest.TestCase):
             result = self.service.start(ACTOR, {**payload, "requestId": str(index)*32, "phases": [profile["phase"]], "diagnosticSelection": selection})
             self.assertEqual(result["phases"], [profile["phase"]])
             self.assertEqual(result["diagnosticSelection"], selection)
+
+    def test_services_require_version_three_without_disabling_older_diagnostics(self):
+        payload = self.diagnostic()
+        config = self.objects[CORE + "/configmaps/magicstick-regression-diagnostics"]["data"]
+        catalog = json.loads(config["diagnostics.json"])
+        if not any(p["id"] == "services" for p in catalog["profiles"]):
+            catalog["profiles"].append({"id": "services", "phase": 5, "title": "Service regression", "caseIds": ["MOD-03", "MOD-04"], "grep": "MOD-03|MOD-04"})
+        config["diagnostics.json"] = json.dumps(catalog)
+        services = {**payload, "phases": [5], "diagnosticSelection": "services"}
+        self.assertNotIn("services", [p["id"] for p in self.service.list()["diagnosticSelections"]])
+        self.assertIn("remaining", [p["id"] for p in self.service.list()["diagnosticSelections"]])
+        with self.assertRaisesRegex(RequestError, "not supported"):
+            self.service.start(ACTOR, services)
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.users, {})
+        self.objects[CORE + "/configmaps/magicstick-regression-runtime"]["data"]["diagnosticSelectionVersion"] = "3"
+        self.assertIn("services", [p["id"] for p in self.service.list()["diagnosticSelections"]])
+        result = self.service.start(ACTOR, services)
+        self.assertEqual(result["phases"], [5])
+        self.assertEqual(result["diagnosticSelection"], "services")
+        self.writes.clear()
+        for changed in ({**services, "phases": [0, 5]}, {**services, "testMode": "non-destructive"},
+                        {k: v for k, v in services.items() if k != "diagnosticSelection"}):
+            with self.assertRaises(RequestError):
+                self.service.start(ACTOR, changed)
+        self.assertEqual(self.writes, [])
 
     def test_invalid_or_unsupported_diagnostics_never_create_identity_or_intent(self):
         payload = self.diagnostic()

@@ -16,6 +16,7 @@ spec:
         namespace: flux-system
   install:
     createNamespace: false
+    timeout: 15m0s
   postRenderers:
     - kustomize:
         patches:

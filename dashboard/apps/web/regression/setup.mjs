@@ -27,6 +27,7 @@ import {parseRecoveryLock} from './core/lock-recovery.ts';
 import {applicationModuleIds,fixtureModuleIds,protectedModule} from './core/application-modules.ts';
 import {liveWorkflowEnabled} from './core/engine-policy.ts';
 import {reconcileKubernetesSession} from './core/kubernetes-termination.ts';
+import {withNewTestLicenseFixtures} from './core/service-selection.ts';
 
 process.umask(0o077);
 const directory = resolve(process.env.REGRESSION_INPUT_DIR ?? '/inputs');
@@ -156,7 +157,7 @@ async function prepareModuleFixture() {
   const candidates=new Set(fixtureModuleIds(snapshot,profile));
   if(await exists(marker)) {
     const pending=JSON.parse(await readPrivate(marker));
-    const retainedCandidates=new Set([profile.modules?.id,...applicationModuleIds(snapshot,(profile.applications?.fixtures??[]).map(f=>f.type))]);
+    const retainedCandidates=new Set([profile.modules?.id,...(profile.services?.modules??[]).map(item=>item.id),...applicationModuleIds(snapshot,(profile.applications?.fixtures??[]).map(f=>f.type))]);
     requireSafe(retainedCandidates.has(pending.id)&&!protectedModule(pending.id),'CONFLICT');
     // The unchanged receipt path verifies target/hash and the already-created
     // disabled intent. It cannot create/enable a deferred service: a missing or
@@ -333,6 +334,7 @@ try {
             if(request.mode === 'recover-lock')requireSafe(request.expectedLock &&
               bootstrapped.recoveredRunId === request.expectedLock.runId,'CLEANUP');
             if(request.mode !== 'recover-lock') {
+              await withNewTestLicenseFixtures(async()=>{
               const license=await client.api.licenseStatus();
               setupStage = 'license-fixtures';
               await bootstrapTestLicenses(directory,registration,license.installationId);
@@ -344,6 +346,7 @@ try {
                 try {return await client.write({method:'POST',path:'/api/license/validate',body:{document}},()=>client.api.inspectLicense(document));}
                 catch(error){if(error instanceof HarnessError && error.code === 'API')return undefined;throw error;}
               },value=>value?.candidate.valid === true,{timeoutMs:120_000,intervalMs:2500,stage:'host-readiness'});
+              },await exists(join(directory,'.setup-license-trust-pending.json')));
             }
           }finally{await rm(join(directory,'.setup-bootstrap.kubeconfig'),{force:true});}
         }

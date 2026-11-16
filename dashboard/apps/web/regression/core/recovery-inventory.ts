@@ -5,6 +5,8 @@ import {ResourceJournal} from './journal.ts';
 import {readPrivate} from './private-files.ts';
 import {requireSafe} from './errors.ts';
 import type {KubeObject} from './observer.ts';
+import {requireAppRuntimeReceipt,type AppRuntimeReceipt} from './app-lifecycle.ts';
+import {requireModuleRuntimeReceipt,type ModuleRuntimeReceipt} from './module-runtime-proof.ts';
 
 export interface RecoveryIdentity {applianceUid:string;nodeUids:string[]}
 export interface ModuleReceipt {filename:string;original:KubeObject;applied?:KubeObject;restored?:KubeObject;state:string}
@@ -26,7 +28,7 @@ export async function recoveryPaths(directory:string) {
   return paths;
 }
 export async function recoveryInventory(directory:string,identity:RecoveryIdentity) {
-  const paths=await recoveryPaths(directory),journals:ResourceJournal[]=[],modules:ModuleReceipt[]=[],sharing:SharingReceipt[]=[];
+  const paths=await recoveryPaths(directory),journals:ResourceJournal[]=[],modules:ModuleReceipt[]=[],sharing:SharingReceipt[]=[],appRuntimes:AppRuntimeReceipt[]=[],moduleRuntimes:Array<{filename:string;value:ModuleRuntimeReceipt}>=[];
   const files=new Map<string,string>(),leases:Array<{filename:string;state:string;value:Record<string,unknown>}>=[];let unfinished=0;
   const record=async(filename:string)=>{const body=await readPrivate(filename);files.set(filename,body);return JSON.parse(body);};
   for(const path of paths) {
@@ -45,6 +47,13 @@ export async function recoveryInventory(directory:string,identity:RecoveryIdenti
           !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(value.original.spec.module)&&
           ['requested','ambiguous','applied','unchanged','restored'].includes(value.state),'RECOVERY');
         modules.push({filename,original:value.original,applied:value.applied,restored:value.restored,state:value.state});
+      } else if(/^module-runtime-[a-z0-9-]{1,63}\.json$/.test(name)) {
+        const value=requireModuleRuntimeReceipt(await record(filename),journal,identity.applianceUid);
+        requireSafe(name===`module-runtime-${value.original.spec!.module}.json`,'RECOVERY');moduleRuntimes.push({filename,value});
+      } else if(/^app-runtime-[a-z0-9-]{1,63}\.json$/.test(name)) {
+        const value=await record(filename),entry=journal.entries.find(entry=>entry.kind==='app'&&name===`app-runtime-${entry.name}.json`);
+        requireSafe(entry,'RECOVERY');const receipt=requireAppRuntimeReceipt(value,journal,identity.applianceUid,entry);
+        requireSafe(entry.state!=='removed'||receipt.state==='removed','RECOVERY');appRuntimes.push(receipt);
       } else if(/^(?:gpu|mesh|cache|realtime)-sharing\.json$/.test(name)) {
         const value=await record(filename);
         requireSafe(value.version===1&&/^reg-[0-9a-f-]{36}$/.test(value.runId)&&value.targetUid===identity.applianceUid&&
@@ -77,7 +86,7 @@ export async function recoveryInventory(directory:string,identity:RecoveryIdenti
     return hash.digest('hex');
   };
   const open=journals.reduce((n,j)=>n+j.recoveryPlan().length,0)+modules.filter(m=>m.state!=='restored').length+
-    sharing.filter(s=>s.pending).length+unfinished;
-  return {paths,journals,modules,sharing,leases,leasePending:leases.filter(l=>l.state!=='released').length,unfinished,open,files,fingerprint,
+    sharing.filter(s=>s.pending).length+appRuntimes.filter(item=>item.state!=='removed').length+moduleRuntimes.filter(item=>item.value.state!=='verified').length+unfinished;
+  return {paths,journals,modules,sharing,appRuntimes,moduleRuntimes,leases,leasePending:leases.filter(l=>l.state!=='released').length,unfinished,open,files,fingerprint,
     ownFingerprint:(scope:string)=>fingerprint(scope,false)};
 }

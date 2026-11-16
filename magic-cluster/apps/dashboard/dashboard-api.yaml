@@ -9333,6 +9333,47 @@ data:
             cookie = cookies.get("__Host-MagicStickAccessToken")
             return "Bearer " + cookie.value if cookie else self.headers.get("Authorization", "")
 
+        def send_edge_auth_error(self, error):
+            # A navigation hint is never an authorization decision. Only a
+            # confirmed authentication rejection can restart this host's OIDC
+            # flow; missing grants and verification outages remain closed.
+            status = error.status if isinstance(error, AuthError) and error.status in {401, 403} else 503
+            from http.cookies import CookieError, SimpleCookie
+            cookies = SimpleCookie()
+            try:
+                cookies.load(self.headers.get("Cookie", ""))
+            except CookieError:
+                cookies = SimpleCookie()
+            navigation = (
+                self.command in {"GET", "HEAD"}
+                and self.headers.get("Sec-Fetch-Mode", "") == "navigate"
+                and self.headers.get("Sec-Fetch-Dest", "") == "document"
+                and any(part.strip().split(";", 1)[0].lower() == "text/html"
+                        for part in self.headers.get("Accept", "").split(","))
+            )
+            if (status == 401 and navigation and cookies.get("__Host-MagicStickAccessToken")
+                    and not cookies.get("__Host-MagicStickReauth")):
+                self.send_response(303)
+                # Constant same-origin destination: no Host, Referer, query or
+                # original-path value can turn this into an open redirect.
+                self.send_header("Location", "/")
+                self.send_header("Cache-Control", "no-store")
+                attrs = "; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax"
+                for name in ("__Host-MagicStickAccessToken", "__Host-MagicStickIDToken"):
+                    self.send_header("Set-Cookie", name + "=" + attrs)
+                # The existing Lua clears this host-only loop fence only after
+                # a successful protected response. It contains no identity.
+                self.send_header("Set-Cookie", "__Host-MagicStickReauth=1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if status == 401:
+                self.send_auth_error(AuthError(401, "Sign-in is required; return to the application to sign in again."))
+            elif status == 403:
+                self.send_error_json(403, "Access denied.")
+            else:
+                self.send_error_json(503, "Access verification is unavailable. Please retry later.")
+
         def handle_instance_guard(self):
             parts = self.route().strip("/").split("/")
             if len(parts) < 2 or parts[:2] != ["internal", "instance-access"]:
@@ -9363,9 +9404,9 @@ data:
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
-            except Exception:
+            except Exception as error:
                 # No PII, upstream response body, credential or policy is exposed at the edge.
-                self.send_error_json(403, "Instance access denied or verification unavailable.")
+                self.send_edge_auth_error(error)
             return True
 
         def handle_edge_guard(self):
@@ -9378,8 +9419,8 @@ data:
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("Content-Length", "0")
                     self.end_headers()
-                except Exception:
-                    self.send_error_json(403, "Session verification unavailable or denied.")
+                except Exception as error:
+                    self.send_edge_auth_error(error)
                 return True
             if path != "/internal/federation-license" and not path.startswith("/internal/federation-license/"):
                 return self.handle_instance_guard()

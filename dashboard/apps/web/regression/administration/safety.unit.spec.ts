@@ -505,11 +505,11 @@ test('HAR-10 kubeconfig permits only typed PKCE exec metadata and verified clust
 });
 
 test('HAR-10 app fixtures are finite HTTPS UI oracles, not arbitrary application or URL inventory',annotation,async()=>{
-  const fixtures=['openclaw','hermes','paperclip','kubeopencode','odysseus'].map(type=>({type,originTemplate:'https://{name}.'+type+'.example.invalid',
+  const fixtures=['openclaw','hermes','paperclip','kubeopencode','pi-coding','odysseus'].map(type=>({type,originTemplate:'https://{name}.'+type+'.example.invalid',
     promptLabel:'Prompt',sendButton:'Send',responseSelector:'[data-role=response]',responseMarker:'REGRESSION'}));
-  expect(validateAppFixtures(fixtures).map(item=>item.type)).toEqual(['openclaw','paperclip','kubeopencode','odysseus']);
-  expect(validateAppFixtures(fixtures.filter(item=>item.type!=='hermes'))).toHaveLength(4);
-  expect(fixtures).toHaveLength(5);
+  expect(validateAppFixtures(fixtures).map(item=>item.type)).toEqual(['openclaw','paperclip','kubeopencode','pi-coding','odysseus']);
+  expect(validateAppFixtures(fixtures.filter(item=>item.type!=='hermes'))).toHaveLength(5);
+  expect(fixtures).toHaveLength(6);
   expect(()=>validateAppFixtures(fixtures.slice(1))).toThrow();
   expect(()=>validateAppFixtures([...fixtures.slice(1),fixtures[1]])).toThrow();
   expect(()=>validateAppFixtures([{...fixtures[0],originTemplate:'http://{name}.example.invalid'},...fixtures.slice(1)])).toThrow();

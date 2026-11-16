@@ -98,6 +98,31 @@ class RegressionRunsTests(unittest.TestCase):
         self.assertTrue(self.controller.reconcile(self.run))
         self.assertEqual(len(self.writes), 1)
 
+    def test_services_need_version_three_and_matching_pins_before_any_job(self):
+        self.diagnostic()
+        base = "/api/v1/namespaces/" + NS + "/configmaps/"
+        runtime = self.objects[base + "magicstick-regression-runtime"]["data"]
+        config = self.objects[base + "magicstick-regression-diagnostics"]["data"]
+        catalog = json.loads(config["diagnostics.json"])
+        if not any(p["id"] == "services" for p in catalog["profiles"]):
+            catalog["profiles"].append({"id": "services", "phase": 5, "title": "Service regression", "caseIds": ["MOD-03", "MOD-04"], "grep": "MOD-03|MOD-04"})
+        config["diagnostics.json"] = json.dumps(catalog)
+        self.run["spec"].update(phases=[5], diagnosticSelection="services")
+        self.assertFalse(self.controller.reconcile(self.run))
+        self.assertEqual(self.run["status"]["phase"], "Blocked")
+        self.assertEqual(self.writes, [])
+        runtime["diagnosticSelectionVersion"] = "3"
+        self.run["status"] = {}
+        self.assertTrue(self.controller.reconcile(self.run))
+        container = self.writes[0][2]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["command"], ["node", "regression/kubernetes-diagnostic.mjs"])
+        self.assertIn({"name": "REGRESSION_DIAGNOSTIC_SELECTION", "value": "services"}, container["env"])
+        self.assertIn({"name": "REGRESSION_PHASES", "value": "5"}, container["env"])
+        # A later capability change cannot interrupt the exact already-owned Job.
+        runtime["diagnosticSelectionVersion"] = "2"
+        self.assertTrue(self.controller.reconcile(self.run))
+        self.assertEqual(len(self.writes), 1)
+
     def test_invalid_diagnostic_cannot_fall_back_to_full_or_recovery(self):
         for changes in ({"diagnosticSelection": "unknown"}, {"diagnosticSelection": None}, {"phases": [3]}, {"phases": [3, 4]},
                         {"testMode": "non-destructive"}, {"operation": "recover-lock"}):
@@ -114,7 +139,7 @@ class RegressionRunsTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["diagnosticSelection"]["maxLength"], 40)
         rules = [rule["rule"] for rule in schema["x-kubernetes-validations"] if "diagnosticSelection" in rule["rule"]]
         self.assertTrue(any("oldSelf.diagnosticSelection" in rule for rule in rules))
-        self.assertTrue(any('self.testMode == "full"' in rule and 'self.phases[0] in [2, 3, 4]' in rule and 'self.operation == "tests"' in rule for rule in rules))
+        self.assertTrue(any('self.testMode == "full"' in rule and 'self.phases[0] in [2, 3, 4, 5]' in rule and 'self.operation == "tests"' in rule for rule in rules))
 
     def test_exact_job_uses_existing_runner_no_gpu_host_docker_or_sa(self):
         self.assertTrue(self.controller.reconcile(self.run))

@@ -11,7 +11,7 @@ import {interruptedEvidence} from './interrupted-evidence.ts';
 /** A crashed child is a harness failure, not permission to abandon the other
  * phases or silently report its missing scenarios as successful. */
 export async function childEvidence(options:{output:string;receipt:string;mode:string;required:string[];
-  fixture:boolean;sourceRevision?:string;cancelled?:boolean;expectedRunId?:string}) {
+  fixture:boolean;sourceRevision?:string;cancelled?:boolean;expectedRunId?:string;serviceProfile?:string}) {
   try {
     const result=JSON.parse(await readPrivate(options.receipt));
     requireSafe(result?.version === 1 && result.mode === options.mode && /^reg-[a-f0-9-]{36}$/.test(result.runId) &&
@@ -54,7 +54,7 @@ export async function childEvidence(options:{output:string;receipt:string;mode:s
       reason}] as CaseResult[];
     const cleanup=options.fixture?undefined:await assessRunCleanup(options.output,directory,true);
     await saveReport(directory,runId,rows,options.required,options.sourceRevision,options.mode,undefined,
-      cleanup?{cleanup,recoveryFenceActive:cleanup.state!=='verified',recoveryAttempts:[]}:undefined);
+      cleanup||options.serviceProfile?{cleanup,recoveryFenceActive:cleanup?.state!=='verified',recoveryAttempts:[],serviceProfile:options.serviceProfile}:undefined);
     const report=JSON.parse(await readPrivate(join(directory,'summary.json')));
     return {result:{mode:options.mode,runId,directory,continuation:undefined},
       report:{cases:report.cases as CaseResult[],acceptable:false,recoveryAttempts:[] as RecoveryAttempt[],counts:report.counts},

@@ -24,6 +24,7 @@ import {labPolicy,registeredLab} from './core/lab-policy.ts';
 import {setupDetails} from './core/preparation-diagnostic.ts';
 import {companionAcceptanceCheck,discoverCompanionRun} from './administration/companion-live.ts';
 import {latestSecurityCiRun} from './core/security-ci.ts';
+import {serviceRegressionEnabled} from './core/service-selection.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..',import.meta.url)));
@@ -149,25 +150,28 @@ async function discover(source,options) {
     flux:{namespace:expected.namespace,name:expected.name,revision:sourceFlux.status.lastAppliedRevision},
     leaseIdle:!lease.spec.holderIdentity,readableFiles:[],drills:source.drills};
   const defaults=JSON.parse(await readPrivateExample('gpu-profile.example.json')).gpu.models;
-  const effectiveOptions=options.automatic ? {...options,approve:[...labPolicy.scopes],independentRecovery:false} :
+  let effectiveOptions=options.automatic ? {...options,approve:[...labPolicy.scopes],independentRecovery:false} :
     savedSetupOptions(options,source.setup?.suiteConsent,snapshot);
+  if(serviceRegressionEnabled())effectiveOptions={...effectiveOptions,phases:[5],approve:effectiveOptions.approve.filter(scope=>['identity','modules'].includes(scope)),
+    independentRecovery:false,drill:undefined};
   const seed=structuredClone(source.seed);
   if(options.automatic) {
     delete seed.smokeModel;delete seed.phase2;
-    seed.gpu=automaticGpuProfile(snapshot,defaults);
+    if(serviceRegressionEnabled())delete seed.gpu;
+    else seed.gpu=automaticGpuProfile(snapshot,defaults);
   }
   if(source.setup?.suiteConsent && seed.gpu)seed.gpu.acknowledgeSharingTransitions=effectiveOptions.approve.includes('gpu');
   const prepared=prepareInputs(seed,snapshot,effectiveOptions,defaults);
   if(options.automatic)await registeredLab(prepared.parsed,observer);
   snapshot.gpuIssues=prepared.gpuIssues;
-  snapshot.modelWarnings=await checkModelInputs(source,prepared,snapshot,options);
+  snapshot.modelWarnings=await checkModelInputs(source,prepared,snapshot,effectiveOptions);
   await verifyDeploymentPins(prepared.parsed,observer,pods,flux);
   return {snapshot,prepared,effectiveOptions};
 }
 
 async function checkModelInputs(source,prepared,snapshot,options) {
   const warnings=[],lab=prepared.lab;
-  const fixtures=[['smokeModel',lab.smokeModel],...(options.phases.some(phase=>phase >= 2) && lab.phase2 ?
+  const fixtures=[['smokeModel',lab.smokeModel],...(!serviceRegressionEnabled()&&options.phases.some(phase=>phase >= 2) && lab.phase2 ?
     [['ollamaModel',lab.phase2.ollamaModel],['vllmModel',lab.phase2.vllmModel]] : [])].filter(([,fixture])=>fixture);
   const api=preparationApi(context.request,source.parsed.dashboardUrl,source.parsed.requestTimeoutMs,fixtures.map(([,fixture])=>fixture));
   const capacity=Math.max(0,...(snapshot.models.computeMemory?.devices ?? []).filter(device=>device.id === 'cpu' || device.computeTarget === 'cpu')
@@ -188,7 +192,7 @@ async function checkModelInputs(source,prepared,snapshot,options) {
         fixture.memoryRequiredMi <= (name === 'smokeModel' ? 8192 : 32768),'CAPABILITY');
     } catch {warnings.push(`CPU ${name}: metadata/estimator or reviewed RAM budget needs attention`);}
   }
-  if(lab.phase2 && options.phases.some(phase=>phase >= 2)) {
+  if(!serviceRegressionEnabled()&&lab.phase2 && options.phases.some(phase=>phase >= 2)) {
     const selection=lab.phase2.discovery,common={provider:'huggingface',engine:'VLLM',computeTarget:'cpu',modelType:'chat',limit:'20'};
     const searches=source.lab.phase2 && !options.automatic ? [selection.query] : [...new Set([selection.repo.split('/')[1].split('-')[0],selection.query,selection.repo.split('/')[1]])];
     let found=false;
@@ -329,7 +333,7 @@ try {
         preparedProfile(source.profile,snapshot,effectiveOptions,source.lab.expected);
       snapshot.readableFiles=await readableReferences(profile,prepared.parsed);
       const host=snapshot.hosts.find(item=>item.nodeUid === prepared.parsed.gpu?.nodeUid) ?? snapshot.hosts.find(item=>item.available);
-      const drills=options.automatic && host ? automaticHostRecipes(prepared.parsed,host) : preparedReboot(prepared.parsed,snapshot,effectiveOptions);
+      const drills=serviceRegressionEnabled()?undefined:options.automatic && host ? automaticHostRecipes(prepared.parsed,host) : preparedReboot(prepared.parsed,snapshot,effectiveOptions);
       snapshot.drills=drills;
       const readiness=inputReadiness(prepared.parsed,profile,snapshot,effectiveOptions);
       preparationStage='input-acceptance';

@@ -13,6 +13,7 @@ async function main() {
   try {
     const dashboard = 'https://dash.fixture.test';
     const service = 'https://service.fixture.test';
+    const instance = 'https://instance.fixture.test';
     if (process.env.EXPECT_UNTRUSTED === '1') {
       phase = 'untrusted-ca';
       let denied = false;
@@ -64,7 +65,7 @@ async function main() {
     // including its route helper cookies, onto the shared parent domain.
     if (process.env.LEGACY_COOKIE_UPGRADE === '1') {
       phase = 'legacy-cookie-upgrade';
-      if (!first.some(cookie => cookie.name === 'OauthHMAC') || !first.some(cookie => cookie.name === 'RefreshToken')) {
+      if (!first.some(cookie => cookie.name === 'OauthHMAC-fixture-dashboard') || !first.some(cookie => cookie.name === 'RefreshToken-fixture-dashboard')) {
         throw new Error('Synthetic legacy jar is missing actual OAuth helper cookies');
       }
       await context.clearCookies({domain:'dash.fixture.test'});
@@ -104,6 +105,31 @@ async function main() {
     if (serviceCookies.some(c => c.domain === 'dash.fixture.test') ||
         (await context.cookies(dashboard)).some(c => c.domain === 'service.fixture.test')) {
       throw new Error('A session cookie crossed the host boundary');
+    }
+    phase = 'instance-login';
+    const instancePage = await context.newPage();
+    const instanceResponse = await instancePage.goto(instance + '/protected', {waitUntil:'domcontentloaded'});
+    const instanceCookie = (await context.cookies(instance)).find(c => c.name === '__Host-MagicStickAccessToken');
+    if (instanceResponse?.status() !== 200 || !instanceCookie || instanceCookie.domain !== 'instance.fixture.test' ||
+        !instanceCookie.secure || !instanceCookie.httpOnly || instanceCookie.path !== '/') {
+      throw new Error('Real instance guard did not establish its isolated session');
+    }
+    phase = 'instance-forbidden';
+    const forbiddenResponse = instancePage.waitForResponse(response => response.url() === instance + '/forbidden');
+    const forbidden = await instancePage.evaluate(async () => {
+      const result = await fetch('/forbidden', {redirect:'manual'});
+      return {status:result.status, location:result.headers.get('location')};
+    });
+    const forbiddenHeaders = await (await forbiddenResponse).headersArray();
+    // Envoy may normally refresh a valid token while migrating old broad
+    // helper cookies. Require no token deletion, not byte-identical tokens.
+    // The owning handler tests separately require no guard cookie writes.
+    const erasedByDenial = forbiddenHeaders.some(header => header.name.toLowerCase() === 'set-cookie' &&
+      /^__Host-MagicStick(?:Access|ID)Token=/.test(header.value) && /Max-Age=0(?:;|$)/i.test(header.value));
+    if (forbidden.status !== 403 || forbidden.location !== null || erasedByDenial ||
+        !(await context.cookies(instance)).some(c => c.name === '__Host-MagicStickAccessToken')) {
+      process.stderr.write(`Instance denial: HTTP ${forbidden.status}, redirect ${forbidden.location !== null}, erased token ${erasedByDenial}\n`);
+      throw new Error('A genuine instance role denial changed authentication state');
     }
     // The service policy emulates LiteLLM: OAuth does not replace an
     // application's native Authorization header. Only synthetic data is used.
@@ -150,26 +176,67 @@ async function main() {
     await control('/control?mode=ready');
     const recovered = await page.goto(service + '/protected', {waitUntil:'domcontentloaded'});
     if (!recovered || recovered.status() !== 200) throw new Error('Service did not recover after confirmed readiness');
-    phase = 'global-logout';
-    const logout = await page.goto(dashboard + '/logout', {waitUntil:'domcontentloaded'});
-    const logoutAtIdentity = new URL(page.url()).origin === 'https://id.fixture.test';
-    const confirm = page.locator('#kc-logout');
-    const confirmation = await confirm.isVisible();
-    if (confirmation) await confirm.click();
-    const after = await page.goto(service + '/protected', {waitUntil:'domcontentloaded'});
-    const afterUrl = new URL(page.url());
-    const deniedInPlace = after?.status() === 403 && afterUrl.origin === service && afterUrl.pathname === '/protected';
-    const loginRequired = after?.status() === 200 && afterUrl.origin === 'https://id.fixture.test' &&
-      afterUrl.pathname === '/realms/magicstick/protocol/openid-connect/auth' &&
-      afterUrl.searchParams.get('client_id') === 'magicstick-human-gateway-local' &&
-      afterUrl.searchParams.get('redirect_uri') === service + '/oauth2/callback' &&
-      await page.locator('#username').isVisible() && await page.locator('#password').isVisible() &&
-      await page.locator('#kc-login').isVisible();
-    if (!deniedInPlace && !loginRequired) {
-      process.stderr.write(`Logout proof: HTTP ${logout?.status()}, identity ${logoutAtIdentity}, confirmed ${confirmation}; other host HTTP ${after?.status()}, protected ${page.url() === service + '/protected'}, identity ${new URL(page.url()).origin === 'https://id.fixture.test'}, login form ${await page.locator('#username').isVisible()}\n`);
-      throw new Error('Other service accepted a logged-out session');
+    const servicePage = await context.newPage();
+    // Each guard is the first navigation after real central logout twice.
+    // A 403 page is NOT sufficient: require the real IdP form, exact callback
+    // host and successful immediate re-login, without waiting for the fence.
+    for (let round = 0; round < 2; round++) for (const destination of [instance, service]) {
+      phase = `global-logout-${destination === instance ? 'instance' : 'service'}-${round + 1}`;
+      const seeded = await servicePage.goto(service + '/protected', {waitUntil:'domcontentloaded'});
+      if (seeded?.status() !== 200) throw new Error('Fresh service session prerequisite failed');
+      phase = `global-logout-${destination === instance ? 'instance' : 'service'}-${round + 1}-seed-instance`;
+      if ((await instancePage.goto(instance + '/protected', {waitUntil:'domcontentloaded'}))?.status() !== 200) {
+        throw new Error('Fresh instance session prerequisite failed');
+      }
+      phase = `global-logout-${destination === instance ? 'instance' : 'service'}-${round + 1}-logout`;
+      // First reproduce dashboard logout. Later use the OTHER protected
+      // host's normal global logout, proving cross-host invalidation for
+      // both guards. Unattributed old root helper collisions are a separate
+      // legacy migration limitation, not a new valid-session prerequisite.
+      const logoutHost = round === 0 && destination === instance ? dashboard : destination === instance ? service : instance;
+      await page.goto(logoutHost + '/logout', {waitUntil:'domcontentloaded'});
+      if (await page.locator('#kc-logout').isVisible()) await page.locator('#kc-logout').click();
+      const logoutPhase = phase;
+      phase = logoutPhase + '-api-rejection';
+      const cookieBefore = (await context.cookies(destination)).find(c => c.name === '__Host-MagicStickAccessToken');
+      const rejected = await (destination === instance ? instancePage : servicePage).evaluate(async () => {
+        const results = [];
+        for (const method of ['GET', 'POST']) {
+          const result = await fetch('/protected', {method, redirect:'manual', headers:{Accept:'application/json'}});
+          results.push({status:result.status, location:result.headers.get('location')});
+        }
+        return results;
+      });
+      if (!cookieBefore || rejected.some(result => result.status !== 401 || result.location !== null) ||
+          (await context.cookies(destination)).find(c => c.name === '__Host-MagicStickAccessToken')?.value !== cookieBefore.value) {
+        process.stderr.write(`Logged-out API: statuses ${rejected.map(result => result.status).join(',')}, redirect ${rejected.some(result => result.location !== null)}, prior token ${Boolean(cookieBefore)}, same token ${(await context.cookies(destination)).find(c => c.name === '__Host-MagicStickAccessToken')?.value === cookieBefore?.value}\n`);
+        throw new Error('Expired API session redirected, replayed a write or erased browser state');
+      }
+      phase = logoutPhase + '-login-form';
+      const after = await page.goto(destination + '/protected', {waitUntil:'domcontentloaded'});
+      const afterUrl = new URL(page.url());
+      if (after?.status() !== 200 || afterUrl.origin !== 'https://id.fixture.test' ||
+          afterUrl.pathname !== '/realms/magicstick/protocol/openid-connect/auth' ||
+          afterUrl.searchParams.get('client_id') !== 'magicstick-human-gateway-local' ||
+          afterUrl.searchParams.get('redirect_uri') !== destination + '/oauth2/callback' ||
+          !(await page.locator('#username').isVisible()) || !(await page.locator('#password').isVisible()) ||
+          !(await page.locator('#kc-login').isVisible())) {
+        process.stderr.write(`Reauthentication: HTTP ${after?.status()}, identity ${afterUrl.origin === 'https://id.fixture.test'}, login form ${await page.locator('#username').isVisible()}\n`);
+        throw new Error('Logged-out browser did not reach the real sign-in form');
+      }
+      await page.locator('#username').fill('fixture-user');
+      await page.locator('#password').fill('fixture-password');
+      await page.locator('#kc-login').click();
+      phase = logoutPhase + '-return';
+      await page.waitForURL(destination + '/');
+      const cookies = await context.cookies(destination);
+      if (!cookies.some(cookie => cookie.name === '__Host-MagicStickAccessToken' && cookie.domain === new URL(destination).hostname) ||
+          cookies.some(cookie => cookie.name === '__Host-MagicStickReauth') ||
+          (await page.reload({waitUntil:'domcontentloaded'}))?.status() !== 200) {
+        throw new Error('Reauthentication did not restore normal protected traffic and clear the loop fence');
+      }
     }
-    process.stdout.write(`Trusted HTTPS multi-host login, cookie isolation and global logout (${process.env.LEGACY_COOKIE_UPGRADE === '1' ? 'legacy upgrade' : 'fresh browser'}): passed\n`);
+    process.stdout.write(`Trusted HTTPS multi-host and instance login, role/API denials, cookie isolation and repeated global logout/re-login (${process.env.LEGACY_COOKIE_UPGRADE === '1' ? 'legacy upgrade' : 'fresh browser'}): passed\n`);
   } finally {await context.close(); await browser.close();}
 }
 

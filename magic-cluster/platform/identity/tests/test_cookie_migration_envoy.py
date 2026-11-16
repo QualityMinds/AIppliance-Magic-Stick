@@ -75,10 +75,10 @@ class PinnedEnvoyCookieMigrationTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     @classmethod
-    def request(cls, method, cookie):
+    def request(cls, method, cookie, host="demo.example.local"):
         connection = http.client.HTTPConnection("127.0.0.1", cls.port, timeout=5)
         try:
-            connection.request(method, "/services", headers={"Host": "demo.example.local", "Cookie": cookie})
+            connection.request(method, "/services", headers={"Host": host, "Cookie": cookie})
             response = connection.getresponse()
             return response.status, response.getheaders(), response.read().decode()
         finally:
@@ -98,6 +98,22 @@ class PinnedEnvoyCookieMigrationTests(unittest.TestCase):
         status, _, body = self.request("GET", "app=" + "x" * 15360)
         self.assertEqual(status, 431)
         self.assertIn("private window", body)
+
+    def test_reauthentication_fence_is_cleared_only_after_success_on_its_own_host(self):
+        fence = "__Host-MagicStickReauth=1"
+        status, headers, _ = self.request("GET", fence + "; app=keep")
+        self.assertEqual(status, 200)
+        self.assertEqual([value for key, value in headers if key.lower() == "set-cookie"], [
+            "__Host-MagicStickReauth=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax"])
+        # The downstream fixture refuses this token: a denied response must
+        # retain the loop fence, just like a repeated live userinfo rejection.
+        status, headers, _ = self.request("GET", fence + "; __Host-MagicStickAccessToken=synthetic")
+        self.assertEqual(status, 401)
+        self.assertFalse(any(key.lower() == "set-cookie" for key, _ in headers))
+        for host in ("id.demo.example.local", "foreign.example.invalid"):
+            status, headers, _ = self.request("GET", fence, host=host)
+            self.assertEqual(status, 200)
+            self.assertFalse(any(key.lower() == "set-cookie" for key, _ in headers))
 
 
 if __name__ == "__main__":

@@ -408,8 +408,8 @@ per-instance callback `HTTPRoute` objects, cross-namespace `ReferenceGrant`,
 and Envoy `SecurityPolicy` objects with fail-closed instance guards (plus OIDC
 and role authorization for SSO). `status.accessGuardReady` becomes true only
 after the current guard policies are accepted. Until then routes have no app
-backend. The callback route shares the
-dashboard hostname but uses an exact, instance-specific path. Application
+backend. The callback route uses the instance's own hostname and an exact,
+instance-specific path. Application
 routes for the catalogued AI workloads set `timeouts.request: "0s"` so streamed
 responses are not cut off by Envoy's 15-second default; callback routes remain
 bounded. The application charts no longer create nginx `Ingress` resources.

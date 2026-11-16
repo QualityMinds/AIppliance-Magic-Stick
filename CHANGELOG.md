@@ -8,6 +8,40 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Restart a logged-out application's browser sign-in instead of showing the
+  instance guard's generic forbidden response. Expire only that host's owned
+  access/ID cookies, use a bounded same-origin navigation redirect and clear the
+  loop fence only after successful protected traffic. API requests and writes
+  remain 401 without replay; real permission denials remain 403 and unavailable
+  identity verification remains 503 without erasing cookies. Extend existing
+  authentication checks with repeated real Keycloak logout/re-login for both
+  service and UID-bound instance guards; no new campaign case is registered.
+
+- Migrate an existing application's UID-bound SSO access even when its selected
+  model is stopped or has an unknown context. Verify the current instance and
+  complete old access scope, fence every backend first and use atomic resource
+  UID/version preconditions. New invalid instances still get no routes, keys or
+  workloads; existing ones retain the model error until it is actually resolved.
+
+- Retain the dashboard nginx's four bounded 16 KiB large-header buffers for
+  existing SSO cookie/token headers during host-only cookie migration.
+  Requests exceeding the per-field or total limit remain rejected.
+
+- Add an explicitly selected, catalog-derived Services regression with ordered
+  installation/removal and SSO/public access stages.
+  Include Pi Coding Agent without re-enabling deferred service workflows in
+  ordinary runs; keep Hermes separate. Require exact per-entry evidence and
+  identity-bound runtime removal and interruption recovery. Model integration remains
+  deferred; a small owned model may be required solely to install an application.
+  Preserve AnythingLLM and Qdrant persistent data during module removal, as promised by
+  their keep-data contract. Allow AnythingLLM's native setup with a genuinely empty
+  initial model catalog without inventing a model or replacing saved choices.
+  Local/CI checks and native acceptance remain separate.
+  Allow bounded cold image pulls during application and optional operator Helm
+  installation. Recovery can snapshot a failed Helm install without treating it
+  as healthy, and retains exact release identities when checking for late resources.
+  Permit DNS-qualified native API groups with hyphens in the read-only observer,
+  while continuing to reject Secrets, subresources and invalid resource paths.
 - Read explicit native Keycloak attribute children for logout verification and
   the existing secret-rotation fence. A parent-only CLI projection looked empty
   and prevented the startup hook from accepting already verified callbacks.

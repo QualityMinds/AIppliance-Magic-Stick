@@ -48,6 +48,10 @@ Progress is phase-based. The dashboard maps existing status phases such as
 `Disabled`, `WaitingForModules`, `Starting`, `Reconciling`, `Removing`, `Ready`, and
 `Degraded` to visual progress states. These percentages are orientation hints,
 not scheduler- or operator-reported completion percentages.
+Application Helm installs have a 15-minute deadline to accommodate cold image
+pulls. An accepted install is not proof that the application is reachable; check
+its current status and endpoint. This install deadline does not change uninstall
+or retained-data behavior.
 Model Pod creation and runtime startup use indeterminate progress without a
 percentage; failures also do not display a completion percentage.
 For vLLM-Omni, Kubernetes permission/admission failures appear in the installed
@@ -87,6 +91,22 @@ SSO uses host-only token cookies and a callback on the instance's own hostname.
 Sibling services do not receive these cookies. Explicitly public instances keep
 their UID-bound instance guard; removing a route's policy does not silently make
 it public because the shared Gateway denies unprotected routes by default.
+
+After central logout, a top-level browser navigation with a rejected session
+restarts sign-in on the same instance host and returns to its root page. It
+expires only that host's owned access/ID cookies and uses a short-lived host-only
+loop fence. A successful protected response removes the fence, so another logout
+can sign in again immediately. Missing roles/grants, changed instance identity
+and unavailable verification never become a login redirect. API calls and
+mutations remain denied without cookie changes or request replay.
+
+A stopped model with unknown context does not prevent migration of an already
+deployed instance's SSO access. The controller verifies the current instance and
+its existing UID-bound policies and routes, closes their application backends,
+then moves callbacks to the instance hostname. Missing, foreign or changed
+ownership blocks migration. No new workload, inference key or application route
+is provisioned for an invalid instance. Its model error stays visible and its
+backends remain closed until model validation and the normal access guards pass.
 
 The operator, not the instance chart or dashboard, creates `HTTPRoute`,
 `SecurityPolicy`, and `ReferenceGrant` resources. Both local and public links
@@ -193,6 +213,12 @@ the same PVC as its documents and database. Preferences changed in AnythingLLM
 survive Pod recreation and catalog updates; existing nonempty preferences are
 never replaced by the bootstrap. LiteLLM/Qdrant endpoints and their Secret-backed
 credentials continue to follow the deployment.
+
+With a genuinely empty initial chat catalog, installation leaves the model and
+context preferences unset so the native setup UI is reachable without downloading
+a model. An explicitly selected unavailable model or an inconsistent named
+catalog default still blocks initialization. Reaching setup is installation/access
+evidence only, not a successful model or document-inference test.
 
 Before upgrading an older installation, follow the
 [settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration)

@@ -24,16 +24,38 @@ class CookieMigrationTests(unittest.TestCase):
         script = script.replace("${AI_APPLIANCE_DOMAIN:=magicstick.example.com}", "example.com")
         script = script.replace("${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}", "demo.example.com")
         self.lua.execute(script)
-        self.run_filter = self.lua.eval('''function(method, host, path, cookie)
+        self.run_filter = self.lua.eval('''function(method, host, path, cookie, status)
             local input = {[":method"] = method, [":authority"] = host,
                            [":path"] = path, ["cookie"] = cookie}
             local h = {get = function(_, key) return input[key] end}
+            local metadata = {}
+            local dm = {
+                set = function(_, namespace, key, value)
+                    metadata[namespace] = metadata[namespace] or {}
+                    metadata[namespace][key] = value
+                end,
+                get = function(_, namespace) return metadata[namespace] end,
+            }
+            local info = {dynamicMetadata = function(_) return dm end}
             local result = nil
             local request = {
                 headers = function(_) return h end,
+                streamInfo = function(_) return info end,
                 respond = function(_, headers, body) result = {headers=headers, body=body} end,
             }
             envoy_on_request(request)
+            if status then
+                local output = {[":status"] = tostring(status), ["set-cookie"] = {"app=keep; Secure"}}
+                local response = {
+                    streamInfo = function(_) return info end,
+                    headers = function(_) return {
+                        get = function(_, key) return output[key] end,
+                        add = function(_, key, value) table.insert(output[key], value) end,
+                    } end,
+                }
+                envoy_on_response(response)
+                return {headers=output, metadata=metadata}
+            end
             return result
         end''')
 
@@ -71,6 +93,43 @@ class CookieMigrationTests(unittest.TestCase):
         self.assertIn("private window", result.body)
         self.assertNotIn("x" * 100, result.body)
         self.assertIsNone(self.request("app=" + "x" * 1000))
+
+    def test_success_clears_only_the_current_hosts_reauthentication_fence(self):
+        result = self.run_filter("GET", "service.demo.example.local", "/", "__Host-MagicStickReauth=1; app=keep", 200)
+        self.assertTrue(result.metadata["magicstick.cookie-reauth"]["pending"])
+        self.assertEqual(list(result.metadata["magicstick.cookie-reauth"].items()), [("pending", True)])
+        cookies = list(result.headers["set-cookie"].values())
+        self.assertEqual(cookies, ["app=keep; Secure",
+            "__Host-MagicStickReauth=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax"])
+        self.assertNotIn("Domain=", cookies[-1])
+
+    def test_redirect_denial_outage_and_unmanaged_hosts_cannot_clear_the_fence(self):
+        for status in (302, 303, 401, 403, 503):
+            with self.subTest(status=status):
+                result = self.run_filter("GET", "service.demo.example.local", "/", "__Host-MagicStickReauth=1", status)
+                self.assertEqual(list(result.headers["set-cookie"].values()), ["app=keep; Secure"])
+        for host, cookie in (("id.demo.example.local", "__Host-MagicStickReauth=1"),
+                             ("outside.example.invalid", "__Host-MagicStickReauth=1"),
+                             ("service.demo.example.local", "app=keep")):
+            with self.subTest(host=host, cookie=cookie):
+                result = self.run_filter("GET", host, "/", cookie, 200)
+                self.assertIsNone(result.metadata["magicstick.cookie-reauth"])
+                self.assertEqual(list(result.headers["set-cookie"].values()), ["app=keep; Secure"])
+
+    def test_native_gateway_fixture_really_substitutes_its_tls_hosts(self):
+        from gateway_policy_contract import fixture_cookie_migration
+        # Reproduce the CI fixture defect: raw Flux defaults are NOT the
+        # native direct-apply fixture's host, so no request metadata was set.
+        self.lua.execute((ROOT / "cookie-migration.lua").read_text())
+        wrong = self.run_filter("GET", "guard.fixture.test", "/", "__Host-MagicStickReauth=1", 200)
+        self.assertEqual(list(wrong.headers["set-cookie"].values()), ["app=keep; Secure"])
+        script = fixture_cookie_migration()
+        self.assertNotIn("${AI_APPLIANCE_", script)
+        self.lua.execute(script)
+        result = self.run_filter("GET", "guard.fixture.test", "/", "__Host-MagicStickReauth=1", 200)
+        self.assertEqual(len(result.headers["set-cookie"]), 2)
+        self.assertEqual(result.headers["set-cookie"][2],
+                         "__Host-MagicStickReauth=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
 
 
 if __name__ == "__main__":

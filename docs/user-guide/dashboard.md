@@ -27,6 +27,13 @@ erasing all application data. If an older browser still reports **Request Header
 Or Cookie Too Large**, clear that appliance site's old cookies once and sign in
 again; do not disable certificate validation or authentication.
 
+After signing out, opening a protected application's page starts sign-in again
+on the central login page and returns to that application's home page. Only its
+own expired token cookies are cleared. A real **Access denied** response means
+your account lacks permission; repeatedly signing in does not grant it. If
+identity verification is unavailable, retry later instead of clearing all site
+data. API requests and unsaved writes are never automatically replayed.
+
 ## UI Areas
 
 | Area | Purpose |
@@ -89,6 +96,14 @@ and service credentials) are currently excluded from standard runs and marked
 Kubernetes, model and GPU tests remain active. This does not disable product
 services or claim full service/application acceptance. Existing failed reports
 and the cleanup of old test resources are unchanged.
+An explicit **Separate services: installation, SSO/public access and removal
+(including Pi Coding Agent)** selection runs those services separately on a
+disposable server. It checks lifecycle first, access with SSO and supported public
+access second, and verifies removal. Model functions remain deferred. Hermes
+remains separate. This selection requires matching updated
+images and does not change the scope of ordinary complete runs.
+Without-SSO coverage uses only the normal **Public without login** option on
+owned application instances, not a bypass of protected standalone services.
 For a focused repeat, **Test selection** offers fixed external-provider, GPU
 verification, two-card independent-copy Ollama, two-/four-card shared Ollama split
 and sharing scenarios. Choosing one selects its advertised phase

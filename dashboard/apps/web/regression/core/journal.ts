@@ -33,7 +33,7 @@ export interface CleanupAdapter {
  * still an exact journal entry, never a license to sweep a matching prefix. */
 export function ownedJournalName(kind:ResourceKind,name:string,prefix:string) {
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(name) && (name.startsWith(prefix) ||
-    kind === 'app' && ['openclaw','hermes','paperclip','kubeopencode','odysseus'].some(type=>name.startsWith(type+'-'+prefix)));
+    kind === 'app' && ['openclaw','hermes','paperclip','kubeopencode','pi-coding','odysseus'].some(type=>name.startsWith(type+'-'+prefix)));
 }
 
 export function newRunId() { return `reg-${randomUUID()}`; }

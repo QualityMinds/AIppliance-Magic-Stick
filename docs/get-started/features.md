@@ -80,6 +80,10 @@
   viewer account; excluded live steps are named, not counted as passed.
   Product-service/application live workflows, including Hermes, service
   credentials and app access, are currently deferred to separate regression.
+  The explicit separate Services selection tests catalog-derived installation
+  and removal, access with SSO and supported public access, including Pi Coding
+  Agent. Model integration remains deferred; Hermes remains separate. Ordinary
+  runs keep their exclusions.
   Isolated checks and core identity/license/Kubernetes/model/GPU coverage stay
   active; reports name exclusions without claiming service/application acceptance.
   Fixed diagnostic selections can repeat existing external-provider, GPU-verification,
@@ -123,6 +127,10 @@
   one appliance-wide cookie header. Services share the central sign-in; global
   logout invalidates the session across those hosts. Missing gateway protection
   denies access rather than making an application public.
+  Revisiting a logged-out application in the browser starts sign-in again;
+  a permission denial or unavailable identity service does not restart login.
+  Existing SSO access can migrate even with a stopped application model, while
+  invalid instances remain blocked and no new workload is provisioned.
 
 ## What is not automatic
 
