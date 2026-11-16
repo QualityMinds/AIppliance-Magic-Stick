@@ -17,6 +17,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   Owning controller and real-Keycloak/Envoy browser counterexamples cover the
   boundary; installed acceptance remains a separate rollout gate.
 
+- Fix Pi Coding Agent startup through Kubernetes ConfigMap symlinks. Separate
+  explicit CLI entry points from importable functions, verify both pinned
+  executable versions before reporting installation success, and reject an
+  incomplete runtime before opening the terminal. Add direct/projected CLI
+  counterexamples and an isolated real-Kubernetes cold/restart contract that
+  preserves workspace settings, auth and sessions. Existing image pins,
+  non-root restrictions, SSO and persistent-data retention remain unchanged.
+
 - Use the catalogued `oc` label for KubeOpenCode instance addresses. Keep the
   existing Agent, instance identity, workspace, model and upstream image pins;
   align generated local/public links, exact UID-bound SSO callbacks and the

@@ -165,6 +165,18 @@ disabled services. Empty
 instance-provider bases have no independent HTTP stage; their application
 instances do. Unknown adapters remain visible blockers, not omitted successes.
 Pi Coding Agent is included for installation, access and removal, not inference.
+16 November 2026 Pi startup follow-up: APP-02 and APP-11 owning checks exercise
+explicit CLI entry points through Kubernetes-style `..data` symlinks, missing
+credentials/download tooling, runtime integrity and executable compatibility.
+The required Public release checks also run the
+[native ConfigMap startup contract](../../magic-cluster/apps/ai/tests/pi_coding_startup_contract.py)
+in their disposable Kubernetes cluster with the pinned Node image. It checks cold
+startup, a fresh runtime on the same retained PVC, preserved settings/auth/session
+fixtures and rejection of a missing selected model. The existing APP-10 removal
+and ACL-01 SSO contracts remain unchanged. These isolated checks are not installed
+SSO, terminal interaction or model-inference acceptance; those require the exact
+qualified Main revision on the authorized appliance. No new case ID or standard
+service selection is introduced.
 A 13 November OpenClaw installation failure exposed a root-owned data-volume
 root. The existing APP-02 readiness and APP-10 removal checks must exercise the
 corrected instance; the [owning security counterexamples](../../magic-cluster/apps/ai/tests/openclaw_data_owner.test.cjs)

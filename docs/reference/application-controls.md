@@ -290,6 +290,13 @@ disabled with `--offline`, which does not disable inference through LiteLLM.
 Pins and upstream sources are recorded in
 `magic-cluster/apps/instances/pi-coding/files/runtime-lock.json`.
 
+The installer and model preparation use explicit CLI entry points, so Kubernetes'
+timestamped ConfigMap symlinks cannot silently skip startup. Installation succeeds
+only after both pinned executables pass their version checks in the selected
+container. Missing files, failed downloads, checksum errors or incompatible
+executables keep initialization failed; the terminal also refuses an incomplete
+runtime. No extra privileges or writable root filesystem are required.
+
 Pi starts with the explicitly selected LiteLLM chat model. It reads the shared
 `pi-models.json` export through its persistent agent directory; credentials are
 environment references, backed by its own `<instance-name>-litellm` Secret, and are never copied
