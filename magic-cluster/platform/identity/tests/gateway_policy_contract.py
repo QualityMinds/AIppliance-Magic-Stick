@@ -579,6 +579,19 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                              'endSessionEndpoint': 'https://id.fixture.test/logout'},
                 'redirectURL': 'https://guard.fixture.test/oauth2/callback', 'logoutPath': '/logout',
                 'cookieNames': {'accessToken': '__Host-MagicStickAccessToken', 'idToken': '__Host-MagicStickIDToken'}}
+            # Exercise the actual Paperclip catalogue/controller decision in
+            # native Gateway translation too. Real Keycloak login and upstream
+            # header behavior remain the separate multi-host browser gate.
+            controller = migration_controller()
+            catalog_path = ROOT / 'magic-cluster/platform/magicstick-operator/app-catalog.yaml'
+            applications = json.loads(yaml.safe_load(catalog_path.read_text())['data']['applications.json'])['applications']
+            paperclip = {'metadata': {'name': 'paperclip-fixture', 'uid': 'fixture-owner-uid'},
+                         'spec': {'application': 'paperclip', 'values': {'name': 'fixture'}}}
+            resources, _ = controller['app_instance_access_resources'](paperclip, applications['paperclip'])
+            forwarding = next(item['spec']['oidc']['forwardAccessToken'] for item in resources if item['kind'] == 'SecurityPolicy')
+            if forwarding is not False:
+                raise AssertionError('Paperclip must not forward the browser bearer to its native agent verifier')
+            oidc['spec']['oidc']['forwardAccessToken'] = forwarding
             apply(oidc)
             time.sleep(3)
             if status() != 503:

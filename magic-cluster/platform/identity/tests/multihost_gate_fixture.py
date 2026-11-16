@@ -85,16 +85,45 @@ class Fixture(BaseHTTPRequestHandler):
         self.end_headers()
 
 
+class PaperclipFixture(BaseHTTPRequestHandler):
+    """Synthetic local_trusted/agent boundary, not the upstream application.
+
+    Reproduce the installed application's observed 200 without Authorization
+    versus 401 for a foreign Bearer. Never turn an invalid native credential
+    into trusted browser access, and never echo any received header value.
+    """
+    def log_message(self, *_args):
+        pass
+
+    def do_GET(self):
+        authorization = self.headers.get("Authorization")
+        if authorization and authorization != "Bearer fixture-paperclip-agent":
+            status, content_type = 401, "application/json"
+            body = b'{"error":"Agent token did not verify; obtain fresh credentials and retry"}'
+        elif self.path.startswith("/api/"):
+            status, content_type = 200, "application/json"
+            body = json.dumps({"actor": "agent" if authorization else "browser"}).encode()
+        else:
+            status, content_type = 200, "text/html"
+            body = b"<!doctype html><button onclick=\"document.querySelector('output').textContent='clicked'\">Paperclip fixture</button><output>ready</output>"
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
 callback_gate.STATUS_URL = "http://127.0.0.1:8082/internal/callback-readiness"
 callback_gate.Future = ReadinessFuture
 gate = callback_gate.start(cert_dir="/app/gate-valid")
 expired_gate = callback_gate.start(port=8083, cert_dir="/app/gate-expired")
 threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 8082), Fixture).serve_forever, daemon=True).start()
+threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 8084), PaperclipFixture).serve_forever, daemon=True).start()
 server = runpy.run_path("/app/server.py")
 # Keep authentication, userinfo, role and error handling real. This fixture
-# has no Kubernetes API, so only the two fixed instance records are supplied.
+# has no Kubernetes API, so only fixed, UID-bound instance records are supplied.
 server["Handler"].handle_instance_guard.__globals__["app_instance"] = lambda name: {
     "metadata": {"name": name, "uid": "fixture-owner"},
-    "spec": {"enabled": True, "access": {"authentication": "sso", "role": "admin" if name == "hermes-denied" else "user"}},
-} if name in {"hermes-fixture", "hermes-denied"} else None
+    "spec": {"enabled": True, "access": {"authentication": "sso", "role": "admin" if name.endswith("-denied") else "user"}},
+} if name in {"hermes-fixture", "hermes-denied", "paperclip-fixture", "paperclip-denied"} else None
 ThreadingHTTPServer(("0.0.0.0", 8080), server["Handler"]).serve_forever()

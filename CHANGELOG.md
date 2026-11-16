@@ -8,6 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Keep Paperclip browser SSO tokens separate from native agent credentials.
+  Its catalogue now selects `forwardAccessToken: false` for the existing OIDC
+  policy; other applications retain their previous forwarding. Host-only
+  identity cookies, role/UID guards and revision-bound readiness stay required.
+  Native agent Authorization is preserved, not stripped or converted to trusted
+  board access. Application images, private data and runtime pins are unchanged.
+  Owning controller and real-Keycloak/Envoy browser counterexamples cover the
+  boundary; installed acceptance remains a separate rollout gate.
+
 - Fix Pi Coding Agent startup through Kubernetes ConfigMap symlinks. Separate
   explicit CLI entry points from importable functions, verify both pinned
   executable versions before reporting installation success, and reject an

@@ -14,6 +14,7 @@ async function main() {
     const dashboard = 'https://dash.fixture.test';
     const service = 'https://service.fixture.test';
     const instance = 'https://instance.fixture.test';
+    const paperclip = 'https://paperclip.fixture.test';
     if (process.env.EXPECT_UNTRUSTED === '1') {
       phase = 'untrusted-ca';
       let denied = false;
@@ -145,8 +146,8 @@ async function main() {
     await control('/control?mode=slow');
     const ca = fs.readFileSync('/test/ca.pem');
     const started = Date.now();
-    const resourceRequest = () => new Promise((resolve, reject) => {
-      const request = https.get({hostname:'dash.fixture.test', path:'/protected', ca, agent:false, timeout:8000}, response => {
+    const resourceRequest = (hostname='dash.fixture.test', headers={}, path='/protected') => new Promise((resolve, reject) => {
+      const request = https.get({hostname, path, headers, ca, agent:false, timeout:8000}, response => {
         response.resume();
         response.on('end', () => resolve(response.statusCode));
       });
@@ -157,7 +158,7 @@ async function main() {
         reject(new Error('Synthetic fanout transport failed'));
       });
     });
-    const statusCodes = await Promise.all(Array.from({length:32}, resourceRequest));
+    const statusCodes = await Promise.all(Array.from({length:32}, () => resourceRequest()));
     const metricsResponse = await fetch('http://api:8082/metrics');
     const metrics = await metricsResponse.json();
     if (statusCodes.some(code => code !== 302)) {
@@ -183,6 +184,51 @@ async function main() {
         throw new Error('A completed readiness decision masked a fresh same-host check');
       }
     }
+    phase = 'paperclip-anonymous';
+    for (const headers of [{}, {Authorization:'Bearer fixture-paperclip-agent'}]) {
+      if (await resourceRequest('paperclip.fixture.test', headers, '/api/actor') !== 302) {
+        throw new Error('Paperclip browser access bypassed central sign-in');
+      }
+    }
+    phase = 'paperclip-login';
+    const paperclipPage = await context.newPage();
+    const paperclipResponse = await paperclipPage.goto(paperclip + '/protected', {waitUntil:'domcontentloaded'});
+    if (paperclipResponse?.status() !== 200 || paperclipPage.url() !== paperclip + '/protected') {
+      throw new Error('The browser SSO token reached the synthetic Paperclip agent verifier');
+    }
+    const paperclipCookie = (await context.cookies(paperclip)).find(c => c.name === '__Host-MagicStickAccessToken');
+    if (!paperclipCookie || paperclipCookie.domain !== 'paperclip.fixture.test' ||
+        !paperclipCookie.secure || !paperclipCookie.httpOnly || paperclipCookie.path !== '/') {
+      throw new Error('Paperclip did not receive an isolated host-only session');
+    }
+    await paperclipPage.getByRole('button', {name:'Paperclip fixture', exact:true}).click();
+    if (await paperclipPage.locator('output').textContent() !== 'clicked') {
+      throw new Error('The protected Paperclip fixture did not become interactive');
+    }
+    phase = 'paperclip-native-authorization';
+    const actors = await paperclipPage.evaluate(async () => {
+      const results = [];
+      for (const authorization of [null, 'Bearer fixture-paperclip-agent', 'Bearer fixture-wrong-paperclip-agent']) {
+        const response = await fetch('/api/actor', {headers:authorization ? {Authorization:authorization} : {}});
+        const body = await response.json();
+        results.push({status:response.status, actor:body.actor || null, rejected:Boolean(body.error)});
+      }
+      for (const path of ['/forbidden', '/wrong-owner']) {
+        const response = await fetch(path, {redirect:'manual'});
+        results.push({status:response.status});
+      }
+      return results;
+    });
+    if (JSON.stringify(actors) !== JSON.stringify([
+      {status:200,actor:'browser',rejected:false}, {status:200,actor:'agent',rejected:false},
+      {status:401,actor:null,rejected:true}, {status:403}, {status:403}])) {
+      throw new Error('Paperclip browser/agent credentials or instance grants were mixed');
+    }
+    for (const [token, expected] of [['fixture-paperclip-agent', 200], ['fixture-wrong-paperclip-agent', 401]]) {
+      const result = await fetch('http://api:8084/api/actor', {headers:{Authorization:'Bearer ' + token}});
+      if (result.status !== expected) throw new Error('Internal native agent callback behavior changed');
+    }
+    process.stdout.write('Synthetic Paperclip boundary: browser UI/API, native agent allow/deny, anonymous sign-in, role and owner denials passed\n');
     phase = 'stale-authenticated';
     await control('/control?mode=stale');
     gated = await page.goto(service + '/protected', {waitUntil:'domcontentloaded'});
@@ -194,13 +240,17 @@ async function main() {
     // Each guard is the first navigation after real central logout twice.
     // A 403 page is NOT sufficient: require the real IdP form, exact callback
     // host and successful immediate re-login, without waiting for the fence.
-    for (let round = 0; round < 2; round++) for (const destination of [instance, service]) {
-      phase = `global-logout-${destination === instance ? 'instance' : 'service'}-${round + 1}`;
+    for (let round = 0; round < 2; round++) for (const destination of [instance, service, paperclip]) {
+      const destinationPage = destination === instance ? instancePage : destination === paperclip ? paperclipPage : servicePage;
+      phase = `global-logout-${new URL(destination).hostname.split('.')[0]}-${round + 1}`;
       const seeded = await servicePage.goto(service + '/protected', {waitUntil:'domcontentloaded'});
       if (seeded?.status() !== 200) throw new Error('Fresh service session prerequisite failed');
       phase = `global-logout-${destination === instance ? 'instance' : 'service'}-${round + 1}-seed-instance`;
       if ((await instancePage.goto(instance + '/protected', {waitUntil:'domcontentloaded'}))?.status() !== 200) {
         throw new Error('Fresh instance session prerequisite failed');
+      }
+      if ((await paperclipPage.goto(paperclip + '/protected', {waitUntil:'domcontentloaded'}))?.status() !== 200) {
+        throw new Error('Fresh Paperclip session prerequisite failed');
       }
       phase = `global-logout-${destination === instance ? 'instance' : 'service'}-${round + 1}-logout`;
       // First reproduce dashboard logout. Later use the OTHER protected
@@ -213,7 +263,7 @@ async function main() {
       const logoutPhase = phase;
       phase = logoutPhase + '-api-rejection';
       const cookieBefore = (await context.cookies(destination)).find(c => c.name === '__Host-MagicStickAccessToken');
-      const rejected = await (destination === instance ? instancePage : servicePage).evaluate(async () => {
+      const rejected = await destinationPage.evaluate(async () => {
         const results = [];
         for (const method of ['GET', 'POST']) {
           const result = await fetch('/protected', {method, redirect:'manual', headers:{Accept:'application/json'}});

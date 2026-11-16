@@ -5484,7 +5484,7 @@ data:
         }
 
 
-    def app_instance_security_policy(instance, policy_name, route_names, redirect_url, cookie_domain, required_role):
+    def app_instance_security_policy(instance, policy_name, route_names, redirect_url, cookie_domain, required_role, forward_access_token=True):
         issuer = "https://id." + mdns_domain() + "/realms/magicstick"
         allowed_roles = {
             "user": ["magicstick-user", "magicstick-viewer", "magicstick-operator", "magicstick-admin"],
@@ -5522,7 +5522,7 @@ data:
                         "accessToken": "__Host-MagicStickAccessToken",
                         "idToken": "__Host-MagicStickIDToken",
                     },
-                    "forwardAccessToken": True,
+                    "forwardAccessToken": forward_access_token,
                 },
                 "jwt": {
                     "providers": [{
@@ -5609,6 +5609,9 @@ data:
         }]
         strip_cookies = bool((definition.get("route") or {}).get("stripCookies"))
         request_timeout = (definition.get("route") or {}).get("requestTimeout")
+        forward_access_token = (definition.get("route") or {}).get("forwardAccessToken", True)
+        if not isinstance(forward_access_token, bool):
+            raise ValueError("Application route.forwardAccessToken must be a boolean")
         resources.append(app_instance_route(
             instance,
             local_route_name,
@@ -5637,6 +5640,7 @@ data:
                 "https://" + local_host + local_callback_path,
                 mdns_domain(),
                 required_role,
+                forward_access_token,
             ))
         else:
             resources.append(app_instance_guard_policy(instance, local_policy_name, local_route_name))
@@ -5670,6 +5674,7 @@ data:
                     "https://" + public_host + public_callback_path,
                     public_domain(),
                     required_role,
+                    forward_access_token,
                 ))
             else:
                 resources.append(app_instance_guard_policy(instance, public_policy_name, public_route_name))

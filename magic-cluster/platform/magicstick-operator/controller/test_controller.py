@@ -121,6 +121,90 @@ class HelmAppInstanceTests(unittest.TestCase):
             },
         )
 
+    def test_catalog_keeps_browser_bearer_out_of_paperclip_only(self):
+        manifest = yaml.safe_load((ROOT / "app-catalog.yaml").read_text(encoding="utf-8"))
+        applications = yaml.safe_load(manifest["data"]["applications.json"])["applications"]
+        for name, definition in applications.items():
+            with self.subTest(application=name):
+                self.assertIs(definition["route"].get("forwardAccessToken", True), name != "paperclip")
+
+    def test_oidc_forwarding_is_catalog_driven_without_changing_access_guards(self):
+        instance = {"metadata": {"name": "paperclip-demo", "uid": "fixture-paperclip-uid"},
+                    "spec": {"application": "paperclip", "targetNamespace": "ai", "values": {}}}
+        route = {"serviceName": "instance", "port": 3100}
+        baseline, _ = self.controller["app_instance_access_resources"](instance, {"route": route})
+        resources, _ = self.controller["app_instance_access_resources"](
+            instance, {"route": {**route, "forwardAccessToken": False}})
+        policies = [item for item in resources if item["kind"] == "SecurityPolicy"]
+        self.assertEqual(len(policies), 2)
+        for item, original in zip(resources, baseline):
+            with self.subTest(resource=item["metadata"]["name"]):
+                if item["kind"] == "SecurityPolicy":
+                    self.assertIs(item["spec"]["oidc"]["forwardAccessToken"], False)
+                    original["spec"]["oidc"]["forwardAccessToken"] = False
+                self.assertEqual(item, original)
+
+    def test_oidc_forwarding_rejects_non_boolean_catalog_values(self):
+        instance = {"metadata": {"name": "paperclip-demo", "uid": "fixture-paperclip-uid"},
+                    "spec": {"application": "paperclip", "values": {}}}
+        for value in ("false", "true", 0, 1, None, [], {}):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "route.forwardAccessToken must be a boolean"):
+                    self.controller["app_instance_access_resources"](
+                        instance, {"route": {"port": 3100, "forwardAccessToken": value}})
+
+    def test_instance_values_cannot_override_catalog_oidc_forwarding(self):
+        manifest = yaml.safe_load((ROOT / "app-catalog.yaml").read_text(encoding="utf-8"))
+        applications = yaml.safe_load(manifest["data"]["applications.json"])["applications"]
+        for application in ("paperclip", "odysseus"):
+            instance = {"metadata": {"name": application + "-demo", "uid": "fixture-owner-uid"},
+                        "spec": {"application": application, "values": {
+                            "forwardAccessToken": application == "paperclip",
+                            "route": {"forwardAccessToken": application == "paperclip"}}}}
+            resources, _ = self.controller["app_instance_access_resources"](instance, applications[application])
+            for item in resources:
+                if item["kind"] == "SecurityPolicy":
+                    self.assertIs(item["spec"]["oidc"]["forwardAccessToken"], application != "paperclip")
+
+    def test_changed_oidc_forwarding_waits_for_its_own_accepted_revision(self):
+        import copy
+        import hashlib
+        import json
+
+        controller = load_controller()
+        instance = {"metadata": {"name": "paperclip-demo", "uid": "fixture-owner-uid"},
+                    "spec": {"application": "paperclip", "values": {}}}
+        definition = {"route": {"port": 3100, "forwardAccessToken": False}}
+        mode, applied = ["old-spec"], []
+
+        def observed(resource):
+            value = copy.deepcopy(resource)
+            metadata = value["metadata"]
+            metadata.update(uid="fixture-policy-uid", resourceVersion="7", generation=2)
+            spec = copy.deepcopy(value["spec"])
+            if value["kind"] == "SecurityPolicy" and mode[0] == "old-spec":
+                spec["oidc"]["forwardAccessToken"] = True
+            metadata.setdefault("annotations", {})["appliance.magicstick.dev/access-guard-spec"] = (
+                hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest())
+            value["status"] = {"ancestors": [{"conditions": [{"type": "Accepted", "status": "True",
+                "observedGeneration": 1 if mode[0] == "old-generation" else 2}]}]}
+            return value
+
+        with patch.dict(controller, {"get_applied_resource": observed,
+                                    "apply_resource": lambda item: applied.append(item),
+                                    "CALLBACK_REGISTRY_READY": True,
+                                    "CALLBACK_ADMITTED_UIDS": {"fixture-owner-uid"}}):
+            for state, ready in (("old-spec", False), ("old-generation", False), ("current", True)):
+                with self.subTest(state=state):
+                    mode[0] = state
+                    applied.clear()
+                    result = controller["sync_app_instance_access"](instance, definition)
+                    self.assertIs(result["accessGuardReady"], ready)
+                    routes = [item for item in applied if item["kind"] == "HTTPRoute"]
+                    self.assertEqual(len(routes), 4)
+                    self.assertTrue(all(bool(rule["backendRefs"]) is ready
+                                        for item in routes for rule in item["spec"]["rules"]))
+
     def test_hermes_route_strips_edge_session_cookies_before_upstream(self):
         instance = {
             "metadata": {"name": "hermes-demo", "uid": "fixture-hermes-uid"},

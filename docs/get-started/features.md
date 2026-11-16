@@ -132,6 +132,8 @@
   denies access rather than making an application public.
   Parallel page files share only a currently running host-readiness check;
   each request still passes its own authentication and access controls.
+  Paperclip keeps browser sign-in separate from its native agent credentials;
+  the central browser token is not sent to its agent-token verifier.
   Revisiting a logged-out application in the browser starts sign-in again;
   a permission denial or unavailable identity service does not restart login.
   Existing SSO access can migrate even with a stopped application model, while
