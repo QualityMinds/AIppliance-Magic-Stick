@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "d13107fb5a0fb239aa6cb5e2ef599648713fa0496b96b1df24e652915edfd6ef",
+  "deploymentReferencesSha256": "5e20a5e180e8116284d92193a997e0fd4cc07d48073863029956f271da8b1baf",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2553,7 +2553,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 35,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-815cdbffd130bba258858586eb4e2bd29fc2567c@sha256:0602df09208760a2dc7c64576aa58dde5919f0f66796158452794daf7e7b3e30"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-223f175c8920d20ed5030666e075698dd689cdc9@sha256:81200b8be97f7f4b0ab0e8dba34694dd98df6f01ae0be054ad18be26d1d94d46"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2573,7 +2573,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-815cdbffd130bba258858586eb4e2bd29fc2567c@sha256:6f5c121ad1d88252b3ecd916c9865783ed078bce2b6c024eb688402f9add1d41"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-223f175c8920d20ed5030666e075698dd689cdc9@sha256:5107d2f1a73bb28fef84c5e48134ab83cadac3724558aba516319fababcc061f"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
@@ -2773,7 +2773,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-815cdbffd130bba258858586eb4e2bd29fc2567c@sha256:dd6d4aa48e2578f668d42434374f9d05983254a8fad8f3d8cc46518a8b7be05f\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-223f175c8920d20ed5030666e075698dd689cdc9@sha256:d6f6e7f6b49235dea15649124a4f2db4b08009659a9ac581ba7344a677cc5bef\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -3217,7 +3217,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/test_multihost_stack.py",
-      "line": 154,
+      "line": 169,
       "reference": "\"if ! pip install --timeout 15 --retries 2 --no-cache-dir --disable-pip-version-check \""
     },
     {
