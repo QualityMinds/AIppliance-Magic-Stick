@@ -22,6 +22,17 @@ Navigation hints never grant access. API/fetch requests and mutations retain
 401 without redirects, cookie changes or replay, and real authorization/UID
 denials and verification outages never clear cookies.
 
+The pre-OIDC gRPC callback gate inspects only the request authority. Concurrent
+requests for the same canonical host share one **in-progress** complete readiness
+check, not a user-authorization result. Its entry is removed before completion is
+published; the next non-overlapping request and every distinct host obtain a fresh
+check. Both positive and negative completed results are discarded. Existing
+route/policy and callback-owner revision checks, the seven-second dependency
+deadline, fail-closed 503 behavior and per-request authentication remain intact.
+Scripts and other page resources do not receive an authentication exception.
+Failure diagnostics contain only fixed reasons, bounded HTTP status codes and
+elapsed milliseconds, never headers, response bodies or exception text.
+
 Model create/update payloads accept optional `local.capabilities` or
 `external.capabilities` objects containing `tools`, `vision` and `reasoning`
 booleans. Omitted fields remain unknown; string/numeric booleans and unsupported

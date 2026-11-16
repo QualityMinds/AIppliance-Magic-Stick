@@ -8,6 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Coalesce overlapping requests for the same host at the pre-OIDC callback
+  gate, including the complete route/policy and identity-readiness observation.
+  Parallel application scripts no longer each trigger a separate copy of that
+  check. Completed decisions are not cached; distinct hosts, current ownership,
+  revision validation, per-request authorization, TLS and bounded timeouts remain
+  enforced. Add 40-resource gRPC/HTTP and real-Keycloak counterexamples plus
+  credential-free failure reasons. Application images and instance data are
+  unchanged; a qualified Dashboard API image and live acceptance remain separate.
+
 - Restart a logged-out application's browser sign-in instead of showing the
   instance guard's generic forbidden response. Expire only that host's owned
   access/ID cookies, use a bounded same-origin navigation redirect and clear the

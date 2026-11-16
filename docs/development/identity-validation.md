@@ -51,6 +51,42 @@ same-host requests coalesce; 64 distinct occupied checks cause a 65th to return
 503, which recovers to 204 after release. A controlled barrier creates the
 overload; this is not an appliance throughput or latency benchmark.
 
+### Complete callback-gate resource fanout
+
+The same real-Keycloak runtime gate also executes the production gRPC callback
+gate, its real HTTP readiness request and the actual Setup Gateway observation.
+Forty concurrent script-style requests for one synthetic instance must share one
+complete Keycloak check and exactly four route/policy-list reads (before and
+after). A new owner UID or identity outage after that completed allow must be
+denied by the next request, and a fresh healthy check must recover. Kubernetes
+objects remain synthetic; this is neither a real Kubernetes ownership test nor
+installed Odysseus/browser acceptance.
+
+The ordinary API discovery includes
+[`test_callback_gate_fanout.py`](../../dashboard/apps/api/test_callback_gate_fanout.py).
+Its controlled barriers reproduce the original forty dependency calls versus
+one without scheduling sleeps. It covers a real loopback gRPC/HTTP burst,
+independent hosts, canonical authorities, malformed headers, completed positive
+and negative decisions, failure recovery and bounded follower waiting. The actual
+Setup observation rejects changed route UID/generation, removed routes/policies,
+failed reads and unavailable identity during an overlapping flight. Existing
+native Gateway/default-deny checks still own denial after policy removal; the
+readiness gate is not an authorization substitute. Existing production TLS,
+certificate expiry/name/CA, session and instance-guard tests remain required.
+
+Only requests overlapping an active complete check share its boolean readiness
+result. The map entry is removed before that result is published; no TTL cache,
+stale positive decision, cross-host result or static-file exemption is introduced.
+Unknown/error/timeout outcomes remain 503 with no header or cookie replay.
+The seven-second deadline is unchanged. Diagnostics use only fixed reason codes,
+HTTP status and elapsed time, not raw failures, hostnames or credentials.
+
+The gate is baked into the Dashboard API image. A source push alone cannot update
+an appliance: qualify and promote matching coordinated images before an authorized
+rollout, then verify full resource loading, working navigation/settings and real
+logout/login. Odysseus and other application images/data stay unchanged. No
+registered live case or ordinary Services exclusion is changed here.
+
 The callback gate's Envoy Backend carries its CA reference, SNI and TLS
 settings in the Backend itself, rather than relying on an optional attached
 policy. Enabling this Gateway extension increases the cluster-wide attack
