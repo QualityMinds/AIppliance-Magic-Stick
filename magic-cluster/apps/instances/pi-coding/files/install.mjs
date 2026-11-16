@@ -1,16 +1,37 @@
 // SPDX-License-Identifier: BUSL-1.1
 import {createHash} from 'node:crypto';
-import {createReadStream} from 'node:fs';
-import {chmod, copyFile, mkdir, readFile, rm} from 'node:fs/promises';
+import {constants, createReadStream} from 'node:fs';
+import {access, chmod, copyFile, lstat, mkdir, readFile, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {pathToFileURL} from 'node:url';
 
 export async function verifyAsset(path, expected) {
   if (!/^[a-f0-9]{64}$/.test(expected)) throw new Error('Invalid runtime checksum.');
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(path)) hash.update(chunk);
   if (hash.digest('hex') !== expected) throw new Error('Runtime checksum mismatch; refusing to execute downloaded code.');
+}
+
+export async function verifyInstallation(runtimeDir) {
+  const lock = JSON.parse(await readFile(new URL('./runtime-lock.json', import.meta.url), 'utf8'));
+  for (const [name, path, version] of [
+    ['ttyd', join(runtimeDir, 'ttyd'), lock.ttyd.version],
+    ['Pi', join(runtimeDir, 'pi', 'pi'), lock.pi.version],
+  ]) {
+    try {
+      if (!(await lstat(path)).isFile()) throw new Error('Not a regular executable');
+      await access(path, constants.X_OK);
+      const result = spawnSync(path, ['--version'], {encoding: 'utf8', timeout: 10000,
+        maxBuffer: 64 * 1024, stdio: ['ignore', 'pipe', 'pipe']});
+      const expected = new RegExp(`\\bv?${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (result.status !== 0 || !expected.test(`${result.stdout || ''}\n${result.stderr || ''}`)) {
+        throw new Error('Runtime version check failed');
+      }
+    } catch {
+      // Do not export subprocess output, environment values or native loader errors.
+      throw new Error(`The pinned ${name} runtime is missing, not executable or incompatible.`);
+    }
+  }
 }
 
 export async function install(runtimeDir, architecture = process.arch) {
@@ -36,12 +57,6 @@ export async function install(runtimeDir, architecture = process.arch) {
   for (const name of ['LICENSE-pi.txt', 'LICENSE-ttyd.txt']) {
     await copyFile(new URL(name, import.meta.url), join(runtimeDir, 'licenses', name));
   }
+  await verifyInstallation(runtimeDir);
   await rm(archive);
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  install(process.env.PI_RUNTIME_DIR || '/runtime').catch(error => {
-    console.error(error.message);
-    process.exitCode = 1;
-  });
 }

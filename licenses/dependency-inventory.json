@@ -2262,52 +2262,57 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 83,
+      "line": 85,
       "reference": "version: v1.36.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 86,
+      "line": 88,
+      "reference": "version: v3.19.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 91,
       "reference": "curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 90,
+      "line": 95,
       "reference": "python3 -m pip install pyyaml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 119,
+      "line": 126,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 124,
+      "line": 131,
       "reference": "version: v1.36.0"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 129,
+      "line": 136,
       "reference": "version: v2.9.2"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 133,
+      "line": 140,
       "reference": "python3 -m pip install --user ansible-core"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 137,
+      "line": 144,
       "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 142,
+      "line": 149,
       "reference": "sudo apt-get install -y --no-install-recommends apparmor"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 201,
+      "line": 208,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -2747,12 +2752,12 @@
     },
     {
       "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
-      "line": 104,
+      "line": 108,
       "reference": "image: {{ $image | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
-      "line": 123,
+      "line": 127,
       "reference": "image: {{ $image | quote }}"
     },
     {

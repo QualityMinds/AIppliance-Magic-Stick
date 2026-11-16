@@ -73,14 +73,19 @@ jobs:
 
   setup-upgrade:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
+      - name: Isolate Kubernetes credentials to the runner temporary directory
+        run: echo "KUBECONFIG=$RUNNER_TEMP/identity-upgrade-kubeconfig" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: azure/setup-kubectl@v4
         with:
           version: v1.36.0
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
       - name: Install checksum-verified Kind for the isolated API contract
         run: |
           curl --fail --location --silent --show-error --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
@@ -92,6 +97,8 @@ jobs:
         run: kind create cluster --name magicstick-identity-upgrade --wait 120s --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
       - name: Verify legacy setup strategy upgrade with the real API
         run: python3 magic-host/roles/flux-bootstrap/tests/setup_strategy_contract.py --context kind-magicstick-identity-upgrade
+      - name: Verify Pi startup through real ConfigMap projections and retained storage
+        run: python3 magic-cluster/apps/ai/tests/pi_coding_startup_contract.py --context kind-magicstick-identity-upgrade
       - name: Remove disposable API
         if: always()
         run: kind delete cluster --name magicstick-identity-upgrade
@@ -210,6 +217,7 @@ jobs:
           node --test --test-isolation=none magic-cluster/apps/ai/tests/hermes_dashboard_proxy.test.cjs
           node --test --test-isolation=none magic-cluster/apps/ai/tests/openclaw_data_owner.test.cjs
           node --test --test-isolation=none magic-cluster/apps/ai/tests/paperclip_runtime.test.cjs
+          python3 -m unittest tests.test_pi_coding
           python3 -m unittest discover -s magic-cluster/apps/ai/litellm/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_*.py'
 
