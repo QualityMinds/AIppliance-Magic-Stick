@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "a6e7dbc8d9d0e9ff9bc385a740ef375d6dce03018d14b67cad1492493049d0b2",
+  "deploymentReferencesSha256": "1f483bfea3ddfe36e1a608c1795ff8e1858f23876ecd0629e676a82152757a80",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2696,6 +2696,11 @@
       "reference": "digest: sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8"
     },
     {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 53,
+      "reference": "image: ghcr.io/openclaw/openclaw:2026.9.8@sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8"
+    },
+    {
       "file": "magic-cluster/apps/instances/paperclip/Chart.yaml",
       "line": 5,
       "reference": "version: 0.1.0"
@@ -3197,7 +3202,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/gateway_policy_contract.py",
-      "line": 228,
+      "line": 421,
       "reference": "'pip install --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /code/server.py'],"
     },
     {
@@ -3212,17 +3217,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3413,
+      "line": 3423,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3450,
+      "line": 3460,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4321,
+      "line": 4331,
       "reference": "if not image:"
     },
     {
