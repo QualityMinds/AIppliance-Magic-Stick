@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
-  "deploymentReferencesSha256": "a6e7dbc8d9d0e9ff9bc385a740ef375d6dce03018d14b67cad1492493049d0b2",
+  "deploymentReferencesSha256": "b75378d1c56836f0de593ea475cd91642a5c7cd615ed6cc6a9073f85ec50e3ad",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2548,7 +2548,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 35,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-b5b9eed5d2be165bf76bfbc4f94f3d9e11c621d2@sha256:777ce8171d47c5c1c4a11c5f7055884ed26b5a2d3caec1f3aee4d21899489878"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-d8306d18d4fd90a9522521be41abe511cc3f4534@sha256:12e829d8a449454eb5f067b100f67430039ef944d4237c817c8eaa64886c4f81"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2568,7 +2568,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-b5b9eed5d2be165bf76bfbc4f94f3d9e11c621d2@sha256:cfc7a905236a41e3512f469afefaf4a3156881ec88c9f76619d4007f03602abc"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-d8306d18d4fd90a9522521be41abe511cc3f4534@sha256:de2705ba2a891bca45d0ae678891db0faa5bc9fc5149e6a68aeb6e28517b642f"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
@@ -2763,7 +2763,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-b5b9eed5d2be165bf76bfbc4f94f3d9e11c621d2@sha256:c409919f6f50f37d0f901c8cd82a2bc038d2265f470dda69020b53dcfd94d977\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-d8306d18d4fd90a9522521be41abe511cc3f4534@sha256:bd62d00a8140935adc4abb552f50895b2fa3f3acb7ac8bf66e570390b3a8aa45\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -3197,7 +3197,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/gateway_policy_contract.py",
-      "line": 228,
+      "line": 421,
       "reference": "'pip install --disable-pip-version-check grpcio==1.76.0 protobuf==6.33.6 xds-protos==1.76.0 >/dev/null 2>&1; exec python /code/server.py'],"
     },
     {
@@ -3212,17 +3212,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3413,
+      "line": 3423,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3450,
+      "line": 3460,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4321,
+      "line": 4331,
       "reference": "if not image:"
     },
     {
