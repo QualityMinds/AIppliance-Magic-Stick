@@ -28,6 +28,18 @@ GUARDS = (*DEPENDENCY_GUARDS, 'magicstick-callback-backend-only', 'magicstick-no
           'magicstick-security-baseline', 'magicstick-callback-filter-order')
 
 
+def fixture_cookie_migration():
+    """Supply the same explicit synthetic hosts as the real TLS listener.
+
+    This disposable API contract applies directly, without Flux substitution.
+    Unexpanded product defaults would silently exclude guard.fixture.test.
+    """
+    script = (IDENTITY / 'cookie-migration.lua').read_text()
+    return (script.replace('${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}', 'fixture.test')
+            .replace('${AI_APPLIANCE_DOMAIN:=magicstick.example.com}', 'fixture.test')
+            .replace('${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}', 'guard.fixture.test'))
+
+
 def operation_failure(result):
     """Preserve fixed Kubernetes causes, never raw stderr/manifests/credentials."""
     raw = result.stderr or ''
@@ -401,7 +413,7 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
         fixture = fixture.replace("callback_gate.ready=lambda host: Path('/tmp/ready').exists()", "callback_gate.STATUS_URL='http://127.0.0.1:8082/status'")
         fixture = fixture.replace('server=callback_gate.start(cert_dir=', "from threading import Thread\nclass Status(Handler):\n def do_GET(self):\n  self.send_response(204 if Path('/tmp/ready').exists() else 503); self.end_headers()\nThread(target=ThreadingHTTPServer(('127.0.0.1',8082),Status).serve_forever,daemon=True).start()\nserver=callback_gate.start(cert_dir=")
         migration = {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'magicstick-cookie-migration', 'namespace': 'identity-system'},
-                     'data': {'lua': (IDENTITY / 'cookie-migration.lua').read_text()}}
+                     'data': {'lua': fixture_cookie_migration()}}
         apply(migration, {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'fixture-code', 'namespace': 'identity-system'},
                           'data': {'callback_gate.py': (ROOT / 'dashboard/apps/api/callback_gate.py').read_text(), 'server.py': fixture}})
         pod = {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'fixture', 'namespace': 'identity-system', 'labels': {'app': 'fixture'}},

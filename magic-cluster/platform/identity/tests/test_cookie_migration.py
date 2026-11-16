@@ -116,6 +116,21 @@ class CookieMigrationTests(unittest.TestCase):
                 self.assertIsNone(result.metadata["magicstick.cookie-reauth"])
                 self.assertEqual(list(result.headers["set-cookie"].values()), ["app=keep; Secure"])
 
+    def test_native_gateway_fixture_really_substitutes_its_tls_hosts(self):
+        from gateway_policy_contract import fixture_cookie_migration
+        # Reproduce the CI fixture defect: raw Flux defaults are NOT the
+        # native direct-apply fixture's host, so no request metadata was set.
+        self.lua.execute((ROOT / "cookie-migration.lua").read_text())
+        wrong = self.run_filter("GET", "guard.fixture.test", "/", "__Host-MagicStickReauth=1", 200)
+        self.assertEqual(list(wrong.headers["set-cookie"].values()), ["app=keep; Secure"])
+        script = fixture_cookie_migration()
+        self.assertNotIn("${AI_APPLIANCE_", script)
+        self.lua.execute(script)
+        result = self.run_filter("GET", "guard.fixture.test", "/", "__Host-MagicStickReauth=1", 200)
+        self.assertEqual(len(result.headers["set-cookie"]), 2)
+        self.assertEqual(result.headers["set-cookie"][2],
+                         "__Host-MagicStickReauth=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+
 
 if __name__ == "__main__":
     unittest.main()
