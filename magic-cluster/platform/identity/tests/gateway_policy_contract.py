@@ -380,6 +380,16 @@ import callback_gate
 class Handler(BaseHTTPRequestHandler):
  def log_message(self, *args): pass
  def do_GET(self):
+  if self.path.startswith('/internal/session-access/reauth'):
+   navigation=(self.headers.get('Accept') == 'text/html' and self.headers.get('Sec-Fetch-Mode') == 'navigate' and self.headers.get('Sec-Fetch-Dest') == 'document')
+   self.send_response(303 if navigation else 401)
+   if navigation:
+    self.send_header('Location', '/')
+    self.send_header('Cache-Control', 'no-store')
+    for name in ('__Host-MagicStickAccessToken', '__Host-MagicStickIDToken'):
+     self.send_header('Set-Cookie', name + '=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax')
+    self.send_header('Set-Cookie', '__Host-MagicStickReauth=1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax')
+   self.send_header('Content-Length', '0'); self.end_headers(); return
   self.send_response(200); self.end_headers(); self.wfile.write(b'backend reached')
 server=callback_gate.start(cert_dir='/tls')
 # The decision is synthetic; the real product gRPC stream/TLS is unchanged.
@@ -442,7 +452,9 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
         policy = {'apiVersion': 'gateway.envoyproxy.io/v1alpha1', 'kind': 'SecurityPolicy',
                   'metadata': {'name': 'fixture', 'namespace': 'identity-system'},
                   'spec': {'targetRefs': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute', 'name': 'fixture'}],
-                           'extAuth': {'failOpen': False, 'http': {'backendRefs': [{'name': 'ai-appliance-dashboard-api', 'port': 8080}], 'path': '/internal/session-access'}}}}
+                           'extAuth': {'failOpen': False,
+                                       'headersToExtAuth': ['Cookie', 'Authorization', 'Accept', 'Sec-Fetch-Mode', 'Sec-Fetch-Dest'],
+                                       'http': {'backendRefs': [{'name': 'ai-appliance-dashboard-api', 'port': 8080}], 'path': '/internal/session-access'}}}}
         apply(policy, route)
         if legacy_uid and json.loads(call('get', 'httproute/fixture', '-n', 'identity-system', '-o', 'json').stdout)['metadata']['uid'] != legacy_uid:
             raise AssertionError('The upgrade replaced its legacy route instead of updating it')
@@ -500,12 +512,12 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     import socket
                     sock = socket.create_connection(('127.0.0.1', port), timeout=5)
                     self.sock = context.wrap_socket(sock, server_hostname='guard.fixture.test')
-            def status():
+            def probe(path='/', headers=None):
                 connection = Connection('guard.fixture.test', timeout=5)
                 try:
-                    connection.request('GET', '/', headers={'Host': 'guard.fixture.test', 'Cookie': 'synthetic=marker'})
+                    connection.request('GET', path, headers={'Host': 'guard.fixture.test', 'Cookie': 'synthetic=marker', **(headers or {})})
                     response = connection.getresponse()
-                    result = response.status
+                    result = response.status, response.headers
                     response.read()
                     return result
                 except ssl.SSLCertVerificationError as error:
@@ -514,6 +526,9 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     return None
                 finally:
                     connection.close()
+            def status():
+                result = probe()
+                return result[0] if result else None
             wait(lambda: status() == 503, 'missing child gate retains parent fail-closed decision')
             call('exec', '-n', 'identity-system', 'fixture', '--', 'python', '-c', "from pathlib import Path; Path('/tmp/ready').touch()")
             wait(lambda: status() == 200, 'healthy root fallback')
@@ -521,6 +536,22 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
             wait(lambda: status() == 403, 'missing route authentication falls back to deny')
             apply(policy)
             wait(lambda: status() == 200, 'restored route authentication')
+            # The real pinned controller must forward every denied-response
+            # Set-Cookie and Location, not merely accept our Policy schema.
+            navigation = {'Accept': 'text/html', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document'}
+            result = probe('/reauth', navigation)
+            if not result or result[0] != 303 or result[1].get('Location') != '/':
+                raise AssertionError('Translated ext_authz lost the reauthentication redirect')
+            cookies = result[1].get_all('Set-Cookie') or []
+            if len(cookies) != 3 or len({item.split('=', 1)[0] for item in cookies}) != 3 or any('Domain=' in item for item in cookies):
+                raise AssertionError('Translated ext_authz lost host-only denial cookies')
+            result = probe('/reauth', {'Accept': 'application/json'})
+            if not result or result[0] != 401 or result[1].get('Location') or result[1].get('Set-Cookie'):
+                raise AssertionError('Translated API denial changed browser state')
+            result = probe('/', {'Cookie': '__Host-MagicStickReauth=1'})
+            if not result or result[0] != 200 or result[1].get_all('Set-Cookie') != [
+                    '__Host-MagicStickReauth=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax']:
+                raise AssertionError('Translated successful response did not clear its own loop fence')
             call('exec', '-n', 'identity-system', 'fixture', '--', 'python', '-c', "from pathlib import Path; Path('/tmp/ready').unlink()")
             wait(lambda: status() == 503, 'callback not ready fails closed again')
             # Prove real controller order before OAuth, not just handwritten

@@ -9,6 +9,19 @@ Browser login lifetime is configured in Keycloak, not through this API. Its
 optional [Remember me policy](../concepts/identity.md#browser-session-lifetime)
 does not change access-token validation, API keys or service-account rights.
 
+The internal session and UID-bound instance guards distinguish rejected
+authentication (401), missing access (403) and unavailable verification (503).
+Only GET/HEAD top-level HTML navigation with an existing owned host cookie and
+no pending reauthentication fence may turn a confirmed 401 into a 303 to `/`.
+The response expires only `__Host-MagicStickAccessToken` and
+`__Host-MagicStickIDToken` on that same host and sets a 60-second
+`__Host-MagicStickReauth` fence. No request-derived redirect destination or
+cookie Domain is accepted. The Gateway clears the fence only on a subsequent
+successful protected response; redirects and errors cannot reset the bound.
+Navigation hints never grant access. API/fetch requests and mutations retain
+401 without redirects, cookie changes or replay, and real authorization/UID
+denials and verification outages never clear cookies.
+
 Model create/update payloads accept optional `local.capabilities` or
 `external.capabilities` objects containing `tools`, `vision` and `reasoning`
 booleans. Omitted fields remain unknown; string/numeric booleans and unsupported

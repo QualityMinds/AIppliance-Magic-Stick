@@ -234,7 +234,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         guard = controller["app_instance_guard"](instance)
         self.assertEqual(guard["http"]["path"], "/internal/instance-access/hermes-example/immutable-test-uid")
         self.assertFalse(guard["failOpen"])
-        self.assertEqual(set(guard["headersToExtAuth"]), {"Cookie", "Authorization"})
+        self.assertEqual(set(guard["headersToExtAuth"]), {"Cookie", "Authorization", "Accept", "Sec-Fetch-Mode", "Sec-Fetch-Dest"})
         applied = []
         with patch.dict(controller, {"apply_resource": lambda resource: applied.append(resource), "get_applied_resource": lambda resource: None}):
             status = controller["sync_app_instance_access"](instance, definition)

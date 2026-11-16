@@ -5460,7 +5460,7 @@ data:
         metadata = instance.get("metadata") or {}
         return {
             "failOpen": False,
-            "headersToExtAuth": ["Cookie", "Authorization"],
+            "headersToExtAuth": ["Cookie", "Authorization", "Accept", "Sec-Fetch-Mode", "Sec-Fetch-Dest"],
             "http": {
                 "backendRefs": [{"name": "ai-appliance-dashboard-api", "port": 8080}],
                 "path": "/internal/instance-access/" + str(metadata.get("name", "")) + "/" + str(metadata.get("uid", "")),
@@ -6068,7 +6068,8 @@ data:
             refs = http.get("backendRefs") or []
             expected_guard = policy["spec"]["extAuth"]
             if (guard.get("failOpen") is not False or guard.get("grpc")
-                    or guard.get("headersToExtAuth") != expected_guard["headersToExtAuth"]
+                    or guard.get("headersToExtAuth") not in
+                        (["Cookie", "Authorization"], expected_guard["headersToExtAuth"])
                     or http.get("path") != expected_guard["http"]["path"]
                     or len(refs) != 1 or refs[0].get("name") != "ai-appliance-dashboard-api"
                     or refs[0].get("port") != 8080 or refs[0].get("group", "") != ""

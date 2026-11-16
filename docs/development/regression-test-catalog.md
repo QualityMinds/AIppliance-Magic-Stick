@@ -99,7 +99,7 @@ without dashboard-management grants. Follow the current shared role contract.
 | AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. Verify automatic short-token refresh, normal idle expiry and the absolute Remember me maximum despite activity. | U+C+B+A | P0 · identity |
 | AUTH-04 | Test every mutation family with viewer/ordinary-user sessions and direct API requests, not only hidden controls. Model/module/app operations follow role policy; all administrator-only operations are denied. | C+A+E | P0 · identity |
 | AUTH-05 | Omit or forge browser CSRF/origin headers on cookie-authenticated mutations. Reject without saved intent; valid same-origin and supported terminal Bearer requests still work. | U+C+A | P0 · identity |
-| AUTH-06 | Log out and revisit/reload protected dashboard and application hosts with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
+| AUTH-06 | Log out and revisit/reload protected dashboard and application hosts with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. A top-level navigation on both service and UID-bound instance guards reaches the exact central login form and signs in successfully twice in succession; a 403 page is not sufficient. API GET/POST remain 401 without redirects/replay or cookie changes; real role/grant denials remain 403. | B+A+E | P0 · smoke |
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
 | AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
@@ -1311,6 +1311,18 @@ missing variables in other resources. The in-Appliance runner still needs no
 Flux CLI; CI render evidence is not credited as installed login acceptance.
 The previous successful script/routine renders did not cover strict post-build
 substitution; historical results remain unchanged.
+
+16 November 2026, AUTH-06 reauthentication follow-up: the existing discovered
+HTTP-handler checks in `test_edge_reauthentication.py` distinguish 401/403/503,
+exact instance ownership, navigation versus API/write requests and bounded
+same-origin redirects. The identity Lua and pinned Envoy checks cover host-only
+fence cleanup. The existing browser CI multi-host profile now exercises real
+Keycloak logout/re-login twice for both session and instance guards, from fresh
+and migrated jars; native Public Gateway profiles verify the actual controller
+translation of redirect/cookie responses. These are owning/protocol extensions,
+not new registered live cases or installed acceptance. The separate old broad
+root-helper collision remains explicitly outside this fix as documented in
+[identity validation](identity-validation.md#isolated-multi-host-https-session-check).
 
 21 October 2026 Remember-me follow-up: AUTH-01's
 `remember-me-policy-contract` is selected by Phase 1 `smoke-fast` and runs the

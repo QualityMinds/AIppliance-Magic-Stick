@@ -43,6 +43,7 @@ class AppInstanceAccessMigrationTests(unittest.TestCase):
                 item["spec"]["oidc"]["redirectURL"] = "https://" + root + "/oauth2/callback/" + metadata["name"].removesuffix("-sso")
                 item["spec"]["oidc"]["cookieDomain"] = root
                 item["spec"]["oidc"].pop("cookieNames")
+                item["spec"]["extAuth"]["headersToExtAuth"] = ["Cookie", "Authorization"]
                 item["spec"]["jwt"]["providers"][0]["extractFrom"]["cookies"] = ["AccessToken-legacy"]
                 # Kubernetes defaults the guard's Service reference.
                 item["spec"]["extAuth"]["http"]["backendRefs"][0].update(group="", kind="Service", weight=1)
@@ -169,6 +170,8 @@ class AppInstanceAccessMigrationTests(unittest.TestCase):
         mutations = (
             lambda: self.first("SecurityPolicy")["spec"]["extAuth"]["http"].update(path="/internal/instance-access/hermes-example/foreign-uid"),
             lambda: self.first("SecurityPolicy")["spec"]["extAuth"].update(failOpen=True),
+            lambda: self.first("SecurityPolicy")["spec"]["extAuth"].update(headersToExtAuth=["*"]),
+            lambda: self.first("SecurityPolicy")["spec"]["extAuth"]["headersToExtAuth"].append("X-Unowned-Header"),
             lambda: self.first("SecurityPolicy")["spec"]["extAuth"]["http"]["backendRefs"][0].update(name="other-api"),
             lambda: self.first("SecurityPolicy")["metadata"]["labels"].update({"appliance.magicstick.dev/owner-uid": "foreign-uid"}),
             lambda: self.first("SecurityPolicy")["metadata"]["labels"].update({"app.kubernetes.io/managed-by": "another-controller"}),

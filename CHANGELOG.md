@@ -8,6 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Restart a logged-out application's browser sign-in instead of showing the
+  instance guard's generic forbidden response. Expire only that host's owned
+  access/ID cookies, use a bounded same-origin navigation redirect and clear the
+  loop fence only after successful protected traffic. API requests and writes
+  remain 401 without replay; real permission denials remain 403 and unavailable
+  identity verification remains 503 without erasing cookies. Extend existing
+  authentication checks with repeated real Keycloak logout/re-login for both
+  service and UID-bound instance guards; no new campaign case is registered.
+
 - Migrate an existing application's UID-bound SSO access even when its selected
   model is stopped or has an unknown context. Verify the current instance and
   complete old access scope, fence every backend first and use atomic resource

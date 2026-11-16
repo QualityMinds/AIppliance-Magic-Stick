@@ -76,4 +76,10 @@ gate = callback_gate.start(cert_dir="/app/gate-valid")
 expired_gate = callback_gate.start(port=8083, cert_dir="/app/gate-expired")
 threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 8082), Fixture).serve_forever, daemon=True).start()
 server = runpy.run_path("/app/server.py")
+# Keep authentication, userinfo, role and error handling real. This fixture
+# has no Kubernetes API, so only the two fixed instance records are supplied.
+server["Handler"].handle_instance_guard.__globals__["app_instance"] = lambda name: {
+    "metadata": {"name": name, "uid": "fixture-owner"},
+    "spec": {"enabled": True, "access": {"authentication": "sso", "role": "admin" if name == "hermes-denied" else "user"}},
+} if name in {"hermes-fixture", "hermes-denied"} else None
 ThreadingHTTPServer(("0.0.0.0", 8080), server["Handler"]).serve_forever()

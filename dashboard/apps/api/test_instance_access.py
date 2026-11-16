@@ -230,16 +230,16 @@ class SharingTests(unittest.TestCase):
         for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"):
             self.assertEqual(request(guard, "alice", method)[0], 200)
             self.assertEqual(request(guard, "carol", method)[0], 403)
-        self.assertEqual(request(guard, "unknown", headers={"X-User": "alice", "X-Auth-Request-User": "alice"})[0], 403)
+        self.assertEqual(request(guard, "unknown", headers={"X-User": "alice", "X-Auth-Request-User": "alice"})[0], 401)
         self.assertEqual(request(guard, "admin")[0], 403)
         self.assertEqual(request(guard.replace("test-uid", "old-uid"), "alice")[0], 403)
         self.assertEqual(request(guard, "", headers={"Authorization": "", "Cookie": "__Host-MagicStickAccessToken=alice"})[0], 200)
-        self.assertEqual(request(guard, "", headers={"Authorization": "", "Cookie": "MagicStickAccessToken=alice"})[0], 403)
-        self.assertEqual(request(guard.replace("hermes-private", "hermes-public"), "unknown")[0], 403)
+        self.assertEqual(request(guard, "", headers={"Authorization": "", "Cookie": "MagicStickAccessToken=alice"})[0], 401)
+        self.assertEqual(request(guard.replace("hermes-private", "hermes-public"), "unknown")[0], 401)
         self.assertEqual(request(guard.replace("hermes-private", "hermes-public"), "alice")[0], 200)
         session_guard = "/internal/session-access/anything"
         self.assertEqual(request(session_guard, "alice")[0], 200)
-        self.assertEqual(request(session_guard, "unknown")[0], 403)
+        self.assertEqual(request(session_guard, "unknown")[0], 401)
         self.assertEqual(request(session_guard, "unknown", headers={"Cookie": "__Host-MagicStickAccessToken=alice"})[0], 200)
         self.assertEqual(request("/api/instances/hermes-private/credentials", "admin")[0], 403)
         for path in ("/api/instances", "/api/appliance", "/api/modules", "/api/my-instances", "/api/status", "/api/events"):

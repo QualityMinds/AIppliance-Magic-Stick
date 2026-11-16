@@ -92,6 +92,14 @@ Sibling services do not receive these cookies. Explicitly public instances keep
 their UID-bound instance guard; removing a route's policy does not silently make
 it public because the shared Gateway denies unprotected routes by default.
 
+After central logout, a top-level browser navigation with a rejected session
+restarts sign-in on the same instance host and returns to its root page. It
+expires only that host's owned access/ID cookies and uses a short-lived host-only
+loop fence. A successful protected response removes the fence, so another logout
+can sign in again immediately. Missing roles/grants, changed instance identity
+and unavailable verification never become a login redirect. API calls and
+mutations remain denied without cookie changes or request replay.
+
 A stopped model with unknown context does not prevent migration of an already
 deployed instance's SSO access. The controller verifies the current instance and
 its existing UID-bound policies and routes, closes their application backends,

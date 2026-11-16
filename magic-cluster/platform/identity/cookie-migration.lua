@@ -6,6 +6,7 @@ local local_domain = "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
 local public_domain = "${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
 local dashboard_host = "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
 local marker = "__Host-MagicStickCookieMigration"
+local reauth_marker = "__Host-MagicStickReauth"
 
 local function within(host, domain)
   return host == domain or (#host > #domain and host:sub(-#domain - 1) == "." .. domain)
@@ -31,6 +32,10 @@ function envoy_on_request(handle)
     local name, value = piece:match("^%s*([^=%s]+)%s*=%s*(.-)%s*$")
     if name == "MagicStickAccessToken" or name == "MagicStickIDToken" then legacy = true end
     if name == marker and value == "2" then migrated = true end
+    if name == reauth_marker then
+      -- A boolean only; do not put credentials or identity into metadata.
+      handle:streamInfo():dynamicMetadata():set("magicstick.cookie-reauth", "pending", true)
+    end
   end
   if not legacy or migrated then
     -- Old anonymous gateway suffixes are not proof of ownership. Do not erase
@@ -64,4 +69,15 @@ function envoy_on_request(handle)
   table.insert(expired, marker .. "=2; Path=/; Secure; HttpOnly; SameSite=Lax")
   handle:respond({[":status"] = "303", ["location"] = path,
     ["cache-control"] = "no-store", ["set-cookie"] = expired}, "")
+end
+
+function envoy_on_response(handle)
+  local pending = handle:streamInfo():dynamicMetadata():get("magicstick.cookie-reauth")
+  local status = tonumber(handle:headers():get(":status")) or 0
+  -- Login redirects, denials and outages cannot reset the loop bound. Once
+  -- normal protected traffic succeeds, a later genuine logout can sign in
+  -- again immediately instead of waiting for the fence's short expiry.
+  if pending and pending.pending and status >= 200 and status < 300 then
+    handle:headers():add("set-cookie", reauth_marker .. "=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+  end
 end

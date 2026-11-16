@@ -27,6 +27,13 @@ erasing all application data. If an older browser still reports **Request Header
 Or Cookie Too Large**, clear that appliance site's old cookies once and sign in
 again; do not disable certificate validation or authentication.
 
+After signing out, opening a protected application's page starts sign-in again
+on the central login page and returns to that application's home page. Only its
+own expired token cookies are cleared. A real **Access denied** response means
+your account lacks permission; repeatedly signing in does not grant it. If
+identity verification is unavailable, retry later instead of clearing all site
+data. API requests and unsaved writes are never automatically replayed.
+
 ## UI Areas
 
 | Area | Purpose |

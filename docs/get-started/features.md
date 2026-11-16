@@ -127,6 +127,8 @@
   one appliance-wide cookie header. Services share the central sign-in; global
   logout invalidates the session across those hosts. Missing gateway protection
   denies access rather than making an application public.
+  Revisiting a logged-out application in the browser starts sign-in again;
+  a permission denial or unavailable identity service does not restart login.
   Existing SSO access can migrate even with a stopped application model, while
   invalid instances remain blocked and no new workload is provisioned.
 
