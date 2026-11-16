@@ -155,6 +155,37 @@ It uses a synthetic readiness service and backend, not human credentials or
 appliance data. This is separate from the real Keycloak multi-host browser test
 and installed-server acceptance. The caller always removes only its own cluster.
 
+### Paperclip browser and native agent credentials
+
+The application catalogue selects boolean `route.forwardAccessToken: false` for
+Paperclip only. The operator carries it into both host policies; missing flags
+retain the old `true` behavior and malformed values fail before applying access
+resources. Instance values cannot change it. The policy hash and observed
+generation must be current before the controller exposes the application backend.
+
+The pinned [Envoy Gateway v1.8.5 translator](https://github.com/envoyproxy/gateway/blob/v1.8.5/internal/xds/translator/oidc.go)
+maps this to disabled OAuth bearer forwarding and preserved original
+Authorization. SSO/JWT, role and UID-bound instance checks remain enabled, and
+the API already prefers the verified host-only cookie for browser identity.
+No unverified JWT classification or blanket Authorization removal is added.
+
+The existing multi-host browser gate freezes the actual catalogue/controller
+decision, uses real Keycloak, TLS Envoy and the actual instance guard, and adds
+a **synthetic** Paperclip-like backend. That backend reproduces the installed
+200-without-bearer versus 401-with-foreign-bearer contract. The probe requires
+an interactive page and browser API, preserved native agent allow/deny, denied
+anonymous/role/foreign-owner access, internal callback allow/deny and repeated
+global logout/login from fresh and legacy-cookie profiles. Native Gateway fresh
+and upgrade gates also apply the catalogue-derived option and retain pre-OAuth
+readiness denial. These are protocol/controller proofs, not an upstream
+Paperclip runtime test or installed appliance acceptance.
+
+After an authorized GitOps rollout, verify the exact existing instance and both
+policy revisions, native page/assets/API behavior, logout/login and internal
+agent callbacks without deleting data or rotating credentials. A policy-only
+fix does not require a new Paperclip, dashboard or runner image. Keep unrelated
+applications and ordinary Services campaign exclusions unchanged.
+
 ## Run the Pilot
 
 Wait until both Flux waves are ready:

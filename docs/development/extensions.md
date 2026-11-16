@@ -50,6 +50,12 @@ configured `AppInstance` resources.
    `displayName`, `chartPath`, `requiredModules`, `requiredCrds` and `route`.
    `route.serviceName` selects the existing `instance` or `shortName` naming mode;
    match it and `route.port` to the Service rendered by the application. Use
+   boolean `route.forwardAccessToken: false` only for a verified application that
+   must not receive the browser's OIDC bearer (Paperclip). The default is `true`;
+   malformed values are rejected and saved instance values cannot override it.
+   This changes forwarding, not SSO/JWT, role or UID-bound instance verification.
+   Native Authorization must remain valid for its own application, and invalid
+   native credentials must never be removed to obtain trusted access. Use
    `route.hostnameLabel` only when the application needs a different single
    DNS label in its instance URLs (KubeOpenCode uses `oc`). This changes access
    addresses, not resource names or workload identity. Keep certificate names

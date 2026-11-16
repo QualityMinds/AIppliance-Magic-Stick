@@ -137,6 +137,12 @@ Paperclip runs in private `local_trusted` mode behind an in-pod loopback proxy,
 and Odysseus disables its application-local login, so neither presents a second
 login after the shared SSO check. Their Services remain ClusterIP-only and are
 reached externally only through the operator-generated authenticated routes.
+Paperclip's catalogue sets `route.forwardAccessToken: false`: the Gateway still
+authenticates the browser and checks roles and the exact instance UID, using the
+host-only identity cookie, but does not forward that browser token as a Paperclip
+agent credential. Native agent Authorization remains intact. This is not a
+blanket header-removal rule, an anonymous external API or an instance-form option;
+other applications retain their existing forwarding behavior.
 An application may load many script and API resources at once. Those overlapping
 requests share only the running pre-OIDC host-readiness check; all resources still
 require their normal authentication and instance access checks. No completed

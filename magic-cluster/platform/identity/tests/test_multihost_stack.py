@@ -52,6 +52,21 @@ class Stack:
         # Freeze the processor under test before slow container startup so a
         # concurrent local edit cannot create a mixed-version test run.
         self.gate_source = (ROOT.parent / "dashboard/apps/api/callback_gate.py").read_text(encoding="utf-8")
+        # Freeze the real catalogue/controller decision too. The protocol
+        # fixture must fail if either half stops selecting Paperclip's boundary.
+        directory = ROOT / "platform/magicstick-operator"
+        sys.path.insert(0, str(directory / "controller"))
+        try:
+            from test_controller import load_controller
+            controller = load_controller()
+            catalog = json.loads(yaml.safe_load((directory / "app-catalog.yaml").read_text())["data"]["applications.json"])
+            instance = {"metadata": {"name": "paperclip-fixture", "uid": "fixture-owner"},
+                        "spec": {"application": "paperclip", "values": {"name": "fixture"}}}
+            resources, _ = controller["app_instance_access_resources"](instance, catalog["applications"]["paperclip"])
+            self.paperclip_forward_access_token = next(item["spec"]["oidc"]["forwardAccessToken"]
+                for item in resources if item["kind"] == "SecurityPolicy")
+        finally:
+            sys.path.pop(0)
 
     def docker(self, *args, timeout=180, environment=None, input_data=None):
         # Never include Docker's stderr in an exception: import/config files
@@ -70,7 +85,7 @@ class Stack:
         return path
 
     def certificate(self):
-        self.file("server.ext", "subjectAltName=DNS:id.fixture.test,DNS:dash.fixture.test,DNS:service.fixture.test,DNS:instance.fixture.test,DNS:bad-ca.fixture.test,DNS:bad-host.fixture.test,DNS:expired.fixture.test\n"
+        self.file("server.ext", "subjectAltName=DNS:id.fixture.test,DNS:dash.fixture.test,DNS:service.fixture.test,DNS:instance.fixture.test,DNS:paperclip.fixture.test,DNS:bad-ca.fixture.test,DNS:bad-host.fixture.test,DNS:expired.fixture.test\n"
                   "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
                   "extendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n")
         self.file("gate.ext", "subjectAltName=DNS:magicstick-callback-gate.identity-system.svc.cluster.local\n"
@@ -97,9 +112,9 @@ class Stack:
                  "roles": {"realm": [{"name": "magicstick-user"}]},
                  "clients": [{"clientId": "magicstick-human-gateway-local", "enabled": True,
                    "publicClient": False, "secret": self.client_secret, "standardFlowEnabled": True,
-                   "redirectUris": ["https://" + host + ".fixture.test/oauth2/callback" for host in ("dash", "service", "instance")],
-                   "webOrigins": ["https://" + host + ".fixture.test" for host in ("dash", "service", "instance")],
-                   "attributes": {"post.logout.redirect.uris": "##".join("https://" + host + ".fixture.test/" for host in ("dash", "service", "instance"))}}],
+                   "redirectUris": ["https://" + host + ".fixture.test/oauth2/callback" for host in ("dash", "service", "instance", "paperclip")],
+                   "webOrigins": ["https://" + host + ".fixture.test" for host in ("dash", "service", "instance", "paperclip")],
+                   "attributes": {"post.logout.redirect.uris": "##".join("https://" + host + ".fixture.test/" for host in ("dash", "service", "instance", "paperclip"))}}],
                  "users": [{"username": "fixture-user", "enabled": True, "emailVerified": True,
                    "firstName": "Fixture", "lastName": "User", "email": "fixture@example.com",
                    "realmRoles": ["magicstick-user"], "credentials": [{"type": "password", "value": "fixture-password", "temporary": False}]}]}
@@ -164,7 +179,7 @@ class Stack:
                     "stream=os.fdopen(fd,'wb'); stream.write(sys.stdin.buffer.read()); stream.close()",
                     input_data=json.dumps(self.envoy_config()).encode())
         self.docker("run", "-d", "--name", self.envoy, "--network", self.network,
-                    "--network-alias", "id.fixture.test", "--network-alias", "dash.fixture.test", "--network-alias", "service.fixture.test", "--network-alias", "instance.fixture.test",
+                    "--network-alias", "id.fixture.test", "--network-alias", "dash.fixture.test", "--network-alias", "service.fixture.test", "--network-alias", "instance.fixture.test", "--network-alias", "paperclip.fixture.test",
                     "--network-alias", "bad-ca.fixture.test", "--network-alias", "bad-host.fixture.test", "--network-alias", "expired.fixture.test",
                     "--mount", f"type=volume,source={self.bootstrap_volume},target=/bootstrap,readonly",
                     ENVOY, "-c", "/bootstrap/envoy.json", "--disable-hot-restart", "--log-level", "error")
@@ -283,18 +298,27 @@ except Exception as e:
                                              "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"}]}]}
         # Real product instance handler and real Keycloak userinfo; only the
         # Kubernetes instance lookup is a synthetic, fixed-UID fixture.
-        def instance_route(prefix, name):
+        def instance_route(prefix, name, *, paperclip=False, owner_uid="fixture-owner"):
             check = copy.deepcopy(auth["typed_config"]["http_service"])
-            check["path_prefix"] = "/internal/instance-access/" + name + "/fixture-owner"
+            check["path_prefix"] = "/internal/instance-access/" + name + "/" + owner_uid
             instance_oauth = copy.deepcopy(oauth["typed_config"]["config"])
-            policy_helpers(instance_oauth, "instance")
-            return {"match": {"prefix": prefix}, "direct_response": {"status": 200, "body": {"inline_string": "protected instance"}},
+            policy_helpers(instance_oauth, "paperclip" if paperclip else "instance")
+            if paperclip:
+                instance_oauth["forward_bearer_token"] = self.paperclip_forward_access_token
+                instance_oauth["preserve_authorization_header"] = not self.paperclip_forward_access_token
+            return {"match": {"prefix": prefix},
+                **({"route": {"cluster": "paperclip"}} if paperclip else
+                   {"direct_response": {"status": 200, "body": {"inline_string": "protected instance"}}}),
                 "typed_per_filter_config": {"envoy.filters.http.ext_authz": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute",
                     "check_settings": {"http_service": check}}, "envoy.filters.http.oauth2": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2PerRoute", "config": instance_oauth}}}
         instance = {"name": "instance", "domains": ["instance.fixture.test"],
             "routes": [instance_route("/forbidden", "hermes-denied"), instance_route("/", "hermes-fixture")]}
+        paperclip = {"name": "paperclip", "domains": ["paperclip.fixture.test"],
+            "routes": [instance_route("/forbidden", "paperclip-denied", paperclip=True),
+                       instance_route("/wrong-owner", "paperclip-fixture", paperclip=True, owner_uid="foreign-owner"),
+                       instance_route("/", "paperclip-fixture", paperclip=True)]}
         def negative_route(host, gate_name):
             return {"name": gate_name, "domains": [host], "routes": [{"match": {"prefix": "/"},
                 "direct_response": {"status": 200}, "typed_per_filter_config": {"envoy.filters.http.ext_proc": {
@@ -305,7 +329,7 @@ except Exception as e:
                 "private_key": {"inline_string": (self.path / "server.key").read_text()}}]}}}
         manager = {"name": "envoy.filters.network.http_connection_manager", "typed_config": {
             "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
-            "stat_prefix": "fixture", "route_config": {"name": "fixture", "virtual_hosts": [identity, dashboard, service, instance,
+            "stat_prefix": "fixture", "route_config": {"name": "fixture", "virtual_hosts": [identity, dashboard, service, instance, paperclip,
                 negative_route("bad-ca.fixture.test", "gate-bad-ca"), negative_route("bad-host.fixture.test", "gate-bad-host"),
                 negative_route("expired.fixture.test", "gate-expired")]},
             "access_log": [{"name": "envoy.access_loggers.stdout", "typed_config": {
@@ -330,7 +354,7 @@ except Exception as e:
                          tls_gate("gate-expired", 8083, "ca.crt", gate_host)]
         return {"static_resources": {"secrets": [{"name": "client", "generic_secret": {"secret": {"inline_string": self.client_secret}}},
             {"name": "hmac", "generic_secret": {"secret": {"inline_string": secrets.token_hex(32)}}}],
-            "clusters": [cluster("keycloak", "keycloak", 8080), cluster("api", "api", 8080), *gate_clusters],
+            "clusters": [cluster("keycloak", "keycloak", 8080), cluster("api", "api", 8080), cluster("paperclip", "api", 8084), *gate_clusters],
             "listeners": [{"name": "https", "address": address("0.0.0.0", 443), "filter_chains": [{"transport_socket": tls, "filters": [manager]}]}]}}
 
     def stop(self):

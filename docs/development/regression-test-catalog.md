@@ -1329,6 +1329,20 @@ not new registered live cases or installed acceptance. The separate old broad
 root-helper collision remains explicitly outside this fix as documented in
 [identity validation](identity-validation.md#isolated-multi-host-https-session-check).
 
+16 November 2026, AUTH-01/03/06 and ACL-01 Paperclip token-boundary follow-up:
+the owning controller discovery verifies catalogue-selected token forwarding
+for both hosts, unchanged default behavior for other applications, strict boolean
+validation, ignored instance-value overrides and closed routes until the exact
+changed policy revision is Accepted. The selected multi-host browser gate uses
+the actual catalogue/controller decision, real Keycloak, TLS Envoy and the real
+UID-bound API guard against a **synthetic** Paperclip-like agent verifier. It
+requires an interactive page and browser API access, preserved native agent
+allow/deny, denied anonymous/role/foreign-owner access and repeated logout/login
+from fresh and legacy-cookie profiles. This is protocol coverage, not the upstream
+Paperclip runtime or installed acceptance. Application images, instance data,
+ordinary Services exclusions and historical results are unchanged; installed
+Paperclip and internal callback acceptance remain separate gates.
+
 16 November 2026, AUTH-01/06 callback-gate fanout follow-up: the owning API
 discovery selects `test_callback_gate_fanout.py` and exercises forty overlapping
 script-style requests through the actual gRPC gate and HTTP readiness client.
