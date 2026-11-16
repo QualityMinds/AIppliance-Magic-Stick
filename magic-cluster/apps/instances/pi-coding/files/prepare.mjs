@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 import {mkdir, readFile, rename, rm, symlink, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {pathToFileURL} from 'node:url';
 
 export function toolMode(catalog, selectedModel) {
   const model = catalog.models?.find(item => item.id === selectedModel);
@@ -48,23 +47,4 @@ export async function prepare({agentDir, workspace, modelsPath, selectedModel}) 
   // Pi reloads this file through /model. The projected catalog can update in place.
   await rm(join(agentDir, 'models.json'), {force: true});
   await symlink(modelsPath, join(agentDir, 'models.json'));
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const model = (process.env.PI_MODEL || '').replace(/^(litellm|openai)\//, '');
-  if (!process.env.LITELLM_API_KEY) {
-    console.error('The LiteLLM runtime credential is unavailable.');
-    process.exitCode = 1;
-  } else {
-    prepare({agentDir: process.env.PI_CODING_AGENT_DIR, workspace: process.env.PI_WORKSPACE,
-      modelsPath: '/catalog/pi-models.json', selectedModel: model}).then(async () => {
-      if (process.argv.includes('--tool-mode')) {
-        const catalog = JSON.parse(await readFile('/catalog/catalog.json', 'utf8'));
-        console.log(toolMode(catalog, model));
-      }
-    }).catch(error => {
-      console.error(error.message);
-      process.exitCode = 1;
-    });
-  }
 }

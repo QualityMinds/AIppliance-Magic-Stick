@@ -142,6 +142,10 @@ class PiCodingTests(unittest.TestCase):
         objects = {r["kind"]: r for r in yaml.safe_load_all(result.stdout)}
         self.assertEqual(set(objects), {"ConfigMap", "Deployment", "PersistentVolumeClaim", "Service"})
         pod = objects["Deployment"]["spec"]["template"]["spec"]
+        self.assertEqual(pod["initContainers"][0]["command"], ["node", "/bootstrap/install-cli.mjs"])
+        bootstrap = objects["ConfigMap"]["data"]
+        for name in ("install-cli.mjs", "prepare-cli.mjs", "install.mjs", "prepare.mjs"):
+            self.assertEqual(bootstrap[name].strip(), (CHART / "files" / name).read_text().strip())
         self.assertFalse(pod["automountServiceAccountToken"])
         self.assertTrue(pod["securityContext"]["runAsNonRoot"])
         self.assertEqual(pod["securityContext"]["runAsUser"], 1000)
@@ -151,6 +155,8 @@ class PiCodingTests(unittest.TestCase):
         self.assertEqual(environment["LITELLM_API_KEY"]["valueFrom"]["secretKeyRef"],
                          {"name": "pi-coding-example-litellm", "key": "LITELLM_API_KEY"})
         self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])
+        self.assertEqual(container["securityContext"]["capabilities"], {"drop": ["ALL"]})
+        self.assertFalse(container["securityContext"]["allowPrivilegeEscalation"])
         self.assertEqual(objects["Service"]["spec"]["type"], "ClusterIP")
         self.assertEqual(objects["Service"]["spec"]["ports"][0]["port"], 7681)
         self.assertEqual(objects["PersistentVolumeClaim"]["metadata"]["annotations"]["helm.sh/resource-policy"], "keep")
@@ -173,3 +179,16 @@ class PiCodingTests(unittest.TestCase):
     def test_runtime_bootstrap_behaviors(self):
         subprocess.run(["node", "--test", str(ROOT / "magic-cluster/apps/ai/tests/pi_coding_runtime.test.mjs")],
                        check=True, capture_output=True, text=True)
+
+    def test_native_startup_contract_is_required_and_refuses_other_contexts(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/public-release-checks.yml").read_text())
+        job = workflow["jobs"]["setup-upgrade"]
+        selected = [step.get("run", "") for step in job["steps"]]
+        self.assertIn("python3 magic-cluster/apps/ai/tests/pi_coding_startup_contract.py "
+                      "--context kind-magicstick-identity-upgrade", selected)
+        self.assertIn("setup-upgrade", workflow["jobs"]["release-checks"]["needs"])
+        script = ROOT / "magic-cluster/apps/ai/tests/pi_coding_startup_contract.py"
+        result = subprocess.run(["python3", str(script), "--context", "default"],
+                                text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid choice", result.stderr)
