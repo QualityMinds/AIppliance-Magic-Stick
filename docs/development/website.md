@@ -222,7 +222,9 @@ header, footer, page heading and one placeholder per text,
 `<article data-legal-include="imprint.html">`, and `legal_includes` in
 `tools/docs.py` fills it at build time with the content of that page's `<main>`
 and its inline script. Headings move one level down, below the page's own
-`<h1>`. A change to a legal page therefore appears on the combined page with
+`<h1>`. The introduction links the social media section of the privacy policy
+as `privacy.html#social-media`; the build turns links to a section of an
+included page into links within the combined page (`#social-media`). A change to a legal page therefore appears on the combined page with
 the next build, including its "Last updated" date.
 
 Without the build (a preview that serves `docs/`), the placeholders are plain

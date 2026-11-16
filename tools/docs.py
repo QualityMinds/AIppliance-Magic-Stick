@@ -233,16 +233,23 @@ def legal_includes(text, root=DOCS):
     placeholder receives the content of that page's `<main>`, with headings one
     level lower below the page's own `<h1>`, followed by the page's inline script
     (the statistics opt-out). The legal pages use unique section IDs between
-    them, which tests/test_website.py checks on the combined result.
+    them, which tests/test_website.py checks on the combined result. Links from
+    the combined page to a section of an included page (`privacy.html#video`)
+    become links within the page (`#video`).
     """
+    included = []
     def replace(match):
         opening, name, rest, closing = match[1], match[3], match[4], match[5]
+        included.append(name)
         source = (root / name).read_text()
         body = re.search(r'<main\b[^>]*>(.*?)</main>', source, re.S)[1]
         body = re.sub(r'<(/?)h([1-5])\b', lambda m: f'<{m[1]}h{int(m[2]) + 1}', body)
         scripts = ''.join(re.findall(r'<script>.*?</script>', source, re.S))
         return opening + rest + body.rstrip() + '\n    ' + scripts + closing
-    return re.sub(r'(<(\w+)\b[^>]*?) data-legal-include="([^"]+)"([^>]*>).*?(</\2>)', replace, text, flags=re.S)
+    text = re.sub(r'(<(\w+)\b[^>]*?) data-legal-include="([^"]+)"([^>]*>).*?(</\2>)', replace, text, flags=re.S)
+    for name in included:
+        text = text.replace(f'href="{name}#', 'href="#')
+    return text
 
 
 def llms_links(text):

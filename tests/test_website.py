@@ -457,6 +457,10 @@ class WebsiteTests(unittest.TestCase):
                 self.assertNotIn('<time', template)
                 built = docs.legal_includes(template)
                 self.assertNotIn('data-legal-include', built)
+                # The jump to the social media section stays on the combined page.
+                self.assertTrue(Markup(template).matching('a', href=sources[1] + '#social-media'))
+                self.assertTrue(Markup(built).matching('a', href='#social-media'))
+                self.assertNotIn(sources[1] + '#', built)
                 page = Markup(built)
                 for tag, count in (('h1', 1), ('main', 1), ('footer', 1), ('time', 2)):
                     self.assertEqual(len(page.matching(tag)), count, tag)
