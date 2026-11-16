@@ -137,6 +137,13 @@ Paperclip runs in private `local_trusted` mode behind an in-pod loopback proxy,
 and Odysseus disables its application-local login, so neither presents a second
 login after the shared SSO check. Their Services remain ClusterIP-only and are
 reached externally only through the operator-generated authenticated routes.
+An application may load many script and API resources at once. Those overlapping
+requests share only the running pre-OIDC host-readiness check; all resources still
+require their normal authentication and instance access checks. No completed
+readiness decision is cached, and application code/images do not need changing
+for this gateway behavior. A page shell or a Ready Pod alone is not proof that
+every resource loaded or its buttons work; installed acceptance checks the
+complete page.
 Paperclip uses application 2026.1001.0 and upstream operator 0.19.1, with native
 loopback overrides and digest-pinned application and OpenCode sandbox images.
 Its readiness helper upgrades the pinned Kubernetes plugin on existing volumes.

@@ -6,6 +6,7 @@ runtime status are used. No token, header, client representation or response
 body is printed, even on failure.
 """
 from concurrent.futures import Future, ThreadPoolExecutor
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -150,6 +151,94 @@ class KeycloakReadinessLoadTests(unittest.TestCase):
                     self.assertEqual(probe("x00.a.fixture.local"), 204)
                     self.assertEqual(probe("x64.oc.fixture.local"), 204)
                     self.assertEqual(probe("x64.kubeopencode.fixture.local"), 503)
+
+                    # Exercise the whole production gRPC -> HTTP -> Gateway
+                    # observation -> real Keycloak path. The older lower-layer
+                    # singleflight still performs route/policy reads for every
+                    # asset; the new ingress flight must share the entire check.
+                    import grpc
+                    from envoy.config.core.v3 import base_pb2
+                    from envoy.service.ext_proc.v3 import external_processor_pb2 as ext_proc
+                    from envoy.service.ext_proc.v3 import external_processor_pb2_grpc as ext_service
+                    gate_path = Path(__file__).resolve().parents[4] / 'dashboard/apps/api/callback_gate.py'
+                    gate_spec = importlib.util.spec_from_file_location('callback_gate_load_fixture', gate_path)
+                    gate_module = importlib.util.module_from_spec(gate_spec)
+                    gate_spec.loader.exec_module(gate_module)
+                    entered, release, joined = threading.Event(), threading.Event(), threading.Event()
+                    arrivals, observations, keycloak_checks = [], [], []
+                    guard_lock = threading.Lock()
+
+                    class GateFuture(Future):
+                        def result(self, timeout=None):
+                            with guard_lock:
+                                arrivals.append(1)
+                                if len(arrivals) == 39:
+                                    joined.set()
+                            return super().result(timeout=timeout)
+
+                    def observed_resource(path):
+                        if path.endswith(('/httproutes', '/securitypolicies')):
+                            with guard_lock:
+                                observations.append(path)
+                        return resource(path)
+
+                    def held_gateway_request(method, path, **kwargs):
+                        if method == 'GET' and '?clientId=' in path:
+                            keycloak_checks.append(1)
+                            entered.set()
+                            if not release.wait(6):
+                                raise TimeoutError('synthetic gateway release timeout')
+                        return request(method, path, **kwargs)
+
+                    gate_server = grpc.server(ThreadPoolExecutor(max_workers=64))
+                    gate = gate_module.Gate()
+                    ext_service.add_ExternalProcessorServicer_to_server(gate, gate_server)
+                    gate_port = gate_server.add_insecure_port('127.0.0.1:0')
+                    gate_server.start()
+                    try:
+                        with (patch.object(gate_module, 'STATUS_URL', f'http://127.0.0.1:{http.server_port}/internal/callback-readiness'),
+                              patch.object(gate_module, 'Future', GateFuture),
+                              patch.object(setup, 'get_resource', side_effect=observed_resource),
+                              patch.object(setup, 'keycloak_request', side_effect=held_gateway_request),
+                              grpc.insecure_channel(f'127.0.0.1:{gate_port}') as channel):
+                            stub = ext_service.ExternalProcessorStub(channel)
+
+                            def asset(index):
+                                message = ext_proc.ProcessingRequest(request_headers=ext_proc.HttpHeaders(
+                                    headers=base_pb2.HeaderMap(headers=[
+                                        base_pb2.HeaderValue(key=':authority', value='x00.a.fixture.local'),
+                                        base_pb2.HeaderValue(key=':method', value='GET'),
+                                        base_pb2.HeaderValue(key=':path', value=f'/static/module-{index}.js') ])))
+                                result = list(stub.Process(iter([message]), timeout=10))
+                                self.assertEqual(len(result), 1)
+                                return 204 if result[0].HasField('request_headers') else result[0].immediate_response.status.code
+
+                            with ThreadPoolExecutor(max_workers=40) as pool:
+                                pending = [pool.submit(asset, 0)]
+                                try:
+                                    self.assertTrue(entered.wait(5), 'whole-gate check did not reach real Keycloak')
+                                    pending.extend(pool.submit(asset, index) for index in range(1, 40))
+                                    self.assertTrue(joined.wait(3), '39 assets did not join the complete check')
+                                finally:
+                                    release.set()
+                                self.assertEqual([future.result() for future in pending], [204] * 40)
+                            self.assertEqual(len(observations), 4, 'complete route/policy observation was repeated per asset')
+                            self.assertEqual(len(keycloak_checks), 1)
+                            # A completed allow cannot mask a new owner or an
+                            # unavailable identity dependency on the next asset.
+                            old_uid = owners['a-x00']['metadata']['uid']
+                            try:
+                                owners['a-x00']['metadata']['uid'] = str(uuid.uuid4())
+                                self.assertEqual(asset(40), 503)
+                            finally:
+                                owners['a-x00']['metadata']['uid'] = old_uid
+                            with patch.object(setup, 'keycloak_request', side_effect=urllib.error.URLError('synthetic unavailable')):
+                                self.assertEqual(asset(41), 503)
+                            self.assertEqual(asset(42), 204)
+                    finally:
+                        release.set()
+                        gate_server.stop(0).wait()
+                    print('Complete callback gate: 40 asset requests, one real Keycloak check, four route/policy reads; new owner/outage denied, recovery verified')
 
                     # Same-host fanout: hold the actual Keycloak read so that
                     # all 64 requests overlap and must share one in-flight check.
