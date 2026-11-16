@@ -145,7 +145,7 @@ async function main() {
     await control('/control?mode=slow');
     const ca = fs.readFileSync('/test/ca.pem');
     const started = Date.now();
-    const statusCodes = await Promise.all(Array.from({length:32}, () => new Promise((resolve, reject) => {
+    const resourceRequest = () => new Promise((resolve, reject) => {
       const request = https.get({hostname:'dash.fixture.test', path:'/protected', ca, agent:false, timeout:8000}, response => {
         response.resume();
         response.on('end', () => resolve(response.statusCode));
@@ -156,7 +156,8 @@ async function main() {
         process.stderr.write(`Synthetic fanout transport category: ${category}\n`);
         reject(new Error('Synthetic fanout transport failed'));
       });
-    })));
+    });
+    const statusCodes = await Promise.all(Array.from({length:32}, resourceRequest));
     const metricsResponse = await fetch('http://api:8082/metrics');
     const metrics = await metricsResponse.json();
     if (statusCodes.some(code => code !== 302)) {
@@ -164,11 +165,24 @@ async function main() {
       process.stderr.write(`Synthetic fanout status counts: ${JSON.stringify(counts)}; readiness calls ${Number(metrics.calls)}, concurrent ${Number(metrics.maximum)}, elapsed ${Date.now() - started} ms\n`);
       throw new Error('A delayed parallel request failed closed unexpectedly');
     }
-    if (metricsResponse.status !== 200 || metrics.calls !== 32 || metrics.maximum < 2) {
-      process.stderr.write(`Synthetic fanout metrics: HTTP ${metricsResponse.status}, calls ${Number(metrics.calls)}, concurrent ${Number(metrics.maximum)}\n`);
-      throw new Error('The concurrent readiness fanout was not observed');
+    if (metricsResponse.status !== 200 || metrics.calls !== 1 || metrics.maximum !== 1 || metrics.joined !== 31) {
+      process.stderr.write(`Synthetic fanout metrics: HTTP ${metricsResponse.status}, calls ${Number(metrics.calls)}, concurrent ${Number(metrics.maximum)}, joined ${Number(metrics.joined)}\n`);
+      throw new Error('The complete overlapping readiness check was not shared');
     }
-    process.stdout.write(`Synthetic delayed gate: 32 requests, ${metrics.maximum} concurrent, ${Date.now() - started} ms\n`);
+    process.stdout.write(`Synthetic delayed gate: 32 HTTPS requests, one readiness check, 31 joined, ${Date.now() - started} ms\n`);
+    // No shared authorization: all 32 anonymous requests still need login.
+    // A completed allow/deny must also not hide a new observation on this host.
+    phase = 'completed-fanout-fresh-check';
+    for (const [mode, expected] of [['stale', 503], ['ready', 302]]) {
+      await control('/control?mode=' + mode);
+      const code = await resourceRequest();
+      const freshMetricsResponse = await fetch('http://api:8082/metrics');
+      const freshMetrics = await freshMetricsResponse.json();
+      if (code !== expected || freshMetricsResponse.status !== 200 || freshMetrics.calls !== 1 ||
+          freshMetrics.maximum !== 1 || freshMetrics.joined !== 0) {
+        throw new Error('A completed readiness decision masked a fresh same-host check');
+      }
+    }
     phase = 'stale-authenticated';
     await control('/control?mode=stale');
     gated = await page.goto(service + '/protected', {waitUntil:'domcontentloaded'});

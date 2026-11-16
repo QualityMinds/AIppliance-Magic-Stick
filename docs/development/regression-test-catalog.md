@@ -1329,6 +1329,28 @@ not new registered live cases or installed acceptance. The separate old broad
 root-helper collision remains explicitly outside this fix as documented in
 [identity validation](identity-validation.md#isolated-multi-host-https-session-check).
 
+16 November 2026, AUTH-01/06 callback-gate fanout follow-up: the owning API
+discovery selects `test_callback_gate_fanout.py` and exercises forty overlapping
+script-style requests through the actual gRPC gate and HTTP readiness client.
+One complete observation is shared only while in progress; later requests and
+distinct hosts are fresh. Counterexamples cover negative/error/timeout recovery,
+malformed authority, credentials in diagnostics and actual Setup observation of
+changed route UID/generation or removed/failed policy reads. The existing selected
+`test_callback_keycloak_load_runtime.py` extends this through real Keycloak and
+the actual Gateway readiness functions with synthetic Kubernetes resources;
+after a completed allow, a replaced instance owner or identity outage is denied.
+The existing `identity-sessions` browser gate also requires 32 HTTPS requests
+through real Envoy/TLS to share one observation with 31 actual followers, retain
+all login redirects and perform fresh same-host stale/ready checks afterwards.
+Its bounded overlap barrier replaces the former timing-based fanout assumption.
+Existing AUTH-02/03/10, ACL-01 and native default-deny/ownership/TLS checks remain
+required; no authorization result, static-file exemption or stale positive cache
+is added. These are owning/protocol checks, not new registered campaign cases or
+native UI acceptance. Odysseus code, application images, runtime pins and Services
+exclusions remain unchanged. Matching API-image qualification and authorized
+installed page/asset/button and logout/login acceptance remain pending; historical
+reports are not relabelled.
+
 21 October 2026 Remember-me follow-up: AUTH-01's
 `remember-me-policy-contract` is selected by Phase 1 `smoke-fast` and runs the
 owning [realm/migration counterexamples](../../magic-cluster/platform/identity/tests/test_remember_me.py).
