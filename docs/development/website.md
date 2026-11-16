@@ -30,6 +30,7 @@ GitHub Pages only redirects to it.
 | [assets/favicon.svg](../assets/favicon.svg) | Picture mark: brandmark on a light rounded tile |
 | [imprint.html](../imprint.html), [impressum.html](../impressum.html) | Imprint in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
 | [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
+| [social.html](../social.html), [sozial.html](../sozial.html) | Imprint and privacy policy on one page, as the legal link of the social media profiles. The files hold no legal text; the build includes it. See [Combined page for social media profiles](#combined-page-for-social-media-profiles) |
 
 The homepage follows the October 2026 pitch mockup. It moves from a full-width
 hero illustration, the "Meet Commander Tob" welcome band and the light
@@ -160,7 +161,7 @@ itself; no remote font service is involved. The file is a variable font
 (`wght` axis) subset by QualityMinds, and its SIL Open Font License 1.1 text
 ships next to it as `docs/assets/fonts/OFL.txt`. Each stylesheet declares the
 single `@font-face` with the weight range `600 800` and `font-display: swap`:
-[site.css](../site.css) and the inline styles of the legal pages reference
+[site.css](../site.css), which the landing and legal pages share, references
 `assets/fonts/` relative to the site root,
 [handbook.css](../stylesheets/handbook.css) references `../assets/fonts/`
 because MkDocs copies `docs/assets/` under `handbook/`. Body text, buttons and
@@ -175,8 +176,8 @@ The committed file is a subset. Characters that it does not contain fall back
 to the next font in the stack glyph by glyph, which is visible in a heading.
 When replacing the file, check that it covers the characters that actual
 headings use (at least Latin-1 letters including German umlauts, typographic
-quotes and dashes) and keep the same file name or update all six references
-(`site.css`, `handbook.css` and the four legal pages). Record the font's source
+quotes and dashes) and keep the same file name or update both references
+(`site.css` and `handbook.css`). Record the font's source
 and license terms with the other collateral assets in
 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
 
@@ -190,13 +191,17 @@ own language. The handbook is English only, so the website footer in
 `docs/overrides/partials/footer.html` links the English pair ("Imprint" and
 "Privacy", as on the English landing page) from every handbook page; the EN/DE
 switch on those pages leads to the German versions (see
-[Handbook pages](#handbook-pages)). The pages are self-contained HTML with
-inline styles, reciprocal `hreflang` links, an English `x-default` and an EN/DE
-switch; the German pages keep the English section IDs so that deep links such as
-`#provider` or `#opt-out` work in both languages.
+[Handbook pages](#handbook-pages)). The pages carry the website header and
+footer of their language and use `site.css` (the `.legal` rules) and `site.js`
+like the landing pages; the EN/DE switch in the header leads to the other
+language of the same text. They have reciprocal `hreflang` links and an English
+`x-default`. The German pages keep the English section IDs so that deep links
+such as `#provider` or `#opt-out` work in both languages. The only inline
+script is the statistics opt-out of the privacy policy. The date of each text
+is the `<time>` element in the "Last updated" line at the end of `<main>`.
 
 Always change both languages of a pair together, in the same commit, and set the
-same date in the `<time datetime="…">` element of both footers.
+same date in the `<time datetime="…">` element of both versions.
 `tests/test_website.py` (`test_legal_pages_stay_in_sync_across_languages`) fails
 when the two versions drift apart: it compares the element structure, section
 IDs, link targets (language-specific targets such as `de.html`/`index.html` are
@@ -206,6 +211,25 @@ legal references with the same numbers (`Article 6(1)(f) GDPR` ↔
 `Art. 6 Abs. 1 lit. f DSGVO`, `Section 5 DDG` ↔ `§ 5 DDG`) and keep paragraph
 boundaries equal. The check is structural; it does not replace a legal review of
 the translation.
+
+### Combined page for social media profiles
+
+Social media profiles need one link that leads to both the imprint and the
+privacy policy. [social.html](../social.html) (English, published as `/social`)
+and [sozial.html](../sozial.html) (German, `/sozial`) show both texts
+below each other. They do not hold a second copy: each file contains the
+header, footer, page heading and one placeholder per text,
+`<article data-legal-include="imprint.html">`, and `legal_includes` in
+`tools/docs.py` fills it at build time with the content of that page's `<main>`
+and its inline script. Headings move one level down, below the page's own
+`<h1>`. A change to a legal page therefore appears on the combined page with
+the next build, including its "Last updated" date.
+
+Without the build (a preview that serves `docs/`), the placeholders are plain
+links to the separate pages. The section IDs of the imprint and the privacy
+policy must stay unique between the two texts because they share one page;
+`test_social_pages_include_both_legal_texts_without_a_copy` checks this and
+that every paragraph of both texts is present.
 
 ## Visitor statistics
 
@@ -360,7 +384,7 @@ Open `http://127.0.0.1:8765/`. To preview only the unbuilt marketing layout, ser
 
 Before publishing:
 
-1. Check all four pages and a nested handbook page at desktop, tablet and mobile
+1. Check the landing, licensing, legal and combined social pages and a nested handbook page at desktop, tablet and mobile
    widths, including 320px. Check actual document width as well as visual
    layout; the full-width hero illustration must not make the page scroll
    horizontally, and the handbook's website header must not either.

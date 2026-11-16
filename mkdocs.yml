@@ -65,6 +65,8 @@ exclude_docs: |
   /privacy.html
   /impressum.html
   /datenschutz.html
+  /social.html
+  /sozial.html
   /site.css
   /site.js
   /llms.txt
