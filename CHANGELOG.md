@@ -120,6 +120,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   and back. The console runtime no longer requires the image registry to
   restart. Takes effect once the updated platform revision, CLI image and host
   role are installed; older combinations keep the device login.
+- On OpenClaw startup, repair only the instance PVC root's expected root ownership
+  using a short-lived, narrowly scoped CHOWN init container; keep the gateway
+  non-root and refuse foreign owners rather than modifying their files.
 
 - Bound ordinary automatic NVIDIA model memory planning to one eligible physical
   card, not the sum of a scheduling pool. Create/Edit sliders and recommendations
