@@ -81,6 +81,14 @@ Unknown/error/timeout outcomes remain 503 with no header or cookie replay.
 The seven-second deadline is unchanged. Diagnostics use only fixed reason codes,
 HTTP status and elapsed time, not raw failures, hostnames or credentials.
 
+The existing trusted multi-host browser gate also requires 32 anonymous HTTPS
+requests through pinned Envoy and the production TLS gRPC gate to share one
+readiness observation with 31 actual followers. A bounded barrier replaces the
+old scheduling delay; every request must still redirect to login. Subsequent
+same-host stale/ready checks must freshly deny/recover without reusing either
+completed result. Fresh and legacy-cookie browser profiles retain all their
+session, role, cookie-isolation and repeated global-logout/re-login assertions.
+
 The gate is baked into the Dashboard API image. A source push alone cannot update
 an appliance: qualify and promote matching coordinated images before an authorized
 rollout, then verify full resource loading, working navigation/settings and real

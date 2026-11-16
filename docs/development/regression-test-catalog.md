@@ -1339,6 +1339,10 @@ changed route UID/generation or removed/failed policy reads. The existing select
 `test_callback_keycloak_load_runtime.py` extends this through real Keycloak and
 the actual Gateway readiness functions with synthetic Kubernetes resources;
 after a completed allow, a replaced instance owner or identity outage is denied.
+The existing `identity-sessions` browser gate also requires 32 HTTPS requests
+through real Envoy/TLS to share one observation with 31 actual followers, retain
+all login redirects and perform fresh same-host stale/ready checks afterwards.
+Its bounded overlap barrier replaces the former timing-based fanout assumption.
 Existing AUTH-02/03/10, ACL-01 and native default-deny/ownership/TLS checks remain
 required; no authorization result, static-file exemption or stale positive cache
 is added. These are owning/protocol checks, not new registered campaign cases or

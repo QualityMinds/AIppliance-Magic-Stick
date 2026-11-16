@@ -7,15 +7,27 @@ not product code and does not model Kubernetes or Keycloak status provenance.
 import json
 import runpy
 import threading
-import time
 import urllib.parse
+from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import callback_gate
 
-state = {"mode": "ready", "active": 0, "maximum": 0, "calls": 0}
+state = {"mode": "ready", "active": 0, "maximum": 0, "calls": 0, "joined": 0}
 lock = threading.Lock()
+joined = threading.Condition(lock)
 gate = None
+
+
+class ReadinessFuture(Future):
+    def result(self, timeout=None):
+        # Observe actual production-gate followers, not just browser dispatch.
+        # The synthetic owner is released only after all 31 others join it.
+        with joined:
+            if state["mode"] == "slow":
+                state["joined"] += 1
+                joined.notify_all()
+        return super().result(timeout=timeout)
 
 
 class Fixture(BaseHTTPRequestHandler):
@@ -32,11 +44,11 @@ class Fixture(BaseHTTPRequestHandler):
                 self.send_response(400)
             else:
                 with lock:
-                    state.update(mode=mode, active=0, maximum=0, calls=0)
+                    state.update(mode=mode, active=0, maximum=0, calls=0, joined=0)
                 self.send_response(204)
         elif parsed.path == "/metrics":
             with lock:
-                payload = json.dumps({"maximum": state["maximum"], "calls": state["calls"]}).encode()
+                payload = json.dumps({key: state[key] for key in ("maximum", "calls", "joined")}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -59,8 +71,10 @@ class Fixture(BaseHTTPRequestHandler):
                 state["maximum"] = max(state["maximum"], state["active"])
             try:
                 if mode == "slow":
-                    time.sleep(0.2)
-                allowed = mode in {"ready", "slow"} or (mode == "additive" and host == "dash.fixture.test")
+                    with joined:
+                        allowed = joined.wait_for(lambda: state["joined"] == 31, timeout=3)
+                else:
+                    allowed = mode == "ready" or (mode == "additive" and host == "dash.fixture.test")
             finally:
                 with lock:
                     state["active"] -= 1
@@ -72,6 +86,7 @@ class Fixture(BaseHTTPRequestHandler):
 
 
 callback_gate.STATUS_URL = "http://127.0.0.1:8082/internal/callback-readiness"
+callback_gate.Future = ReadinessFuture
 gate = callback_gate.start(cert_dir="/app/gate-valid")
 expired_gate = callback_gate.start(port=8083, cert_dir="/app/gate-expired")
 threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 8082), Fixture).serve_forever, daemon=True).start()
