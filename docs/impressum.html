@@ -5,168 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="index,follow" />
   <meta name="description" content="Impressum der MagicStick-Projektwebsite und des Handbuchs: Anbieterangaben nach § 5 DDG, Kontakt, Register und Verantwortliche." />
-  <meta name="theme-color" content="#050b16" />
+  <meta name="theme-color" content="#080f1c" />
   <link rel="canonical" href="https://magic-stick.ai/impressum.html" />
   <link rel="alternate" hreflang="en" href="https://magic-stick.ai/imprint.html" />
   <link rel="alternate" hreflang="de" href="https://magic-stick.ai/impressum.html" />
   <link rel="alternate" hreflang="x-default" href="https://magic-stick.ai/imprint.html" />
   <title>Impressum - MagicStick</title>
-  <style>
-    @font-face {
-      font-family: "Bricolage Grotesque";
-      font-style: normal;
-      font-weight: 600 800;
-      font-display: swap;
-      src: url("assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
-    }
-
-    :root {
-      color-scheme: dark;
-      --bg: #050b16;
-      --surface: #091321;
-      --text: #eef3ff;
-      --muted: #aebdd4;
-      --line: #263a57;
-      --teal: #2ed2ed;
-      --max: 860px;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-      line-height: 1.65;
-    }
-
-    a {
-      color: var(--teal);
-    }
-
-    :focus-visible {
-      outline: 3px solid #2ed2ed;
-      outline-offset: 5px;
-    }
-
-    .shell {
-      width: min(var(--max), calc(100% - 40px));
-      margin: 0 auto;
-      padding: 42px 0 56px;
-    }
-
-    .top-bar {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px 20px;
-      margin-bottom: 28px;
-    }
-
-    .language-switch {
-      display: inline-flex;
-      gap: 4px;
-      font-size: 0.85rem;
-    }
-
-    .language-switch a {
-      padding: 6px 9px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    .language-switch a[aria-current="page"] {
-      border-color: var(--teal);
-      color: var(--text);
-    }
-
-    .language-switch a:hover,
-    .language-switch a:focus-visible {
-      color: var(--text);
-    }
-
-    .top-link {
-      display: inline-flex;
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    .top-link:hover,
-    .top-link:focus-visible {
-      color: var(--text);
-    }
-
-    h1 {
-      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
-      font-weight: 700;
-      margin: 0 0 12px;
-      font-size: clamp(1.9rem, 8vw, 2.5rem);
-      line-height: 1.1;
-      overflow-wrap: anywhere;
-      hyphens: auto;
-    }
-
-    h2 {
-      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
-      font-weight: 700;
-      margin: 34px 0 10px;
-      font-size: 1.25rem;
-    }
-
-    p {
-      margin: 0 0 14px;
-      color: var(--muted);
-    }
-
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      margin-top: 24px;
-      padding: 22px;
-      background: var(--surface);
-    }
-
-    .address {
-      color: var(--text);
-      font-style: normal;
-    }
-
-    footer {
-      border-top: 1px solid var(--line);
-      margin-top: 42px;
-      padding-top: 22px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
-    footer a {
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    footer a:hover,
-    footer a:focus-visible {
-      color: var(--text);
-    }
-  </style>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="site.css" />
+  <script src="site.js" defer></script>
 </head>
 <body>
-  <main class="shell">
-    <div class="top-bar">
-      <a class="top-link" href="de.html">Zurück zu MagicStick</a>
-      <span class="language-switch" aria-label="Sprache"><a href="imprint.html" lang="en" aria-label="EN, English" hreflang="en">EN</a><a href="impressum.html" lang="de" aria-label="DE, Deutsch" hreflang="de" aria-current="page">DE</a></span>
+  <a class="skip-link" href="#main">Zum Inhalt</a>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="logo" href="de.html#top" aria-label="Magic Stick Startseite"><img src="assets/brand/logo.svg" alt="" width="146" height="22" /></a>
+      <button class="menu-toggle" aria-controls="main-navigation" aria-expanded="false" hidden>Menü <span aria-hidden="true">+</span></button>
+      <nav id="main-navigation" aria-label="Hauptnavigation">
+        <a href="de.html#produkt">Produkt</a>
+        <a href="de.html#requirements">Voraussetzungen</a>
+        <a href="de.html#teams">Für Teams</a>
+        <a href="de.html#faq">FAQ</a>
+        <a href="editionen.html">Lizenzen</a>
+        <a href="README.md">Handbuch (EN)</a>
+        <a class="external" href="https://github.com/QualityMinds/AIppliance-Magic-Stick" rel="noopener">GitHub<span aria-hidden="true">↗</span><span class="visually-hidden"> (externer Link)</span></a>
+        <span class="language-switch"><a href="imprint.html" lang="en" aria-label="EN, English">EN</a><a href="impressum.html" lang="de" aria-label="DE, Deutsch" aria-current="page">DE</a></span>
+        <a class="button button-small" href="de.html#starten">Jetzt starten</a>
+      </nav>
     </div>
+  </header>
+  <main id="main" class="legal">
     <h1>Impressum</h1>
     <p>Anbieterangaben gemäß § 5 DDG für die MagicStick-Projektwebsite und das Handbuch.</p>
 
@@ -229,12 +97,12 @@
       </p>
     </section>
 
-    <footer>
-      <span>Stand: <time datetime="2026-10-05">5. Oktober 2026</time></span>
-      <a href="de.html">Startseite</a>
-      <a href="datenschutz.html">Datenschutzerklärung</a>
-      <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
-    </footer>
+    <p class="legal-updated">Stand: <time datetime="2026-10-05">5. Oktober 2026</time></p>
   </main>
+  <footer class="site-footer container">
+    <div class="footer-brand"><a class="logo" href="de.html#top" aria-label="Magic Stick Startseite"><img src="assets/brand/logo.svg" alt="" width="146" height="22" loading="lazy" /></a><p>Deine eigene KI-Appliance.</p></div>
+    <nav class="footer-links" aria-label="Rechtliches und Lizenz"><a href="editionen.html">Lizenz · BSL 1.1</a><a href="impressum.html">Impressum</a><a href="datenschutz.html">Datenschutz</a></nav>
+    <span class="footer-note">Statische Seite. Keine eigenen Tracking-Cookies.</span>
+  </footer>
 </body>
 </html>

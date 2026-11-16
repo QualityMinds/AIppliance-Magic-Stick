@@ -69,6 +69,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 - The privacy policy now also covers the project's TikTok profile in both
   languages: providers, joint controllership for profile statistics, transfer
   safeguards and TikTok's privacy policy.
+- Website: add a combined page with the imprint and the privacy policy below
+  each other (`/social`, German `/sozial`) as the legal link for social
+  media profiles. The build includes both texts from the existing legal pages,
+  so there is no second copy to maintain. The imprint and privacy policy pages
+  now carry the website header and footer like the other pages.
 - Redesign the terminal dashboard as a text version of the browser dashboard.
   It now has the same pages in a list on the left, with the System sections,
   panels, status badges and buttons of the web interface, designed for a
