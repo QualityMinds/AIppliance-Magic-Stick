@@ -347,6 +347,47 @@ class AppInstanceAccessMigrationTests(unittest.TestCase):
         self.assertEqual(args[1][2]["value"]["phase"], "Degraded")
         self.assertEqual(args[2], "application/json-patch+json")
 
+    def test_status_only_route_revision_can_advance_after_confirmed_fencing(self):
+        advanced = []
+        def gateway_status_update(_gate):
+            if advanced:
+                return
+            route = self.first("HTTPRoute", "local-callback")
+            route["metadata"]["resourceVersion"] = str(int(route["metadata"]["resourceVersion"]) + 1)
+            route["status"] = {"parents": [{"conditions": [{"type": "Accepted", "status": "True"}]}]}
+            advanced.append(True)
+        self.before_create = gateway_status_update
+        self.reconcile()
+        self.assertTrue(advanced)
+        self.assertEqual(self.status.call_args.args[3], "InvalidModelContext")
+        self.assertTrue(all(not rule["backendRefs"] for item in self.resources.values()
+                            if item["kind"] == "HTTPRoute" for rule in item["spec"]["rules"]))
+
+    def test_post_fence_refresh_rejects_changed_identity_intent_or_metadata(self):
+        changes = (
+            lambda item: item["metadata"].update(uid="replacement-uid"),
+            lambda item: item["metadata"].update(generation=2),
+            lambda item: item["metadata"].update(annotations={"foreign": "change"}),
+            lambda item: item["metadata"].update(finalizers=["foreign.example/finalizer"]),
+            lambda item: item["metadata"]["labels"].update({"foreign": "change"}),
+            lambda item: item["spec"].update(hostnames=["foreign.example.local"]),
+        )
+        for index, mutate in enumerate(changes):
+            with self.subTest(index=index):
+                self.setUp()
+                done = []
+                def changed_after_fence(_gate):
+                    if not done:
+                        route = self.first("HTTPRoute", "local-callback")
+                        mutate(route)
+                        route["metadata"]["resourceVersion"] = str(int(route["metadata"]["resourceVersion"]) + 1)
+                        done.append(True)
+                self.before_create = changed_after_fence
+                self.reconcile()
+                self.assertEqual(self.status.call_args.args[3], "AccessMigrationBlocked")
+                self.assertTrue(all(not rule["backendRefs"] for item in self.resources.values()
+                                    if item["kind"] == "HTTPRoute" for rule in item["spec"]["rules"]))
+
 
 if __name__ == "__main__":
     unittest.main()

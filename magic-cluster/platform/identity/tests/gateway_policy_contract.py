@@ -154,7 +154,13 @@ def verify_instance_access_migration(call):
             code = {'NotFound': 404, 'Forbidden': 403, 'Unauthorized': 401, 'Conflict': 409, 'Invalid': 422}.get(reason)
             if code:
                 raise urllib.error.HTTPError('synthetic-api', code, reason, {}, None)
-            raise RuntimeError('Native migration API operation failed: ' + json.dumps(operation_failure(result), sort_keys=True))
+            details = operation_failure(result)
+            if method == 'PATCH' and content_type == 'application/json-patch+json':
+                observed = json.loads(call('get', '--raw', path.removesuffix('/status')).stdout)
+                expected = {op['path']: op['value'] for op in body if op['op'] == 'test'}
+                details['uidPreconditionMatched'] = observed['metadata']['uid'] == expected.get('/metadata/uid')
+                details['versionPreconditionMatched'] = observed['metadata']['resourceVersion'] == expected.get('/metadata/resourceVersion')
+            raise RuntimeError('Native migration API operation failed: ' + json.dumps(details, sort_keys=True))
         return json.loads(result.stdout)
 
     controller.update(request_json=request,

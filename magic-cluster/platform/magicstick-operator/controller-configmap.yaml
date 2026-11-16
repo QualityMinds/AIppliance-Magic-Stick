@@ -6118,6 +6118,17 @@ data:
                 owned(previous[key(gate)], gate, require_uid=True)
 
         def update(current, new_spec):
+            observed = get_applied_resource(current)
+            owned(observed, current)
+            # The Gateway writes status between the fence and callback move.
+            # Refresh only that observation, never adopt a replacement, changed
+            # generation/spec or edited ownership/metadata. The actual PATCH
+            # still atomically tests the freshly observed UID and version.
+            if (observed.get("spec") != current.get("spec")
+                    or any(observed["metadata"].get(field) != current["metadata"].get(field) for field in
+                           ("uid", "generation", "labels", "annotations", "ownerReferences", "finalizers", "creationTimestamp"))):
+                raise AppAccessMigrationBlocked("An existing access resource changed after inspection.")
+            current = observed
             actual = current["metadata"]
             if (current["spec"] == new_spec
                     and actual["labels"].get("appliance.magicstick.dev/owner-uid") == uid):

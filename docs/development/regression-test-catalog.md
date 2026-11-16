@@ -1542,6 +1542,10 @@ Focused [access-migration counterexamples](../../magic-cluster/platform/magicsti
 cover stopped-model legacy SSO migration, exact policy guard UID and complete
 route scope, parent revision/intent/deletion races, atomic child UID/version
 conflicts, foreign guards, idempotence and normal validated-model recovery.
+Gateway status-only version changes after fencing require a fresh read of the
+same UID, generation, complete spec and ownership metadata before the next atomic
+write; changed content or ownership is not adopted. The native API reproduction
+also covers resuming the partially completed migration after this observation.
 All old backends are closed before guard changes and stay closed while context
 is invalid. The existing isolated Gateway upgrade contract additionally seeds
 legacy instance resources before admission installation and runs this migration
