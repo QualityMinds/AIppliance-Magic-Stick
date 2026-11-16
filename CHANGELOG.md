@@ -8,6 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Use the catalogued `oc` label for KubeOpenCode instance addresses. Keep the
+  existing Agent, instance identity, workspace, model and upstream image pins;
+  align generated local/public links, exact UID-bound SSO callbacks and the
+  local certificate. This avoids OpenCode's substring-based `opencode.ai`
+  detection on appliance names beginning with `ai`. Old instance addresses and
+  callbacks retire; the central module URL is unchanged. Recheck the catalog
+  before acknowledging a callback update, and retain strict guards during
+  migration. No custom OpenCode image or authentication bypass is introduced.
+
 - Coalesce overlapping requests for the same host at the pre-OIDC callback
   gate, including the complete route/policy and identity-readiness observation.
   Parallel application scripts no longer each trigger a separate copy of that

@@ -41,7 +41,7 @@ data:
           "litellmKey": true,
           "displayName": "KubeOpenCode",
           "chartPath": "magic-cluster/apps/instances/kubeopencode",
-          "route": {"serviceName": "shortName", "port": 4096, "requestTimeout": "0s"},
+          "route": {"serviceName": "shortName", "port": 4096, "requestTimeout": "0s", "hostnameLabel": "oc"},
           "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
           "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"]
         },

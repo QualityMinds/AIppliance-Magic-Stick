@@ -38,6 +38,7 @@ data:
     SETUP_PATH = f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/{NAMESPACE}/appliancesetups/local"
     SECRETS_PATH = f"/api/v1/namespaces/{NAMESPACE}/secrets"
     SETTINGS_PATH = f"/api/v1/namespaces/{SETTINGS_NAMESPACE}/configmaps/ai-appliance-settings"
+    APP_CATALOG_PATH = "/api/v1/namespaces/ai-system/configmaps/magicstick-app-catalog"
     CALLBACKS_PATH = f"/api/v1/namespaces/{NAMESPACE}/configmaps/magicstick-oidc-callbacks"
     CALLBACKS_STATUS_PATH = f"/api/v1/namespaces/{NAMESPACE}/configmaps/magicstick-oidc-callbacks-status"
     CALLBACK_GATE_CA_PATH = f"/api/v1/namespaces/{NAMESPACE}/configmaps/magicstick-callback-gate-ca"
@@ -420,6 +421,13 @@ data:
                 redirects.add(f"https://{host}/oauth2/callback/static-{route}-{scope}")
                 origins.add(f"https://{host}")
         seen = set()
+        applications = {}
+        if data["entries"]:
+            catalog = get_resource(APP_CATALOG_PATH) or {}
+            document = json.loads((catalog.get("data") or {}).get("applications.json", "{}"))
+            applications = document.get("applications") if isinstance(document, dict) else None
+            if not isinstance(applications, dict):
+                raise ValueError("callback application catalog unavailable")
         for entry in data["entries"]:
             if not isinstance(entry, dict) or set(entry) != {"uid", "name", "application", "local", "public"}:
                 raise ValueError("invalid callback entry")
@@ -435,7 +443,13 @@ data:
             short = str((spec.get("values") or {}).get("name") or name or "default").strip()
             if short.startswith(application + "-"):
                 short = short[len(application) + 1:]
-            prefix = callback_dns_part(short, "default") + "." + callback_dns_part(application, "instance")
+            definition = applications.get(application)
+            if not isinstance(definition, dict):
+                raise ValueError("callback application is not catalogued")
+            label = (definition.get("route") or {}).get("hostnameLabel", application)
+            if not isinstance(label, str) or not DNS_LABEL.fullmatch(label):
+                raise ValueError("invalid callback application hostname label")
+            prefix = callback_dns_part(short, "default") + "." + label
             for scope, domain in (("local", local), ("public", public)):
                 suffix = scope
                 route = callback_dns_part(name, "instance")[:62-len(suffix)].rstrip("-") + "-" + suffix
@@ -515,7 +529,8 @@ data:
         # Verify the input was not replaced while Keycloak was reconciled.
         if (((get_resource(CALLBACKS_PATH) or {}).get("data") or {}).get("callbacks.json") != raw
                 or keycloak_endpoint_uid() != endpoint_uid
-                or json.dumps(callback_domains(), separators=(",", ":")) != domains):
+                or json.dumps(callback_domains(), separators=(",", ":")) != domains
+                or callback_registration(raw) != (redirects, origins, logout)):
             raise ValueError("callback registry changed")
         kube_request("PATCH", CALLBACKS_STATUS_PATH, {"data": {
             "version": "1", "desired-sha256": digest, "verified-sha256": digest,

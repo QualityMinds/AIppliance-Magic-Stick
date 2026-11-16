@@ -160,6 +160,28 @@ class AppInstanceAccessMigrationTests(unittest.TestCase):
         self.assertEqual(first_guard, len(routes))
         self.assertTrue(all(not rule["backendRefs"] for _, item in self.writes[:first_guard] for rule in item["spec"]["rules"]))
 
+    def test_catalog_host_label_migrates_only_exact_previous_instance_hosts(self):
+        # The generic migration must work even with a stopped model. The
+        # native workload and instance identity are never recreated here.
+        self.definition["route"]["hostnameLabel"] = "oc"
+        desired, _ = self.controller["app_instance_access_resources"](self.instance, self.definition)
+        self.desired = {self.key(item): copy.deepcopy(item) for item in desired}
+        original = copy.deepcopy(self.instance)
+        self.reconcile()
+        self.assertEqual(self.instance, original)
+        for item in self.resources.values():
+            if item["kind"] == "HTTPRoute":
+                self.assertIn(".oc.", item["spec"]["hostnames"][0])
+                self.assertTrue(all(not rule["backendRefs"] for rule in item["spec"]["rules"]))
+        self.assertEqual(self.status.call_args.kwargs["access"]["localURL"], "https://example.oc.magicstick.local/")
+
+    def test_catalog_host_label_does_not_adopt_a_neighbouring_instance_route(self):
+        self.definition["route"]["hostnameLabel"] = "oc"
+        route = self.first("HTTPRoute", "-local")
+        route["spec"]["hostnames"] = ["other.hermes.magicstick.local"]
+        self.reconcile()
+        self.assertEqual(self.writes, [])
+
     def test_new_invalid_instance_provisions_nothing(self):
         self.resources.clear()
         self.reconcile()

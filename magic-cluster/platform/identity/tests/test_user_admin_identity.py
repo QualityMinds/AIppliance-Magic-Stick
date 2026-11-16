@@ -244,9 +244,10 @@ class UserAdminIdentityTests(unittest.TestCase):
                         with self.subTest(route=document["metadata"]["name"]):
                             self.assertIn(hostname, names)
         catalog = yaml.safe_load((cluster / "platform" / "magicstick-operator" / "app-catalog.yaml").read_text())
-        for application in json.loads(catalog["data"]["applications.json"])["applications"]:
+        for application, definition in json.loads(catalog["data"]["applications.json"])["applications"].items():
             with self.subTest(application=application):
-                self.assertIn("*." + application + ".${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)
+                label = (definition.get("route") or {}).get("hostnameLabel", application)
+                self.assertIn("*." + label + ".${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)
         # A single-label wildcard cannot cover <instance>.<application>.<domain>.
         # Do not broaden the certificate to arbitrary neighbouring appliances.
         self.assertNotIn("*.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)

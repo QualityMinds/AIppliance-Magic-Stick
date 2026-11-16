@@ -465,12 +465,19 @@ data:
         return dns_label_part(raw, "default")
 
 
-    def app_instance_local_host(instance, instance_type):
-        return local_http_host(app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance"))
+    def app_instance_hostname_label(instance_type, definition=None):
+        label = ((definition or {}).get("route") or {}).get("hostnameLabel", instance_type)
+        if not isinstance(label, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label):
+            raise ValueError("application route.hostnameLabel must be a single DNS label")
+        return label
 
 
-    def app_instance_public_host(instance, instance_type):
-        prefix = app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance")
+    def app_instance_local_host(instance, instance_type, definition=None):
+        return local_http_host(app_instance_short_name(instance, instance_type) + "." + app_instance_hostname_label(instance_type, definition))
+
+
+    def app_instance_public_host(instance, instance_type, definition=None):
+        prefix = app_instance_short_name(instance, instance_type) + "." + app_instance_hostname_label(instance_type, definition)
         return prefix + "." + public_domain()
 
 
@@ -5574,8 +5581,8 @@ data:
         application = spec.get("application") or ""
         authentication, required_role, exposure = app_instance_access_config(instance)
         service_name, service_port = app_instance_backend(instance, definition)
-        local_host = app_instance_local_host(instance, application)
-        public_host = app_instance_public_host(instance, application)
+        local_host = app_instance_local_host(instance, application, definition)
+        public_host = app_instance_public_host(instance, application, definition)
         local_route_name = managed_resource_name(name, "local")
         public_route_name = managed_resource_name(name, "public")
         local_callback_name = managed_resource_name(name, "local-callback")
@@ -5716,7 +5723,7 @@ data:
         return len(entries) <= 256 and all(len(json.dumps(sorted(values), separators=(",", ":")).encode("utf-8")) <= 8100 for values in (redirects, origins))
 
 
-    def reconcile_callback_registry(instances):
+    def reconcile_callback_registry(instances, app_catalog=None):
         global CALLBACK_ADMITTED_UIDS, CALLBACK_REJECTED_UIDS
         CALLBACK_ADMITTED_UIDS = set()
         CALLBACK_REJECTED_UIDS = set()
@@ -5740,10 +5747,16 @@ data:
             application = spec.get("application") or ""
             if not name or not uid or not application:
                 raise ValueError("Cannot register callback without exact instance identity")
-            local = "https://" + app_instance_local_host(instance, application) + "/oauth2/callback/" + managed_resource_name(name, "local")
+            definition = ((app_catalog or {}).get("applications") or {}).get(application)
+            if app_catalog is not None and not isinstance(definition, dict):
+                # An invalid new request must not poison the shared registry
+                # and interrupt previously accepted application logins.
+                continue
+            definition = definition or {}
+            local = "https://" + app_instance_local_host(instance, application, definition) + "/oauth2/callback/" + managed_resource_name(name, "local")
             public = ""
             if exposure == "localAndPublic":
-                public = "https://" + app_instance_public_host(instance, application) + "/oauth2/callback/" + managed_resource_name(name, "public")
+                public = "https://" + app_instance_public_host(instance, application, definition) + "/oauth2/callback/" + managed_resource_name(name, "public")
             entries.append({"uid": uid, "name": name, "application": application, "local": local, "public": public})
         # Keep existing, unchanged identities first. A newly created instance
         # that would overflow the Keycloak bootstrap bound must not evict a
@@ -5915,8 +5928,8 @@ data:
                                  f"{minimum_context:,} context tokens; selected model context is {actual}. "
                                  f"Select a suitable model or set values.{context_field} to its actual supported context.")
             values[context_field] = configured_context
-        local_host = app_instance_local_host(instance, application)
-        public_host = app_instance_public_host(instance, application)
+        local_host = app_instance_local_host(instance, application, definition)
+        public_host = app_instance_public_host(instance, application, definition)
         ingress = dict(values.get("ingress") or {})
         ingress["enabled"] = False
         ingress["host"] = public_host
@@ -6010,6 +6023,7 @@ data:
         """
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
+        application = spec.get("application") or ""
         uid = metadata.get("uid")
         if (not uid or not metadata.get("resourceVersion") or not metadata.get("generation")
                 or not metadata.get("namespace") or metadata.get("deletionTimestamp")
@@ -6090,6 +6104,16 @@ data:
             local_callback = route["metadata"]["name"] == managed_resource_name(metadata["name"], "local-callback")
             old_callback_host = mdns_domain() if local_callback else public_domain()
             hosts = [route["spec"]["hostnames"]]
+            # A catalogued hostname label changes only the access address, not
+            # the instance identity. Accept its exact previous type-derived
+            # host only after the same UID, route ownership and backend proof.
+            if app_instance_hostname_label(application, definition) != application:
+                old_instance_host = (app_instance_local_host(instance, application)
+                                     if route["metadata"]["name"] in (
+                                         managed_resource_name(metadata["name"], "local"),
+                                         managed_resource_name(metadata["name"], "local-callback"))
+                                     else app_instance_public_host(instance, application))
+                hosts.append([old_instance_host])
             callback = route["metadata"]["name"].endswith("-callback")
             if callback:
                 hosts.append([old_callback_host])
@@ -6331,7 +6355,7 @@ data:
         activations = module_activations()
         instances = app_instances()
         try:
-            CALLBACK_REGISTRY_READY = reconcile_callback_registry(instances)
+            CALLBACK_REGISTRY_READY = reconcile_callback_registry(instances, app_catalog)
         except Exception as error:
             CALLBACK_REGISTRY_READY = False
             print("OIDC callback registry unavailable:", type(error).__name__, flush=True)

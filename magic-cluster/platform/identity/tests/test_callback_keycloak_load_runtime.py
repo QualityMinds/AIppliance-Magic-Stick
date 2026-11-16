@@ -80,13 +80,15 @@ class KeycloakReadinessLoadTests(unittest.TestCase):
                 entries, owners = [], {}
                 for number in range(65):
                     short = f"x{number:02d}"
-                    owner_name = "a-" + short
+                    application = "kubeopencode" if number == 64 else "a"
+                    host_label = "oc" if application == "kubeopencode" else application
+                    owner_name = application + "-" + short
                     uid = str(uuid.uuid5(uuid.NAMESPACE_DNS, owner_name))
                     owners[owner_name] = {"metadata": {"name": owner_name, "uid": uid},
-                                          "spec": {"application": "a", "values": {"name": short},
+                                          "spec": {"application": application, "values": {"name": short},
                                                    "access": {"authentication": "sso", "exposure": "local"}}}
-                    entries.append({"uid": uid, "name": owner_name, "application": "a",
-                                    "local": f"https://{short}.a.fixture.local/oauth2/callback/{owner_name}-local", "public": ""})
+                    entries.append({"uid": uid, "name": owner_name, "application": application,
+                                    "local": f"https://{short}.{host_label}.fixture.local/oauth2/callback/{owner_name}-local", "public": ""})
                 raw = json.dumps({"version": 1, "entries": entries}, sort_keys=True, separators=(",", ":"))
                 routes, policies = [], []
                 for entry in entries:
@@ -100,6 +102,9 @@ class KeycloakReadinessLoadTests(unittest.TestCase):
                 status = {}
                 endpoint_uid = str(uuid.uuid4())
                 def resource(path):
+                    if path == setup.APP_CATALOG_PATH:
+                        return {"data": {"applications.json": json.dumps({"applications": {
+                            "a": {}, "kubeopencode": {"route": {"hostnameLabel": "oc"}}}})}}
                     if path.endswith('/httproutes'):
                         return {'items': routes}
                     if path.endswith('/securitypolicies'):
@@ -144,6 +149,8 @@ class KeycloakReadinessLoadTests(unittest.TestCase):
                       patch.object(setup, "kube_request", side_effect=patch_status)):
                     setup.sync_oidc_callbacks()
                     self.assertEqual(probe("x00.a.fixture.local"), 204)
+                    self.assertEqual(probe("x64.oc.fixture.local"), 204)
+                    self.assertEqual(probe("x64.kubeopencode.fixture.local"), 503)
 
                     # Exercise the whole production gRPC -> HTTP -> Gateway
                     # observation -> real Keycloak path. The older lower-layer
@@ -281,12 +288,12 @@ class KeycloakReadinessLoadTests(unittest.TestCase):
                             futures = [pool.submit(probe, f"x{i:02d}.a.fixture.local") for i in range(64)]
                             try:
                                 self.assertTrue(ready64.wait(25), "64 distinct live Keycloak checks did not overlap")
-                                self.assertEqual(probe("x64.a.fixture.local"), 503)
+                                self.assertEqual(probe("x64.oc.fixture.local"), 503)
                             finally:
                                 release.set()
                             results = [f.result() for f in futures]
                         self.assertEqual(results, [204] * 64)
-                    self.assertEqual(probe("x64.a.fixture.local"), 204)
+                    self.assertEqual(probe("x64.oc.fixture.local"), 204)
                     print("Real Keycloak readiness: 64 same-host coalesced; 64 distinct allowed; 65th 503 then 204")
             finally:
                 if http:
