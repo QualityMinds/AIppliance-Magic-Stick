@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Migrate an existing application's UID-bound SSO access even when its selected
+  model is stopped or has an unknown context. Verify the current instance and
+  complete old access scope, fence every backend first and use atomic resource
+  UID/version preconditions. New invalid instances still get no routes, keys or
+  workloads; existing ones retain the model error until it is actually resolved.
+
 - Retain the dashboard nginx's four bounded 16 KiB large-header buffers for
   existing SSO cookie/token headers during host-only cookie migration.
   Requests exceeding the per-field or total limit remain rejected.

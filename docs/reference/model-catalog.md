@@ -190,6 +190,9 @@ Current consumers include:
   upgrade, without inflating the model's capacity. Advanced
   `AppInstance.spec.values.modelContextTokens` can declare the actual supported
   context when catalog metadata is unavailable. Suspension remains possible.
+  Existing UID-bound SSO resources can still migrate while this validation is
+  blocked; the controller fences their backends and preserves the context error.
+  It does not create an invalid new instance or increase its declared capacity.
 - OpenClaw reads `openclaw.json` through its operator-managed `configMapRef`.
   For Dashboard-managed instances the catalog controller publishes
   `<instance-name>-model-catalog` in namespace `ai`, with the common provider list

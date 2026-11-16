@@ -127,6 +127,8 @@
   one appliance-wide cookie header. Services share the central sign-in; global
   logout invalidates the session across those hosts. Missing gateway protection
   denies access rather than making an application public.
+  Existing SSO access can migrate even with a stopped application model, while
+  invalid instances remain blocked and no new workload is provisioned.
 
 ## What is not automatic
 

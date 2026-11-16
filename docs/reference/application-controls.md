@@ -92,6 +92,14 @@ Sibling services do not receive these cookies. Explicitly public instances keep
 their UID-bound instance guard; removing a route's policy does not silently make
 it public because the shared Gateway denies unprotected routes by default.
 
+A stopped model with unknown context does not prevent migration of an already
+deployed instance's SSO access. The controller verifies the current instance and
+its existing UID-bound policies and routes, closes their application backends,
+then moves callbacks to the instance hostname. Missing, foreign or changed
+ownership blocks migration. No new workload, inference key or application route
+is provisioned for an invalid instance. Its model error stays visible and its
+backends remain closed until model validation and the normal access guards pass.
+
 The operator, not the instance chart or dashboard, creates `HTTPRoute`,
 `SecurityPolicy`, and `ReferenceGrant` resources. Both local and public links
 are reported in `AppInstance.status` and displayed on the instance card. The

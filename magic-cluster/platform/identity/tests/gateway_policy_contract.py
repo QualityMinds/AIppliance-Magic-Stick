@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import ssl
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -84,6 +85,127 @@ def verify_source_ref_apply(call):
     print('CHANNEL-06 source reference API: obsolete selector retained without explicit null; '
           'commit-only upgrade, unchanged UID/unrelated fields, repeated apply and fresh create passed. '
           'Git checkout and installed convergence remain separate.')
+
+
+def migration_controller():
+    # Reuse the owning test loader, not a second controller implementation.
+    # All API traffic is subsequently bound to the caller's disposable context.
+    directory = ROOT / 'magic-cluster/platform/magicstick-operator'
+    sys.path.insert(0, str(directory / 'controller'))
+    try:
+        from test_controller import load_controller
+        return load_controller()
+    finally:
+        sys.path.pop(0)
+
+
+def seed_instance_access(call):
+    controller = migration_controller()
+    directory = ROOT / 'magic-cluster/platform/magicstick-operator'
+    call('apply', '-f', str(directory / 'crds/appinstances.appliance.magicstick.dev.yaml'))
+    call('wait', '--for=condition=Established', 'crd/appinstances.appliance.magicstick.dev', '--timeout=30s')
+    for namespace in ('ai-system', 'ai'):
+        call('apply', '-f', '-', data=yaml.safe_dump({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': namespace}}))
+    instance = {'apiVersion': 'appliance.magicstick.dev/v1alpha1', 'kind': 'AppInstance',
+                'metadata': {'name': 'hermes-cookie-migration', 'namespace': 'ai-system',
+                             'finalizers': [controller['APPINSTANCE_FINALIZER']]},
+                'spec': {'application': 'hermes', 'enabled': True, 'targetNamespace': 'ai',
+                         'values': {'name': 'cookie-migration', 'model': 'litellm/stopped-fixture'}}}
+    instance = json.loads(call('create', '-f', '-', '-o', 'json', data=yaml.safe_dump(instance)).stdout)
+    catalog = json.loads(yaml.safe_load((directory / 'app-catalog.yaml').read_text())['data']['applications.json'])
+    desired, _ = controller['app_instance_access_resources'](instance, catalog['applications']['hermes'])
+    for item in desired:
+        if item['kind'] == 'EnvoyExtensionPolicy':
+            continue
+        item['metadata']['labels'].pop('appliance.magicstick.dev/owner-uid', None)
+        name = item['metadata']['name']
+        root = 'magicstick.local' if '-local' in name else 'magicstick.example.com'
+        if item['kind'] == 'HTTPRoute' and name.endswith('-callback'):
+            item['spec']['hostnames'] = [root]
+        if item['kind'] == 'SecurityPolicy':
+            item['spec']['oidc']['redirectURL'] = 'https://' + root + '/oauth2/callback/' + name.removesuffix('-sso')
+            item['spec']['oidc']['cookieDomain'] = root
+            item['spec']['oidc'].pop('cookieNames')
+            item['spec']['jwt']['providers'][0]['extractFrom']['cookies'] = ['AccessToken-legacy']
+        call('create', '-f', '-', data=yaml.safe_dump(item))
+
+
+def verify_instance_access_migration(call):
+    controller = migration_controller()
+    directory = ROOT / 'magic-cluster/platform/magicstick-operator'
+    catalog = json.loads(yaml.safe_load((directory / 'app-catalog.yaml').read_text())['data']['applications.json'])
+
+    def request(method, path, body=None, content_type='application/json'):
+        if method == 'GET':
+            result = call('get', '--raw', path, ok=False)
+        elif method == 'POST':
+            result = call('create', '-f', '-', '-o', 'json', data=yaml.safe_dump(body), ok=False)
+        elif method == 'PATCH':
+            parts = path.strip('/').split('/')
+            assert parts[0] == 'apis' and parts[3] == 'namespaces'
+            mode = {'application/json-patch+json': 'json', 'application/merge-patch+json': 'merge'}[content_type]
+            subresource = ['--subresource=status'] if parts[-1] == 'status' else []
+            result = call('patch', parts[5] + '.' + parts[1], parts[6], '-n', parts[4],
+                          '--type=' + mode, '--patch=' + json.dumps(body), '-o', 'json', *subresource, ok=False)
+        else:
+            raise AssertionError('Unexpected controller operation in the native migration fixture')
+        if result.returncode:
+            reason = operation_failure(result)['statusReason']
+            code = {'NotFound': 404, 'Forbidden': 403, 'Unauthorized': 401, 'Conflict': 409, 'Invalid': 422}.get(reason)
+            if code:
+                raise urllib.error.HTTPError('synthetic-api', code, reason, {}, None)
+            raise RuntimeError('Native migration API operation failed: ' + json.dumps(operation_failure(result), sort_keys=True))
+        return json.loads(result.stdout)
+
+    controller.update(request_json=request,
+        model_catalog_models=lambda namespace: [], ensure_module_activation=lambda *args, **kwargs: None,
+        module_ready=lambda *args: True, crd_exists=lambda *args: True)
+    def no_provisioning(*args, **kwargs):
+        raise AssertionError('Invalid model context must not provision a workload or key')
+    controller.update(apply_resource=no_provisioning, reconcile_service_key=no_provisioning)
+    path = '/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/appinstances/hermes-cookie-migration'
+    instance = controller['get_json'](path)
+    resources, _ = controller['app_instance_access_resources'](instance, catalog['applications']['hermes'])
+    originals = {(item['kind'], item['metadata']['name']): controller['get_applied_resource'](item)
+                 for item in resources if item['kind'] != 'EnvoyExtensionPolicy'}
+    phase, _ = controller['reconcile_instance'](instance, {}, catalog, {'name': 'synthetic-unavailable'})
+    observed = controller['get_json'](path)
+    assert phase == 'Degraded' and observed['status']['conditions'][0]['reason'] == 'InvalidModelContext'
+    assert observed['status']['accessGuardReady'] is False
+    for reference in resources:
+        current = controller['get_applied_resource'](reference)
+        old = originals.get((reference['kind'], reference['metadata']['name']))
+        if old:
+            assert current['metadata']['uid'] == old['metadata']['uid']
+        if reference['kind'] == 'HTTPRoute':
+            assert current['spec']['hostnames'] == reference['spec']['hostnames']
+            assert all(not rule.get('backendRefs') for rule in current['spec']['rules'])
+        if reference['kind'] == 'SecurityPolicy':
+            assert current['spec']['oidc']['redirectURL'] == reference['spec']['oidc']['redirectURL']
+            assert 'cookieDomain' not in current['spec']['oidc']
+    # Real API rejection of each precondition, with a corresponding successful
+    # patch differing only in that test value. No raw error text is published.
+    route = next(item for item in resources if item['kind'] == 'HTTPRoute')
+    for field in ('uid', 'resourceVersion'):
+        current = controller['get_applied_resource'](route)
+        operations = [{'op': 'test', 'path': '/metadata/' + name, 'value': current['metadata'][name]}
+                      for name in ('uid', 'resourceVersion')]
+        operations.append({'op': 'replace', 'path': '/spec', 'value': current['spec']})
+        invalid = copy.deepcopy(operations)
+        invalid[0 if field == 'uid' else 1]['value'] += '-stale'
+        result = call('patch', 'httproute', current['metadata']['name'], '-n', 'identity-system',
+                      '--type=json', '--patch=' + json.dumps(invalid), ok=False)
+        assert result.returncode, 'A stale native precondition was accepted'
+        unchanged = controller['get_applied_resource'](route)
+        assert unchanged['metadata']['uid'] == current['metadata']['uid'] and unchanged['spec'] == current['spec']
+        request('PATCH', controller['resource_path'](route['apiVersion'], route['kind'],
+                route['metadata']['namespace'], route['metadata']['name']), operations, 'application/json-patch+json')
+    # No test backend, HelmRelease, key, model or identity credential is created.
+    # Remove these synthetic route scopes before the independent Gateway probes.
+    for reference in resources:
+        call('delete', reference['kind'], reference['metadata']['name'], '-n', reference['metadata']['namespace'])
+    print('APP-04/05/11, ACL-01: stopped-model legacy SSO migration passed the real API/admission; '
+          'same resource UIDs, closed backends, invalid-context status and stale UID/RV rejection verified.')
 
 
 def main():
@@ -178,6 +300,7 @@ def main():
             if 'NotFound' not in binding.stderr:
                 raise SystemExit('Could not confirm absent admission binding for legacy fixture')
         apply(route)
+        seed_instance_access(call)
         print('Seeded synthetic pre-guard route without a running backend or human credentials.')
         return
     previous = call('get', 'httproute/fixture', '-n', 'identity-system', '-o', 'json', ok=False)
@@ -302,6 +425,8 @@ ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                        for ancestor in item.get('status', {}).get('ancestors', []) for c in ancestor.get('conditions', []))
         wait(lambda: baseline_accepted('envoyextensionpolicy', 'magicstick-cookie-migration') and
                      baseline_accepted('securitypolicy', 'magicstick-default-deny'), 'current controller baseline acceptance')
+        if args.require_existing_route:
+            verify_instance_access_migration(call)
         # The exact route-only product wave now passes the same server-side
         # dry-run used before Flux apply. No exception or Deny rule was removed.
         rendered_routes = yaml.safe_dump_all(route_wave).replace(

@@ -1535,6 +1535,21 @@ another run. These changes have local owning, fast and harness coverage; matchin
 published images and a fresh installed Phase 5 run are still required. Old
 reports and UID/revision-bound cleanup checks are unchanged.
 
+16 November 2026 APP-04/05/11 and ACL-01 follow-up: the existing
+[model-context tests](../../magic-cluster/platform/magicstick-operator/controller/test_app_instance_model_context.py)
+still reject new invalid instances without provisioning keys, routes or workloads.
+Focused [access-migration counterexamples](../../magic-cluster/platform/magicstick-operator/controller/test_app_instance_access_migration.py)
+cover stopped-model legacy SSO migration, exact policy guard UID and complete
+route scope, parent revision/intent/deletion races, atomic child UID/version
+conflicts, foreign guards, idempotence and normal validated-model recovery.
+All old backends are closed before guard changes and stay closed while context
+is invalid. The existing isolated Gateway upgrade contract additionally seeds
+legacy instance resources before admission installation and runs this migration
+against the real API with unchanged admission protections and stale UID/version
+rejection. This extends owning-layer/CI coverage, not the registered test catalog
+or standard service/Hermes selection. Aimonster's scoped native migration and
+login acceptance remain separate from local checks and a complete service suite.
+
 20 October 2026 activation feedback follow-up: HAR-10 and UX-02 have owning
 component counterproofs and desktop/mobile browser fixtures for a delayed enable
 request, accepted activation awaiting readiness, duplicate-request prevention,
