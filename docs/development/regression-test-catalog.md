@@ -176,7 +176,7 @@ independently of runtime removal; retained storage is never labelled deleted.
 | APP-02 | Submit an instance through UI, observe `AppInstance`, its owned HelmRelease/native objects and Ready endpoints, then verify the same values through API. | A+E | P0 · functional |
 | APP-03 | Create a second differently named instance via API. Show it only beneath the correct parent, with independent URL/status/removal and persistent expansion state. | U+A+E | P1 · functional |
 | APP-04 | Validate missing/invalid/duplicate names and app parameters, including derived hostname limits. Reject without partially created intent, credentials or routes. | U+C+A+B | P1 · functional |
-| APP-05 | Compare local/public exposure and `<name>.<type>.<domain>` routing. Only selected exposure is advertised; services remain internal and routes are operator-owned. | C+A+E | P0 · functional |
+| APP-05 | Compare local/public exposure and catalog-derived `<name>.<host-label>.<domain>` routing (`<type>` by default, `oc` for KubeOpenCode). Only selected exposure is advertised; services remain internal and routes are operator-owned. | C+A+E | P0 · functional |
 | APP-06 | Reach each app through shared SSO and run its smallest meaningful catalog-model operation. Correct model/provider used; no unexpected second app login or public provider fallback. | A+E | P0 · functional |
 | APP-07 | Open instance credentials where supported. Confirm authorization, no-store/redaction and clearing on close; unsupported apps do not pretend to expose credentials. | U+C+A+E | P0 · identity |
 | APP-08 | Create a Paperclip instance with reviewed default model, sandbox count and optional existing OpenClaw/Hermes gateway. Persist only selected execution options; missing selected gateway blocks submission. | U+C+A+E | P1 · functional |
@@ -1546,6 +1546,25 @@ dependent cases do not repeat the failed setup or borrow passing results from
 another run. These changes have local owning, fast and harness coverage; matching
 published images and a fresh installed Phase 5 run are still required. Old
 reports and UID/revision-bound cleanup checks are unchanged.
+
+16 November 2026 APP-05/ACL-01 OpenCode address follow-up: existing owning-layer
+[hostname counterexamples](../../magic-cluster/platform/magicstick-operator/controller/test_app_hostnames.py)
+and [callback-registry tests](../../magic-cluster/platform/identity/tests/test_oidc_callback_registry.py)
+exercise the catalogued `oc` label for local/public links, exact SSO callbacks,
+host-only cookies and certificate coverage. The failure reproduction uses an
+appliance domain beginning with `ai`, which previously made the unchanged
+OpenCode UI mistake `kubeopencode.ai...` for its official domain and choose
+localhost. Tests preserve instance/Agent names and other workload inputs, reject
+invalid labels and instance-value overrides, and do not accept an old-host ACK
+for the new address. Catalog changes during Keycloak reconciliation prevent a
+stale verified ACK. Existing stopped-model migration counterexamples also cover
+the exact previous instance host and refuse neighbouring hosts. No new case is
+registered or service exclusion lifted. Scoped native SSO/browser acceptance
+on the changed host remains separate from these local checks; the central
+KubeOpenCode console's Kubernetes authentication is not credited by this change.
+The existing opt-in [real Keycloak readiness gate](../../magic-cluster/platform/identity/tests/test_callback_keycloak_load_runtime.py)
+also registers the `oc` instance callback, rejects the retired hostname and
+retains its bounded fanout/overload recovery checks with the pinned upstream IdP.
 
 16 November 2026 APP-04/05/11 and ACL-01 follow-up: the existing
 [model-context tests](../../magic-cluster/platform/magicstick-operator/controller/test_app_instance_model_context.py)

@@ -32,6 +32,12 @@ instance keeps its selection when the shared catalog or global default changes.
 If that model becomes unavailable, select a replacement explicitly. OpenClaw's
 compaction budget follows the chosen model's context limit.
 
+OpenCode instance links use `<name>.oc.<domain>`, for example
+`example.oc.magicstick.local`. Open the current link from **Services** after an
+address update; your agent and workspace are not recreated. The official
+OpenCode image automatically connects to that same HTTPS address. The central
+KubeOpenCode console has its own, separate module link.
+
 AnythingLLM is enabled directly from its service card. Before enabling it, open
 **Services → AnythingLLM → Configure** and choose **Chat model** and
 **Embedding model**. Each list offers the available models for that task. You

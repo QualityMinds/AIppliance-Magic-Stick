@@ -113,8 +113,12 @@ class CallbackRegistryTests(unittest.TestCase):
                       "public": "https://demo.openclaw.example.com/oauth2/callback/openclaw-demo-public"}
         self.raw = json.dumps({"version": 1, "entries": [self.entry]}, sort_keys=True, separators=(",", ":"))
         self.status = {}
+        self.catalog = {"data": {"applications.json": json.dumps({"applications": {"openclaw": {},
+            "kubeopencode": {"route": {"hostnameLabel": "oc"}}}})}}
 
     def resource(self, path):
+        if path == setup.APP_CATALOG_PATH:
+            return self.catalog
         if path == setup.SETTINGS_PATH:
             return self.settings
         if path.endswith("/appinstances/openclaw-demo"):
@@ -140,6 +144,37 @@ class CallbackRegistryTests(unittest.TestCase):
         self.assertIn("https://anythingllm.example.local/oauth2/callback/static-anything-llm-local", redirects)
         self.assertIn("https://demo.openclaw.example.local", origins)
         self.assertFalse(any("*" in item for item in redirects))
+
+    def test_catalogued_oc_host_keeps_exact_instance_uid_and_callback_path(self):
+        self.owner["spec"]["application"] = "kubeopencode"
+        self.entry.update(application="kubeopencode",
+                          local="https://openclaw-demo.oc.example.local/oauth2/callback/openclaw-demo-local",
+                          public="https://openclaw-demo.oc.example.com/oauth2/callback/openclaw-demo-public")
+        raw = json.dumps({"version": 1, "entries": [self.entry]})
+        with patch.object(setup, "get_resource", side_effect=self.resource):
+            redirects, origins, _ = setup.callback_registration(raw)
+            self.assertIn(self.entry["local"], redirects)
+            self.assertIn("https://openclaw-demo.oc.example.local", origins)
+            for host in ("openclaw-demo.kubeopencode.example.local", "foreign.oc.example.local", "openclaw-demo.oc.other.local"):
+                wrong = dict(self.entry, local="https://" + host + "/oauth2/callback/openclaw-demo-local")
+                with self.assertRaises(ValueError):
+                    setup.callback_registration(json.dumps({"version": 1, "entries": [wrong]}))
+
+    def test_missing_catalog_and_invalid_hostname_label_never_register_callbacks(self):
+        with patch.object(setup, "get_resource", side_effect=self.resource):
+            for document in ([], {}, {"applications": []}, {"applications": {}},
+                             {"applications": {"openclaw": {"route": {"hostnameLabel": "*.oc"}}}}):
+                self.catalog["data"]["applications.json"] = json.dumps(document)
+                with self.subTest(document=document), self.assertRaises(ValueError):
+                    setup.callback_registration(self.raw)
+
+    def test_setup_can_only_read_the_exact_application_catalog(self):
+        import yaml
+        documents = list(yaml.safe_load_all((Path(__file__).parents[1] / "setup-rbac.yaml").read_text()))
+        role = next(item for item in documents if item["kind"] == "Role" and item["metadata"]["name"] == "magicstick-setup-app-catalog")
+        self.assertEqual(role["metadata"]["namespace"], "ai-system")
+        self.assertEqual(role["rules"], [{"apiGroups": [""], "resources": ["configmaps"],
+                                         "resourceNames": ["magicstick-app-catalog"], "verbs": ["get"]}])
 
     def test_changed_owner_or_callback_fails_closed(self):
         with patch.object(setup, "get_resource", side_effect=self.resource):
@@ -222,6 +257,24 @@ class CallbackRegistryTests(unittest.TestCase):
                 setup.sync_oidc_callbacks()
             self.assertNotEqual(self.status.get("pending-sha256", ""), "")
             self.assertNotIn("verified-sha256", self.status)
+
+    def test_catalog_rename_during_keycloak_update_never_publishes_old_host_ack(self):
+        client = {"id": "fixture-id", "clientId": "magicstick-human-gateway-local", "attributes": {}}
+        def keycloak(method, path, token=None, body=None, **_):
+            if method == "PUT":
+                client["attributes"].update(body["attributes"])
+                client.update({key: value for key, value in body.items() if key != "attributes"})
+                self.catalog["data"]["applications.json"] = json.dumps({"applications": {"openclaw": {"route": {"hostnameLabel": "new-label"}}}})
+                return {}, {}
+            return ([dict(client)] if "?" in path else dict(client)), {}
+        with (patch.object(setup, "get_resource", side_effect=self.resource),
+              patch.object(setup, "keycloak_token", return_value="synthetic"),
+              patch.object(setup, "keycloak_request", side_effect=keycloak),
+              patch.object(setup, "kube_request", side_effect=self.patch_status)):
+            with self.assertRaises(ValueError):
+                setup.sync_oidc_callbacks()
+        self.assertNotIn("verified-sha256", self.status)
+        self.assertNotEqual(self.status.get("pending-sha256", ""), "")
 
     def test_static_and_dynamic_hosts_detect_real_client_drift(self):
         client = {"id": "fixture-id", "clientId": "magicstick-human-gateway-local", "attributes": {}}

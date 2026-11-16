@@ -46,6 +46,9 @@
 - Create applications from the service catalog and grant access to specific users or groups.
 - Keep separate OpenClaw and KubeOpenCode model choices while sharing the common
   model catalog. Catalog updates preserve each instance's selection.
+- Open unmodified upstream OpenCode instances through `<name>.oc.<domain>`;
+  their HTTPS address, SSO callback and local certificate stay aligned without
+  a custom OpenCode image or a per-browser server setting.
 - Choose separate initial chat and embedding models for AnythingLLM in
   **Services → Configure**, or use the catalog defaults. Retain its own model
   preferences across restarts. Existing installations need the

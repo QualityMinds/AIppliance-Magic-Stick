@@ -49,8 +49,12 @@ configured `AppInstance` resources.
    `magic-cluster/platform/magicstick-operator/app-catalog.yaml`. Declare
    `displayName`, `chartPath`, `requiredModules`, `requiredCrds` and `route`.
    `route.serviceName` selects the existing `instance` or `shortName` naming mode;
-   match it and `route.port` to the Service rendered by the application. Set
-   `requestTimeout: "0s"` for routes that require unbounded streaming or
+   match it and `route.port` to the Service rendered by the application. Use
+   `route.hostnameLabel` only when the application needs a different single
+   DNS label in its instance URLs (KubeOpenCode uses `oc`). This changes access
+   addresses, not resource names or workload identity. Keep certificate names
+   and the setup reconciler's catalog-derived callback validation aligned.
+   Set `requestTimeout: "0s"` for routes that require unbounded streaming or
    WebSockets. Reuse the generic controller instead of adding application-specific
    orchestration.
 4. **Build the instance chart.** Use `magic-cluster/apps/instances/<application>/`

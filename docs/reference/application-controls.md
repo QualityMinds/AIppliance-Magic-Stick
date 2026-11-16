@@ -76,6 +76,14 @@ Instance hostnames are derived, not user-entered:
 <instance-name>.<instance-type>.<domain>
 ```
 
+The application catalog may declare a single DNS-label alias in
+`route.hostnameLabel`. KubeOpenCode uses `oc`, so its instances use
+`<name>.oc.<domain>`; the application ID, saved instance name, Agent, workspace
+and pinned upstream images stay unchanged. The same catalog label drives local
+and public routes, reported links and exact SSO callback registration. Users
+cannot override this label through instance values. The local certificate covers
+`*.oc.<domain>` without a wildcard for arbitrary neighbouring services.
+
 For example, an OpenClaw instance named `default` uses:
 
 - `default.openclaw.magicstick.example.com`
@@ -203,6 +211,18 @@ KubeOpenCode uses chart/controller 0.1.9 with pinned controller, server and syst
 images; its Magic Stick instance charts also pin OpenCode, executor and attach
 images. Flux updates its CRDs during install and
 upgrade so configuration annotations can trigger native rolling updates.
+
+OpenCode instances use the `oc` host label because the pinned upstream web UI
+mistakes a hostname containing `opencode.ai` anywhere for its official hosted
+application, then selects `localhost:4096`. A name such as
+`<name>.kubeopencode.ai.example.local` accidentally triggers that check. The
+`<name>.oc.<domain>` address lets the unmodified upstream UI use its own HTTPS
+origin, including in a fresh browser profile; no custom OpenCode image or saved
+browser server preference is required. After this address change, reopen the
+instance from **Services** and sign in on its new host. The former instance URL
+and its old SSO callback are retired, not accepted as an additional login alias.
+The central KubeOpenCode console keeps its existing module address and has a
+separate native Kubernetes authentication/authorization requirement.
 
 ## AnythingLLM settings
 
