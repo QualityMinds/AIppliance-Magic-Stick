@@ -104,7 +104,37 @@ Kubernetes/model/GPU checks remain active; `MOD-06` checks AMD profile readiness
 independently of application fixtures. Exclusions add no Passed or Blocked rows,
 do not disable product services, and do not grant full Phase 5 service/application
 acceptance. Historical failures and recorded Hermes-only exclusions remain
-unchanged. The separate native suite has not yet been implemented.
+unchanged.
+
+For separate service acceptance, choose **Separate services: installation,
+SSO/public access and removal (including Pi Coding Agent)** in **Test selection**.
+It requires the matching version-3 runner capability, full mode and Phase 5 only;
+older installations do not offer it. The immutable selection keeps normal Phase
+0–8 service exclusions unchanged and does not certify the rest of Phase 5.
+The catalog-derived sequence first installs/removes all eligible optional
+services and application instances, then checks authenticated and explicitly
+supported public access, and removes the exact owned instances again. Model
+propagation and native model functions remain deferred. Applications requiring a
+deployed chat model use a small owned CPU fixture only as an installation
+prerequisite; this does not credit model integration. Pi Coding Agent is included;
+Hermes stays separate. Provider-only module bases are tested for lifecycle, with
+access proofs on their actual instances. Protected core services are never switched off. New unreviewed
+catalog entries block their relevant stage rather than disappearing.
+Without-SSO checks use only an application's normal **Public without login**
+option on a fresh owned instance. A standalone module with no public-access
+setting (currently AnythingLLM) is checked through its SSO-protected route;
+the test does not bypass that protection to manufacture public coverage.
+Each scenario owns fresh cleanup evidence. Persistent data promised by a
+keep-data contract is verified as retained, separately from removed workloads,
+routes, test identities and keys. A failed read is not proof of absence.
+Runtime snapshots survive an interrupted scenario. Restoring a module's saved
+settings does not complete recovery until the matching runtime state is also
+independently verified; unresolved state fences later writes.
+For a failed Helm installation, recovery records the current, attributable
+inventory and exact release identity without crediting installation readiness.
+Late chart-created workloads still prevent a cleanup pass. Missing or stale
+inventory remains unknown. Kubernetes diagnostic reports use the same validated
+service profile as the child run; missing evidence is not silently accepted.
 
 <a id="if-cleanup-is-blocked"></a>
 
@@ -486,8 +516,9 @@ never promotes `main` or `develop`. Adopt that digest and `sourceRevision` in
 `magic-cluster/apps/regression/runtime.yaml` on the feature branch, refresh
 the generated deployment references and verify the installed revision separately.
 Use the tested-source replacement in `tools/promote_regression_image.py` so its
-`diagnosticSelectionVersion: "2"` capability advances with that exact qualified
-image. Do not add this capability to an older runner pin.
+`diagnosticSelectionVersion: "3"` capability advances with that exact qualified
+image. Version 3 adds the separate Services selection; version 2 still supports
+the existing Phase 2–4 subsets. Do not add a newer capability to an older runner pin.
 
 On registered test Appliances, host software convergence defers while a test or
 cleanup run is active. Updates reserve the same lab Lease through Flux rollout;

@@ -990,11 +990,11 @@ data:
         }})
 
 
-    def patch_instance_status(instance, phase, target, reason, message, url="", access=None, generation=0):
+    def patch_instance_status(instance, phase, target, reason, message, url="", access=None, generation=0, guarded=False):
         metadata = instance.get("metadata") or {}
         access = access or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/appinstances/{metadata.get('name')}/status"
-        patch_json(path, {"status": {
+        status = {
             "observedGeneration": generation,
             "phase": phase,
             "kind": target.get("kind", ""),
@@ -1008,7 +1008,17 @@ data:
             "accessGuardReady": access.get("accessGuardReady", False),
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Suspended", "Disabled") else "False", reason, message, generation)],
-        }})
+        }
+        if guarded:
+            if not metadata.get("uid") or not metadata.get("resourceVersion"):
+                raise ValueError("Cannot report migrated access without its current instance identity")
+            patch_json(path, [
+                {"op": "test", "path": "/metadata/uid", "value": metadata["uid"]},
+                {"op": "test", "path": "/metadata/resourceVersion", "value": metadata["resourceVersion"]},
+                {"op": "add", "path": "/status", "value": {**(instance.get("status") or {}), **status}},
+            ], "application/json-patch+json")
+        else:
+            patch_json(path, {"status": status})
 
 
     def patch_model_status(
@@ -5450,7 +5460,7 @@ data:
         metadata = instance.get("metadata") or {}
         return {
             "failOpen": False,
-            "headersToExtAuth": ["Cookie", "Authorization"],
+            "headersToExtAuth": ["Cookie", "Authorization", "Accept", "Sec-Fetch-Mode", "Sec-Fetch-Dest"],
             "http": {
                 "backendRefs": [{"name": "ai-appliance-dashboard-api", "port": 8080}],
                 "path": "/internal/instance-access/" + str(metadata.get("name", "")) + "/" + str(metadata.get("uid", "")),
@@ -5939,7 +5949,9 @@ data:
                 "targetNamespace": target_namespace,
                 "storageNamespace": APPLIANCE_NAMESPACE,
                 "suspend": bool(suspend),
-                "install": {"createNamespace": True},
+                # Cold appliance installs may need to pull a large immutable
+                # application image before Helm can observe a ready workload.
+                "install": {"createNamespace": True, "timeout": "15m0s"},
                 "upgrade": {"cleanupOnFail": True},
                 "uninstall": {"keepHistory": False},
                 "chart": {
@@ -5978,6 +5990,183 @@ data:
             "kind": "HelmRelease",
             "metadata": {"name": metadata.get("name"), "namespace": APPLIANCE_NAMESPACE},
         }
+
+
+    class AppAccessMigrationBlocked(ValueError):
+        pass
+
+
+    class AppAccessMigrationOwnerChanged(AppAccessMigrationBlocked):
+        pass
+
+
+    def migrate_existing_app_instance_access(instance, definition):
+        """Repair deployed SSO access without provisioning an invalid workload.
+
+        Older routes have no owner-UID label. Their existing SecurityPolicy's
+        exact, fail-closed instance-guard URL supplies that UID binding instead;
+        names or labels alone are never enough. Every old route is fenced before
+        any policy changes. Invalid model context never reopens an app backend.
+        """
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        uid = metadata.get("uid")
+        if (not uid or not metadata.get("resourceVersion") or not metadata.get("generation")
+                or not metadata.get("namespace") or metadata.get("deletionTimestamp")
+                or APPINSTANCE_FINALIZER not in (metadata.get("finalizers") or [])
+                or spec.get("enabled", True) is False
+                or app_instance_access_config(instance)[0] != "sso"):
+            return None
+
+        def fresh_owner():
+            try:
+                current = get_json(app_instance_path(instance))
+            except urllib.error.HTTPError as error:
+                if error.code != 404:
+                    raise
+                raise AppAccessMigrationOwnerChanged("The instance is no longer present.") from None
+            actual = current.get("metadata") or {}
+            if (any(actual.get(key) != metadata.get(key) for key in
+                    ("uid", "resourceVersion", "generation", "namespace", "name"))
+                    or actual.get("deletionTimestamp") or current.get("spec") != spec):
+                raise AppAccessMigrationOwnerChanged("The instance identity, revision or intent changed.")
+
+        def key(resource):
+            return resource["kind"], resource["metadata"]["name"]
+
+        desired, access = app_instance_access_resources(instance, definition)
+        desired = [item for item in desired if item["kind"] != "ReferenceGrant"]
+        previous = {key(item): get_applied_resource(item) for item in desired}
+        policies = [item for item in desired if item["kind"] == "SecurityPolicy"]
+        if not any(previous[key(item)] for item in policies):
+            return None  # New invalid instances must not acquire routes or keys.
+        fresh_owner()
+        labels = access_resource_labels(instance)
+
+        def owned(current, expected, require_uid=False):
+            actual = (current or {}).get("metadata") or {}
+            actual_labels = actual.get("labels") or {}
+            if (not current or current.get("apiVersion") != expected["apiVersion"]
+                    or current.get("kind") != expected["kind"]
+                    or any(actual.get(field) != expected["metadata"].get(field) for field in ("name", "namespace"))
+                    or not actual.get("uid") or not actual.get("resourceVersion")
+                    or actual.get("deletionTimestamp")
+                    or any(actual_labels.get(label) != value for label, value in labels.items()
+                           if label != "appliance.magicstick.dev/owner-uid")
+                    or actual_labels.get("appliance.magicstick.dev/owner-uid") not in (None, uid)
+                    or (require_uid and actual_labels.get("appliance.magicstick.dev/owner-uid") != uid)):
+                raise AppAccessMigrationBlocked("Existing access resources have missing or foreign ownership.")
+
+        # Prove the complete existing scope before the first mutation, including
+        # legacy policies whose UID lives in extAuth rather than a metadata label.
+        for policy in policies:
+            current = previous[key(policy)]
+            owned(current, policy)
+            actual = current.get("spec") or {}
+            guard = actual.get("extAuth") or {}
+            http = guard.get("http") or {}
+            refs = http.get("backendRefs") or []
+            expected_guard = policy["spec"]["extAuth"]
+            if (guard.get("failOpen") is not False or guard.get("grpc")
+                    or guard.get("headersToExtAuth") not in
+                        (["Cookie", "Authorization"], expected_guard["headersToExtAuth"])
+                    or http.get("path") != expected_guard["http"]["path"]
+                    or len(refs) != 1 or refs[0].get("name") != "ai-appliance-dashboard-api"
+                    or refs[0].get("port") != 8080 or refs[0].get("group", "") != ""
+                    or refs[0].get("kind", "Service") != "Service"
+                    or refs[0].get("namespace", IDENTITY_NAMESPACE) != IDENTITY_NAMESPACE
+                    or refs[0].get("weight", 1) != 1
+                    or actual.get("targetRefs") != policy["spec"]["targetRefs"]
+                    or (actual.get("oidc") or {}).get("clientID") != OIDC_CLIENT_ID
+                    or ((actual.get("oidc") or {}).get("provider") or {}).get("issuer") != policy["spec"]["oidc"]["provider"]["issuer"]):
+                raise AppAccessMigrationBlocked("The existing SSO policy does not prove this instance's exact guard and targets.")
+
+        routes = [item for item in desired if item["kind"] == "HTTPRoute"]
+        for route in routes:
+            current = previous[key(route)]
+            owned(current, route)
+            actual = current.get("spec") or {}
+            parents = actual.get("parentRefs") or []
+            local_callback = route["metadata"]["name"] == managed_resource_name(metadata["name"], "local-callback")
+            old_callback_host = mdns_domain() if local_callback else public_domain()
+            hosts = [route["spec"]["hostnames"]]
+            callback = route["metadata"]["name"].endswith("-callback")
+            if callback:
+                hosts.append([old_callback_host])
+            if (actual.get("hostnames") not in hosts or len(parents) != 1
+                    or parents[0].get("name") != IDENTITY_GATEWAY_NAME
+                    or parents[0].get("group", "gateway.networking.k8s.io") != "gateway.networking.k8s.io"
+                    or parents[0].get("kind", "Gateway") != "Gateway"
+                    or parents[0].get("namespace", IDENTITY_NAMESPACE) != IDENTITY_NAMESPACE
+                    or parents[0].get("sectionName") or parents[0].get("port")
+                    or len(actual.get("rules") or []) != 1):
+                raise AppAccessMigrationBlocked("The existing route is outside the instance's exact access scope.")
+            rule = actual["rules"][0]
+            expected_rule = route["spec"]["rules"][0]
+            refs = rule.get("backendRefs") or []
+            target = expected_rule["backendRefs"][0]
+            if (len(refs) > 1 or (refs and (
+                    any(refs[0].get(field) != target.get(field) for field in ("name", "namespace", "port"))
+                    or refs[0].get("group", "") != "" or refs[0].get("kind", "Service") != "Service"
+                    or refs[0].get("weight", 1) != 1))
+                    or (callback and rule.get("matches") != expected_rule["matches"])
+                    or (not callback and rule.get("matches") not in (None, [], [{"path": {"type": "PathPrefix", "value": "/"}}]))):
+                raise AppAccessMigrationBlocked("The existing route has a different backend or match scope.")
+
+        gates = [item for item in desired if item["kind"] == "EnvoyExtensionPolicy"]
+        for gate in gates:
+            if previous[key(gate)]:
+                owned(previous[key(gate)], gate, require_uid=True)
+
+        def update(current, new_spec):
+            observed = get_applied_resource(current)
+            owned(observed, current)
+            # The Gateway writes status between the fence and callback move.
+            # Refresh only that observation, never adopt a replacement, changed
+            # generation/spec or edited ownership/metadata. The actual PATCH
+            # still atomically tests the freshly observed UID and version.
+            if (observed.get("spec") != current.get("spec")
+                    or any(observed["metadata"].get(field) != current["metadata"].get(field) for field in
+                           ("uid", "generation", "labels", "annotations", "ownerReferences", "finalizers", "creationTimestamp"))):
+                raise AppAccessMigrationBlocked("An existing access resource changed after inspection.")
+            current = observed
+            actual = current["metadata"]
+            if (current["spec"] == new_spec
+                    and actual["labels"].get("appliance.magicstick.dev/owner-uid") == uid):
+                return current
+            fresh_owner()
+            path = resource_path(current["apiVersion"], current["kind"], actual["namespace"], actual["name"])
+            return patch_json(path, [
+                {"op": "test", "path": "/metadata/uid", "value": actual["uid"]},
+                {"op": "test", "path": "/metadata/resourceVersion", "value": actual["resourceVersion"]},
+                {"op": "add", "path": "/metadata/labels/appliance.magicstick.dev~1owner-uid", "value": uid},
+                {"op": "replace", "path": "/spec", "value": new_spec},
+            ], "application/json-patch+json")
+
+        # Fence all old backends first, while retaining the old policy and host.
+        for route in routes:
+            current = previous[key(route)]
+            fenced = json.loads(json.dumps(current["spec"]))
+            for rule in fenced["rules"]:
+                rule["backendRefs"] = []
+            previous[key(route)] = update(current, fenced)
+        for guard in gates + policies:
+            current = previous[key(guard)]
+            if current:
+                update(current, guard["spec"])
+            else:
+                # Only add the new deny-by-default guard of an already proven
+                # deployment. POST cannot overwrite a same-name replacement.
+                fresh_owner()
+                path = resource_path(guard["apiVersion"], guard["kind"], guard["metadata"]["namespace"], guard["metadata"]["name"])
+                request_json("POST", path.rsplit("/", 1)[0], guard)
+        for route in routes:
+            fenced = json.loads(json.dumps(route["spec"]))
+            for rule in fenced["rules"]:
+                rule["backendRefs"] = []
+            update(previous[key(route)], fenced)
+        access["accessGuardReady"] = False
+        return access
 
 
     def reconcile_helm_app_instance(instance, definition, source):
@@ -6082,7 +6271,18 @@ data:
         try:
             return reconcile_helm_app_instance(instance, definition, source)
         except InvalidAppModelContext as error:
-            patch_instance_status(instance, "Degraded", target, "InvalidModelContext", str(error), generation=generation)
+            try:
+                access = migrate_existing_app_instance_access(instance, definition)
+            except AppAccessMigrationOwnerChanged:
+                # Do not report the old reconciliation onto a replaced or
+                # edited parent. The next ordinary loop reads its fresh intent.
+                return "Degraded", target
+            except AppAccessMigrationBlocked as migration_error:
+                patch_instance_status(instance, "Degraded", target, "AccessMigrationBlocked",
+                    str(error) + " Access migration is blocked: " + str(migration_error), generation=generation, guarded=True)
+                return "Degraded", target
+            patch_instance_status(instance, "Degraded", target, "InvalidModelContext", str(error),
+                url=(access or {}).get("localURL", ""), access=access, generation=generation, guarded=bool(access))
             return "Degraded", target
 
 

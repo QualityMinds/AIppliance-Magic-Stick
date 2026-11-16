@@ -101,7 +101,9 @@ export class KubectlObserver {
     }
   }
   async get(resource: string, namespace?: string, name?: string): Promise<KubeObject> {
-    requireSafe(/^[a-z][a-z0-9.]*$/.test(resource) && !resource.includes('secret') &&
+    // API group DNS labels can contain hyphens (for example agents.x-k8s.io).
+    // Still reject options, subresources, wildcards, empty labels and Secrets.
+    requireSafe(resource.length<=253 && /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/.test(resource) && !resource.includes('secret') &&
       (!namespace || /^[a-z0-9-]+$/.test(namespace)) && (!name || /^[a-z0-9.-]+$/.test(name)), 'OBSERVER');
     const args = ['get', resource, ...(name ? [name] : []), ...(namespace ? ['-n', namespace] : ['-A']), '-o', 'json'];
     try { return JSON.parse(await this.command(args)); }

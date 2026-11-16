@@ -99,7 +99,7 @@ without dashboard-management grants. Follow the current shared role contract.
 | AUTH-03 | Use expired/invalid tokens, an untrusted client/audience and malformed authorization. API denies access without trusting client-supplied identity/role headers. Verify automatic short-token refresh, normal idle expiry and the absolute Remember me maximum despite activity. | U+C+B+A | P0 · identity |
 | AUTH-04 | Test every mutation family with viewer/ordinary-user sessions and direct API requests, not only hidden controls. Model/module/app operations follow role policy; all administrator-only operations are denied. | C+A+E | P0 · identity |
 | AUTH-05 | Omit or forge browser CSRF/origin headers on cookie-authenticated mutations. Reject without saved intent; valid same-origin and supported terminal Bearer requests still work. | U+C+A | P0 · identity |
-| AUTH-06 | Log out and revisit/reload protected dashboard and application hosts with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. | B+A+E | P0 · smoke |
+| AUTH-06 | Log out and revisit/reload protected dashboard and application hosts with old session state, including a remembered session. No stale privileged content/action is treated as authenticated; old logged-out data cannot refresh. A top-level navigation on both service and UID-bound instance guards reaches the exact central login form and signs in successfully twice in succession; a 403 page is not sufficient. API GET/POST remain 401 without redirects/replay or cookie changes; real role/grant denials remain 403. | B+A+E | P0 · smoke |
 | AUTH-07 | Expire a session while a form/log dialog is open. Show a clear sign-in state, stop unauthorized polling/mutations, and recover after login without false success. | B+E | P1 · functional |
 | AUTH-08 | Revoke/change a role and refresh authorization through the normal session lifecycle. Previously visible controls cannot bypass current backend checks. | U+A+E | P0 · identity |
 | AUTH-09 | Re-enter incomplete first setup with the same console code after a lost response, expired cookie, partial failure or another browser. Preserve non-secret saved fields and independent sessions; only successful completion closes code/cookie access. Open the setup-to-dashboard handoff with stale browser state; no redirect loop, blank screen or persistent protocol failure. | U+C+B+E | P1 · functional |
@@ -142,7 +142,7 @@ dashboard to test a normal Services action.
 ## 5. Application instances and basic application operation
 
 Parameterize the lifecycle across current app-catalog types: OpenClaw, Hermes,
-Paperclip, KubeOpenCode and Odysseus. AnythingLLM has a module/service probe,
+Paperclip, KubeOpenCode, Pi Coding Agent and Odysseus. AnythingLLM has a module/service probe,
 not an invented `AppInstance` type. Every catalog addition needs a reviewed
 adapter/functional probe before it can count as covered.
 
@@ -153,7 +153,22 @@ other applications and isolated Hermes adapter checks remain selected. Reports
 explicitly list the exclusion without synthetic Passed/Blocked rows; a reduced
 Phase 5 run does not certify Hermes or full application coverage. Existing
 Hermes failures and exact old-run cleanup remain unchanged. The separate native
-suite is planned, not yet implemented.
+suite is selected explicitly as **Separate services: installation, SSO/public
+access and removal (including Pi Coding Agent)**. Standard runs keep their
+existing exclusions; this is not a whole-Phase-5 acceptance claim.
+
+The separate selection derives every eligible optional module and application
+from the installed catalogs. All installation/removal scenarios precede access
+checks, each followed by exact removal. Native model integration remains deferred.
+Protected platform/runtime/GPU modules and Hermes are recorded exclusions, not
+disabled services. Empty
+instance-provider bases have no independent HTTP stage; their application
+instances do. Unknown adapters remain visible blockers, not omitted successes.
+Pi Coding Agent is included for installation, access and removal, not inference.
+A small owned CPU model may be necessary solely to satisfy an application's
+installation prerequisite; it is not credited as model integration. Keep-data PVC
+retention is checked
+independently of runtime removal; retained storage is never labelled deleted.
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
@@ -1297,6 +1312,18 @@ Flux CLI; CI render evidence is not credited as installed login acceptance.
 The previous successful script/routine renders did not cover strict post-build
 substitution; historical results remain unchanged.
 
+16 November 2026, AUTH-06 reauthentication follow-up: the existing discovered
+HTTP-handler checks in `test_edge_reauthentication.py` distinguish 401/403/503,
+exact instance ownership, navigation versus API/write requests and bounded
+same-origin redirects. The identity Lua and pinned Envoy checks cover host-only
+fence cleanup. The existing browser CI multi-host profile now exercises real
+Keycloak logout/re-login twice for both session and instance guards, from fresh
+and migrated jars; native Public Gateway profiles verify the actual controller
+translation of redirect/cookie responses. These are owning/protocol extensions,
+not new registered live cases or installed acceptance. The separate old broad
+root-helper collision remains explicitly outside this fix as documented in
+[identity validation](identity-validation.md#isolated-multi-host-https-session-check).
+
 21 October 2026 Remember-me follow-up: AUTH-01's
 `remember-me-policy-contract` is selected by Phase 1 `smoke-fast` and runs the
 owning [realm/migration counterexamples](../../magic-cluster/platform/identity/tests/test_remember_me.py).
@@ -1520,6 +1547,25 @@ another run. These changes have local owning, fast and harness coverage; matchin
 published images and a fresh installed Phase 5 run are still required. Old
 reports and UID/revision-bound cleanup checks are unchanged.
 
+16 November 2026 APP-04/05/11 and ACL-01 follow-up: the existing
+[model-context tests](../../magic-cluster/platform/magicstick-operator/controller/test_app_instance_model_context.py)
+still reject new invalid instances without provisioning keys, routes or workloads.
+Focused [access-migration counterexamples](../../magic-cluster/platform/magicstick-operator/controller/test_app_instance_access_migration.py)
+cover stopped-model legacy SSO migration, exact policy guard UID and complete
+route scope, parent revision/intent/deletion races, atomic child UID/version
+conflicts, foreign guards, idempotence and normal validated-model recovery.
+Gateway status-only version changes after fencing require a fresh read of the
+same UID, generation, complete spec and ownership metadata before the next atomic
+write; changed content or ownership is not adopted. The native API reproduction
+also covers resuming the partially completed migration after this observation.
+All old backends are closed before guard changes and stay closed while context
+is invalid. The existing isolated Gateway upgrade contract additionally seeds
+legacy instance resources before admission installation and runs this migration
+against the real API with unchanged admission protections and stale UID/version
+rejection. This extends owning-layer/CI coverage, not the registered test catalog
+or standard service/Hermes selection. Aimonster's scoped native migration and
+login acceptance remain separate from local checks and a complete service suite.
+
 20 October 2026 activation feedback follow-up: HAR-10 and UX-02 have owning
 component counterproofs and desktop/mobile browser fixtures for a delayed enable
 request, accepted activation awaiting readiness, duplicate-request prevention,
@@ -1583,6 +1629,13 @@ through the existing boot owning-suite selection. Public CI also runs
 OOM/restart counters. This focused deployment regression does not replace the
 installed reboot, authentication or inference requirements of BOOT-02.
 
+13 November 2026, AUTH-01/03 and BOOT-02 supporting regression: the dashboard's
+bounded nginx header buffers accept synthetic 8/12 KiB cookie and token fields
+and continue rejecting oversized individual fields. The existing real-container
+suite checks this with the unchanged non-root 128 MiB budget. Cookie scope and
+OIDC policy are unchanged; installed login and API authorization remain separate
+live acceptance gates, not results inferred from synthetic header acceptance.
+
 The same boot owning-suite selects `NvidiaStartupHandoffTests` in the NVIDIA
 host-role tests. Synthetic PCI bindings reproduce Nouveau/unbound first boot,
 mixed AMD/NVIDIA and post-boot release, including NVML/socket failures, manual
@@ -1599,6 +1652,7 @@ adding or splitting cases and document any replacement.
 
 | Case IDs / parameter set | Implementation | Test/procedure | Last reviewed run evidence | Remaining prerequisite |
 |---|---|---|---|---|
+| MOD-03/04, APP-02/05/07/10, ACL-01/02/04/06 · separate catalog-derived Services selection | **Implemented; scoped native acceptance pending** | [Staged selection](../../dashboard/apps/web/regression/administration/services.e2e.spec.ts), [finite per-entry requirements](../../dashboard/apps/web/regression/core/service-matrix.ts), [application counterexamples](../../dashboard/apps/web/regression/administration/app-services.unit.spec.ts), [module/runtime counterexamples](../../dashboard/apps/web/regression/harness/service-probes.unit.spec.ts), existing API/controller and desktop/mobile selection tests | Local owning-layer checks cover installation, actual current runtime, exact SSO/public access, uninstall and identity-bound interrupted cleanup. Pi Coding Agent is included; Hermes and model integration remain deferred. | Matching current-source CI/images, disposable-lab rollout and complete native tuple/cleanup verification remain separate. A minimal owned CPU model is only an application-installation prerequisite, not model-function acceptance. |
 | CPU LIFE-02/ENG-01/09, GPU non-interference · 0.31 CPU model runner | **Owning counterexample reproduced; installed retest pending** | [CPU wrapper policy counterexamples](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), selected Phase 2 [engine contract](../../dashboard/apps/web/regression/models/control.contract.spec.ts), [native configuration check](../../magic-cluster/platform/ai/kubeai/base/verify_vllm_runtime.py) | 2026-10-23: the old wrapper fails the new default-policy counterexample. On one AVX2 lab host, the pinned CPU image with a cold compile cache timed out its first direct HTTP request at the unchanged 90-second limit, even with model compilation disabled. With only the official MRV1 environment selection changed, the same immutable model, BF16 dtype, eight-core quota, 7,656 MiB RAM and 1 GiB KV budget produced HTTP 200 in 50.867 seconds. Both diagnostic resources and workers were independently removed. The correction is CPU-/version-bound and preserves explicit policy, arguments, precision, budgets and GPU paths. | Matching native configuration CI, runner publication/promotion and the ordinary installed CPU inference/Edit/Stop/Start workflow on both appliances. Direct diagnostic success is not routed lifecycle or complete-campaign acceptance; historical failures remain unchanged. |
 | MESH-09 · canonical GitHub Actions check links | **Local counterexample passed; installed retest pending** | [Companion public proof and discovery counterexamples](../../dashboard/apps/web/regression/administration/safety.unit.spec.ts), existing Phase 7 fast/live selections | 2026-10-21: the real successful exact-commit native build returned a canonical `runs/<check-id>` URL instead of the submitted workflow-run URL. The old reader rejected that public proof as `REVISION`. The reader now accepts only the exact repository/check-ID link also returned as `html_url`; foreign, malformed or mismatched links remain rejected, with the trusted App, exact source, workflow attempt and four-platform evidence still required. | Fresh matching runner CI/pin and installed adapter verification. This native packaging proof never substitutes for real cross-appliance Mesh inference. |
 | MGPU-01 · native collective payload dtype | **Local counterexample passed; installed retest pending** | [Every directed peer in two/four-card groups](../../magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py), existing Phase 3 fast and GPU selections | 2026-10-21: installed milestones reached NCCL initialization and, with host-mediated transport, all-reduce; point-to-point exchange then stalled. The actual probe inferred Float32 for floating-point send buffers but Int64 for integer-zero receive buffers. Its new owning-layer counterexample rejects that old implementation and passes with explicit Float32 on both allocations, covering every directed pair for two and four ranks. All 45 wrapper tests passed locally. | Matching runner CI/pin, ordinary appliance update and fresh native split/inference acceptance. The direct-transport timeout and independent CPU first-response timeout are not declared fixed by this correction. No historical report is rewritten. |

@@ -9,6 +9,19 @@ Browser login lifetime is configured in Keycloak, not through this API. Its
 optional [Remember me policy](../concepts/identity.md#browser-session-lifetime)
 does not change access-token validation, API keys or service-account rights.
 
+The internal session and UID-bound instance guards distinguish rejected
+authentication (401), missing access (403) and unavailable verification (503).
+Only GET/HEAD top-level HTML navigation with an existing owned host cookie and
+no pending reauthentication fence may turn a confirmed 401 into a 303 to `/`.
+The response expires only `__Host-MagicStickAccessToken` and
+`__Host-MagicStickIDToken` on that same host and sets a 60-second
+`__Host-MagicStickReauth` fence. No request-derived redirect destination or
+cookie Domain is accepted. The Gateway clears the fence only on a subsequent
+successful protected response; redirects and errors cannot reset the bound.
+Navigation hints never grant access. API/fetch requests and mutations retain
+401 without redirects, cookie changes or replay, and real authorization/UID
+denials and verification outages never clear cookies.
+
 Model create/update payloads accept optional `local.capabilities` or
 `external.capabilities` objects containing `tools`, `vision` and `reasoning`
 booleans. Omitted fields remain unknown; string/numeric booleans and unsupported
@@ -102,6 +115,13 @@ lock check; an unexpected permission error remains an error, not an empty lab.
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
 | `GET /api/regression/runs/<id>/archive`, `/html`, `/junit` | Allowlisted completed report attachment, at most 64 MiB; never private input/journal/log download. |
 | `GET /api/regression/preflight-logs` | Private runner-only bounded diagnostic read; additional exact active-run/generated-account and workload-identity guards below. Never a report download or general administrator log endpoint. |
+
+The fixed Phase 5 `services` diagnostic is offered only with runner capability
+`diagnosticSelectionVersion: "3"`; version 2 retains the existing Phase 2–4
+profiles. It requires full mode and phases `[5]`, keeps its selection immutable
+and never enables deferred workflows in ordinary runs. Its catalog-derived
+installation/access/removal evidence is separate from model integration or
+whole-Phase-5 acceptance.
 
 The optional private diagnostic read requires exactly `runUid`, `namespace`,
 `deployment`, `container`, `deploymentUid`, `generation` and `podUid`, each once.

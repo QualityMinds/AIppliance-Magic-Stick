@@ -70,7 +70,7 @@ class Stack:
         return path
 
     def certificate(self):
-        self.file("server.ext", "subjectAltName=DNS:id.fixture.test,DNS:dash.fixture.test,DNS:service.fixture.test,DNS:bad-ca.fixture.test,DNS:bad-host.fixture.test,DNS:expired.fixture.test\n"
+        self.file("server.ext", "subjectAltName=DNS:id.fixture.test,DNS:dash.fixture.test,DNS:service.fixture.test,DNS:instance.fixture.test,DNS:bad-ca.fixture.test,DNS:bad-host.fixture.test,DNS:expired.fixture.test\n"
                   "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
                   "extendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n")
         self.file("gate.ext", "subjectAltName=DNS:magicstick-callback-gate.identity-system.svc.cluster.local\n"
@@ -97,9 +97,9 @@ class Stack:
                  "roles": {"realm": [{"name": "magicstick-user"}]},
                  "clients": [{"clientId": "magicstick-human-gateway-local", "enabled": True,
                    "publicClient": False, "secret": self.client_secret, "standardFlowEnabled": True,
-                   "redirectUris": ["https://dash.fixture.test/oauth2/callback", "https://service.fixture.test/oauth2/callback"],
-                   "webOrigins": ["https://dash.fixture.test", "https://service.fixture.test"],
-                   "attributes": {"post.logout.redirect.uris": "https://dash.fixture.test/##https://service.fixture.test/"}}],
+                   "redirectUris": ["https://" + host + ".fixture.test/oauth2/callback" for host in ("dash", "service", "instance")],
+                   "webOrigins": ["https://" + host + ".fixture.test" for host in ("dash", "service", "instance")],
+                   "attributes": {"post.logout.redirect.uris": "##".join("https://" + host + ".fixture.test/" for host in ("dash", "service", "instance"))}}],
                  "users": [{"username": "fixture-user", "enabled": True, "emailVerified": True,
                    "firstName": "Fixture", "lastName": "User", "email": "fixture@example.com",
                    "realmRoles": ["magicstick-user"], "credentials": [{"type": "password", "value": "fixture-password", "temporary": False}]}]}
@@ -164,7 +164,7 @@ class Stack:
                     "stream=os.fdopen(fd,'wb'); stream.write(sys.stdin.buffer.read()); stream.close()",
                     input_data=json.dumps(self.envoy_config()).encode())
         self.docker("run", "-d", "--name", self.envoy, "--network", self.network,
-                    "--network-alias", "id.fixture.test", "--network-alias", "dash.fixture.test", "--network-alias", "service.fixture.test",
+                    "--network-alias", "id.fixture.test", "--network-alias", "dash.fixture.test", "--network-alias", "service.fixture.test", "--network-alias", "instance.fixture.test",
                     "--network-alias", "bad-ca.fixture.test", "--network-alias", "bad-host.fixture.test", "--network-alias", "expired.fixture.test",
                     "--mount", f"type=volume,source={self.bootstrap_volume},target=/bootstrap,readonly",
                     ENVOY, "-c", "/bootstrap/envoy.json", "--disable-hot-restart", "--log-level", "error")
@@ -220,7 +220,10 @@ except Exception as e:
                 "authorization_endpoint": ISSUER + "/protocol/openid-connect/auth",
                 "end_session_endpoint": ISSUER + "/protocol/openid-connect/logout",
                 "credentials": {"client_id": "magicstick-human-gateway-local", "token_secret": {"name": "client"},
-                    "hmac_secret": {"name": "hmac"}, "cookie_names": {"bearer_token": "__Host-MagicStickAccessToken", "id_token": "__Host-MagicStickIDToken"}},
+                    "hmac_secret": {"name": "hmac"}, "cookie_names": {"bearer_token": "__Host-MagicStickAccessToken", "id_token": "__Host-MagicStickIDToken",
+                        "oauth_hmac": "OauthHMAC-fixture-dashboard", "oauth_expires": "OauthExpires-fixture-dashboard",
+                        "refresh_token": "RefreshToken-fixture-dashboard", "oauth_nonce": "OauthNonce-fixture-dashboard",
+                        "code_verifier": "CodeVerifier-fixture-dashboard"}},
                 "redirect_uri": "https://%REQ(:authority)%/oauth2/callback", "redirect_path_matcher": {"path": {"exact": "/oauth2/callback"}},
                 "signout_path": {"path": {"exact": "/logout"}}, "forward_bearer_token": True, "use_refresh_token": True,
                 "auth_scopes": ["openid", "profile", "email"], "pass_through_matcher": [{"name": ":authority", "string_match": {"exact": "id.fixture.test"}}]}}}
@@ -237,7 +240,7 @@ except Exception as e:
             "status_on_error": {"code": "Forbidden"}, "failure_mode_allow": False,
             "http_service": {"server_uri": {"uri": "http://api:8080", "cluster": "api", "timeout": "5s"},
                 "path_prefix": "/internal/session-access", "authorization_request": {"allowed_headers": {"patterns": [
-                    {"exact": "cookie"}, {"exact": "authorization"}]}}}}}
+                    {"exact": name} for name in ("cookie", "authorization", "accept", "sec-fetch-mode", "sec-fetch-dest")]}}}}}
         extproc = {"name": "envoy.filters.http.ext_proc", "typed_config": {
             "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor",
             "grpc_service": {"envoy_grpc": {"cluster_name": "gate"}, "timeout": "8s"},
@@ -262,12 +265,36 @@ except Exception as e:
         service_oauth = copy.deepcopy(oauth["typed_config"]["config"])
         service_oauth["forward_bearer_token"] = False
         service_oauth["preserve_authorization_header"] = True
+        # Gateway v1.8.5 namespaces all helper cookies by policy suffix. Use
+        # synthetic distinct suffixes too; shared generic names would invent
+        # cross-host refresh conflicts absent from controller translation.
+        def policy_helpers(config, suffix):
+            names = config["credentials"]["cookie_names"]
+            for key, prefix in (("oauth_hmac", "OauthHMAC"), ("oauth_expires", "OauthExpires"),
+                                ("refresh_token", "RefreshToken"), ("oauth_nonce", "OauthNonce"),
+                                ("code_verifier", "CodeVerifier")):
+                names[key] = prefix + "-fixture-" + suffix
+        policy_helpers(service_oauth, "service")
         service = {"name": "service", "domains": ["service.fixture.test"],
             "routes": [{"match": {"prefix": "/"}, "direct_response": {"status": 200, "body": {"inline_string": "protected fixture"}},
                 "typed_per_filter_config": {"envoy.filters.http.oauth2": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2PerRoute", "config": service_oauth}},
                 "response_headers_to_add": [{"header": {"key": "x-fixture-native-authorization", "value": "%REQ(authorization)%"},
                                              "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"}]}]}
+        # Real product instance handler and real Keycloak userinfo; only the
+        # Kubernetes instance lookup is a synthetic, fixed-UID fixture.
+        def instance_route(prefix, name):
+            check = copy.deepcopy(auth["typed_config"]["http_service"])
+            check["path_prefix"] = "/internal/instance-access/" + name + "/fixture-owner"
+            instance_oauth = copy.deepcopy(oauth["typed_config"]["config"])
+            policy_helpers(instance_oauth, "instance")
+            return {"match": {"prefix": prefix}, "direct_response": {"status": 200, "body": {"inline_string": "protected instance"}},
+                "typed_per_filter_config": {"envoy.filters.http.ext_authz": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute",
+                    "check_settings": {"http_service": check}}, "envoy.filters.http.oauth2": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2PerRoute", "config": instance_oauth}}}
+        instance = {"name": "instance", "domains": ["instance.fixture.test"],
+            "routes": [instance_route("/forbidden", "hermes-denied"), instance_route("/", "hermes-fixture")]}
         def negative_route(host, gate_name):
             return {"name": gate_name, "domains": [host], "routes": [{"match": {"prefix": "/"},
                 "direct_response": {"status": 200}, "typed_per_filter_config": {"envoy.filters.http.ext_proc": {
@@ -278,7 +305,7 @@ except Exception as e:
                 "private_key": {"inline_string": (self.path / "server.key").read_text()}}]}}}
         manager = {"name": "envoy.filters.network.http_connection_manager", "typed_config": {
             "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
-            "stat_prefix": "fixture", "route_config": {"name": "fixture", "virtual_hosts": [identity, dashboard, service,
+            "stat_prefix": "fixture", "route_config": {"name": "fixture", "virtual_hosts": [identity, dashboard, service, instance,
                 negative_route("bad-ca.fixture.test", "gate-bad-ca"), negative_route("bad-host.fixture.test", "gate-bad-host"),
                 negative_route("expired.fixture.test", "gate-expired")]},
             "access_log": [{"name": "envoy.access_loggers.stdout", "typed_config": {

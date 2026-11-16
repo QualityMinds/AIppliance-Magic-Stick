@@ -123,7 +123,8 @@ class RegressionApi:
 
     def diagnostics(self):
         runtime = self.get(CORE + "/configmaps/magicstick-regression-runtime") or {}
-        if runtime.get("data", {}).get("diagnosticSelectionVersion") != "2":
+        capability = runtime.get("data", {}).get("diagnosticSelectionVersion")
+        if capability not in ("2", "3"):
             return []
         try:
             catalog = json.loads((self.get(CORE + "/configmaps/magicstick-regression-diagnostics") or {}).get("data", {})["diagnostics.json"])
@@ -131,20 +132,21 @@ class RegressionApi:
             if not (catalog["version"] == 2 and isinstance(profiles, list) and 0 < len(profiles) <= 16):
                 raise ValueError("Invalid diagnostic catalog")
             valid = all(isinstance(p, dict) and {"id", "title", "caseIds", "grep", "phase"} <= set(p) <= {"id", "title", "caseIds", "grep", "phase", "variants"}
-                       and type(p["phase"]) is int and p["phase"] in (2, 3, 4)
+                       and type(p["phase"]) is int and p["phase"] in (2, 3, 4, 5)
                        and isinstance(p["id"], str) and re.fullmatch(r"[a-z][a-z0-9-]{0,39}", p["id"])
                        and isinstance(p["title"], str) and 0 < len(p["title"]) <= 160
                        and isinstance(p["caseIds"], list) and 0 < len(p["caseIds"]) <= 32
                        and all(isinstance(case, str) and re.fullmatch(r"[A-Z][A-Z0-9]+-[0-9]{2}", case) for case in p["caseIds"])
                        and p["grep"] == "|".join(p["caseIds"])
                        and ("variants" not in p or isinstance(p["variants"], list) and 0 < len(p["variants"]) <= 32
-                            and all(isinstance(v, str) and re.fullmatch(r"(?:p[234]-[a-z0-9-]+|external-route)", v) for v in p["variants"])
+                            and all(isinstance(v, str) and re.fullmatch(r"(?:p[2345]-[a-z0-9-]+|external-route)", v) for v in p["variants"])
                             and len(set(p["variants"])) == len(p["variants"])) for p in profiles)
             if not valid or len({p["id"] for p in profiles}) != len(profiles):
                 raise ValueError("Invalid diagnostic profiles")
         except (KeyError, ValueError, TypeError):
             self.error(503, "The installed diagnostic selection catalog is unavailable. Update the runner before retrying.")
-        return [{"id": p["id"], "title": p["title"], "caseIds": p["caseIds"], "phase": p["phase"]} for p in profiles]
+        return [{"id": p["id"], "title": p["title"], "caseIds": p["caseIds"], "phase": p["phase"]}
+                for p in profiles if p["phase"] != 5 or capability == "3"]
 
     def view(self, run):
         meta, spec, status = run.get("metadata", {}), run.get("spec", {}), run.get("status", {})

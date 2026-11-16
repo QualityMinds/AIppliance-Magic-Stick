@@ -39,7 +39,7 @@ metadata:
 spec:
   extAuth:
     failOpen: false
-    headersToExtAuth: ["Cookie", "Authorization"]
+    headersToExtAuth: ["Cookie", "Authorization", "Accept", "Sec-Fetch-Mode", "Sec-Fetch-Dest"]
     http:
       backendRefs:
         - name: ai-appliance-dashboard-api
@@ -89,7 +89,7 @@ metadata:
 spec:
   extAuth:
     failOpen: false
-    headersToExtAuth: ["Cookie", "Authorization"]
+    headersToExtAuth: ["Cookie", "Authorization", "Accept", "Sec-Fetch-Mode", "Sec-Fetch-Dest"]
     http:
       backendRefs:
         - name: ai-appliance-dashboard-api

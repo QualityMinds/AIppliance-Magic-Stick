@@ -20,7 +20,7 @@ import type {PreflightDiagnostic} from '../core/preflight-diagnostic.ts';
 import {allowedExactDashboardRequest, allowedOwnedContextEdit, allowedOwnedEstimate, allowedOwnedStart, allowedOwnedStop, allowedOwnedKeyChange, realLogin,openInferenceSession} from '../core/auth.ts';
 import {failureOutcome} from '../reporter.ts';
 import {readOnlyApi, readOnlyFetch} from '../core/transport.ts';
-import {KubernetesLeaseStore, verifyObserverRules, type KubeObject} from '../core/observer.ts';
+import {KubectlObserver, KubernetesLeaseStore, verifyObserverRules, type KubeObject} from '../core/observer.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
 import type {CleanupObservation} from '../core/cleanup-diagnostic.ts';
 import {KubernetesModelCleaner, verifyModelCleanerRules} from '../core/model-cleanup.ts';
@@ -494,6 +494,19 @@ test('HAR-03 excessive namespace-admin or Secret permissions cannot be used as o
   }
   expect(() => verifyObserverRules({status: {incomplete: true, resourceRules: []}})).toThrow('[OBSERVER]');
   expect(() => verifyObserverRules({status: {incomplete: false, resourceRules: [rule], nonResourceRules: [{verbs: ['post']}]}})).toThrow('[OBSERVER]');
+});
+
+test('HAR-03 observer reads DNS-qualified native resources with hyphenated API groups without allowing unsafe paths', async () => {
+  class Observer extends KubectlObserver {
+    calls:string[][]=[];
+    protected override async command(args:string[]) {this.calls.push(args);return JSON.stringify({items:[]});}
+  }
+  const observer=new Observer('/fixture/kubeconfig');
+  await expect(observer.list('sandboxes.agents.x-k8s.io')).resolves.toEqual([]);
+  expect(observer.calls).toEqual([['get','sandboxes.agents.x-k8s.io','-A','-o','json']]);
+  for(const resource of ['secrets','pods/exec','pods.proxy/evil','*','-pods','pods..apps','pods.-apps','pods.apps-'])
+    await expect(observer.list(resource)).rejects.toThrow('[OBSERVER]');
+  expect(observer.calls).toHaveLength(1);
 });
 
 test('HAR-04 independent owners race via CAS; exactly one gets the lab', async () => {

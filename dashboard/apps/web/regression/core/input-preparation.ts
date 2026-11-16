@@ -13,6 +13,9 @@ import {remainingRequirements,hostDrillIds} from '../profiles/remaining-p0.ts';
 import {recipeBundle,type HostDrillRecipes} from './host-drill-recipes.ts';
 import {automaticPreparationMeasure,preparationMeasure,type PreparationMeasure,type PreparationMeasureId} from './preparation-measures.ts';
 import {repositoryAppAdapter} from './application-adapters.ts';
+import {serviceRegressionEnabled} from './service-selection.ts';
+import {requireServiceMatrix,servicesRequirements,serviceStageEvidence,serviceStages} from './service-matrix.ts';
+import {automaticServiceMatrix} from './service-plan.ts';
 
 type Json = Record<string, any>;
 export const approvals = ['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile','federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills'] as const;
@@ -124,7 +127,7 @@ const file=(value:unknown,snapshot:PreparationSnapshot)=>filled(value) && snapsh
 
 export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSnapshot,options:PreparationOptions):Readiness[] {
   type Issue={id:PreparationMeasureId;missing:string[];approvalNeeded?:boolean};
-  const base:Issue[]=[];
+  const base:Issue[]=[],serviceModels:Issue[]=[],services=serviceRegressionEnabled();
   const check=(action:()=>void,id:PreparationMeasureId,reason:string)=>{try{action();}catch{base.push({id,missing:[reason]});}};
   check(()=>verifyIdentity(lab,snapshot.appliance,snapshot.observedAppliance,snapshot.nodes,snapshot.hosts),'identity',
     'The selected Appliance/Node/host identity, current boot or Ready state does not match the proposed pins.');
@@ -132,6 +135,10 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
   check(()=>verifyIdle(snapshot.hosts,snapshot.models,lab),'idle','An enabled local model or a non-terminal host/update/channel operation is present.');
   if(!snapshot.leaseIdle)base.push({id:'lease',missing:['The reviewed lab Lease is not idle.']});
   for(const warning of snapshot.modelWarnings ?? []) {
+    // App creation needs one real owned catalog model solely as a product
+    // configuration prerequisite. It does not need Phase 2 or embeddings.
+    if(services&&(warning==='CPU vLLM discovery: current paged results and immutable artifact metadata'||
+      /^CPU (?:ollamaModel|vllmModel): metadata\/estimator or reviewed RAM budget needs attention$/.test(warning)))continue;
     // These source warnings are bounded, but never relay an arbitrary external
     // string into a console/report if a future producer adds private details.
     const id=warning === 'Current usable CPU RAM telemetry' ? 'cpu-telemetry' :
@@ -140,11 +147,47 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
       ollamaModel:'The CPU Ollama model metadata/estimate or retained RAM budget needs review.',
       vllmModel:'The CPU vLLM model metadata/estimate or retained RAM budget needs review.'};
     const name=warning.match(/^CPU (smokeModel|ollamaModel|vllmModel): metadata\/estimator or reviewed RAM budget needs attention$/)?.[1];
-    base.push({id,missing:[name ? reasons[name]! : id === 'cpu-model' ? 'A CPU fixture prerequisite could not be verified.' :
+    const issues=services&&(name==='smokeModel'||id==='cpu-telemetry')?serviceModels:base;
+    issues.push({id,missing:[name ? reasons[name]! : id === 'cpu-model' ? 'A CPU fixture prerequisite could not be verified.' :
       id === 'cpu-telemetry' ? 'Current finite usable system-RAM measurements are unavailable.' : 'Paged discovery and immutable artifact metadata could not be verified.']});
   }
   for(const reference of [lab.observerKubeconfig,lab.lock?.kubeconfig,lab.modelCleanupKubeconfig,lab.usernameFile,lab.passwordFile])
     if(!file(reference,snapshot))base.push({id:'credentials',missing:['A required scoped credential or saved login file is not safely readable.']});
+  if(services) {
+    requireSafe(options.phases.length===1&&options.phases[0]===5&&profile.services?.version===1,'CONFIG');
+    const matrix=requireServiceMatrix(profile.services.matrix,automaticServiceMatrix(snapshot.modules));
+    const requirements=servicesRequirements(matrix),issues=[...base];
+    const cases=[...new Map(requirements.map(item=>[item.variant,item])).values()].map(item=>{
+      const found=matrix.entries.flatMap(entry=>serviceStages.flatMap(stage=>serviceStageEvidence(stage,entry)
+        .some(evidence=>evidence.variant===item.variant)?[{entry,stage}]:[]))[0];
+      requireSafe(found,'CONFIG');const {entry,stage}=found,needed:Issue[]=[];
+      if(entry.capabilities[stage].state!=='supported')needed.push({id:entry.kind==='application'?`app-${entry.id}` as PreparationMeasureId:'optional-module',
+        missing:['This advertised service has no reviewed native adapter for the selected stage.']});
+      if(entry.kind==='module') {
+        if(!profile.services.modules?.some((module:Json)=>module.id===entry.id&&module.approveOptionalModule===true))
+          needed.push({id:'optional-module',missing:['The catalog-bound optional-service lifecycle plan is missing.']});
+      } else {
+        needed.push(...serviceModels);
+        if(!lab.smokeModel||!catalogFixture(snapshot.models,'OLlama','cpu'))needed.push({id:'cpu-model',
+          missing:['Application creation requires a small advertised CPU Ollama model as configuration only; inference is not assessed.']});
+        if(!file(profile.applications?.cleanerKubeconfig,snapshot))needed.push({id:'app-cleaner',
+          missing:['The separate app-intent cleaner is missing, unsafe or unreadable.']});
+        const fixture=profile.applications?.fixtures?.find((fixture:Json)=>fixture.type===entry.id);
+        if(!fixture||!repositoryAppAdapter(fixture)||!filled(fixture.originTemplate))
+          needed.push({id:`app-${entry.id}` as PreparationMeasureId,missing:['The advertised application has no complete native UI adapter fixture.']});
+        if(stage==='access'&&!approved(profile.identity,'approveDisposableUsers'))needed.push({id:'users',
+          missing:['Creating/changing/removing disposable test users has not been approved.'],approvalNeeded:true});
+      }
+      issues.push(...needed);return {id:item.id,variant:item.variant!,state:base.length||needed.length?'Blocked' as const:'InputsReady' as const};
+    });
+    const merged=new Map<PreparationMeasureId,Issue>();
+    for(const issue of issues){const previous=merged.get(issue.id);merged.set(issue.id,{...issue,
+      missing:[...new Set([...(previous?.missing??[]),...issue.missing])],approvalNeeded:previous?.approvalNeeded||issue.approvalNeeded});}
+    const measures=[...merged.values()].map(issue=>options.automatic?automaticPreparationMeasure(issue.id,issue.missing):
+      preparationMeasure(issue.id,issue.missing,5,issue.approvalNeeded));
+    return [{phase:5,state:measures.length?'Blocked':'InputsReady',blockers:measures.map(item=>item.blocker),measures,
+      testExecutionVerified:false,cases}];
+  }
   const gates:Record<string,Issue[]>={};
   const add=(gate:string,id:PreparationMeasureId,requirements:Array<[unknown,string]>,approvalNeeded=false)=>{
     const missing=requirements.filter(([present])=>!present).map(([,reason])=>reason);
@@ -154,10 +197,10 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
     !approved(profile.identity,'approveDisposableUsers'));
   const apps=profile.applications;
   add('applications','app-cleaner',[[file(apps?.cleanerKubeconfig,snapshot),'The separate app-intent cleaner is missing, unsafe or unreadable.']]);
-  for(const type of ['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const) {
+  for(const type of Object.keys(snapshot.modules.catalogJson?.applications??{})) {
     if(!applicationRegressionEnabled(type))continue;
     const fixture=apps?.fixtures?.find((item:Json)=>item.type === type);
-    add('applications',`app-${type}`,[[snapshot.modules.catalogJson?.applications?.[type],'The application is not advertised in the current catalog.'],
+    add('applications',`app-${type}` as PreparationMeasureId,[[snapshot.modules.catalogJson?.applications?.[type],'The application is not advertised in the current catalog.'],
       [fixture && (repositoryAppAdapter(fixture) ? ['originTemplate','responseMarker'] :
         ['originTemplate','promptLabel','sendButton','responseSelector','responseMarker']).every(key=>filled(fixture[key])),
         'The reviewed HTTPS template and actual prompt/send/response controls are incomplete.']]);
@@ -300,11 +343,13 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
   if(!realtimeRegressionEnabled())delete profile.realtime;
   if(!liveWorkflowEnabled('applications'))delete profile.applications;
   if(!liveWorkflowEnabled('modules'))delete profile.modules;
+  if(!serviceRegressionEnabled())delete profile.services;
   return profile;
 }
 
 export function prepareInputs(previous:Json,snapshot:PreparationSnapshot,options:PreparationOptions,gpuDefaults:Json) {
-  const lab:Json=structuredClone(previous);
+  const lab:Json=structuredClone(previous),services=serviceRegressionEnabled();
+  if(services){delete lab.phase2;delete lab.gpu;}
   const metadata=snapshot.observedAppliance.metadata;
   requireSafe(metadata.uid && metadata.name && metadata.namespace && snapshot.images.length >= 2,'CONFIG');
   const retainedNames=previous.expected?.nodes?.map((node:Json)=>node.name) as string[]|undefined;
@@ -313,13 +358,16 @@ export function prepareInputs(previous:Json,snapshot:PreparationSnapshot,options
   lab.version=1;lab.profile='preflight';
   lab.expected={applianceUid:metadata.uid,applianceName:metadata.name,applianceNamespace:metadata.namespace,role:'magicstick-admin',
     nodes:nodes.map(node=>({name:node.metadata.name,uid:node.metadata.uid,bootId:node.status?.nodeInfo?.bootID})),
-    capabilities:(!options.automatic ? previous.expected?.capabilities : undefined) ?? snapshot.models.computeTargets.targets.filter(item=>item.available).map(item=>
+    capabilities:services?snapshot.models.computeTargets.targets.filter(item=>item.id==='cpu'&&item.available&&item.engines?.includes('OLlama')&&
+      item.engineAvailability?.OLlama?.available!==false).map(item=>({target:item.id,engines:['OLlama']})):
+      (!options.automatic ? previous.expected?.capabilities : undefined) ?? snapshot.models.computeTargets.targets.filter(item=>item.available).map(item=>
       ({target:item.id,engines:(item.engines ?? []).filter(engine=>engineRegressionEnabled(engine) &&
         item.engineAvailability?.[engine]?.available !== false)})).filter(item=>item.engines.length),
     flux:snapshot.flux,images:snapshot.images};
   // First setup uses catalog defaults; repeat prepare retains reviewed fixtures.
-  lab.smokeModel ??= catalogFixture(snapshot.models,'OLlama','cpu');
-  if(!lab.phase2) {
+  if(!services||Object.keys(snapshot.modules.catalogJson?.applications??{}).some(applicationRegressionEnabled))
+    lab.smokeModel ??= catalogFixture(snapshot.models,'OLlama','cpu');
+  if(!services&&!lab.phase2) {
     const vllm=catalogFixture(snapshot.models,'VLLM','cpu'),ollama=catalogFixture(snapshot.models,'OLlama','cpu');
     // Model form edits use a 100-MiB step; round only the Phase 2 budgets up.
     // Existing independently reviewed values are never changed.
@@ -331,7 +379,7 @@ export function prepareInputs(previous:Json,snapshot:PreparationSnapshot,options
   }
   let gpuProblem=false;
   let gpuIssues:GpuInputIssue[]=[];
-  if(!options.automatic && (options.phases.some(phase=>[3,4,6,7,8].includes(phase)) || previous.gpu)) {
+  if(!services&&!options.automatic && (options.phases.some(phase=>[3,4,6,7,8].includes(phase)) || previous.gpu)) {
     try {const result=gpuProfile(previous,snapshot,options,gpuDefaults);gpuIssues=result.issues;
       if(result.profile)lab.gpu=result.profile;else {delete lab.gpu;gpuProblem=true;}}
     catch {delete lab.gpu;gpuProblem=true;gpuIssues=['fixtures'];}

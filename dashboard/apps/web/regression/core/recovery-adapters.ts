@@ -1,5 +1,5 @@
 import type {BrowserContext} from '@playwright/test';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {AdministrationApi} from './administration-api.ts';
 import {KubectlObserver,KubernetesLeaseStore,type KubeObject} from './observer.ts';
 import {KubernetesModelCleaner} from './model-cleanup.ts';
@@ -8,12 +8,14 @@ import {OwnedKeyClient} from './owned-key.ts';
 import {OwnedIdentityClient} from './owned-identity.ts';
 import {remainingModelResources} from './owned-model.ts';
 import {sharingAdapter} from './gpu-scenario.ts';
-import {poll} from './poll.ts';
 import {requireSafe} from './errors.ts';
 import type {LiveFoundation} from './live-foundation.ts';
 import type {LabRegistration} from './lab-policy.ts';
 import type {RecoveryAdapters} from './automatic-recovery.ts';
 import {ensureDashboardSession} from './auth.ts';
+import {AppRuntimeProof} from './app-lifecycle.ts';
+import {ModuleRuntimeProof} from './module-runtime-proof.ts';
+import {ResourceJournal} from './journal.ts';
 
 /** Preparation uses freshly renewed scoped credentials. The transient admin
  * bootstrap context is never used to delete resources or restore product intent. */
@@ -47,6 +49,8 @@ export async function recoveryAdapters(inputs:string,context:BrowserContext,regi
         registerDomainCleanup:()=>{}} as unknown as LiveFoundation;
       const identity=new OwnedIdentityClient(identityLive,true).adapter();
       const modelAdapter=model.adapter(journal.prefix,name=>remainingModelResources(observer,readonly.api,name),guard);
+      const appRuntime=new AppRuntimeProof({journal,guard,observer,config:{expected:{applianceUid:registration.applianceUid}}},
+        name=>apps.find(name),()=>readonly.api.modules());
       return {key:{...keyAdapter,lookup:async entry=>{await guard();return keyAdapter.lookup(entry);},
         verifyRemoved:async entry=>{await guard();return keyAdapter.verifyRemoved(entry);}},
         identity:{...identity,lookup:async entry=>{await guard();return identity.lookup(entry);},
@@ -66,14 +70,8 @@ export async function recoveryAdapters(inputs:string,context:BrowserContext,regi
           if(current&&entry.uid!==null)requireSafe(current.metadata.uid===entry.uid&&current.metadata.generation===entry.generation&&
             current.metadata.labels?.['app.kubernetes.io/managed-by']==='ai-appliance-dashboard'&&current.spec?.targetNamespace==='ai','OWNERSHIP');
           return current?.metadata.uid?{uid:current.metadata.uid}:null;
-        },removeIfUid:async(entry,uid)=>{await guard();requireSafe(entry.uid===uid,'OWNERSHIP');await apps.remove(entry,journal.prefix);},
-        verifyRemoved:async entry=>{
-          await poll(async()=>{await guard();const [current,pods,routes]=await Promise.all([apps.find(entry.name),observer.list('pods','ai'),
-            observer.list('httproutes.gateway.networking.k8s.io','identity-system')]);
-            return !current&&!pods.some(pod=>pod.metadata.labels?.['appliance.magicstick.dev/appinstance']===entry.name)&&
-              !routes.some(route=>route.metadata.labels?.['appliance.magicstick.dev/appinstance']===entry.name);
-          },Boolean,{timeoutMs:180_000,intervalMs:1000,stage:'cleanup'});return true;
-        }}
+        },removeIfUid:async(entry,uid)=>{await guard();requireSafe(entry.uid===uid,'OWNERSHIP');await appRuntime.capture(entry);await apps.remove(entry,journal.prefix);},
+        verifyRemoved:entry=>appRuntime.verifyRemoved(entry)}
       };
     },
     module:(original,guard)=>{
@@ -89,6 +87,12 @@ export async function recoveryAdapters(inputs:string,context:BrowserContext,regi
     sharing:(identity,guard)=>sharingAdapter({guard:authenticatedGuard(guard),observer,context,api:readonly.api,config:{dashboardUrl:registration.dashboardUrl,
       requestTimeoutMs:timeoutMs,expected:{applianceNamespace:'ai-system'},gpu:{acknowledgeSharingTransitions:true,
         nodeName:identity.nodeName,nodeUid:identity.nodeUid}}} as unknown as LiveFoundation),
+    moduleRuntime:(receipt,guard)=>{
+      const proof=async()=>ModuleRuntimeProof.resume({journal:await ResourceJournal.resume(join(dirname(receipt.filename),'journal.json'),registration.applianceUid),
+        observer,guard:authenticatedGuard(guard),config:{expected:{applianceUid:registration.applianceUid}}},receipt.filename);
+      return {verifyRecoverable:async()=>{await (await proof()).verifyRecoverable();},capture:async()=> (await proof()).capture(),
+        verifyRestored:async()=>{await (await proof()).verifyRestored();}};
+    },
     cancel:()=>context.close(),
   };
 }

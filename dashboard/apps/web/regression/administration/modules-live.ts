@@ -14,17 +14,31 @@ import {withCleanup} from '../core/run-lifecycle.ts';
 import {requireGpuProvider} from '../hardware/prerequisites.ts';
 import {gatewaySnapshot,assertGatewayStable} from '../core/gateway-stability.ts';
 import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
-import {moduleProbeLinks,probeModuleServices} from '../core/service-probes.ts';
+import {moduleProbeLinks,probeModuleServices,probeServiceAccessAfterNavigation} from '../core/service-probes.ts';
 import {liveWorkflowEnabled} from '../core/engine-policy.ts';
+import {serviceRegressionEnabled} from '../core/service-selection.ts';
+import {moduleRuntimeInventory,moduleRemovalObserved,moduleInstallationObserved,observeModuleRuntime} from '../core/module-lifecycle.ts';
+import {ModuleRuntimeProof} from '../core/module-runtime-proof.ts';
+import {functionalHttpsRequestOptions} from '../core/https-policy.ts';
+import type {Browser} from '@playwright/test';
 const moduleSettings=(value:{enabled?:boolean;parameters?:unknown}|undefined)=>canonical({enabled:value?.enabled,parameters:value?.parameters??{}});
 const sharingSettings=(value:{providers:Array<{provider:string;mode:string;maxModels:number;backend:string;nodeUid:string}>})=>
   canonical(value.providers.map(({provider,mode,maxModels,backend,nodeUid})=>({provider,mode,maxModels,backend,nodeUid})).sort((a,b)=>a.provider.localeCompare(b.provider)));
 
 /** An idle optional catalog-owned service is borrowed and restored exactly.
  * Never disable identity/dashboard/runtime/GPU or a module used by an app. */
-export async function modulesWorkflow(live:LiveFoundation) {
-  requireSafe(liveWorkflowEnabled('modules'),'CONFIG');
-  const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!)),fixture=profile.modules;
+export interface ModuleWorkflowFixture {approveOptionalModule:true;id:string;parameters:Record<string,string>}
+export interface ModuleWorkflowOptions {
+  stage?:'installation'|'access';
+  fixture?:ModuleWorkflowFixture;
+  endpointRequired?:boolean;
+  runReady?:()=>Promise<void>;
+  beforeRestore?:()=>Promise<void>;
+}
+export async function modulesWorkflow(live:LiveFoundation,options:ModuleWorkflowOptions={}) {
+  requireSafe(liveWorkflowEnabled('modules')||serviceRegressionEnabled()&&options.stage,'CONFIG');
+  const profile=options.fixture?undefined:JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!));
+  const fixture=options.fixture??profile.modules;
   requireSafe(fixture?.approveOptionalModule === true && /^[a-z0-9-]{1,63}$/.test(fixture.id) && fixture.parameters && typeof fixture.parameters === 'object','PREREQUISITE');
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
   const modules=await api.api.modules(),catalog=modules.catalogJson?.modules?.[fixture.id],baseline=modules.modules[fixture.id];
@@ -40,7 +54,25 @@ export async function modulesWorkflow(live:LiveFoundation) {
   // The module API cannot remove a newly created intent or faithfully restore an
   // arbitrary original spec. Do not leave such a mutation behind on cleanup.
   requireSafe(typeof prior?.spec?.enabled === 'boolean' && prior.spec.enabled === baseline.enabled &&
+    canonical(prior.spec.parameters ?? {}) === canonical(baseline.parameters ?? {})&&
     canonical(prior.spec.parameters ?? {}) === canonical(fixture.parameters),'PREREQUISITE');
+  const standalone=options.endpointRequired!==false;
+  const kustomizationName=String(catalog.kustomizationName??'');
+  requireSafe(!options.stage||/^[a-z0-9][a-z0-9-]{0,62}$/.test(kustomizationName),'CONFIG');
+  const inventory=async()=>{
+    await live.guard();const [objects,kustomizations]=await Promise.all([observeModuleRuntime(live.observer),
+      live.observer.list('kustomizations.kustomize.toolkit.fluxcd.io','flux-system')]);
+    const current=kustomizations.find(item=>item.metadata.name===kustomizationName);
+    return {...moduleRuntimeInventory(objects,kustomizationName,'flux-system',current),...(!current?{inventoryReady:false}:{})};
+  };
+  const verifyRemoved=async(before:Awaited<ReturnType<typeof inventory>>)=>{
+    await poll(async()=>{
+      await live.guard();const [objects,kustomizations]=await Promise.all([
+        observeModuleRuntime(live.observer),live.observer.list('kustomizations.kustomize.toolkit.fluxcd.io','flux-system')]);
+      return !kustomizations.some(item=>item.metadata.name===kustomizationName)&&
+        moduleRemovalObserved(before,objects,kustomizationName,catalog.uninstallPolicy==='keep-data');
+    },Boolean,{timeoutMs:300_000,intervalMs:1000,stage:'cleanup'});
+  };
   const receipt=journalFile(live.journal,'borrowed-module.json');
   const sharing=sharingSettings(await api.api.gpuSharing());
   const gateway=await gatewaySnapshot(live.observer);
@@ -52,15 +84,20 @@ export async function modulesWorkflow(live:LiveFoundation) {
     const body=!Object.keys(parameters).length && (enabled || prior.spec?.parameters === undefined) ? {} : {parameters};return api.write({method:'POST',path:`/api/modules/${fixture.id}/${enabled ? 'enable' : 'disable'}`,body},
       ()=>enabled ? api.api.enableModule(fixture.id,parameters) : api.api.disableModule(fixture.id,'parameters' in body ? parameters : undefined));
   }},live.guard);
-  const unregister=live.registerRestoration(()=>borrowed.restore());
+  const runtimeProof=options.stage?new ModuleRuntimeProof(live,prior,receipt,kustomizationName,catalog.uninstallPolicy==='keep-data'):undefined;
+  if(runtimeProof)await runtimeProof.capture();
+  const restoreBorrowed=async()=>{await options.beforeRestore?.();await runtimeProof?.capture();await borrowed.restore();await runtimeProof?.verifyRestored();};
+  const unregister=live.registerRestoration(restoreBorrowed);
   const page=await live.context.newPage();
   await withCleanup(async()=>{
     if(prior.spec!.enabled === true) {
+      const before=options.stage?await inventory():undefined;
       await borrowed.change(false,fixture.parameters);
       await poll(()=>api.api.modules(),value=>value.modules[fixture.id]?.enabled === false &&
         ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? ''),
         {timeoutMs:300_000,intervalMs:1000,stage:'module-ready'});
       await checkGateway();
+      if(before)await verifyRemoved(before);
     }
     const beforeInvalid=moduleSettings((await api.api.modules()).modules[fixture.id]);
     const invalid={parameters:{unknownRegressionField:'invalid'}};
@@ -84,22 +121,57 @@ export async function modulesWorkflow(live:LiveFoundation) {
     await poll(async()=>{await live.guard();return api.api.modules();},value=>value.modules[fixture.id]?.enabled === true && value.modules[fixture.id]?.status?.phase === 'Ready',
       {timeoutMs:900_000,intervalMs:2000,stage:'module-ready'});
     await checkGateway();
+    const enabledInventory=options.stage?await poll(inventory,moduleInstallationObserved,
+      {timeoutMs:900_000,intervalMs:2000,stage:'module-ready'}):undefined;
+    await runtimeProof?.capture();
+    if(options.stage) {
+      const generated=(await live.observer.list('kustomizations.kustomize.toolkit.fluxcd.io','flux-system'))
+        .find(item=>item.metadata.name===kustomizationName);
+      requireSafe(generated?.metadata.uid&&!generated.metadata.deletionTimestamp&&
+        generated.metadata.labels?.['appliance.magicstick.dev/module']===fixture.id&&
+        generated.status?.conditions?.some(condition=>condition.type==='Ready'&&condition.status==='True'),'API');
+      // Provider modules can intentionally contain no endpoint/runtime until an
+      // AppInstance exists; their installation proof is the generated Flux intent.
+      if(standalone)requireSafe(enabledInventory!.runtime.length>0,'API');
+    }
     const ready=(await api.api.modules()).modules[fixture.id]!,status=await live.api.status();
     requireSafe(canonical(ready.parameters ?? {}) === canonical(fixture.parameters) && sharingSettings(await api.api.gpuSharing()) === sharing,'API');
-    await test.step('Verify enabled service on the registered connection scope (not its TLS certificate)',async()=>{
+    await options.runReady?.();
+    if(!options.stage||options.stage==='access')await test.step('Verify enabled service on the registered connection scope (not its TLS certificate)',async()=>{
       const links=moduleProbeLinks(moduleResourceLinks(fixture.id,catalog,status),live.config.dashboardUrl);
       await registerRuntimeDnsOrigins(links.map(link=>new URL(link.url).origin),live.config.dashboardUrl);
-      await probeModuleServices(live.context.request,links,live.config.requestTimeoutMs);
+      if(options.stage==='access') {
+        requireSafe(standalone,'CONFIG');
+        const browser=live.context.browser();requireSafe(browser,'CONFIG');
+        const anonymous=await browser.newContext({...functionalHttpsRequestOptions});
+        try {await probeServiceAccessAfterNavigation(live.context.request,anonymous.request,links,live.config.requestTimeoutMs,
+          {mode:'sso',identityOrigin:live.config.identityUrl,dashboardOrigin:live.config.dashboardUrl},async link=>{
+          const opened=await live.context.newPage(),origin=new URL(link.url).origin;
+          try {
+            await opened.route(origin+'/**',async route=>{
+              await live.guard();
+              if(new URL(route.request().url()).origin!==origin||!['GET','HEAD','OPTIONS'].includes(route.request().method()))
+                {await route.abort('blockedbyclient');return;}
+              await route.continue();
+            });
+            const response=await opened.goto(link.url,{waitUntil:'domcontentloaded'});
+            requireSafe(response?.status()===200&&new URL(opened.url()).origin===origin,'AUTH');
+            await expect(opened.locator('body')).not.toBeEmpty();
+          }finally {await opened.close();}
+          });
+        }finally {await anonymous.close();}
+      } else await probeModuleServices(live.context.request,links,live.config.requestTimeoutMs);
     });
     await page.reload();await expect(card.getByRole('button',{name:'Disable',exact:true})).toBeVisible();
     await borrowed.change(false,fixture.parameters);
     await poll(()=>api.api.modules(),value=>value.modules[fixture.id]?.enabled === false &&
       ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? ''),
       {timeoutMs:300_000,intervalMs:1000,stage:'module-ready'});
+    if(enabledInventory)await verifyRemoved(enabledInventory);
     await page.reload();await expect(card.getByRole('button',{name:'Enable',exact:true})).toBeVisible();
   },()=>test.step('Restore exact borrowed module settings',()=>withCleanup(async()=>{
     await page.close().catch(()=>{});
-    await borrowed.restore(); unregister();
+    await restoreBorrowed(); unregister();
     await poll(async()=>{await live.guard();return api.api.modules();},value=>value.modules[fixture.id]?.enabled === prior.spec!.enabled &&
       (prior.spec!.enabled ? value.modules[fixture.id]?.status?.phase === 'Ready' : ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? '')),
       {timeoutMs:300_000,intervalMs:1000,stage:'cleanup'});
@@ -107,6 +179,13 @@ export async function modulesWorkflow(live:LiveFoundation) {
   },checkGateway)));
   const restored=await live.context.newPage();try{await restored.goto(live.config.dashboardUrl+'/#/services');await expect(restored.locator('section.panel').filter({hasText:fixture.id}).getByRole('button',{name:prior.spec!.enabled?'Disable':'Enable',exact:true}).first()).toBeVisible();}finally{await restored.close();}
   return new Set(['MOD-03','MOD-04']);
+}
+
+/** Lifecycle/access-only scope: do not provision chat/embedding models, alter
+ * native model preferences or send inference/document requests. */
+export async function standaloneServiceStage(live:LiveFoundation,_browser:Browser,fixture:ModuleWorkflowFixture,stage:'installation'|'access') {
+  requireSafe(serviceRegressionEnabled()&&fixture.id==='anything-llm','CONFIG');
+  return modulesWorkflow(live,{stage,fixture});
 }
 
 /** A confirmed intent write can precede its controller projection. Reload only

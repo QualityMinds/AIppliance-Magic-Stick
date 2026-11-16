@@ -130,18 +130,25 @@ The start dialog selects one or more P0 phases (0–8, all by default) through t
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic
 cleanup and baseline checks, and show only their selected-phase progress/results.
-An optional immutable `diagnosticSelection` selects a fixed Phase 2, 3 or 4 subset from
+An optional immutable `diagnosticSelection` selects a fixed Phase 2, 3, 4 or 5 subset from
 the Git-owned regression catalog. The API advertises profiles only for a qualified
 runner; the operator rechecks catalog, phase, pins and capability before creating its
 Job. Distinct credential readiness and a diagnostic entrypoint fail closed during
 mixed-version upgrades. The native runner discovers exact registered scenario
 IDs and reuses the serial launcher for `phase2-models`, `phase3-validation` or
-`phase4-sharing`, not an arbitrary script or an all-phase fallback. Reports retain the diagnostic
+`phase4-sharing`, or the separate `services` mode, not an arbitrary script or an all-phase fallback. Reports retain the diagnostic
 scope and do not grant full-phase acceptance.
 The fixed `ollama-two-card-split` profile selects only the existing Phase 4
 `MGPU-01 / p4-multigpu-ollama-2` A/E/O evidence, distinct from four-card split or
 independent copies. Product-service/application live workflows are currently
-deferred to separate regression, including service credentials and app ACLs.
+deferred in ordinary runs, including service credentials and app ACLs. The explicit
+`services` profile requires runner capability 3 and discovers every applicable
+catalog entry/stage before execution: installation/removal, then access with
+SSO and supported public access. Model integration stays deferred. Capability 2
+continues to offer the existing Phase 2–4 profiles but
+never advertises the new service profile. Pi Coding Agent is included; Hermes
+remains separate. Exact runtime UID receipts verify removal before restoring a
+borrowed service; unknown writes stay fenced.
 The shared source policy governs selected live layers, input preparation and
 workflow dispatch; isolated contracts and core user/license/Kubernetes/model/GPU
 checks stay selected. `MOD-06` uses its own GPU-profile prerequisite. Reports
@@ -218,6 +225,9 @@ container restarts; they need Docker and no appliance access.
 The dashboard nginx retains four on-demand 16 KiB large-header buffers. Each
 individual field must fit one buffer; the synthetic header tests verify both
 accepted and rejected sizes without storing credentials.
+They test header parsing, not authentication, and retain the existing 128 MiB
+non-root runtime budget. Host-only cookie migration and OIDC/logout checks remain
+separate identity acceptance gates.
 
 The API Dockerfile has one final runtime containing the BSL-licensed
 `magicstick_core` package, license texts and third-party notices.

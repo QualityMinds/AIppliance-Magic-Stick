@@ -11,9 +11,24 @@ The pinned Keycloak and Envoy images and the actual Dashboard API guard exercise
 login across distinct HTTPS hosts, host-only token cookies and cross-host logout.
 The trusted profile runs separately with a fresh jar and with an old broad
 gateway jar, including real RefreshToken/HMAC helpers. The latter retains the
-native Keycloak session and uses the product migration Lua. After logout, the
-other host must either deny in place or present the exact trusted Keycloak login
-form for that service; a protected success response never qualifies.
+native Keycloak session and uses the product migration Lua. The strengthened
+profile also covers the actual UID-bound instance guard, with only its
+Kubernetes lookup supplied by a fixed synthetic record. After real central
+logout, each service/instance guard must present the exact trusted Keycloak
+login form with its own callback and complete a fresh login, twice without
+waiting for fence expiry. A 403 page is not a successful reauthentication
+result. Actual userinfo rejects stale API GET/POST calls with 401 and no cookie
+changes; a real missing role remains 403 with its working session untouched.
+The owning HTTP-handler tests separately cover lost/changed instance identity,
+unavailable verification, unsafe methods and the bounded redirect. The actual
+Lua tests require only successful protected responses to remove the host fence.
+The first logout is from the dashboard; subsequent rounds sign out globally
+from the other protected service/instance host. Each target has a freshly
+verified session before logout. This does not certify repeated root-dashboard
+reuse with colliding, unattributed old broad helper cookies: that additional
+local counterexample still fails, and this change deliberately does not erase
+those helpers or claim a general legacy-cookie cleanup. Existing manual site
+cookie recovery remains separate from service/instance reauthentication.
 It also checks that a service configured like LiteLLM preserves its own
 synthetic Authorization header while the guard checks the gateway session.
 An actual Envoy ext_proc filter calls the product gRPC callback gate before
@@ -27,7 +42,7 @@ real appliance routing or live hardware. Those remain separate acceptance gates.
 
 On 13 November 2026 this isolated profile passed with its synthetic readiness
 service and verified container/network cleanup. This is not an installed-system
-acceptance result.
+acceptance result and predates the stronger repeated reauthentication checks.
 
 The public release checks also run `test_callback_keycloak_load_runtime.py`
 against a disposable, pinned Keycloak. It exercises the actual Identity
@@ -71,6 +86,11 @@ disables an installed guard to simulate the old state. Both profiles use the
 actual pinned Flux controller to parse the health expressions; the deliberately
 missing source used for that parser probe is an expected failure, not successful
 Flux reconciliation or installed-system acceptance.
+The native Gateway contract additionally checks actual controller translation
+of the 303 Location and all three independent host-only Set-Cookie headers,
+401 without browser-state changes and successful-response fence removal. The
+authorization response for that transport contract is synthetic; real Keycloak
+authentication and installed-system acceptance remain separate checks.
 
 The HTTPS Gateway has both a callback-gate fallback and an independent
 default-deny SecurityPolicy. Losing a route's gate still invokes the Gateway
