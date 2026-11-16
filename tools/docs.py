@@ -244,7 +244,7 @@ def legal_includes(text, root=DOCS):
         source = (root / name).read_text()
         body = re.search(r'<main\b[^>]*>(.*?)</main>', source, re.S)[1]
         body = re.sub(r'<(/?)h([1-5])\b', lambda m: f'<{m[1]}h{int(m[2]) + 1}', body)
-        scripts = ''.join(re.findall(r'<script>.*?</script>', source, re.S))
+        scripts = ''.join(re.findall(r'<script>.*?</script>', source, re.S | re.I))
         return opening + rest + body.rstrip() + '\n    ' + scripts + closing
     text = re.sub(r'(<(\w+)\b[^>]*?) data-legal-include="([^"]+)"([^>]*>).*?(</\2>)', replace, text, flags=re.S)
     for name in included:
