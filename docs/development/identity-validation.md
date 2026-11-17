@@ -95,6 +95,39 @@ rollout, then verify full resource loading, working navigation/settings and real
 logout/login. Odysseus and other application images/data stay unchanged. No
 registered live case or ordinary Services exclusion is changed here.
 
+### Authenticated application resource fanout
+
+Anonymous pre-OIDC fanout does not exercise the later HTTP instance guard. A
+protected application's HTML can render while rejected ES-module imports leave
+its click handlers uninitialized. The existing API discovery therefore includes
+`magic-cluster/apps/dashboard/test_edge_transport.py`: a held-accept TCP wave
+reproduces the five-slot listener bottleneck, while the production listener must
+admit the complete waiting wave. Separate 32/64/128-request HTTP bursts require
+fresh authorization on every request, correctly framed empty responses and
+unchanged connection-close semantics. Fixed-field diagnostics and peer-disconnect
+counterexamples reject credential leakage and a second response after writing
+has begun. The existing Phase 1 AUTH-01 contract and Phase 5 authentication owning
+group select the same suites; they are not CI-only files. The existing
+reauthentication/instance tests still own 401/403/503,
+owner/role/grant and navigation-versus-mutation behavior.
+
+The trusted multi-host browser gate now also loads synthetic 32/64/128-module
+graphs after real instance login. Every HTML/script response must be 200 through
+the actual API listener and per-request Keycloak userinfo check; a button becomes
+functional only after every import completes. The static/control fixture uses
+its own larger listener so it cannot hide or introduce the product bottleneck.
+It does not import or modify an upstream application's source or image. The
+fresh/legacy-cookie, untrusted-CA, stale-owner/role and repeated global-logout
+checks remain required, without shared authorization or a resource exemption.
+
+These are isolated owning/protocol checks, not installed Odysseus acceptance.
+After an authorized, qualified API-image rollout, verify the exact running
+source/images and repeat real page/asset loading and harmless button/model-picker
+actions on the target appliance. Record first-attempt failures, listener drops,
+transport resets and unexpected asset statuses separately; retrying until one
+page works is not acceptance. Existing models, application data and ordinary
+Services exclusions remain unchanged. No new registered campaign case is added.
+
 The callback gate's Envoy Backend carries its CA reference, SNI and TLS
 settings in the Backend itself, rather than relying on an optional attached
 policy. Enabling this Gateway extension increases the cluster-wide attack

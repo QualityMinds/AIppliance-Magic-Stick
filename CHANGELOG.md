@@ -8,6 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Bound the Dashboard API's pending connection queue to 128 so parallel
+  authenticated application resources do not depend on the five-slot default.
+  Keep live per-request session/instance authorization and existing HTTP framing;
+  classify guard failures without private request/exception data and never send
+  a second response to a disconnected peer. Add held-accept TCP controls and
+  authenticated 32/64/128-module Envoy/Keycloak browser checks. Application images,
+  data, models, TLS and standard Services exclusions stay unchanged; matching
+  image qualification and installed acceptance remain separate requirements.
+
 - Keep Paperclip browser SSO tokens separate from native agent credentials.
   Its catalogue now selects `forwardAccessToken: false` for the existing OIDC
   policy; other applications retain their previous forwarding. Host-only

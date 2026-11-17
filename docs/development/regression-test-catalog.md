@@ -1329,6 +1329,23 @@ Flux CLI; CI render evidence is not credited as installed login acceptance.
 The previous successful script/routine renders did not cover strict post-build
 substitution; historical results remain unchanged.
 
+17 November 2026, AUTH-01/06/10 and ACL-01 authenticated-resource transport:
+the existing API discovery includes `test_edge_transport.py`, with a real held-
+accept TCP control for the old five-slot queue and complete-wave admission on
+the production listener. Its 32/64/128-resource bursts retain one authorization
+per request, exact empty-response framing, bounded safe failure diagnostics and
+no second response after a peer disconnect. The existing Phase 1 AUTH-01 contract
+and Phase 5 authentication owning group select these transport/reauthentication
+suites too, without adding an ID or selection profile. The `identity-sessions`
+multi-host gate adds authenticated ES-module graphs through real Envoy/TLS,
+the production API listener and live Keycloak userinfo; all imports and a working
+click handler are required, not just rendered HTML. Existing anonymous callback
+fanout, current owner/role/grant denials, logout/re-login and TLS negatives stay
+selected. These are owning/protocol extensions, not new registered cases or
+installed APP-06/model-inference acceptance. A qualified matching image and
+separate native page/asset/button acceptance are still required; standard service
+exclusions and historical results remain unchanged.
+
 16 November 2026, AUTH-06 reauthentication follow-up: the existing discovered
 HTTP-handler checks in `test_edge_reauthentication.py` distinguish 401/403/503,
 exact instance ownership, navigation versus API/write requests and bounded

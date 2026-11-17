@@ -115,6 +115,39 @@ async function main() {
         !instanceCookie.secure || !instanceCookie.httpOnly || instanceCookie.path !== '/') {
       throw new Error('Real instance guard did not establish its isolated session');
     }
+    // Unlike the anonymous readiness fanout below, these ES modules traverse
+    // OAuth and the actual per-request instance/userinfo guard after login.
+    // A rendered shell alone must not count as a usable application.
+    for (const count of [32, 64, 128]) {
+      phase = `authenticated-module-fanout-${count}`;
+      const before = await (await fetch('http://api:8082/resource-metrics')).json();
+      const resources = [];
+      const observe = response => {
+        const url = new URL(response.url());
+        if (url.origin === instance && url.pathname.startsWith('/fanout/')) {
+          resources.push({status:response.status(), module:url.pathname.endsWith('.js')});
+        }
+      };
+      instancePage.on('response', observe);
+      try {
+        const loaded = await instancePage.goto(instance + '/fanout/?count=' + count, {waitUntil:'domcontentloaded'});
+        if (loaded?.status() !== 200) throw new Error('Authenticated module page did not load');
+        await instancePage.locator('#initialization').filter({hasText:'ready'}).waitFor({timeout:15000});
+        await instancePage.locator('#picker').click();
+        await instancePage.locator('#models').waitFor({state:'visible', timeout:5000});
+      } finally {
+        instancePage.off('response', observe);
+      }
+      const after = await (await fetch('http://api:8082/resource-metrics')).json();
+      if (resources.length !== count + 2 || resources.some(resource => resource.status !== 200) ||
+          resources.filter(resource => resource.module).length !== count + 1 ||
+          after.checks - before.checks < count + 2 || after.succeeded - before.succeeded < count + 2) {
+        const failed = resources.filter(resource => resource.status !== 200).length;
+        process.stderr.write(`Authenticated module counts: expected ${count + 2}, responses ${resources.length}, failed ${failed}, checks ${after.checks - before.checks}\n`);
+        throw new Error('Authenticated module loading bypassed a check or left an incomplete application');
+      }
+      process.stdout.write(`Authenticated module graph: ${count} imports, all HTTP 200, fresh userinfo checks, picker usable\n`);
+    }
     phase = 'instance-forbidden';
     const forbiddenResponse = instancePage.waitForResponse(response => response.url() === instance + '/forbidden');
     const forbidden = await instancePage.evaluate(async () => {

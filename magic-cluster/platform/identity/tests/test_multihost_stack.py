@@ -298,7 +298,7 @@ except Exception as e:
                                              "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"}]}]}
         # Real product instance handler and real Keycloak userinfo; only the
         # Kubernetes instance lookup is a synthetic, fixed-UID fixture.
-        def instance_route(prefix, name, *, paperclip=False, owner_uid="fixture-owner"):
+        def instance_route(prefix, name, *, paperclip=False, owner_uid="fixture-owner", backend=None):
             check = copy.deepcopy(auth["typed_config"]["http_service"])
             check["path_prefix"] = "/internal/instance-access/" + name + "/" + owner_uid
             instance_oauth = copy.deepcopy(oauth["typed_config"]["config"])
@@ -307,14 +307,17 @@ except Exception as e:
                 instance_oauth["forward_bearer_token"] = self.paperclip_forward_access_token
                 instance_oauth["preserve_authorization_header"] = not self.paperclip_forward_access_token
             return {"match": {"prefix": prefix},
-                **({"route": {"cluster": "paperclip"}} if paperclip else
+                **({"route": {"cluster": backend}} if backend else
+                   {"route": {"cluster": "paperclip"}} if paperclip else
                    {"direct_response": {"status": 200, "body": {"inline_string": "protected instance"}}}),
                 "typed_per_filter_config": {"envoy.filters.http.ext_authz": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute",
                     "check_settings": {"http_service": check}}, "envoy.filters.http.oauth2": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2PerRoute", "config": instance_oauth}}}
         instance = {"name": "instance", "domains": ["instance.fixture.test"],
-            "routes": [instance_route("/forbidden", "hermes-denied"), instance_route("/", "hermes-fixture")]}
+            "routes": [instance_route("/forbidden", "hermes-denied"),
+                       instance_route("/fanout/", "hermes-fixture", backend="resources"),
+                       instance_route("/", "hermes-fixture")]}
         paperclip = {"name": "paperclip", "domains": ["paperclip.fixture.test"],
             "routes": [instance_route("/forbidden", "paperclip-denied", paperclip=True),
                        instance_route("/wrong-owner", "paperclip-fixture", paperclip=True, owner_uid="foreign-owner"),
@@ -354,7 +357,8 @@ except Exception as e:
                          tls_gate("gate-expired", 8083, "ca.crt", gate_host)]
         return {"static_resources": {"secrets": [{"name": "client", "generic_secret": {"secret": {"inline_string": self.client_secret}}},
             {"name": "hmac", "generic_secret": {"secret": {"inline_string": secrets.token_hex(32)}}}],
-            "clusters": [cluster("keycloak", "keycloak", 8080), cluster("api", "api", 8080), cluster("paperclip", "api", 8084), *gate_clusters],
+            "clusters": [cluster("keycloak", "keycloak", 8080), cluster("api", "api", 8080),
+                         cluster("paperclip", "api", 8084), cluster("resources", "api", 8085), *gate_clusters],
             "listeners": [{"name": "https", "address": address("0.0.0.0", 443), "filter_chains": [{"transport_socket": tls, "filters": [manager]}]}]}}
 
     def stop(self):
