@@ -46,6 +46,8 @@ class DependencyPatchTests(unittest.TestCase):
                 source = (DASHBOARD / "apps" / component / "Dockerfile").read_text()
                 self.assertLess(source.index("COPY dashboard/patches patches"), source.index("RUN pnpm install --frozen-lockfile"))
         runner = (DASHBOARD / "apps/web/regression/Dockerfile").read_text()
+        copied_inputs = runner.split("cp -a --parents dashboard", 1)[1].split("/opt/magicstick/", 1)[0]
+        self.assertIn(".gitattributes", copied_inputs.split())
         self.assertLess(runner.index("cp -a --parents dashboard"), runner.index("pnpm install --frozen-lockfile"))
         package = json.loads((DASHBOARD / "package.json").read_text())
         self.assertTrue(package["scripts"]["test"].startswith("pnpm test:dependency-patches && "))
