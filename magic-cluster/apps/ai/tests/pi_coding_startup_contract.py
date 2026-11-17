@@ -13,6 +13,24 @@ ROOT = Path(__file__).resolve().parents[4]
 NAME = "pi-coding-contract"
 NAMESPACE = "ai"  # The production chart deliberately requires the catalog namespace.
 MODEL = "synthetic-coder"
+MISSING_MODEL_MESSAGE = "The selected chat model is unavailable. Start it in Models or choose an available model."
+
+
+def missing_model_rejected(status):
+    """Keep the exit code and diagnostic tied to the same CRI container attempt."""
+    if status.get("name") != "pi-coding":
+        return False
+    if status.get("ready"):
+        raise RuntimeError("Pi became ready with the unavailable model")
+    terminations = [status.get(field, {}).get("terminated") for field in ("state", "lastState")]
+    observed = [entry for entry in terminations if entry is not None]
+    for entry in observed:
+        if not entry.get("containerID") or entry.get("exitCode") != 1:
+            raise RuntimeError("Unexpected termination in the missing-model contract")
+        if MISSING_MODEL_MESSAGE not in entry.get("message", "").splitlines():
+            # Never include arbitrary application output in CI diagnostics.
+            raise RuntimeError("Terminated Pi container lacks the expected missing-model diagnostic")
+    return bool(observed)
 
 
 def main():
@@ -55,10 +73,20 @@ def main():
         assert result.stdout.strip() == "passed"
 
     def restart(deployment_uid, revision):
-        command(["patch", "deployment", NAME, "--type=json", "--patch-file=/dev/stdin", "-o", "json"], [
+        changes = [
             {"op": "test", "path": "/metadata/uid", "value": deployment_uid},
             {"op": "add", "path": "/spec/template/metadata/annotations/pi-startup-contract", "value": revision},
-        ])
+        ]
+        if revision == "missing-model":
+            # Disposable synthetic fixture only. Kubelet attaches the diagnostic to
+            # the exited container; a later logs --previous request can select a
+            # different attempt after another restart. Do not change the chart.
+            container = "/spec/template/spec/containers/0"
+            changes.extend([
+                {"op": "test", "path": container + "/name", "value": "pi-coding"},
+                {"op": "add", "path": container + "/terminationMessagePolicy", "value": "FallbackToLogsOnError"},
+            ])
+        command(["patch", "deployment", NAME, "--type=json", "--patch-file=/dev/stdin", "-o", "json"], changes)
 
     inspection = """
 import assert from 'node:assert/strict';
@@ -146,19 +174,13 @@ console.log('passed');
         restart(deployment_uid, "missing-model")
         deadline = time.monotonic() + 360
         while time.monotonic() < deadline:
-            candidates = [p for p in pods() if p["metadata"]["uid"] not in {first["metadata"]["uid"], second["metadata"]["uid"]}]
+            candidates = [p for p in pods() if p["metadata"]["uid"] not in {first["metadata"]["uid"], second["metadata"]["uid"]}
+                          and not p["metadata"].get("deletionTimestamp")
+                          and p["metadata"].get("annotations", {}).get("pi-startup-contract") == "missing-model"]
             if len(candidates) == 1:
                 failed = candidates[0]
                 for status in failed.get("status", {}).get("containerStatuses", []):
-                    previous = status.get("lastState", {}).get("terminated", {})
-                    current = status.get("state", {}).get("terminated", {})
-                    if previous.get("exitCode") == 1 or current.get("exitCode") == 1:
-                        log_args = ["-n", NAMESPACE, "logs", failed["metadata"]["name"], "-c", "pi-coding", "--tail=10"]
-                        if previous.get("exitCode") == 1:
-                            log_args.append("--previous")
-                        output = execute(log_args).stdout
-                        assert "The selected chat model is unavailable." in output
-                        assert not status["ready"]
+                    if missing_model_rejected(status):
                         assert command(["get", "pvc", NAME + "-data", "-o", "json"])["metadata"]["uid"] == pvc_uid
                         print("APP-02/11 isolated Kubernetes: unavailable selected model blocks terminal startup, without fallback or data deletion.", flush=True)
                         return

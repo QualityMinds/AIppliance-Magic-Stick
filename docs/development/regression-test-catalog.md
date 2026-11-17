@@ -172,7 +172,10 @@ The required Public release checks also run the
 [native ConfigMap startup contract](../../magic-cluster/apps/ai/tests/pi_coding_startup_contract.py)
 in their disposable Kubernetes cluster with the pinned Node image. It checks cold
 startup, a fresh runtime on the same retained PVC, preserved settings/auth/session
-fixtures and rejection of a missing selected model. The existing APP-10 removal
+fixtures and rejection of a missing selected model. In that negative CI fixture
+only, the exit code and exact missing-model message are checked on the same
+terminated container attempt; a restart cannot substitute another attempt's log.
+The deployed chart and its logging policy are unchanged. The existing APP-10 removal
 and ACL-01 SSO contracts remain unchanged. These isolated checks are not installed
 SSO, terminal interaction or model-inference acceptance; those require the exact
 qualified Main revision on the authorized appliance. No new case ID or standard
