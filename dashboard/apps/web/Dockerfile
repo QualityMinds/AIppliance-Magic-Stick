@@ -4,6 +4,7 @@ WORKDIR /workspace/dashboard
 RUN corepack enable
 
 COPY dashboard/package.json dashboard/pnpm-workspace.yaml dashboard/pnpm-lock.yaml dashboard/tsconfig.base.json ./
+COPY dashboard/patches patches
 COPY dashboard/packages/contracts/package.json packages/contracts/package.json
 COPY dashboard/packages/api-client/package.json packages/api-client/package.json
 COPY dashboard/packages/core/package.json packages/core/package.json

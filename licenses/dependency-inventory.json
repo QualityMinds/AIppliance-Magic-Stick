@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
-  "pnpmLockSha256": "c4831dbe4dd5f27c362261ccc90bc030e4bcb7e579779883eac6cd01cc5293a9",
+  "pnpmLockSha256": "38a1bd5f772dac2187070684ce761dd65c1203d585879a6f08a36c474c61f04a",
   "deploymentReferencesSha256": "d13107fb5a0fb239aa6cb5e2ef599648713fa0496b96b1df24e652915edfd6ef",
   "npm": [
     {
@@ -3217,7 +3217,7 @@
     },
     {
       "file": "magic-cluster/platform/identity/tests/test_multihost_stack.py",
-      "line": 154,
+      "line": 169,
       "reference": "\"if ! pip install --timeout 15 --retries 2 --no-cache-dir --disable-pip-version-check \""
     },
     {

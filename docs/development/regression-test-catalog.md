@@ -1329,6 +1329,19 @@ Flux CLI; CI render evidence is not credited as installed login acceptance.
 The previous successful script/routine renders did not cover strict post-build
 substitution; historical results remain unchanged.
 
+17 November 2026, SEC-03 temporary dependency mitigation: the existing
+supply-chain owning group invokes `tests.test_dependency_patches.DependencyPatchTests`.
+Its real installed `picomatch` counterexamples reject single-branch repeated-
+extglob blocking with a bounded child process and require the parser's safe
+literal fallback; ordinary file/test globs, escaped/quoted/bracket-literal
+stars and safe existing nested-star reduction remain covered. All locked
+consumers must use the checksum-bound patch, build contexts must include it,
+and `pnpm test` selects its Node tests before the normal clients. No new case ID
+or live selection is added. The standard online advisory check is unchanged
+and still reports upstream 4.0.7 as vulnerable; this local mitigation cannot
+credit fresh-CI acceptance or unblock a Main merge by ignoring that finding.
+No installed acceptance, image promotion or historical result is changed.
+
 17 November 2026, AUTH-01/06/10 and ACL-01 authenticated-resource transport:
 the existing API discovery includes `test_edge_transport.py`, with a real held-
 accept TCP control for the old five-slot queue and complete-wave admission on

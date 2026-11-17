@@ -67,6 +67,55 @@ The React implementation retains the established tab-by-tab feature contract:
 contracts independently of the smaller application-shell tests. Catalog and
 API behavior remain covered by the existing Python dashboard tests.
 
+### Temporary dependency patch
+
+The frozen workspace applies
+[`picomatch@4.0.7.patch`](../../dashboard/patches/picomatch@4.0.7.patch) for
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
+An unescaped glob star inside a repeated extglob can produce nested unbounded
+regular-expression quantifiers even with a single branch. The patch uses the
+parser's existing conservative literal fallback for that risky form, after its
+existing safe character-star reduction. Such a risky pattern is treated as
+literal text, not executed as a repeated glob. This deliberately changes those
+patterns; it is not a general proof that arbitrary regular expressions are safe.
+Quoted, escaped and simple bracket-literal stars retain their normal meaning.
+Nested extglob operators are not mistaken for plain glob stars; known POSIX
+classes retain their bracket-literal meaning too.
+Disabling the upstream recursion protection explicitly remains unsafe for
+untrusted patterns and is not done by the reviewed build consumers.
+
+`pnpm-lock.yaml` binds the patch checksum and every transitive consumer. The Web
+and CLI Docker build contexts include the patch before frozen installation;
+the regression image copies the complete workspace. The upstream version,
+tarball integrity and MIT notices are retained rather than assigning a fictitious
+fixed version. `pnpm test` runs `test:dependency-patches` before the existing
+client suites. The existing SEC-03 supply-chain owning selection also invokes
+[`DependencyPatchTests`](../../tests/test_dependency_patches.py), checking the
+actual installed matcher, lock graph, build contexts and unchanged advisory gate.
+
+The unpatched counterexample must exceed a bounded child-process budget; with
+the patch, the same short attack and its variants finish and preserve the
+literal fallback. Ordinary file/test globs and both client builds are separate
+compatibility checks, not appliance acceptance.
+
+Compatibility comparison against the exact upstream 4.0.7 revision
+`6bb40679c218cefba5d4e9662408c5fdf699a8bb` runs its unchanged Mocha tests:
+the baseline has 1,983 passes; with this mitigation 1,979 pass and four upstream
+assertions retain their old expectation for the intentionally literalized risky
+forms (`+(*)c`, `*(a*|b)` and `*/*(W*, *)*`). These four assertions are not
+reported as passed or removed. The project-specific counterexamples additionally
+exercise bounded rejection of those repeated-wildcard forms with failing
+suffixes. The ordinary reviewed Web/CLI test/build checks are separate evidence;
+this candidate is not a fully upstream-compatible general-purpose replacement.
+
+**The version-based registry audit still reports 4.0.7 as vulnerable.** No
+advisory exclusion, severity change, automatic rerun, source renaming or scanner
+replacement is included. The required audit remains a merge/qualification
+blocker. Replace this temporary patch with a verified official corrected version
+when available, regenerate the lock/inventory and repeat the counterexamples,
+client suites and exact-commit CI before removing the patch. A local mitigation
+alone does not authorize rollout or qualify current advisory evidence.
+
 ## First-run setup sessions
 
 The separate local setup application is defined in

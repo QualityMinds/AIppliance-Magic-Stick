@@ -1,5 +1,7 @@
 magic-cluster/platform/basis/kdns/patches/*.patch -whitespace
 magic-cluster/platform/gpu/amd-gpu-operator/patches/*.patch -whitespace
+# Unified-diff context whitespace is data; its checksum must stay LF-bound.
+dashboard/patches/*.patch text eol=lf -whitespace
 *.pdf binary
 *.pptx binary
 # The dependency inventory hashes this file byte-for-byte on every platform.
