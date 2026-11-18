@@ -108,13 +108,23 @@ exercise bounded rejection of those repeated-wildcard forms with failing
 suffixes. The ordinary reviewed Web/CLI test/build checks are separate evidence;
 this candidate is not a fully upstream-compatible general-purpose replacement.
 
-**The version-based registry audit still reports 4.0.7 as vulnerable.** No
-advisory exclusion, severity change, automatic rerun, source renaming or scanner
-replacement is included. The required audit remains a merge/qualification
+**The version-based registry audit still reports 4.0.7 as vulnerable.** The
+patch does not exclude an advisory, change its severity, or replace the scanner.
+The required audit remains a merge/qualification
 blocker. Replace this temporary patch with a verified official corrected version
 when available, regenerate the lock/inventory and repeat the counterexamples,
 client suites and exact-commit CI before removing the patch. A local mitigation
 alone does not authorize rollout or qualify current advisory evidence.
+
+The manual PR #114 **candidate build** has a temporary exception expiring
+2026-11-19 at 13:55 UTC. It requires an explicit dispatch with tests enabled,
+the checksum-bound lockfile, a clean production high/critical audit, and a
+full audit with no other high/critical finding. It accepts only the named
+Picomatch advisory on the known 4.0.7 build/test paths. The normal `advisories`
+job and SEC-03 acceptance are unchanged. The regression runner still uses the
+existing opt-in registration for disposable test appliances; this exception
+does not authorize deployment or stable distribution. Remove the temporary
+candidate option when removing the patch.
 
 ## First-run setup sessions
 
@@ -247,6 +257,14 @@ server:
 pnpm cli --version
 pnpm cli --help
 ```
+
+The final CLI image uses Alpine's Node 24 package and copies only the bundled
+executable and license notices from the build inputs. No npm, npx or workspace
+dependencies are installed or inherited in the final image. The image build also
+checks the bundle's source map for Picomatch. On Linux AMD64 and ARM64 it checks
+the launch path and runs `--version` and `--help`
+without network access as the same non-root user as the console. Inspect each
+published platform's SBOM separately from the workspace dependency audit.
 
 Build production images from the **repository root** (not `dashboard/`) so
 source-of-truth license notices can be included:

@@ -1358,6 +1358,13 @@ and still reports upstream 4.0.7 as vulnerable; this local mitigation cannot
 credit fresh-CI acceptance or unblock a Main merge by ignoring that finding.
 No installed acceptance, image promotion or historical result is changed.
 
+18 November 2026, UX-04/SEC-03 CLI packaging: the existing CLI/TUI tests still
+own runtime behavior. The AMD64 and ARM64 CLI image builds separately check the
+non-root entry point, help and version with no npm or installed Node modules.
+Candidate audit tests distinguish the one approved test-graph finding from
+production, new advisory, registry error and expired-approval cases. This adds
+no registered case or live selection and does not replace the required audit.
+
 17 November 2026, AUTH-01/06/10 and ACL-01 authenticated-resource transport:
 the existing API discovery includes `test_edge_transport.py`, with a real held-
 accept TCP control for the old five-slot queue and complete-wave admission on
