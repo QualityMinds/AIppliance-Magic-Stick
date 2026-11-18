@@ -60,22 +60,27 @@ class DependencyPatchTests(unittest.TestCase):
         steps = workflow["jobs"]["advisories"]["steps"]
         audit = next(step for step in steps if step.get("name") == "Query current registry advisories")
         self.assertEqual(audit["run"], "pnpm audit --audit-level high")
-        self.assertEqual(audit["if"], "steps.pr114.outputs.accepted != 'true'")
+        self.assertEqual(audit["if"],
+                         "steps.pr114.outputs.accepted != 'true' && steps.main_dev.outputs.accepted != 'true'")
         admission = next(step for step in steps if step.get("id") == "pr114")
         pr114_only = "${{ github.event_name == 'pull_request' && github.event.number == 114 }}"
         self.assertEqual(admission["if"], pr114_only)
         self.assertIn("node --test ../tests/pr114-main-advisory.test.mjs", admission["run"])
         self.assertIn("node ../tools/pr114-main-advisory.mjs", admission["run"])
         unfiltered = workflow["jobs"]["pr114-unfiltered"]
-        self.assertEqual(workflow["jobs"]["advisories"]["outputs"]["pr114_accepted"],
-                         "${{ steps.pr114.outputs.accepted }}")
+        main_dev = next(step for step in steps if step.get("id") == "main_dev")
+        self.assertIn("node --test ../tests/main-dev-advisory-admission.test.mjs", main_dev["run"])
+        self.assertIn("node ../tools/main-dev-advisory-admission.mjs", main_dev["run"])
+        self.assertEqual(workflow["jobs"]["advisories"]["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(workflow["jobs"]["advisories"]["outputs"]["approved_dev_risk"],
+                         "${{ steps.pr114.outputs.accepted == 'true' || steps.main_dev.outputs.accepted == 'true' }}")
         # Clean Main release workflows require the entire job list to succeed.
         # The extra raw scan must neither be skipped as a job nor mask a failing
         # ordinary audit; it inherits success from that required upstream job.
         self.assertNotIn("if", unfiltered)
         self.assertEqual(unfiltered["needs"], "advisories")
-        self.assertEqual(unfiltered["steps"][0]["if"], "needs.advisories.outputs.pr114_accepted != 'true'")
-        self.assertTrue(all(step.get("if") == "needs.advisories.outputs.pr114_accepted == 'true'"
+        self.assertEqual(unfiltered["steps"][0]["if"], "needs.advisories.outputs.approved_dev_risk != 'true'")
+        self.assertTrue(all(step.get("if") == "needs.advisories.outputs.approved_dev_risk == 'true'"
                             for step in unfiltered["steps"][1:]))
         self.assertEqual(unfiltered["steps"][-1]["run"], "pnpm audit --audit-level high")
         self.assertNotIn("continue-on-error", unfiltered)

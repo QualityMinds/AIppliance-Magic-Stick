@@ -1372,6 +1372,13 @@ different PRs, a production finding and an unreadable registry report. A second,
 unfiltered audit preserves the unresolved result; it cannot qualify the
 installed SEC-03 case. No test selector, fixture or live evidence is changed.
 
+18 November 2026, SEC-03 Main-dev admission extension: the same expiring risk
+decision covers the policy-only successor and its exact canonical image
+promotion. CI policy tests exercise the reviewed merge parents and reject
+wrong PRs, changed runtime/lockfiles, old pins, later Main revisions and
+expired decisions. Existing artifact provenance checks and the separate,
+strict audit remain required; no installed evidence or test selection changes.
+
 17 November 2026, AUTH-01/06/10 and ACL-01 authenticated-resource transport:
 the existing API discovery includes `test_edge_transport.py`, with a real held-
 accept TCP control for the old five-slot queue and complete-wave admission on
