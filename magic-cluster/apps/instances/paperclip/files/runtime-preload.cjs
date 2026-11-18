@@ -36,6 +36,26 @@ function replaceOnce(source, before, after) {
   return source.replace(before, after);
 }
 
+// Serialized into the verified plugin's workspace hook. The lease already
+// belongs to this run, so failed preparation keeps the normal teardown path.
+async function waitForWorkspaceSandbox(params, { schema, clientsFor, deriveNamespace, wait, ready }) {
+  const config = schema.parse(params.config);
+  const { lease } = params;
+  const backend = lease.metadata?.backend ?? config.backend;
+  if (backend !== "sandbox-cr") return;
+  const id = lease.providerLeaseId;
+  if (typeof id !== "string" || !id) throw new Error("Paperclip workspace sandbox lease is missing");
+  if (ready.has(id)) return;
+  const namespace = typeof lease.metadata?.namespace === "string"
+    ? lease.metadata.namespace : deriveNamespace(config, params.companyId);
+  const rpcMs = params.config.timeoutMs;
+  const rpcBudgetMs = Number.isSafeInteger(rpcMs) && rpcMs > 0 ? rpcMs : 30_000;
+  const timeoutMs = Math.min(120_000, config.podActivityDeadlineSec * 1000, rpcBudgetMs - 5_000);
+  if (timeoutMs <= 0) throw new Error("Paperclip workspace sandbox startup budget is too small");
+  await wait(clientsFor(config), namespace, id, { timeoutMs, pollMs: 2000 });
+  ready.add(id);
+}
+
 function transform(kind, source) {
   const hash = createHash("sha256").update(source).digest("hex");
   if (hash !== expectedHashes[kind]) {
@@ -51,7 +71,17 @@ function transform(kind, source) {
   }
   source = replaceOnce(source,
     'const cwd = params.workspace.remotePath && params.workspace.remotePath.trim().length > 0\n            ? params.workspace.remotePath.trim()\n            : "/workspace";',
-    'const requestedRemotePath = params.workspace.remotePath?.trim() || "/workspace";\n        const cwd = requestedRemotePath === "/tmp" ? "/workspace" : requestedRemotePath;');
+    [
+      `await (${waitForWorkspaceSandbox})(params, {`,
+      '    schema: kubernetesProviderConfigSchema,',
+      '    clientsFor: config => makeKubeClients(createKubeConfig({ inCluster: config.inCluster, kubeconfig: config.kubeconfig })),',
+      '    deriveNamespace: deriveTenantNamespace,',
+      '    wait: (...args) => sandboxCrOrchestrator.waitForCompletion(...args),',
+      '    ready: readySandboxesByLease,',
+      '});',
+      'const requestedRemotePath = params.workspace.remotePath?.trim() || "/workspace";',
+      'const cwd = requestedRemotePath === "/tmp" ? "/workspace" : requestedRemotePath;',
+    ].join("\n        "));
   return replaceOnce(source,
     "const execCommand = wrapCommandWithEnv(baseExecCommand, params.env);",
     [
@@ -97,4 +127,4 @@ childProcess.fork = function(modulePath, args, options) {
 };
 syncBuiltinESMExports();
 
-module.exports = { transform, pluginVersion };
+module.exports = { transform, pluginVersion, waitForWorkspaceSandbox };

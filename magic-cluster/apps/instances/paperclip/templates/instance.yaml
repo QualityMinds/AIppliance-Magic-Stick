@@ -580,6 +580,10 @@ spec:
     # unregistered claude_local adapter even though runs use opencode_local.
     - name: PAPERCLIP_K8S_ADAPTER_TYPE
       value: opencode_local
+    # The workspace hook has a bounded startup wait for cold images. Keep
+    # the controller RPC alive; explicit command budgets remain independent.
+    - name: PAPERCLIP_K8S_RPC_TIMEOUT_MS
+      value: "150000"
   adapters:
     execution:
       mode: kubernetes

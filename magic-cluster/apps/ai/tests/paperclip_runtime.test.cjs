@@ -10,12 +10,79 @@ const {once} = require('node:events');
 
 const chart = path.resolve(__dirname, '../../instances/paperclip');
 const preload = path.join(chart, 'files/runtime-preload.cjs');
-const {transform} = require(preload);
+const {transform, waitForWorkspaceSandbox} = require(preload);
 
 test('changed upstream compatibility files fail before code is patched', () => {
   for (const kind of ['manifest', 'plugin']) {
     assert.throws(() => transform(kind, '// upstream changed\n'), /checksum changed/);
   }
+});
+
+function workspaceSandbox({backend = 'sandbox-cr', timeoutMs = 150_000,
+  podActivityDeadlineSec = 3_600, providerLeaseId = 'fixture-lease'} = {}) {
+  const observations = [];
+  const ready = new Set();
+  const params = {
+    config: {backend, timeoutMs, podActivityDeadlineSec},
+    companyId: 'fixture-company',
+    lease: {providerLeaseId, metadata: {backend, namespace: 'fixture-tenant'}},
+  };
+  const deps = {
+    schema: {parse: original => original},
+    clientsFor: () => 'fixture-kubernetes',
+    deriveNamespace: () => {throw new Error('must use the leased namespace');},
+    ready,
+    wait: async (...args) => observations.push(args),
+  };
+  return {params, deps, observations, ready};
+}
+
+test('cold workspace waits for the assigned sandbox before the 15-second Git probe can start', async () => {
+  const {params, deps, observations, ready} = workspaceSandbox();
+  let finishWait;
+  deps.wait = (...args) => {
+    observations.push(args);
+    return new Promise(resolve => {finishWait = resolve;});
+  };
+  let commandStarted = false;
+  const workspace = waitForWorkspaceSandbox(params, deps).then(() => {commandStarted = true;});
+  assert.deepEqual(observations, [
+    ['fixture-kubernetes', 'fixture-tenant', 'fixture-lease', {timeoutMs:120_000, pollMs:2000}],
+  ]);
+  assert.equal(commandStarted, false);
+  assert.equal(ready.has('fixture-lease'), false);
+  finishWait();
+  await workspace;
+  assert.equal(commandStarted, true);
+  assert.equal(ready.has('fixture-lease'), true);
+  await waitForWorkspaceSandbox(params, deps);
+  assert.equal(observations.length, 1, 'warm workspace does not use the cold startup wait again');
+});
+
+test('workspace startup honors the provider and outer RPC boundaries without touching Job leases', async () => {
+  for (const [fixture, expected] of [
+    [{timeoutMs:null}, 25_000],
+    [{timeoutMs:20_000}, 15_000],
+    [{podActivityDeadlineSec:10}, 10_000],
+  ]) {
+    const {params, deps, observations} = workspaceSandbox(fixture);
+    await waitForWorkspaceSandbox(params, deps);
+    assert.equal(observations[0][3].timeoutMs, expected);
+  }
+  const job = workspaceSandbox({backend:'job'});
+  await waitForWorkspaceSandbox(job.params, job.deps);
+  assert.deepEqual(job.observations, []);
+  const missing = workspaceSandbox({providerLeaseId:''});
+  await assert.rejects(waitForWorkspaceSandbox(missing.params, missing.deps), /lease is missing/);
+  const insufficient = workspaceSandbox({timeoutMs:5000});
+  await assert.rejects(waitForWorkspaceSandbox(insufficient.params, insufficient.deps), /budget is too small/);
+});
+
+test('failed workspace startup stays failed and is not cached as ready', async () => {
+  const {params, deps, ready} = workspaceSandbox();
+  deps.wait = async () => {throw new Error('Sandbox did not become Ready');};
+  await assert.rejects(waitForWorkspaceSandbox(params, deps), /did not become Ready/);
+  assert.equal(ready.has('fixture-lease'), false);
 });
 
 test('only the Kubernetes worker inherits the preload, without parent secrets', async () => {
