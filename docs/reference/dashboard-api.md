@@ -33,6 +33,22 @@ Scripts and other page resources do not receive an authentication exception.
 Failure diagnostics contain only fixed reasons, bounded HTTP status codes and
 elapsed milliseconds, never headers, response bodies or exception text.
 
+The post-OIDC HTTP session/instance guards use the same API listener as normal
+API requests. Its pending accept queue is explicitly bounded to 128 connections
+instead of the standard library's five-slot default, so a parallel application
+resource burst can wait for dispatch. This is not an authorization cache or a
+worker/concurrency guarantee. Every protected resource still performs its live
+session and current instance/role/grant checks. HTTP response framing and the
+existing connection-close behavior are unchanged. A peer disconnect during a
+guard response closes that connection without writing a second response or
+replaying a request. Failure records contain only a generated opaque `check_id`,
+an allowlisted stage/reason, status and bounded elapsed milliseconds; request
+paths, identity values, headers, bodies and exception messages are excluded.
+The status is unknown (`null`) after a response-write failure, not an invented
+HTTP 503 attributed to the identity provider.
+See [identity validation](../development/identity-validation.md#authenticated-application-resource-fanout)
+for the distinct transport and browser acceptance gates.
+
 Model create/update payloads accept optional `local.capabilities` or
 `external.capabilities` objects containing `tools`, `vision` and `reasoning`
 booleans. Omitted fields remain unknown; string/numeric booleans and unsupported

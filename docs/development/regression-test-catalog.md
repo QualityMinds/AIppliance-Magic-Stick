@@ -165,6 +165,19 @@ disabled services. Empty
 instance-provider bases have no independent HTTP stage; their application
 instances do. Unknown adapters remain visible blockers, not omitted successes.
 Pi Coding Agent is included for installation, access and removal, not inference.
+A Paperclip APP-08 owning follow-up exercises the digest-bound browser overlay
+against the official AMD64 UI bundle and synthetic API responses. It keeps
+OpenCode visible with only the appliance adapter enabled, checks the instance
+default and alternative catalog selection, and prevents agent creation after a
+failed environment probe. This isolated browser check does not change the
+installed service selection or claim appliance inference acceptance.
+The APP-08 owning runtime check also covers first-run sandbox startup: a cold
+sandbox must become ready before command execution, a warm sandbox is reused,
+and a failed or expired startup cannot be recorded as ready. The Git command
+retains its separate deadline. Native file sync also checks the recorded remote
+workspace and rejects a foreign lease or a root outside the sandbox workspace.
+This does not extend installed service coverage.
+
 16 November 2026 Pi startup follow-up: APP-02 and APP-11 owning checks exercise
 explicit CLI entry points through Kubernetes-style `..data` symlinks, missing
 credentials/download tooling, runtime integrity and executable compatibility.
@@ -172,7 +185,10 @@ The required Public release checks also run the
 [native ConfigMap startup contract](../../magic-cluster/apps/ai/tests/pi_coding_startup_contract.py)
 in their disposable Kubernetes cluster with the pinned Node image. It checks cold
 startup, a fresh runtime on the same retained PVC, preserved settings/auth/session
-fixtures and rejection of a missing selected model. The existing APP-10 removal
+fixtures and rejection of a missing selected model. In that negative CI fixture
+only, the exit code and exact missing-model message are checked on the same
+terminated container attempt; a restart cannot substitute another attempt's log.
+The deployed chart and its logging policy are unchanged. The existing APP-10 removal
 and ACL-01 SSO contracts remain unchanged. These isolated checks are not installed
 SSO, terminal interaction or model-inference acceptance; those require the exact
 qualified Main revision on the authorized appliance. No new case ID or standard
@@ -1328,6 +1344,50 @@ missing variables in other resources. The in-Appliance runner still needs no
 Flux CLI; CI render evidence is not credited as installed login acceptance.
 The previous successful script/routine renders did not cover strict post-build
 substitution; historical results remain unchanged.
+
+17 November 2026, SEC-03 temporary dependency mitigation: the existing
+supply-chain owning group invokes `tests.test_dependency_patches.DependencyPatchTests`.
+Its real installed `picomatch` counterexamples reject single-branch repeated-
+extglob blocking with a bounded child process and require the parser's safe
+literal fallback; ordinary file/test globs, escaped/quoted/bracket-literal
+stars and safe existing nested-star reduction remain covered. All locked
+consumers must use the checksum-bound patch, build contexts must include it,
+and `pnpm test` selects its Node tests before the normal clients. No new case ID
+or live selection is added. The standard online advisory check is unchanged
+and still reports upstream 4.0.7 as vulnerable; this local mitigation cannot
+credit fresh-CI acceptance or unblock a Main merge by ignoring that finding.
+No installed acceptance, image promotion or historical result is changed.
+
+18 November 2026, UX-04/SEC-03 CLI packaging: the existing CLI/TUI tests still
+own runtime behavior. The AMD64 and ARM64 CLI image builds separately check the
+non-root entry point, help and version with no npm or installed Node modules.
+Candidate audit tests distinguish the one approved test-graph finding from
+production, new advisory, registry error and expired-approval cases. This adds
+no registered case or live selection and does not replace the required audit.
+
+18 November 2026, SEC-03 Main admission follow-up: PR #114's single, expiring
+build/test advisory decision also applies to its reviewed merge tree. The CI
+policy tests reject changed base/parent, lockfile or runtime inputs, expired or
+different PRs, a production finding and an unreadable registry report. A second,
+unfiltered audit preserves the unresolved result; it cannot qualify the
+installed SEC-03 case. No test selector, fixture or live evidence is changed.
+
+17 November 2026, AUTH-01/06/10 and ACL-01 authenticated-resource transport:
+the existing API discovery includes `test_edge_transport.py`, with a real held-
+accept TCP control for the old five-slot queue and complete-wave admission on
+the production listener. Its 32/64/128-resource bursts retain one authorization
+per request, exact empty-response framing, bounded safe failure diagnostics and
+no second response after a peer disconnect. The existing Phase 1 AUTH-01 contract
+and Phase 5 authentication owning group select these transport/reauthentication
+suites too, without adding an ID or selection profile. The `identity-sessions`
+multi-host gate adds authenticated ES-module graphs through real Envoy/TLS,
+the production API listener and live Keycloak userinfo; all imports and a working
+click handler are required, not just rendered HTML. Existing anonymous callback
+fanout, current owner/role/grant denials, logout/re-login and TLS negatives stay
+selected. These are owning/protocol extensions, not new registered cases or
+installed APP-06/model-inference acceptance. A qualified matching image and
+separate native page/asset/button acceptance are still required; standard service
+exclusions and historical results remain unchanged.
 
 16 November 2026, AUTH-06 reauthentication follow-up: the existing discovered
 HTTP-handler checks in `test_edge_reauthentication.py` distinguish 401/403/503,

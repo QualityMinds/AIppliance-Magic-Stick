@@ -14,9 +14,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import callback_gate
 
 state = {"mode": "ready", "active": 0, "maximum": 0, "calls": 0, "joined": 0}
+auth_counts = {"checks": 0, "succeeded": 0}
 lock = threading.Lock()
 joined = threading.Condition(lock)
 gate = None
+
+
+class FixtureServer(ThreadingHTTPServer):
+    # The control/static fixture must not introduce a second small accept queue.
+    request_queue_size = 256
 
 
 class ReadinessFuture(Future):
@@ -49,6 +55,15 @@ class Fixture(BaseHTTPRequestHandler):
         elif parsed.path == "/metrics":
             with lock:
                 payload = json.dumps({key: state[key] for key in ("maximum", "calls", "joined")}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        elif parsed.path == "/resource-metrics":
+            with lock:
+                payload = json.dumps(auth_counts).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -113,17 +128,65 @@ class PaperclipFixture(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class ResourceFixture(BaseHTTPRequestHandler):
+    """An ES-module graph whose click handler exists only after all imports load."""
+    def log_message(self, *_args):
+        pass
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        count = urllib.parse.parse_qs(parsed.query).get("count", ["32"])[0]
+        count = int(count) if count in {"32", "64", "128"} else 32
+        if parsed.path == "/fanout/":
+            content_type = "text/html"
+            body = ("<!doctype html><link rel=icon href=data:,><button id=picker>Select model</button>"
+                    "<output id=initialization>loading</output><div id=models hidden>fixture-model</div>"
+                    "<script type=module src='/fanout/app.js?count=" + str(count) + "'></script>").encode()
+        elif parsed.path == "/fanout/app.js":
+            content_type = "text/javascript"
+            body = ("await Promise.all(Array.from({length:" + str(count) + "},(_,i)=>import('/fanout/module-'+i+'.js')));"
+                    "document.querySelector('#picker').addEventListener('click',()=>{document.querySelector('#models').hidden=false;});"
+                    "document.querySelector('#initialization').textContent='ready';").encode()
+        elif parsed.path.startswith("/fanout/module-") and parsed.path.endswith(".js") and parsed.path[15:-3].isdigit():
+            content_type, body = "text/javascript", b"export const ready=true;"
+        else:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
 callback_gate.STATUS_URL = "http://127.0.0.1:8082/internal/callback-readiness"
 callback_gate.Future = ReadinessFuture
 gate = callback_gate.start(cert_dir="/app/gate-valid")
 expired_gate = callback_gate.start(port=8083, cert_dir="/app/gate-expired")
-threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 8082), Fixture).serve_forever, daemon=True).start()
-threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 8084), PaperclipFixture).serve_forever, daemon=True).start()
+threading.Thread(target=FixtureServer(("0.0.0.0", 8082), Fixture).serve_forever, daemon=True).start()
+threading.Thread(target=FixtureServer(("0.0.0.0", 8084), PaperclipFixture).serve_forever, daemon=True).start()
+threading.Thread(target=FixtureServer(("0.0.0.0", 8085), ResourceFixture).serve_forever, daemon=True).start()
 server = runpy.run_path("/app/server.py")
+real_authentication = server["authenticated_principal"]
+
+
+def observed_authentication(authorization):
+    with lock:
+        auth_counts["checks"] += 1
+    result = real_authentication(authorization)
+    with lock:
+        auth_counts["succeeded"] += 1
+    return result
+
+
+server["Handler"].handle_instance_guard.__globals__["authenticated_principal"] = observed_authentication
 # Keep authentication, userinfo, role and error handling real. This fixture
 # has no Kubernetes API, so only fixed, UID-bound instance records are supplied.
 server["Handler"].handle_instance_guard.__globals__["app_instance"] = lambda name: {
     "metadata": {"name": name, "uid": "fixture-owner"},
     "spec": {"enabled": True, "access": {"authentication": "sso", "role": "admin" if name.endswith("-denied") else "user"}},
 } if name in {"hermes-fixture", "hermes-denied", "paperclip-fixture", "paperclip-denied"} else None
-ThreadingHTTPServer(("0.0.0.0", 8080), server["Handler"]).serve_forever()
+server["DashboardHTTPServer"](("0.0.0.0", 8080), server["Handler"]).serve_forever()

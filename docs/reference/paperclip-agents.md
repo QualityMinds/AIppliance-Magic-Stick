@@ -65,6 +65,22 @@ enabled `opencode_local` adapter and the appliance default model. The check runs
 at startup and every 30 seconds so built-ins enabled later also work. Custom
 agents and every agent with an explicit model remain untouched.
 
+### First-agent onboarding
+
+In **Connect a model**, choose **OpenCode** and check **Magic Stick model**.
+The available chat models come from the instance's OpenCode catalog. The chosen
+instance default is preselected when it is still available; otherwise pick one
+from the list. This path uses the instance's existing LiteLLM connection. No
+cloud login or API key in the browser is required. **Connect** still runs
+Paperclip's native adapter environment check before creating the agent.
+
+This compatibility overlay applies only to the pinned 2026.1001.0 image. An
+unprivileged init container checks the upstream UI files by SHA-256 and creates
+a versioned copy in an ephemeral volume. The main container mounts that copy
+read-only. The original image, existing company and agent data, SSO route and
+credential Secret are unchanged. For an image update, requalify the upstream
+onboarding flow before carrying this overlay forward.
+
 ## AppInstance Contract
 
 The dashboard writes the following runtime shape. The hostname is normally
@@ -250,6 +266,16 @@ version otherwise discards the path returned by `realizeWorkspace`, syncs the
 workspace through its generic `/tmp` fallback, but executes the official image
 in `/workspace`. Without normalization, generated files are not synchronized
 back to the task workspace.
+
+The workspace hook for a fresh Kubernetes Sandbox also waits for its Ready
+condition before the first command. Image download and container startup have
+a separate budget of at most two minutes; the 15-second Git-context check keeps
+its own deadline. If the sandbox cannot start, the run fails during workspace
+preparation and Paperclip releases its existing lease.
+For native file transfers, the plugin can use the recorded remote workspace of
+that same Kubernetes lease when Paperclip does not supply the legacy
+`remoteCwd` field. The recorded root must remain inside `/workspace`; the
+native transfer's path and archive checks still apply.
 
 Assigning the upstream `paperclip` skill only makes it available to OpenCode; it
 does not guarantee that a model loads it. Magic Stick therefore prepends a

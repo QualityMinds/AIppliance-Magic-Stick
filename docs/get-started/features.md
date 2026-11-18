@@ -58,7 +58,9 @@
   sessions and workspaces.
 - Create [Paperclip](../reference/paperclip-agents.md) instances for companies,
   tasks and OpenCode agents, with isolated Kubernetes workspaces, LiteLLM models
-  and the common SSO access controls. The current sandbox runtime requires AMD64.
+  and the common SSO access controls. The pinned onboarding offers the instance's
+  existing Magic Stick model connection without a cloud subscription. The
+  current sandbox runtime requires AMD64.
 - Run the optional [Pi Coding Agent](../user-guide/applications.md#pi-coding-agent)
   from **Services**, with a browser terminal, model selection, SSO access controls,
   and persistent workspaces and sessions.

@@ -8,6 +8,28 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Offer OpenCode in the pinned Paperclip on-premises onboarding flow. Select an
+  available model from the Magic Stick catalog, initially using the instance's
+  configured default, and use its existing LiteLLM connection without asking for
+  a cloud subscription or a browser API key. Preserve Paperclip's environment
+  check before agent creation.
+
+- Add a checksum-bound local `picomatch` 4.0.7 patch for the single-branch
+  repeated-extglob denial of service in GHSA-fc5q-39xc-vjpf, with bounded real-
+  dependency counterexamples and ordinary glob/build compatibility checks.
+  Preserve the upstream version, integrity and notices, and keep the registry
+  advisory gate unchanged: this local mitigation does not turn its remaining
+  finding into a qualified Main merge, published release or appliance update.
+
+- Bound the Dashboard API's pending connection queue to 128 so parallel
+  authenticated application resources do not depend on the five-slot default.
+  Keep live per-request session/instance authorization and existing HTTP framing;
+  classify guard failures without private request/exception data and never send
+  a second response to a disconnected peer. Add held-accept TCP controls and
+  authenticated 32/64/128-module Envoy/Keycloak browser checks. Application images,
+  data, models, TLS and standard Services exclusions stay unchanged; matching
+  image qualification and installed acceptance remain separate requirements.
+
 - Keep Paperclip browser SSO tokens separate from native agent credentials.
   Its catalogue now selects `forwardAccessToken: false` for the existing OIDC
   policy; other applications retain their previous forwarding. Host-only

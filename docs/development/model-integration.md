@@ -418,6 +418,13 @@ handling, the native callback environment helper and plugin manifest loading.
 The Node regression suite covers upgrading a persisted older plugin, preserving
 an explicit agent model and keeping parent secrets out of plugin worker environments.
 
+The owning `paperclip_managed_onboarding.test.cjs` checks the pinned UI overlay.
+Set `PAPERCLIP_PINNED_UI_DIST` to an extracted `/app/ui/dist` from the official
+AMD64 image and `PAPERCLIP_PLAYWRIGHT_MODULE` to the installed Playwright module
+to run its Chromium fixture. It compares original and corrected bundles,
+checking the configured model, refusal of non-catalog input and preservation of
+the environment-test gate without sending a key or reaching a cloud provider.
+
 Run `paperclip_opencode_runtime.cjs <generated-provider-config.json>` in the pinned
 official OpenCode sandbox filesystem with networking disabled and UID/GID 1000.
 Wrap the catalog's `paperclip-opencode-providers.json` fragment in `provider` and

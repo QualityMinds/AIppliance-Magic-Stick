@@ -1,0 +1,59 @@
+diff --git a/lib/parse.js b/lib/parse.js
+index 29207512c60183b4bb9bf5112be3b9b5f4a9a9fd..50e06bda41317ee6653f1fde4e995af7cea83008 100644
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -284,6 +284,43 @@ const repeatedExtglobRecursion = pattern => {
+   return depth;
+ };
+ 
++// Magic Stick: GHSA-fc5q-39xc-vjpf also affects a single repeated branch.
++// An unescaped glob star nests an unbounded quantifier inside +(...) or *(...).
++// Keep quoted, escaped and bracket-literal stars intact. Existing flattenable
++// character-star sequences are handled before this conservative fallback.
++const hasUnboundedGlobStar = branch => {
++  const posixClasses = Object.keys(POSIX_REGEX_SOURCE).map(name => `[:${name}:]`);
++  let escaped = false;
++  let quoted = false;
++  let bracket = false;
++
++  for (let index = 0; index < branch.length; index++) {
++    const ch = branch[index];
++    if (escaped) {
++      escaped = false;
++    } else if (ch === '\\') {
++      escaped = true;
++    } else if (ch === '"' && !bracket) {
++      quoted = !quoted;
++    } else if (!quoted) {
++      if (ch === '[' && !bracket) {
++        bracket = true;
++      } else if (ch === '[' && bracket && branch[index + 1] === ':') {
++        const posix = posixClasses.find(value => branch.startsWith(value, index));
++        if (posix) {
++          index += posix.length - 1;
++        }
++      } else if (ch === ']') {
++        bracket = false;
++      } else if (ch === '*' && !bracket && branch[index + 1] !== '(') {
++        return true;
++      }
++    }
++  }
++
++  return false;
++};
++
+ const analyzeRepeatedExtglob = (body, options) => {
+   if (options.maxExtglobRecursion === false) {
+     return { risky: false };
+@@ -343,6 +380,10 @@ const analyzeRepeatedExtglob = (body, options) => {
+       : { risky: true };
+   }
+ 
++  if (branches.some(hasUnboundedGlobStar)) {
++    return { risky: true };
++  }
++
+   return { risky: false };
+ };
+ 

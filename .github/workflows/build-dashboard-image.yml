@@ -40,6 +40,11 @@ on:
         type: boolean
         required: false
         default: false
+      accept_pr114_test_advisory:
+        description: "Use the bounded Picomatch test acceptance for this PR #114 candidate build only"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -107,6 +112,13 @@ jobs:
       - name: Install dashboard dependencies
         working-directory: dashboard
         run: pnpm install --frozen-lockfile
+
+      - name: Verify the isolated PR 114 test acceptance
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_pr114_test_advisory }}
+        working-directory: dashboard
+        run: |
+          node --test tests/pr114-test-audit.test.mjs
+          node tools/pr114-test-audit.mjs
 
       - name: Verify dashboard clients
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}

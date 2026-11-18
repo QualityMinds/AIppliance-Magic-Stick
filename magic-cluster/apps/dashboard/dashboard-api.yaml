@@ -9272,6 +9272,14 @@ data:
         return "operator" if credential_route else "viewer"
 
 
+    class DashboardHTTPServer(ThreadingHTTPServer):
+        # HTTP/2 page loads become many independent HTTP ext_authz connections.
+        # The stdlib's five-slot accept queue loses short resource bursts before
+        # the handler (and therefore its authorization/error handling) can run.
+        # This bounds waiting connections, not authentication decisions/workers.
+        request_queue_size = 128
+
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "MagicStickDashboardAPI/0.6"
 
@@ -9374,13 +9382,59 @@ data:
             else:
                 self.send_error_json(503, "Access verification is unavailable. Please retry later.")
 
+        def edge_guard_failure(self, error, stage, started):
+            # The original request may contain callback codes, tokens or private
+            # instance names. Emit only fixed classifications and our own opaque
+            # identifier; never log exception text, headers, paths or bodies.
+            check_id = secrets.token_hex(12)
+
+            def record(failure, failure_stage):
+                status = failure.status if isinstance(failure, AuthError) and failure.status in {401, 403} else 503
+                cause = failure.__cause__ or failure
+                if isinstance(failure, BrokenPipeError):
+                    reason = "peer_closed"
+                elif isinstance(failure, ConnectionResetError):
+                    reason = "connection_reset"
+                elif status == 401:
+                    reason = "authentication_rejected"
+                elif status == 403:
+                    reason = "access_denied"
+                elif isinstance(cause, urllib.error.HTTPError):
+                    reason = "dependency_http"
+                elif isinstance(cause, TimeoutError) or (
+                        isinstance(cause, urllib.error.URLError) and isinstance(cause.reason, TimeoutError)):
+                    reason = "dependency_timeout"
+                elif isinstance(cause, (urllib.error.URLError, OSError)):
+                    reason = "transport_unavailable"
+                else:
+                    reason = "verification_unavailable"
+                allowed = {"instance-input", "instance-read", "session-check", "access-check", "response-write"}
+                print(json.dumps({"event": "edge_guard_failure", "check_id": check_id,
+                                  "stage": failure_stage if failure_stage in allowed else "unknown",
+                                  "reason": reason, "status": None if failure_stage == "response-write" else status,
+                                  "elapsed_ms": min(120000, max(0, int((time.monotonic() - started) * 1000)))}), flush=True)
+
+            record(error, stage)
+            if stage == "response-write":
+                # A response has already started. A disconnected peer must not
+                # cause a second HTTP status line or a speculative retry.
+                self.close_connection = True
+                return
+            try:
+                self.send_edge_auth_error(error)
+            except (BrokenPipeError, ConnectionResetError) as write_error:
+                record(write_error, "response-write")
+                self.close_connection = True
+
         def handle_instance_guard(self):
             parts = self.route().strip("/").split("/")
             if len(parts) < 2 or parts[:2] != ["internal", "instance-access"]:
                 return False
+            started, stage = time.monotonic(), "instance-input"
             try:
                 if len(parts) < 4 or not DNS_LABEL.fullmatch(parts[2]) or not USER_ID.fullmatch(parts[3]):
                     raise AuthError(403, "Invalid instance access request.")
+                stage = "instance-read"
                 instance = app_instance(parts[2])
                 metadata = (instance or {}).get("metadata") or {}
                 spec = (instance or {}).get("spec") or {}
@@ -9391,8 +9445,10 @@ data:
                 if authentication not in {"sso", "none"}:
                     raise AuthError(403, "Invalid instance authentication.")
                 if authentication == "sso" or instance_is_restricted(instance):
+                    stage = "session-check"
                     principal = authenticated_principal(self.edge_authorization())
                     require_local_console_transport(principal, self.headers)
+                    stage = "access-check"
                     role = access.get("role", "user")
                     allowed = MANAGED_REALM_ROLES if role == "user" else ROLE_ACCESS.get(role, set())
                     if not allowed.intersection(principal.get("roles", [])):
@@ -9400,27 +9456,30 @@ data:
                     if instance_is_restricted(instance):
                         require_instance_usage(instance, principal)
                 # HTTP ext_authz accepts exactly 200 OK, not arbitrary 2xx.
+                stage = "response-write"
                 self.send_response(200)
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
             except Exception as error:
                 # No PII, upstream response body, credential or policy is exposed at the edge.
-                self.send_edge_auth_error(error)
+                self.edge_guard_failure(error, stage, started)
             return True
 
         def handle_edge_guard(self):
             path = self.route()
             if path == "/internal/session-access" or path.startswith("/internal/session-access/"):
+                started, stage = time.monotonic(), "session-check"
                 try:
                     principal = authenticated_principal(self.edge_authorization())
                     require_local_console_transport(principal, self.headers)
+                    stage = "response-write"
                     self.send_response(200)
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                 except Exception as error:
-                    self.send_edge_auth_error(error)
+                    self.edge_guard_failure(error, stage, started)
                 return True
             if path != "/internal/federation-license" and not path.startswith("/internal/federation-license/"):
                 return self.handle_instance_guard()
@@ -10218,4 +10277,4 @@ data:
         port = int(os.environ.get("PORT", "8080"))
         threading.Thread(target=federation_entitlement_loop, daemon=True, name="federation-entitlement").start()
         threading.Thread(target=regression_cleanup_loop, daemon=True, name="regression-cleanup").start()
-        ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+        DashboardHTTPServer(("0.0.0.0", port), Handler).serve_forever()

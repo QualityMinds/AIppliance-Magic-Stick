@@ -192,3 +192,20 @@ class PiCodingTests(unittest.TestCase):
                                 text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 2)
         self.assertIn("invalid choice", result.stderr)
+
+    def test_negative_startup_requires_the_same_attempt_exit_and_diagnostic(self):
+        spec = importlib.util.spec_from_file_location("pi_startup_contract",
+            ROOT / "magic-cluster/apps/ai/tests/pi_coding_startup_contract.py")
+        contract = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(contract)
+        good = {"containerID": "containerd://fixture", "exitCode": 1, "message": contract.MISSING_MODEL_MESSAGE}
+        status = {"name": "pi-coding", "ready": False, "state": {"waiting": {}}}
+        self.assertFalse(contract.missing_model_rejected(status))
+        for field in ("state", "lastState"):
+            self.assertTrue(contract.missing_model_rejected({**status, field: {"terminated": good}}))
+        for change in ({"message": "wrong cause"}, {"message": ""}, {"exitCode": 0}, {"containerID": ""}):
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                contract.missing_model_rejected({**status, "state": {"terminated": good},
+                    "lastState": {"terminated": {**good, **change}}})
+        with self.assertRaises(RuntimeError):
+            contract.missing_model_rejected({**status, "ready": True})
