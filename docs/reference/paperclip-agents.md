@@ -272,6 +272,10 @@ condition before the first command. Image download and container startup have
 a separate budget of at most two minutes; the 15-second Git-context check keeps
 its own deadline. If the sandbox cannot start, the run fails during workspace
 preparation and Paperclip releases its existing lease.
+For native file transfers, the plugin can use the recorded remote workspace of
+that same Kubernetes lease when Paperclip does not supply the legacy
+`remoteCwd` field. The recorded root must remain inside `/workspace`; the
+native transfer's path and archive checks still apply.
 
 Assigning the upstream `paperclip` skill only makes it available to OpenCode; it
 does not guarantee that a model loads it. Magic Stick therefore prepends a

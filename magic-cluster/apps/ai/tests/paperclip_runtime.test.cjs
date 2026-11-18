@@ -10,7 +10,7 @@ const {once} = require('node:events');
 
 const chart = path.resolve(__dirname, '../../instances/paperclip');
 const preload = path.join(chart, 'files/runtime-preload.cjs');
-const {transform, waitForWorkspaceSandbox} = require(preload);
+const {transform, waitForWorkspaceSandbox, realizedSyncWorkspace} = require(preload);
 
 test('changed upstream compatibility files fail before code is patched', () => {
   for (const kind of ['manifest', 'plugin']) {
@@ -83,6 +83,31 @@ test('failed workspace startup stays failed and is not cached as ready', async (
   deps.wait = async () => {throw new Error('Sandbox did not become Ready');};
   await assert.rejects(waitForWorkspaceSandbox(params, deps), /did not become Ready/);
   assert.equal(ready.has('fixture-lease'), false);
+});
+
+test('native sync can use the controller realization stored on the same sandbox lease', () => {
+  const providerLeaseId = 'fixture-lease';
+  const workspaceRealization = {
+    version: 1, provider: 'kubernetes', providerLeaseId,
+    local: {path:'/controller/worktree'}, remote: {path:'/workspace'},
+  };
+  const lease = {providerLeaseId, metadata:{backend:'sandbox-cr', workspaceRealization}};
+  assert.equal(realizedSyncWorkspace(lease), '/workspace');
+  assert.equal(realizedSyncWorkspace({...lease, providerLeaseId:'another-lease'}), null);
+  assert.equal(realizedSyncWorkspace({...lease, metadata:{...lease.metadata, backend:'job'}}), null);
+  assert.equal(realizedSyncWorkspace({...lease, metadata:{backend:'sandbox-cr'}}), null);
+  for (const [path, expected] of [
+    ['/workspace/project', '/workspace/project'],
+    ['/', null],
+    ['/tmp', null],
+    ['/workspace-unrelated', null],
+    ['/workspace/project/../elsewhere', null],
+    ['/workspace//project', null],
+    ['/workspace/foo\0bar', null],
+  ]) {
+    const metadata = {...lease.metadata, workspaceRealization:{...workspaceRealization, remote:{path}}};
+    assert.equal(realizedSyncWorkspace({...lease, metadata}), expected);
+  }
 });
 
 test('only the Kubernetes worker inherits the preload, without parent secrets', async () => {
