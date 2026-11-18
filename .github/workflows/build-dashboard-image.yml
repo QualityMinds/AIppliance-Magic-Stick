@@ -7,6 +7,9 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
+      # The runner packages this temporary Main-dev CI contract. Keep the
+      # coordinated dashboard and runner candidates from the same source.
+      - tools/main-dev-advisory-admission.mjs
       - .github/workflows/public-release-checks.yml
       - .github/workflows/dashboard-browser-smoke.yml
       - tools/promote_dashboard_images.py

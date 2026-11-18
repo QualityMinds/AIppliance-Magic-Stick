@@ -122,23 +122,34 @@ the checksum-bound lockfile, a clean production high/critical audit, and a
 full audit with no other high/critical finding. It accepts only the named
 Picomatch advisory on the known 4.0.7 build/test paths.
 
-The same decision also permits **admission of PR #114 to Main** by that
-deadline, not acceptance of later Main pushes. The required `advisories` job
+The initial decision also permitted **admission of PR #114 to Main** by that
+deadline, not a blanket exception for later Main pushes. The required `advisories` job
 verifies the same frozen graph and applies the decision only on the actual
 same-repository PR merge tree, against the approved base. Runtime inputs must
 match tested source `098a7ebf5ab5b5a1e63508275d4923827adbab3f` as verified by
 [the candidate build](https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/44321832724)
 and the published Web, API and CLI package manifests on both architectures.
 The PR also runs the unfiltered audit, so the open finding remains visible and
-the workflow cannot be used as clean installed SEC-03 evidence. Main pushes,
-scheduled checks, dispatches and other PRs retain strict unfiltered enforcement.
-Check the deadline again immediately before merging; a cached successful check
-does not extend the approval.
+the workflow cannot be used as clean installed SEC-03 evidence.
+
+The Main-dev extension uses the same single finding, frozen lock checksum and
+deadline. It admits only the policy-only direct successor of
+`34a2343e98856c0f12cda8748c149897c5950c0e` and the immediately following
+canonical, coordinated pin promotion based on that successor. Both actual PR
+merge trees and their resulting Main pushes must match their parents and
+permitted paths. The pin admission also verifies the four exact-source native
+builds and published immutable images via the existing promotion verifier.
+Any new code/lock graph, unexpected image source, other PR, schedule or manual
+dispatch continues to use strict unfiltered enforcement. The unfiltered audit
+still blocks release qualification and is not installed acceptance. Check the
+deadline again immediately before merging; a cached successful check does not
+extend the approval.
 
 The regression runner still requires opt-in registration for a disposable
-test appliance. This decision does not authorize deployment, stable
-distribution or an additional accepted finding. Remove the temporary
-candidate and admission code when retiring the patch.
+test appliance. The repository decision is not in itself deployment
+authorization and does not approve stable distribution or any additional
+finding. Remove the temporary candidate and admission code and matching
+dashboard build and browser-test triggers when retiring the patch.
 
 ## First-run setup sessions
 
