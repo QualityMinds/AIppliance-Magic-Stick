@@ -1365,6 +1365,13 @@ Candidate audit tests distinguish the one approved test-graph finding from
 production, new advisory, registry error and expired-approval cases. This adds
 no registered case or live selection and does not replace the required audit.
 
+18 November 2026, SEC-03 Main admission follow-up: PR #114's single, expiring
+build/test advisory decision also applies to its reviewed merge tree. The CI
+policy tests reject changed base/parent, lockfile or runtime inputs, expired or
+different PRs, a production finding and an unreadable registry report. A second,
+unfiltered audit preserves the unresolved result; it cannot qualify the
+installed SEC-03 case. No test selector, fixture or live evidence is changed.
+
 17 November 2026, AUTH-01/06/10 and ACL-01 authenticated-resource transport:
 the existing API discovery includes `test_edge_transport.py`, with a real held-
 accept TCP control for the old five-slot queue and complete-wave admission on

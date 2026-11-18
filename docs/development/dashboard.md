@@ -91,7 +91,7 @@ tarball integrity and MIT notices are retained rather than assigning a fictitiou
 fixed version. `pnpm test` runs `test:dependency-patches` before the existing
 client suites. The existing SEC-03 supply-chain owning selection also invokes
 [`DependencyPatchTests`](../../tests/test_dependency_patches.py), checking the
-actual installed matcher, lock graph, build contexts and unchanged advisory gate.
+actual installed matcher, lock graph, build contexts and strict audit defaults.
 
 The unpatched counterexample must exceed a bounded child-process budget; with
 the patch, the same short attack and its variants finish and preserve the
@@ -110,8 +110,8 @@ this candidate is not a fully upstream-compatible general-purpose replacement.
 
 **The version-based registry audit still reports 4.0.7 as vulnerable.** The
 patch does not exclude an advisory, change its severity, or replace the scanner.
-The required audit remains a merge/qualification
-blocker. Replace this temporary patch with a verified official corrected version
+The unfiltered finding remains a release/qualification blocker. Replace this
+temporary patch with a verified official corrected version
 when available, regenerate the lock/inventory and repeat the counterexamples,
 client suites and exact-commit CI before removing the patch. A local mitigation
 alone does not authorize rollout or qualify current advisory evidence.
@@ -120,11 +120,25 @@ The manual PR #114 **candidate build** has a temporary exception expiring
 2026-11-19 at 13:55 UTC. It requires an explicit dispatch with tests enabled,
 the checksum-bound lockfile, a clean production high/critical audit, and a
 full audit with no other high/critical finding. It accepts only the named
-Picomatch advisory on the known 4.0.7 build/test paths. The normal `advisories`
-job and SEC-03 acceptance are unchanged. The regression runner still uses the
-existing opt-in registration for disposable test appliances; this exception
-does not authorize deployment or stable distribution. Remove the temporary
-candidate option when removing the patch.
+Picomatch advisory on the known 4.0.7 build/test paths.
+
+The same decision also permits **admission of PR #114 to Main** by that
+deadline, not acceptance of later Main pushes. The required `advisories` job
+verifies the same frozen graph and applies the decision only on the actual
+same-repository PR merge tree, against the approved base. Runtime inputs must
+match tested source `098a7ebf5ab5b5a1e63508275d4923827adbab3f` as verified by
+[the candidate build](https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/44321832724)
+and the published Web, API and CLI package manifests on both architectures.
+The PR also runs the unfiltered audit, so the open finding remains visible and
+the workflow cannot be used as clean installed SEC-03 evidence. Main pushes,
+scheduled checks, dispatches and other PRs retain strict unfiltered enforcement.
+Check the deadline again immediately before merging; a cached successful check
+does not extend the approval.
+
+The regression runner still requires opt-in registration for a disposable
+test appliance. This decision does not authorize deployment, stable
+distribution or an additional accepted finding. Remove the temporary
+candidate and admission code when retiring the patch.
 
 ## First-run setup sessions
 

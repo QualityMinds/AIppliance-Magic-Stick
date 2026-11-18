@@ -60,6 +60,18 @@ class DependencyPatchTests(unittest.TestCase):
         steps = workflow["jobs"]["advisories"]["steps"]
         audit = next(step for step in steps if step.get("name") == "Query current registry advisories")
         self.assertEqual(audit["run"], "pnpm audit --audit-level high")
+        self.assertEqual(audit["if"], "steps.pr114.outputs.accepted != 'true'")
+        admission = next(step for step in steps if step.get("id") == "pr114")
+        pr114_only = "${{ github.event_name == 'pull_request' && github.event.number == 114 }}"
+        self.assertEqual(admission["if"], pr114_only)
+        self.assertIn("node --test ../tests/pr114-main-advisory.test.mjs", admission["run"])
+        self.assertIn("node ../tools/pr114-main-advisory.mjs", admission["run"])
+        unfiltered = workflow["jobs"]["pr114-unfiltered"]
+        self.assertEqual(unfiltered["if"], pr114_only)
+        self.assertEqual(unfiltered["steps"][-1]["run"], "pnpm audit --audit-level high")
+        self.assertNotIn("if", unfiltered["steps"][-1])
+        self.assertNotIn("continue-on-error", unfiltered)
+        self.assertNotIn("continue-on-error", unfiltered["steps"][-1])
         for filename in ("package.json", "pnpm-workspace.yaml"):
             source = (DASHBOARD / filename).read_text()
             for suppressed in ("auditConfig", "ignoreCves", "ignoreGhsas", "ignoreUnfixable"):
