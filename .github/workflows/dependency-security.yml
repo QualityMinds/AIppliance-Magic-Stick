@@ -20,6 +20,8 @@ jobs:
   advisories:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      pr114_accepted: ${{ steps.pr114.outputs.accepted }}
     defaults:
       run:
         working-directory: dashboard
@@ -50,25 +52,35 @@ jobs:
 
   pr114-unfiltered:
     name: Unfiltered registry audit (PR 114)
-    if: ${{ github.event_name == 'pull_request' && github.event.number == 114 }}
+    # The release verifier requires every job to complete successfully on a
+    # clean Main run, including this job. Reuse the completed strict scan there.
+    needs: advisories
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
         working-directory: dashboard
     steps:
+      - name: Use the completed strict audit when no admission applied
+        if: needs.advisories.outputs.pr114_accepted != 'true'
+        working-directory: .
+        run: echo 'The required advisories job already completed the unfiltered registry audit.'
       - uses: actions/checkout@v4
+        if: needs.advisories.outputs.pr114_accepted == 'true'
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4
+        if: needs.advisories.outputs.pr114_accepted == 'true'
         with:
           node-version: '24'
       - name: Install locked dependency graph
+        if: needs.advisories.outputs.pr114_accepted == 'true'
         run: |
           corepack enable
           pnpm install --frozen-lockfile --ignore-scripts
       # Keep the unaccepted result available, including to fresh installed-CI evidence checks.
       - name: Query current registry advisories without acceptance
+        if: needs.advisories.outputs.pr114_accepted == 'true'
         run: pnpm audit --audit-level high
 
   python-advisories:

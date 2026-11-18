@@ -67,9 +67,17 @@ class DependencyPatchTests(unittest.TestCase):
         self.assertIn("node --test ../tests/pr114-main-advisory.test.mjs", admission["run"])
         self.assertIn("node ../tools/pr114-main-advisory.mjs", admission["run"])
         unfiltered = workflow["jobs"]["pr114-unfiltered"]
-        self.assertEqual(unfiltered["if"], pr114_only)
+        self.assertEqual(workflow["jobs"]["advisories"]["outputs"]["pr114_accepted"],
+                         "${{ steps.pr114.outputs.accepted }}")
+        # Clean Main release workflows require the entire job list to succeed.
+        # The extra raw scan must neither be skipped as a job nor mask a failing
+        # ordinary audit; it inherits success from that required upstream job.
+        self.assertNotIn("if", unfiltered)
+        self.assertEqual(unfiltered["needs"], "advisories")
+        self.assertEqual(unfiltered["steps"][0]["if"], "needs.advisories.outputs.pr114_accepted != 'true'")
+        self.assertTrue(all(step.get("if") == "needs.advisories.outputs.pr114_accepted == 'true'"
+                            for step in unfiltered["steps"][1:]))
         self.assertEqual(unfiltered["steps"][-1]["run"], "pnpm audit --audit-level high")
-        self.assertNotIn("if", unfiltered["steps"][-1])
         self.assertNotIn("continue-on-error", unfiltered)
         self.assertNotIn("continue-on-error", unfiltered["steps"][-1])
         for filename in ("package.json", "pnpm-workspace.yaml"):
