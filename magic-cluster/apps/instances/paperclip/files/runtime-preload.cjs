@@ -56,6 +56,21 @@ async function waitForWorkspaceSandbox(params, { schema, clientsFor, deriveNames
   ready.add(id);
 }
 
+function realizedSyncWorkspace(lease) {
+  const record = lease.metadata?.workspaceRealization;
+  const id = lease.providerLeaseId;
+  if (lease.metadata?.backend !== "sandbox-cr" || typeof id !== "string" || !id
+      || record?.version !== 1 || record.provider !== "kubernetes" || record.providerLeaseId !== id) {
+    return null;
+  }
+  const root = record.remote?.path;
+  if (typeof root !== "string" || (root !== "/workspace" && !root.startsWith("/workspace/"))
+      || /[\0\r\n]/.test(root) || root.split("/").slice(1).some(part => !part || part === "." || part === "..")) {
+    return null;
+  }
+  return root;
+}
+
 function transform(kind, source) {
   const hash = createHash("sha256").update(source).digest("hex");
   if (hash !== expectedHashes[kind]) {
@@ -69,6 +84,16 @@ function transform(kind, source) {
       'const PLUGIN_VERSION = "0.1.0-alpha.1";',
       `const PLUGIN_VERSION = "${pluginVersion}";`);
   }
+  // The server persists the versioned realization on the lease, not the
+  // provider's old top-level remoteCwd. Reuse its exact, confined root; never
+  // guess a root when the realization is absent or belongs to another lease.
+  source = replaceOnce(source,
+    'throw new Error("Kubernetes file sync requires a workspace remote dir on the lease metadata.");',
+    [
+      `const realized = (${realizedSyncWorkspace})(lease);`,
+      'if (realized !== null) return realized;',
+      'throw new Error("Kubernetes file sync requires a workspace remote dir on the lease metadata.");',
+    ].join("\n    "));
   source = replaceOnce(source,
     'const cwd = params.workspace.remotePath && params.workspace.remotePath.trim().length > 0\n            ? params.workspace.remotePath.trim()\n            : "/workspace";',
     [
@@ -127,4 +152,4 @@ childProcess.fork = function(modulePath, args, options) {
 };
 syncBuiltinESMExports();
 
-module.exports = { transform, pluginVersion, waitForWorkspaceSandbox };
+module.exports = { transform, pluginVersion, waitForWorkspaceSandbox, realizedSyncWorkspace };
