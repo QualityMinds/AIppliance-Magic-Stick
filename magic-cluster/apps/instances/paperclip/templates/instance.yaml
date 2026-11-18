@@ -12,6 +12,7 @@
 {{- end -}}
 {{- $image := printf "%s:%s" $imageRepository $imageTag -}}
 {{- if $imageDigest -}}{{- $image = printf "%s@%s" $imageRepository $imageDigest -}}{{- end -}}
+{{- $managedOnboarding := eq $image "ghcr.io/paperclipai/paperclip@sha256:08dbadebd4d40550eb336c25c3691f582322a88bae3f1cca101c5dd096bdc9d3" -}}
 {{- $openCodeRuntimeImage := dig "openCode" "runtimeImage" "ghcr.io/paperclipai/agent-runtime-opencode@sha256:06b207047eb2efcede3f5c85d493fbe976ad653a7fafe41cf6df76dd02e12ae6" $agentExecution -}}
 apiVersion: v1
 kind: ConfigMap
@@ -21,6 +22,10 @@ metadata:
 data:
   runtime-preload.cjs: |
 {{ .Files.Get "files/runtime-preload.cjs" | indent 4 }}
+{{- if $managedOnboarding }}
+  managed-onboarding.cjs: |
+{{ .Files.Get "files/managed-onboarding.cjs" | indent 4 }}
+{{- end }}
 ---
 apiVersion: paperclip.inc/v1alpha1
 kind: Instance
@@ -49,6 +54,32 @@ spec:
   # This guarded compatibility patch keeps the injected instructions and makes
   # the OpenCode adapter use the provider's actual workspace consistently.
   initContainers:
+{{- if $managedOnboarding }}
+    - name: prepare-paperclip-onboarding
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      command: [node, /etc/magicstick-paperclip/managed-onboarding.cjs]
+      env:
+        - name: PAPERCLIP_DEFAULT_OPENCODE_MODEL
+          value: {{ printf "litellm/%s" $model | quote }}
+      volumeMounts:
+        - name: paperclip-runtime-compatibility
+          mountPath: /etc/magicstick-paperclip
+          readOnly: true
+        - name: paperclip-onboarding-ui
+          mountPath: /onboarding-ui
+      resources:
+        requests: {cpu: 25m, memory: 64Mi}
+        limits: {cpu: 500m, memory: 256Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+{{- end }}
     - name: prepare-paperclip-adapter-patch
       image: {{ $image | quote }}
       imagePullPolicy: IfNotPresent
@@ -125,6 +156,11 @@ spec:
     - name: paperclip-adapter-patch
       emptyDir:
         sizeLimit: 1Mi
+{{- if $managedOnboarding }}
+    - name: paperclip-onboarding-ui
+      emptyDir:
+        sizeLimit: 64Mi
+{{- end }}
   extraVolumeMounts:
     - name: paperclip-runtime-compatibility
       mountPath: /etc/magicstick-paperclip
@@ -132,6 +168,11 @@ spec:
     - name: paperclip-adapter-patch
       mountPath: /app/packages/adapters/opencode-local/src/server
       readOnly: true
+{{- if $managedOnboarding }}
+    - name: paperclip-onboarding-ui
+      mountPath: /app/ui/dist
+      readOnly: true
+{{- end }}
   deployment:
     # Envoy Gateway is the authentication boundary. Paperclip stays private
     # and does not present a second, application-local login screen.
@@ -509,6 +550,10 @@ spec:
       value: --require /etc/magicstick-paperclip/runtime-preload.cjs
     - name: MAGICSTICK_COMPATIBILITY_REVISION
       value: {{ .Files.Get "files/runtime-preload.cjs" | sha256sum | quote }}
+{{- if $managedOnboarding }}
+    - name: MAGICSTICK_ONBOARDING_REVISION
+      value: {{ .Files.Get "files/managed-onboarding.cjs" | sha256sum | quote }}
+{{- end }}
     - name: OPENAI_API_KEY
       valueFrom:
         secretKeyRef:

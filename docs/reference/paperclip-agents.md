@@ -65,6 +65,22 @@ enabled `opencode_local` adapter and the appliance default model. The check runs
 at startup and every 30 seconds so built-ins enabled later also work. Custom
 agents and every agent with an explicit model remain untouched.
 
+### First-agent onboarding
+
+In **Connect a model**, choose **OpenCode** and check **Magic Stick model**.
+The available chat models come from the instance's OpenCode catalog. The chosen
+instance default is preselected when it is still available; otherwise pick one
+from the list. This path uses the instance's existing LiteLLM connection. No
+cloud login or API key in the browser is required. **Connect** still runs
+Paperclip's native adapter environment check before creating the agent.
+
+This compatibility overlay applies only to the pinned 2026.1001.0 image. An
+unprivileged init container checks the upstream UI files by SHA-256 and creates
+a versioned copy in an ephemeral volume. The main container mounts that copy
+read-only. The original image, existing company and agent data, SSO route and
+credential Secret are unchanged. For an image update, requalify the upstream
+onboarding flow before carrying this overlay forward.
+
 ## AppInstance Contract
 
 The dashboard writes the following runtime shape. The hostname is normally

@@ -165,6 +165,13 @@ disabled services. Empty
 instance-provider bases have no independent HTTP stage; their application
 instances do. Unknown adapters remain visible blockers, not omitted successes.
 Pi Coding Agent is included for installation, access and removal, not inference.
+A Paperclip APP-08 owning follow-up exercises the digest-bound browser overlay
+against the official AMD64 UI bundle and synthetic API responses. It keeps
+OpenCode visible with only the appliance adapter enabled, checks the instance
+default and alternative catalog selection, and prevents agent creation after a
+failed environment probe. This isolated browser check does not change the
+installed service selection or claim appliance inference acceptance.
+
 16 November 2026 Pi startup follow-up: APP-02 and APP-11 owning checks exercise
 explicit CLI entry points through Kubernetes-style `..data` symlinks, missing
 credentials/download tooling, runtime integrity and executable compatibility.

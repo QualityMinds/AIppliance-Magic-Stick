@@ -8,6 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Offer OpenCode in the pinned Paperclip on-premises onboarding flow. Select an
+  available model from the Magic Stick catalog, initially using the instance's
+  configured default, and use its existing LiteLLM connection without asking for
+  a cloud subscription or a browser API key. Preserve Paperclip's environment
+  check before agent creation.
+
 - Add a checksum-bound local `picomatch` 4.0.7 patch for the single-branch
   repeated-extglob denial of service in GHSA-fc5q-39xc-vjpf, with bounded real-
   dependency counterexamples and ordinary glob/build compatibility checks.
