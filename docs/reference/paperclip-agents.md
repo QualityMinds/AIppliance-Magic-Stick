@@ -267,6 +267,12 @@ workspace through its generic `/tmp` fallback, but executes the official image
 in `/workspace`. Without normalization, generated files are not synchronized
 back to the task workspace.
 
+The workspace hook for a fresh Kubernetes Sandbox also waits for its Ready
+condition before the first command. Image download and container startup have
+a separate budget of at most two minutes; the 15-second Git-context check keeps
+its own deadline. If the sandbox cannot start, the run fails during workspace
+preparation and Paperclip releases its existing lease.
+
 Assigning the upstream `paperclip` skill only makes it available to OpenCode; it
 does not guarantee that a model loads it. Magic Stick therefore prepends a
 small bootstrap directive to OpenCode agents, while leaving the upstream skill

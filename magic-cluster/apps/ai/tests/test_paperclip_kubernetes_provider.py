@@ -51,6 +51,10 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         }, spec["extraVolumeMounts"])
         self.assertEqual(spec["deployment"]["exposure"], "private")
         self.assertEqual(spec["adapters"]["registry"][0]["adapterType"], "opencode_local")
+        self.assertIn(
+            {"name": "PAPERCLIP_K8S_RPC_TIMEOUT_MS", "value": "150000"},
+            spec["env"],
+        )
         alternate = render("--set", "instance.values.image.tag=fixture-upstream-other")
         self.assertNotIn("managed-onboarding.cjs", alternate["ConfigMap"]["data"])
         self.assertFalse(any(item["name"] == "prepare-paperclip-onboarding"

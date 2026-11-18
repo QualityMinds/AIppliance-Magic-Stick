@@ -171,6 +171,10 @@ OpenCode visible with only the appliance adapter enabled, checks the instance
 default and alternative catalog selection, and prevents agent creation after a
 failed environment probe. This isolated browser check does not change the
 installed service selection or claim appliance inference acceptance.
+The APP-08 owning runtime check also covers first-run sandbox startup: a cold
+sandbox must become ready before command execution, a warm sandbox is reused,
+and a failed or expired startup cannot be recorded as ready. The Git command
+retains its separate deadline. This does not extend installed service coverage.
 
 16 November 2026 Pi startup follow-up: APP-02 and APP-11 owning checks exercise
 explicit CLI entry points through Kubernetes-style `..data` symlinks, missing
