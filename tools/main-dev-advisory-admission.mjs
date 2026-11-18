@@ -15,6 +15,7 @@ export const development = Object.freeze({
 const sha = /^[a-f0-9]{40}$/;
 const policyPaths = [
   ".github/workflows/build-dashboard-image.yml",
+  ".github/workflows/dashboard-browser-smoke.yml",
   ".github/workflows/dependency-security.yml",
   "docs/development/dashboard.md",
   "docs/development/regression-test-catalog.md",

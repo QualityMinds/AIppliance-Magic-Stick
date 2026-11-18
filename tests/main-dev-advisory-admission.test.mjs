@@ -41,7 +41,8 @@ test("only the named policy PR, immediately following bot pin PR and Main pushes
 });
 
 const policy = [
-  ".github/workflows/build-dashboard-image.yml", ".github/workflows/dependency-security.yml",
+  ".github/workflows/build-dashboard-image.yml", ".github/workflows/dashboard-browser-smoke.yml",
+  ".github/workflows/dependency-security.yml",
   "docs/development/dashboard.md", "docs/development/regression-test-catalog.md",
   "tests/main-dev-advisory-admission.test.mjs", "tests/test_dependency_patches.py",
   "tools/main-dev-advisory-admission.mjs",

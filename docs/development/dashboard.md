@@ -149,7 +149,7 @@ The regression runner still requires opt-in registration for a disposable
 test appliance. The repository decision is not in itself deployment
 authorization and does not approve stable distribution or any additional
 finding. Remove the temporary candidate and admission code and matching
-dashboard build trigger when retiring the patch.
+dashboard build and browser-test triggers when retiring the patch.
 
 ## First-run setup sessions
 
