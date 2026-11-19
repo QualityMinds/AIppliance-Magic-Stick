@@ -108,48 +108,13 @@ exercise bounded rejection of those repeated-wildcard forms with failing
 suffixes. The ordinary reviewed Web/CLI test/build checks are separate evidence;
 this candidate is not a fully upstream-compatible general-purpose replacement.
 
-**The version-based registry audit still reports 4.0.7 as vulnerable.** The
-patch does not exclude an advisory, change its severity, or replace the scanner.
-The unfiltered finding remains a release/qualification blocker. Replace this
-temporary patch with a verified official corrected version
-when available, regenerate the lock/inventory and repeat the counterexamples,
-client suites and exact-commit CI before removing the patch. A local mitigation
-alone does not authorize rollout or qualify current advisory evidence.
-
-The manual PR #114 **candidate build** has a temporary exception expiring
-2026-11-19 at 13:55 UTC. It requires an explicit dispatch with tests enabled,
-the checksum-bound lockfile, a clean production high/critical audit, and a
-full audit with no other high/critical finding. It accepts only the named
-Picomatch advisory on the known 4.0.7 build/test paths.
-
-The initial decision also permitted **admission of PR #114 to Main** by that
-deadline, not a blanket exception for later Main pushes. The required `advisories` job
-verifies the same frozen graph and applies the decision only on the actual
-same-repository PR merge tree, against the approved base. Runtime inputs must
-match tested source `098a7ebf5ab5b5a1e63508275d4923827adbab3f` as verified by
-[the candidate build](https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/44321832724)
-and the published Web, API and CLI package manifests on both architectures.
-The PR also runs the unfiltered audit, so the open finding remains visible and
-the workflow cannot be used as clean installed SEC-03 evidence.
-
-The Main-dev extension uses the same single finding, frozen lock checksum and
-deadline. It admits only the policy-only direct successor of
-`34a2343e98856c0f12cda8748c149897c5950c0e` and the immediately following
-canonical, coordinated pin promotion based on that successor. Both actual PR
-merge trees and their resulting Main pushes must match their parents and
-permitted paths. The pin admission also verifies the four exact-source native
-builds and published immutable images via the existing promotion verifier.
-Any new code/lock graph, unexpected image source, other PR, schedule or manual
-dispatch continues to use strict unfiltered enforcement. The unfiltered audit
-still blocks release qualification and is not installed acceptance. Check the
-deadline again immediately before merging; a cached successful check does not
-extend the approval.
-
-The regression runner still requires opt-in registration for a disposable
-test appliance. The repository decision is not in itself deployment
-authorization and does not approve stable distribution or any additional
-finding. Remove the temporary candidate and admission code and matching
-dashboard build and browser-test triggers when retiring the patch.
+GitHub withdrew the advisory on 18 November 2026; this did not change the npm
+package contents. The local patch and its coverage remain in place. The
+[Dependency security workflow](../../.github/workflows/dependency-security.yml)
+always runs the unfiltered `pnpm audit --audit-level high` on the frozen graph.
+High or critical findings and registry failures still fail the check. Removing
+the patch is a separate compatibility decision that requires a reviewed lock
+and inventory update, matcher and client tests, and exact-commit CI.
 
 ## First-run setup sessions
 

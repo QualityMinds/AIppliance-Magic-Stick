@@ -1379,6 +1379,13 @@ wrong PRs, changed runtime/lockfiles, old pins, later Main revisions and
 expired decisions. Existing artifact provenance checks and the separate,
 strict audit remain required; no installed evidence or test selection changes.
 
+19 November 2026, SEC-03 advisory acceptance retirement: after the advisory
+was withdrawn, the temporary candidate and Main admission paths were removed.
+The owning workflow contract requires the ordinary registry audit to run on
+every dependency-security invocation and to propagate failures. The local
+patch, both Python audit graphs and the installed exact-commit CI evidence
+requirements remain unchanged. No installed run is credited.
+
 17 November 2026, AUTH-01/06/10 and ACL-01 authenticated-resource transport:
 the existing API discovery includes `test_edge_transport.py`, with a real held-
 accept TCP control for the old five-slot queue and complete-wave admission on

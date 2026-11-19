@@ -7,9 +7,6 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
-      # The runner packages this temporary Main-dev CI contract. Keep the
-      # coordinated dashboard and runner candidates from the same source.
-      - tools/main-dev-advisory-admission.mjs
       - .github/workflows/public-release-checks.yml
       - .github/workflows/dashboard-browser-smoke.yml
       - tools/promote_dashboard_images.py
@@ -40,11 +37,6 @@ on:
     inputs:
       skip_tests:
         description: "Build images without test suites for an explicitly requested manual rollout"
-        type: boolean
-        required: false
-        default: false
-      accept_pr114_test_advisory:
-        description: "Use the bounded Picomatch test acceptance for this PR #114 candidate build only"
         type: boolean
         required: false
         default: false
@@ -115,13 +107,6 @@ jobs:
       - name: Install dashboard dependencies
         working-directory: dashboard
         run: pnpm install --frozen-lockfile
-
-      - name: Verify the isolated PR 114 test acceptance
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_pr114_test_advisory }}
-        working-directory: dashboard
-        run: |
-          node --test tests/pr114-test-audit.test.mjs
-          node tools/pr114-test-audit.mjs
 
       - name: Verify dashboard clients
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}
