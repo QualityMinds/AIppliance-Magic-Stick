@@ -15,11 +15,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   check before agent creation.
 
 - Add a checksum-bound local `picomatch` 4.0.7 patch for the single-branch
-  repeated-extglob denial of service in GHSA-fc5q-39xc-vjpf, with bounded real-
-  dependency counterexamples and ordinary glob/build compatibility checks.
-  Preserve the upstream version, integrity and notices, and keep the registry
-  advisory gate unchanged: this local mitigation does not turn its remaining
-  finding into a qualified Main merge, published release or appliance update.
+  repeated-extglob behavior documented in the withdrawn GHSA-fc5q-39xc-vjpf,
+  with bounded matcher tests and ordinary glob/build compatibility checks.
+  Preserve the upstream version, integrity and notices. Retire the expired
+  advisory exceptions and keep the unfiltered registry audit mandatory.
 
 - Bound the Dashboard API's pending connection queue to 128 so parallel
   authenticated application resources do not depend on the five-slot default.

@@ -5,7 +5,6 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
-      - tools/main-dev-advisory-admission.mjs
       - .github/workflows/public-release-checks.yml
       - tools/promote_dashboard_images.py
       - tools/promote_regression_image.py
@@ -36,7 +35,6 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
-      - tools/main-dev-advisory-admission.mjs
       - .github/workflows/public-release-checks.yml
       - tools/promote_dashboard_images.py
       - tools/promote_regression_image.py

@@ -56,35 +56,26 @@ class DependencyPatchTests(unittest.TestCase):
         self.assertIn("test_dependency_patches.DependencyPatchTests", supply_chain)
 
     def test_registry_security_gate_is_not_replaced_or_suppressed(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/dependency-security.yml").read_text())
-        steps = workflow["jobs"]["advisories"]["steps"]
-        audit = next(step for step in steps if step.get("name") == "Query current registry advisories")
+        workflow = yaml.load((ROOT / ".github/workflows/dependency-security.yml").read_text(),
+                             Loader=yaml.BaseLoader)
+        self.assertEqual(set(workflow["on"]), {"push", "pull_request", "schedule", "workflow_dispatch"})
+        for event in ("push", "pull_request"):
+            self.assertEqual(workflow["on"][event]["branches"], ["main"])
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(set(workflow["jobs"]), {"advisories", "python-advisories"})
+        advisories = workflow["jobs"]["advisories"]
+        steps = advisories["steps"]
+        audit = steps[-1]
+        self.assertEqual(audit["name"], "Query current registry advisories")
         self.assertEqual(audit["run"], "pnpm audit --audit-level high")
-        self.assertEqual(audit["if"],
-                         "steps.pr114.outputs.accepted != 'true' && steps.main_dev.outputs.accepted != 'true'")
-        admission = next(step for step in steps if step.get("id") == "pr114")
-        pr114_only = "${{ github.event_name == 'pull_request' && github.event.number == 114 }}"
-        self.assertEqual(admission["if"], pr114_only)
-        self.assertIn("node --test ../tests/pr114-main-advisory.test.mjs", admission["run"])
-        self.assertIn("node ../tools/pr114-main-advisory.mjs", admission["run"])
-        unfiltered = workflow["jobs"]["pr114-unfiltered"]
-        main_dev = next(step for step in steps if step.get("id") == "main_dev")
-        self.assertIn("node --test ../tests/main-dev-advisory-admission.test.mjs", main_dev["run"])
-        self.assertIn("node ../tools/main-dev-advisory-admission.mjs", main_dev["run"])
-        self.assertEqual(workflow["jobs"]["advisories"]["permissions"], {"contents": "read", "actions": "read"})
-        self.assertEqual(workflow["jobs"]["advisories"]["outputs"]["approved_dev_risk"],
-                         "${{ steps.pr114.outputs.accepted == 'true' || steps.main_dev.outputs.accepted == 'true' }}")
-        # Clean Main release workflows require the entire job list to succeed.
-        # The extra raw scan must neither be skipped as a job nor mask a failing
-        # ordinary audit; it inherits success from that required upstream job.
-        self.assertNotIn("if", unfiltered)
-        self.assertEqual(unfiltered["needs"], "advisories")
-        self.assertEqual(unfiltered["steps"][0]["if"], "needs.advisories.outputs.approved_dev_risk != 'true'")
-        self.assertTrue(all(step.get("if") == "needs.advisories.outputs.approved_dev_risk == 'true'"
-                            for step in unfiltered["steps"][1:]))
-        self.assertEqual(unfiltered["steps"][-1]["run"], "pnpm audit --audit-level high")
-        self.assertNotIn("continue-on-error", unfiltered)
-        self.assertNotIn("continue-on-error", unfiltered["steps"][-1])
+        self.assertNotIn("needs", advisories)
+        self.assertNotIn("permissions", advisories)
+        for item in (advisories, *steps):
+            self.assertNotIn("if", item)
+            self.assertNotIn("continue-on-error", item)
+        self.assertEqual([step["run"].strip() for step in steps if "run" in step],
+                         ["corepack enable\npnpm install --frozen-lockfile --ignore-scripts",
+                          "pnpm audit --audit-level high"])
         for filename in ("package.json", "pnpm-workspace.yaml"):
             source = (DASHBOARD / filename).read_text()
             for suppressed in ("auditConfig", "ignoreCves", "ignoreGhsas", "ignoreUnfixable"):
