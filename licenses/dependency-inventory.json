@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "38a1bd5f772dac2187070684ce761dd65c1203d585879a6f08a36c474c61f04a",
-  "deploymentReferencesSha256": "5f7677498dafbddca116c826a156e7a68903cc05a8af55cba36eda967d179dbd",
+  "deploymentReferencesSha256": "ea432271d18a21c4fd15bc1e9a0a9233657ef5961d0c36063128856722a8536a",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1932,23 +1932,28 @@
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 79,
+      "line": 71,
       "reference": "python-version: '3.13'"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 105,
+      "line": 97,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 109,
+      "line": 101,
       "reference": "python3 -m pip install pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 163,
+      "line": 148,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 179,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
@@ -1958,11 +1963,6 @@
     {
       "file": ".github/workflows/build-dashboard-image.yml",
       "line": 209,
-      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
-    },
-    {
-      "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 224,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
@@ -2087,42 +2087,37 @@
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 80,
+      "line": 78,
       "reference": "node-version: '24'"
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 83,
+      "line": 81,
       "reference": "python-version: '3.13'"
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 89,
+      "line": 87,
       "reference": "python -m pip install PyYAML==6.0.3"
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 104,
+      "line": 102,
       "reference": "node-version: '24'"
     },
     {
       "file": ".github/workflows/dependency-security.yml",
-      "line": 43,
+      "line": 32,
       "reference": "node-version: '24'"
     },
     {
       "file": ".github/workflows/dependency-security.yml",
-      "line": 94,
-      "reference": "node-version: '24'"
-    },
-    {
-      "file": ".github/workflows/dependency-security.yml",
-      "line": 120,
+      "line": 57,
       "reference": "python-version: '3.13'"
     },
     {
       "file": ".github/workflows/dependency-security.yml",
-      "line": 122,
+      "line": 59,
       "reference": "run: python -m pip install pip-audit==2.10.1"
     },
     {
@@ -2558,7 +2553,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 35,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-21b5a9b8381dfc972d64b467d6ab4f9538ef76dd@sha256:ff2ce9586f78a73dc99ddfaf4f8ce18a919bbf6f60f86431ad6f28facf3c6374"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-cecc038c97e4c01ad6e9db4d15b68eb820f69c2b@sha256:0d87a3e7d5b908ff448f5106f4d5319ab79af8df059ec6734f81ef95d617af4d"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2578,7 +2573,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-21b5a9b8381dfc972d64b467d6ab4f9538ef76dd@sha256:2c34f45380e33ee69bec2af60ac265b9fcd361405ee15098abe15a30568c9c6a"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-cecc038c97e4c01ad6e9db4d15b68eb820f69c2b@sha256:eb9fe05410fa50d886da9adb420c998756ad28df3aa0279e557645b351f92850"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
@@ -2783,7 +2778,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-21b5a9b8381dfc972d64b467d6ab4f9538ef76dd@sha256:0eefa5065c283f4ec9a7c46911d3a4c7302f40379a2bca698d725f2c61b5ee33\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-cecc038c97e4c01ad6e9db4d15b68eb820f69c2b@sha256:798814165bbfa9de6893edf958ee7fbeb63b5b78ea76758c209308a7748b5d6d\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
