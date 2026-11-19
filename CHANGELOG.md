@@ -892,6 +892,56 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 - Preserve KubeOpenCode instance model choices during catalog synchronization,
   remove withdrawn provider routes and roll updated configuration automatically.
 
+## v1.0.1 - 2026-11-19
+
+Magic Stick 1.0.1 improves application sign-in, local application setup, and the
+attached-console experience. It also improves recovery diagnostics and delivers
+a fixed-version installer for this exact product release.
+
+### Dashboard and services
+
+- The terminal dashboard now follows the web dashboard's sections and supports
+  keyboard and mouse navigation, instance create/remove actions, and model
+  start, stop, and restart controls.
+- Paperclip onboarding offers OpenCode with models from the Magic Stick catalog
+  through the instance's existing LiteLLM connection, without requiring a cloud
+  subscription. Pi Coding Agent starts correctly with projected Kubernetes
+  configuration, and OpenClaw checks the ownership of its own data volume
+  before starting its non-root gateway.
+- KubeOpenCode instance links use the `oc` address label. Use the new link from
+  the dashboard; old instance addresses are retired. The central module
+  address and persistent workspaces are unchanged.
+- Automatic NVIDIA model memory planning uses the capacity of one eligible card
+  rather than adding together cards in a pool for a single-card reservation.
+
+### Sign-in, upgrades, and security
+
+- Gateway SSO cookies are scoped to their own hosts. A logged-out browser
+  navigation can restart sign-in, while unauthorized API calls are not replayed.
+  Sign in again if prompted after upgrading. Callback verification and startup
+  ordering are improved for fresh installations and saved instances.
+- The attached local console signs in automatically as administrator by default,
+  including on existing installations. **Physical access to the local keyboard
+  can grant dashboard administrator access.** Use **System → Settings → Local
+  console** to select a lower role or disable automatic sign-in where needed.
+- Approved commits clear obsolete Flux branch/tag selectors. Regression recovery
+  keeps cleanup receipts tied to their owning runs, and GPU verification waits
+  for the exact inventory revision. These changes do not reinterpret past reports.
+- The temporary Picomatch exception is removed. The local matcher patch is
+  retained, and the unfiltered npm advisory check remains mandatory.
+
+### Install and update
+
+Use **System → Settings → Updates → Released version** to select `v1.0.1` on
+supported installations. Devices pinned to older product versions do not change
+automatically. For a fresh installation, use the verified fixed-version USB
+download linked from this release after media verification, and follow the
+[installation guide](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v1.0.1/docs/installation/README.md).
+
+The Services regression remains an explicit, separate selection. Release CI
+and installer integrity checks do not claim acceptance on every physical
+machine, GPU, or installation path.
+
 ## v1.0.0 - 2026-11-07
 
 ### Added
