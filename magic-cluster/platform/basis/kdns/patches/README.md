@@ -45,6 +45,11 @@ inside an empty Linux network namespace with synthetic peers. It checks
 membership after DHCP and hotplug, the exact A record on each link, and renewal
 after renumbering. It never disconnects an existing host interface.
 
+Pull-request checks also build both target images without publishing them.
+The Dockerfile-specific ignore file retains the prepared `vendor/` tree that
+upstream's default context would exclude, so these checks exercise the same
+patched dependencies, packaging and license evidence as the publisher.
+
 The cluster manifests already grant the required read-only Gateway API RBAC
 and opt the local Keycloak, SSO pilot, dashboard, and generated AppInstance
 routes into discovery. `.github/workflows/build-kdns-image.yml` checks out this
