@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -33,6 +34,9 @@ NAMES = {"kdns": ("kdns", "kdns-kdns"), "dashboardApi": ("identity-system", "ai-
 POLICY_START_SECONDS = 365
 RESERVATION_SECONDS = 1800
 UID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+NVIDIA_DISPLAY_DROPIN = "90-magicstick-nvidia-display.yaml"
+NVIDIA_DISPLAY_POLICY = (b"# The host owns NVIDIA DRM so the local setup/TUI console remains visible.\n"
+                         b"node-label:\n  - nvidia.com/gpu.deploy.driver=false\n")
 
 
 def local(argv, timeout=30):
@@ -46,6 +50,19 @@ def identity():
     return Path("/etc/machine-id").read_text().strip()
 
 
+def verify_stock_dropins(directory):
+    # Keep the role-generated NVIDIA label policy byte-for-byte intact. A
+    # matching filename alone cannot exempt custom network-bearing settings.
+    for path in directory.glob("*.yaml"):
+        info = path.lstat()
+        if (path.name != NVIDIA_DISPLAY_DROPIN or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o644
+                or info.st_size > len(NVIDIA_DISPLAY_POLICY) + 64
+                or path.read_bytes() not in (NVIDIA_DISPLAY_POLICY, NVIDIA_DISPLAY_POLICY +
+                                            b"  - nvidia.com/gpu.deploy.operands=false\n")):
+            raise migration.MigrationError("Additional K3s configuration needs local review.")
+
+
 def verify_stock(node):
     info = node["status"]["nodeInfo"]
     if (info.get("kubeletVersion") != "v1.36.4+k3s1"
@@ -54,8 +71,9 @@ def verify_stock(node):
     config = yaml.safe_load(Path("/etc/rancher/k3s/config.yaml").read_text(encoding="utf-8"))
     if set(config) - {"node-name", "tls-san", "write-kubeconfig-mode", "kube-apiserver-arg", "disable", "kubelet-arg"}:
         raise migration.MigrationError("A custom K3s configuration needs local review.")
-    if config.get("disable") != ["traefik"] or any(TARGETS["k3s"].parent.glob("*.yaml")):
+    if config.get("disable") != ["traefik"]:
         raise migration.MigrationError("Additional K3s configuration needs local review.")
+    verify_stock_dropins(TARGETS["k3s"].parent)
     start = local(["systemctl", "show", "k3s.service", "--property=ExecStart", "--value"])
     if "argv[]=/usr/local/bin/k3s server ;" not in start:
         raise migration.MigrationError("The K3s service does not use the stock server entry point.")

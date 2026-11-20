@@ -1,9 +1,12 @@
 from copy import deepcopy
+import importlib.util
 import json
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -119,6 +122,40 @@ class RuntimeGateTests(unittest.TestCase):
             maintenance.assert_models_idle(reader)
         activation["status"]["phase"] = "Disabled"
         maintenance.assert_models_idle(reader)
+
+    def test_role_generated_nvidia_policy_is_preserved_on_existing_hosts(self):
+        spec = importlib.util.spec_from_file_location("nvidia_driver_fixture",
+            FILES.parents[1] / "nvidia-display/files/driver_ready.py")
+        renderer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(renderer)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / maintenance.NVIDIA_DISPLAY_DROPIN
+            for fresh, ready in ((False, True), (True, False)):
+                with self.subTest(fresh=fresh, ready=ready):
+                    content = renderer.bootstrap_config(fresh, ready).encode()
+                    target.write_bytes(content)
+                    info = SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_uid=0, st_gid=0, st_size=len(content))
+                    with patch.object(Path, "lstat", return_value=info):
+                        maintenance.verify_stock_dropins(root)
+                    self.assertEqual(target.read_bytes(), content)
+
+    def test_nvidia_filename_does_not_exempt_custom_or_unowned_dropins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / maintenance.NVIDIA_DISPLAY_DROPIN
+            for changed, metadata in (
+                (b"node-ip: 10.0.0.42\n", {}),
+                (maintenance.NVIDIA_DISPLAY_POLICY, {"st_uid": 1000}),
+                (maintenance.NVIDIA_DISPLAY_POLICY, {"st_mode": stat.S_IFLNK | 0o777}),
+                (maintenance.NVIDIA_DISPLAY_POLICY, {"st_mode": stat.S_IFREG | 0o664}),
+            ):
+                with self.subTest(metadata=metadata, size=len(changed)):
+                    target.write_bytes(changed)
+                    info = SimpleNamespace(**({"st_mode": stat.S_IFREG | 0o644, "st_uid": 0,
+                                              "st_gid": 0, "st_size": len(changed)} | metadata))
+                    with patch.object(Path, "lstat", return_value=info), self.assertRaisesRegex(MigrationError, "local review"):
+                        maintenance.verify_stock_dropins(root)
 
     def test_a_restart_needs_a_fresh_invocation_and_running_network_policy(self):
         with patch.object(maintenance, "local", side_effect=[
