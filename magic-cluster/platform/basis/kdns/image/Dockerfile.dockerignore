@@ -1,0 +1,15 @@
+# Match the pinned upstream exclusions except for vendor/: the BuildKit
+# context must contain exactly the prepared, tested dnssd source.
+/.git/
+/.github/
+/Gopkg.lock
+*.test
+*.out
+*.cover
+*.local
+/.idea/
+/.vscode/
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+Thumbs.db
