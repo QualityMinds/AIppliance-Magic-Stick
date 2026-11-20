@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "38a1bd5f772dac2187070684ce761dd65c1203d585879a6f08a36c474c61f04a",
-  "deploymentReferencesSha256": "ea432271d18a21c4fd15bc1e9a0a9233657ef5961d0c36063128856722a8536a",
+  "deploymentReferencesSha256": "fb176721edd429c69e07ae38e7ac10bc09ff63e313c188215828c04985888064",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2778,7 +2778,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-cecc038c97e4c01ad6e9db4d15b68eb820f69c2b@sha256:798814165bbfa9de6893edf958ee7fbeb63b5b78ea76758c209308a7748b5d6d\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-b87543be8f820bbb3fd2735c6f0c5fea8f0869da@sha256:ab40adbe3edf964f11a7a22ad462a8d5b10ec5f9e384c21548dc0252ad6e621a\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -3297,7 +3297,7 @@
     },
     {
       "file": "magic-host/roles/host-management/tests/test_network.py",
-      "line": 110,
+      "line": 139,
       "reference": "self.original = \"network:\\n  version: 2\\n  ethernets:\\n    eth0:\\n      dhcp4: true\\n\""
     },
     {
