@@ -54,6 +54,45 @@ does not replace the connection but can briefly use radio airtime.
 Scanning requires an enabled Wi-Fi interface; it never enables a disabled radio
 as a side effect. Manual SSID entry remains available without a scan.
 
+### Link-independent discovery (development candidate)
+
+Address assignment and service reachability are separate. On an existing
+installation, both interfaces can have addresses even when the Kubernetes API
+and HTTPS gateway still depend on the interface that was active at startup.
+The managed single-node candidate gives that internal traffic a fixed reserved
+address, and announces the unchanged `.local` name with the physical IPv4
+address on each active link. SSO origins, certificates, configured DHCP/static
+settings and interface priorities stay unchanged. mDNS remains link-local; it
+does not bridge VLANs or networks that block multicast.
+
+The built-in installer selects this profile for new managed single-node
+installations only after the source includes the matching discovery and Dashboard
+API image pins. It does not silently migrate existing installations.
+
+On an upgraded managed appliance, use a planned maintenance window with the
+models stopped, no active regression or host operation, and an independent local
+console. The local maintenance action checks the running image digests and
+restarts Kubernetes without editing Ethernet or Wi-Fi settings. It verifies the
+internal API, replacement load-balancer pods, and the trusted sign-in entry point.
+A failure during the change attempts to restore the previous path and verifies
+that restoration. A power cut or unfinished recovery leaves a local journal and
+blocks further host changes until reviewed.
+
+An administrator runs the following on the qualified revision:
+
+```sh
+sudo python3 /usr/local/lib/magicstick/k3s/control_plane_maintenance.py apply NODE_UID
+```
+
+Replace `NODE_UID` with the independently verified node identity. Check the
+normal hostname, HTTPS and sign-in on both individual links, then run the
+same command with `confirm` in place of `apply`. Until confirmation, run it
+with `recover` from the independent console to restore the recorded
+configuration. Do not remove a
+pending journal or try to migrate the protected address from the Network form.
+Selecting software that lacks the matching network support is not a substitute
+for a planned return to the previous network.
+
 ## User flow and limitations
 
 Select **Configure**, review settings and type the exact host name. WPA personal
@@ -127,3 +166,9 @@ static IPv4, scan/connect Wi-Fi, let a trial expire, and verify rollback with th
 browser/API unavailable and after a restart during a trial. These disruptive
 checks never run merely from opening the page or publishing source. Unit tests
 use temporary files and fake host commands; they do not prove driver behavior.
+For the link-independent candidate additionally check a fresh boot, both
+interfaces, Ethernet-only, Wi-Fi-only and reconnect after a changed lease.
+Verify the ordinary `.local` name, a trusted HTTPS response, normal SSO, and
+continued readiness of the control plane and installed workloads on each path.
+Packet and virtual-machine tests complement these checks but do not establish
+physical appliance acceptance.

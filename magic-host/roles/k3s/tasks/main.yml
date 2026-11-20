@@ -23,6 +23,9 @@
     path: /etc/rancher/k3s/config.yaml
   register: k3s_existing_config
 
+- name: Prepare the managed control-plane network before K3s starts
+  ansible.builtin.import_tasks: control-plane-network.yml
+
 # After bootstrap, kubernetes-oidc renders the complete configuration once the
 # effective domain, host IP and identity trust are known. Rendering bootstrap
 # defaults here would remove its IP SAN and restart K3s twice on every run.

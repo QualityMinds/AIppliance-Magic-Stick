@@ -16,6 +16,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   even when their cables are disconnected during setup. Preserve explicitly
   configured ports, Wi-Fi settings and the existing preferred route.
 
+- Prepare a managed single-node link-failover candidate: isolate Kubernetes'
+  internal address from Ethernet and Wi-Fi, and announce eligible addresses on
+  their own physical links without changing the appliance hostname or SSO.
+  Activate new managed installations only with matching promoted images.
+  Existing installations require maintenance with a verified rollback path and
+  separate link and sign-in confirmation; they are not silently migrated.
+
 - Offer OpenCode in the pinned Paperclip on-premises onboarding flow. Select an
   available model from the Magic Stick catalog, initially using the instance's
   configured default, and use its existing LiteLLM connection without asking for

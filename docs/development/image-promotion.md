@@ -23,6 +23,9 @@ verified appliance rollout. Normal fresh installations stay on their selected
    API, CLI and runner pins plus generated deployment references. Package identities,
    licensing decisions and unrelated changes are retained. It opens a normal
    `codex/promote-images-…` PR to main, never pushes main or merges itself.
+   Once the managed link-independent network is enabled, it also updates that
+   profile's API reference in the same PR. It does not enable the profile or
+   replace the kdns image as part of a regular dashboard promotion.
 4. Normal current-base PR checks and review remain required. If GitHub requires
    approval for repository-token-created PR workflows, approve them normally or
    use an approved PR identity; there is no protection bypass, personal-token

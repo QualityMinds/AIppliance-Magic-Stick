@@ -2398,6 +2398,19 @@ class KubernetesAccessTests(unittest.TestCase):
 
         self.assertEqual(result["apiServer"], "https://192.0.2.44:6443")
 
+    def test_link_independent_control_plane_address_is_not_exported(self):
+        self.server["list_resource"] = lambda path: [{
+            "metadata": {"labels": {"node-role.kubernetes.io/control-plane": "true"}},
+            "status": {
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "addresses": [{"type": "InternalIP", "address": "10.43.0.0"}],
+            },
+        }]
+        endpoint = self.server["_appliance_api_server_endpoint"](
+            "https://example.local:6443", "example.local",
+        )
+        self.assertEqual(endpoint, "https://example.local:6443")
+
     def test_cluster_configuration_preserves_platform_managed_api_endpoint(self):
         self.server["request_json"] = lambda method, path: {
             "data": {

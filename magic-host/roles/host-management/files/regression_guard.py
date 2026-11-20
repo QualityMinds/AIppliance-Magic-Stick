@@ -43,8 +43,11 @@ def stamp():
 
 
 class Reservation:
-    def __init__(self, command=kube):
+    def __init__(self, command=kube, duration=60):
         self.command, self.owner = command, "host-converge-" + str(uuid.uuid4())
+        if type(duration) is not int or not 1 <= duration <= 86400:
+            raise ValueError("Invalid duration for the host-maintenance reservation.")
+        self.duration = duration
         self.uid = None
         self.stopped, self.lost = threading.Event(), threading.Event()
         self.thread = None
@@ -85,7 +88,7 @@ class Reservation:
         changed = deepcopy(lease)
         changed["metadata"].setdefault("annotations", {})["regression.magicstick.dev/host-maintenance"] = "true"
         changed["metadata"]["annotations"]["regression.magicstick.dev/maintenance-host"] = socket.gethostname()
-        changed.setdefault("spec", {}).update(holderIdentity=self.owner, renewTime=stamp(), leaseDurationSeconds=60)
+        changed.setdefault("spec", {}).update(holderIdentity=self.owner, renewTime=stamp(), leaseDurationSeconds=self.duration)
         self.replace(changed)  # resourceVersion CAS closes concurrent runner acquisition.
         assert_idle(self.command)  # Also catch an intent created during acquisition.
         return True
@@ -94,7 +97,7 @@ class Reservation:
         current = self.read()
         if current["metadata"]["uid"] != self.uid or current.get("spec", {}).get("holderIdentity") != self.owner:
             raise RuntimeError("Software convergence lost its regression reservation.")
-        current["spec"].update(renewTime=stamp(), leaseDurationSeconds=60)
+        current["spec"].update(renewTime=stamp(), leaseDurationSeconds=self.duration)
         self.replace(current)
 
     def heartbeat(self):

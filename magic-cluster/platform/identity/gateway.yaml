@@ -36,6 +36,8 @@ kind: Gateway
 metadata:
   name: identity-pilot
   namespace: identity-system
+  annotations:
+    magicstick.dev/mdns-address-mode: "${AI_APPLIANCE_MDNS_ADDRESS_MODE:=gateway-status}"
 spec:
   gatewayClassName: magicstick-envoy
   infrastructure:

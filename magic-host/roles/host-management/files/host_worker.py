@@ -606,8 +606,8 @@ def main():
         worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory), network=network_config.collect(node), updates=host_updates.status(), cache=model_cache.collect(node, kube), software=software)
         # Publishing a plan must not depend on the CRD already having reconciled.
         worker.publish()
-        if not locked:
-            return 0  # Publish progress while APT holds maintenance; execute no other action.
+        if not locked or (STATE / "control-plane-network-migration.json").exists():
+            return 0  # Publish status, but never overlap a network transition needing recovery.
         operation = kube(["get", RESOURCE, operation_name(node["metadata"]["uid"]), "-n", NAMESPACE, "--ignore-not-found", "-o", "json"])
         worker.reconcile(operation)
         worker.publish()

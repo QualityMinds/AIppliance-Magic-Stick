@@ -58,10 +58,10 @@ index 964ab78..9188e3b 100644
  		}
 diff --git a/handler/gateway_api_handler.go b/handler/gateway_api_handler.go
 new file mode 100644
-index 0000000..b339179
+index 0000000..15b8886
 --- /dev/null
 +++ b/handler/gateway_api_handler.go
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,290 @@
 +package handler
 +
 +import (
@@ -86,6 +86,9 @@ index 0000000..b339179
 +	gatewayGVR   = schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
 +	httpRouteGVR = schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
 +)
++
++const gatewayAddressModeAnnotation = "magicstick.dev/mdns-address-mode"
++const linkIPv4AddressMode = "host-link-ipv4"
 +
 +type GatewayAPIHandlerImpl struct {
 +	mdns       *mdns.Manager
@@ -178,10 +181,12 @@ index 0000000..b339179
 +				continue
 +			}
 +			ips := gatewayAddresses(gateway)
-+			if override := parseIPs(annotations[mdnsIPsAnnotation]); len(override) > 0 {
++			override := parseIPs(annotations[mdnsIPsAnnotation])
++			linkAddresses := gateway.GetAnnotations()[gatewayAddressModeAnnotation] == linkIPv4AddressMode && len(override) == 0
++			if len(override) > 0 {
 +				ips = override
 +			}
-+			if len(ips) == 0 {
++			if len(ips) == 0 || (linkAddresses && !gatewayProgrammed(gateway)) {
 +				continue
 +			}
 +			port, serviceType := gatewayListener(gateway, sectionName)
@@ -217,6 +222,12 @@ index 0000000..b339179
 +					Port:   port,
 +					IPs:    ips,
 +				}
++				if linkAddresses {
++					// The Gateway's address is its internal ServiceLB destination,
++					// not an address clients on a physical link can use.
++					config.IPs = nil
++					config.InterfaceAddresses = gatewayLinkAddresses
++				}
 +				if text := annotations[mdnsTextAnnotation]; text != "" {
 +					_ = json.Unmarshal([]byte(text), &config.Text)
 +				}
@@ -234,6 +245,19 @@ index 0000000..b339179
 +		}
 +	}
 +	return result
++}
++
++func gatewayProgrammed(gateway unstructured.Unstructured) bool {
++	conditions, _, _ := unstructured.NestedSlice(gateway.Object, "status", "conditions")
++	for _, raw := range conditions {
++		condition, ok := raw.(map[string]interface{})
++		if !ok || condition["type"] != "Programmed" || condition["status"] != "True" {
++			continue
++		}
++		generation, _, _ := unstructured.NestedInt64(condition, "observedGeneration")
++		return generation > 0 && generation == gateway.GetGeneration()
++	}
++	return false
 +}
 +
 +func routeParentAccepted(route unstructured.Unstructured, namespace, name, sectionName string) bool {
@@ -319,7 +343,7 @@ index 0000000..b339179
 +}
 +
 +func configFingerprint(config dnssd.Config) string {
-+	return fmt.Sprintf("%s|%s|%s|%s|%d|%v|%v|%v", config.Name, config.Host, config.Type, config.Domain, config.Port, config.IPs, config.Ifaces, config.Text)
++	return fmt.Sprintf("%s|%s|%s|%s|%d|%v|%v|%v|%t", config.Name, config.Host, config.Type, config.Domain, config.Port, config.IPs, config.Ifaces, config.Text, config.InterfaceAddresses != nil)
 +}
 +
 +func stringValue(value interface{}, fallback string) string {
@@ -330,19 +354,20 @@ index 0000000..b339179
 +}
 diff --git a/handler/gateway_api_handler_test.go b/handler/gateway_api_handler_test.go
 new file mode 100644
-index 0000000..f323b77
+index 0000000..b88cf9f
 --- /dev/null
 +++ b/handler/gateway_api_handler_test.go
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,162 @@
 +package handler
 +
 +import (
++	"net"
 +	"testing"
 +
 +	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 +)
 +
-+func TestGatewayAPIConfigsPublishesAcceptedLocalRoute(t *testing.T) {
++func acceptedGatewayFixture() (unstructured.Unstructured, unstructured.Unstructured) {
 +	gateway := unstructured.Unstructured{Object: map[string]interface{}{
 +		"apiVersion": "gateway.networking.k8s.io/v1",
 +		"kind":       "Gateway",
@@ -388,7 +413,11 @@ index 0000000..f323b77
 +			}},
 +		},
 +	}}
++	return route, gateway
++}
 +
++func TestGatewayAPIConfigsPublishesAcceptedLocalRoute(t *testing.T) {
++	route, gateway := acceptedGatewayFixture()
 +	configs := gatewayAPIConfigs([]unstructured.Unstructured{route}, []unstructured.Unstructured{gateway})
 +	config, exists := configs["dashboard.example"]
 +	if !exists {
@@ -399,6 +428,80 @@ index 0000000..f323b77
 +	}
 +	if got := config.IPs[0].String(); got != "192.0.2.10" {
 +		t.Fatalf("expected gateway address 192.0.2.10, got %s", got)
++	}
++}
++
++func TestLinkAddressModeRequiresCurrentProgrammedGateway(t *testing.T) {
++	route, gateway := acceptedGatewayFixture()
++	gateway.SetGeneration(3)
++	gateway.SetAnnotations(map[string]string{gatewayAddressModeAnnotation: linkIPv4AddressMode})
++	get := func() map[string]bool {
++		configs := gatewayAPIConfigs([]unstructured.Unstructured{route}, []unstructured.Unstructured{gateway})
++		result := make(map[string]bool)
++		for key, conf := range configs {
++			result[key] = conf.InterfaceAddresses != nil && len(conf.IPs) == 0
++		}
++		return result
++	}
++	setProgrammed := func(generation int64, status string) {
++		t.Helper()
++		err := unstructured.SetNestedSlice(gateway.Object, []interface{}{map[string]interface{}{
++			"type": "Programmed", "status": status, "observedGeneration": generation,
++		}}, "status", "conditions")
++		if err != nil {
++			t.Fatal(err)
++		}
++	}
++	if len(get()) != 0 {
++		t.Fatal("missing Programmed condition must not advertise addresses")
++	}
++	setProgrammed(2, "True")
++	if len(get()) != 0 {
++		t.Fatal("older Programmed condition must not advertise addresses")
++	}
++	setProgrammed(3, "False")
++	if len(get()) != 0 {
++		t.Fatal("unprogrammed Gateway must not advertise addresses")
++	}
++	setProgrammed(3, "True")
++	if got := get(); len(got) != 1 || !got["dashboard.example"] {
++		t.Fatalf("expected interface addresses without the internal Gateway IP: %v", got)
++	}
++	route.SetAnnotations(map[string]string{mdnsEnabledAnnotation: "false"})
++	if len(get()) != 0 {
++		t.Fatal("route opt-in must still be required")
++	}
++	route.SetAnnotations(map[string]string{mdnsEnabledAnnotation: "true", mdnsIPsAnnotation: "203.0.113.7"})
++	conf := gatewayAPIConfigs([]unstructured.Unstructured{route}, []unstructured.Unstructured{gateway})["dashboard.example"]
++	if conf.InterfaceAddresses != nil || len(conf.IPs) != 1 || conf.IPs[0].String() != "203.0.113.7" {
++		t.Fatalf("explicit administrator override was not preserved: %+v", conf)
++	}
++}
++
++func TestGatewayLocalAddressesExcludeVirtualAndUnreachableLinks(t *testing.T) {
++	active := net.Interface{Flags: net.FlagUp | net.FlagRunning | net.FlagMulticast}
++	if !usableGatewayLink(&active, true) || usableGatewayLink(&active, false) {
++		t.Fatal("only physical active links are eligible")
++	}
++	down := active
++	down.Flags &^= net.FlagRunning
++	if usableGatewayLink(&down, true) {
++		t.Fatal("a disconnected NIC can retain an old lease but must not advertise it")
++	}
++	addr := func(cidr string) net.Addr {
++		t.Helper()
++		ip, subnet, err := net.ParseCIDR(cidr)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return &net.IPNet{IP: ip, Mask: subnet.Mask}
++	}
++	got := gatewayLinkIPv4([]net.Addr{
++		addr("169.254.8.8/16"), addr("127.0.0.1/8"), addr("2001:db8::1/64"),
++		addr("192.0.2.17/24"),
++	})
++	if len(got) != 1 || got[0].String() != "192.0.2.17" {
++		t.Fatalf("unexpected addresses: %v", got)
 +	}
 +}
 +
@@ -416,6 +519,55 @@ index 0000000..f323b77
 +	if configs := gatewayAPIConfigs([]unstructured.Unstructured{route}, nil); len(configs) != 0 {
 +		t.Fatalf("expected no configs, got %#v", configs)
 +	}
++}
+diff --git a/handler/gateway_links.go b/handler/gateway_links.go
+new file mode 100644
+index 0000000..cef500b
+--- /dev/null
++++ b/handler/gateway_links.go
+@@ -0,0 +1,43 @@
++package handler
++
++import (
++	"net"
++	"os"
++	"path/filepath"
++	"runtime"
++)
++
++// Only the local single-node Gateway opts in. Its ServiceLB is IPv4 and
++// listens on the host's physical Ethernet/Wi-Fi addresses; virtual container,
++// VPN and Kubernetes interfaces are not local discovery destinations.
++func gatewayLinkAddresses(iface *net.Interface) []net.IP {
++	if iface == nil || runtime.GOOS != "linux" {
++		return nil
++	}
++	_, err := os.Stat(filepath.Join("/sys/class/net", iface.Name, "device"))
++	if !usableGatewayLink(iface, err == nil) {
++		return nil
++	}
++	addrs, err := iface.Addrs()
++	if err != nil {
++		return nil
++	}
++	return gatewayLinkIPv4(addrs)
++}
++
++func usableGatewayLink(iface *net.Interface, physical bool) bool {
++	const required = net.FlagUp | net.FlagRunning | net.FlagMulticast
++	return physical && iface != nil && iface.Flags&required == required &&
++		iface.Flags&(net.FlagLoopback|net.FlagPointToPoint) == 0
++}
++
++func gatewayLinkIPv4(addrs []net.Addr) []net.IP {
++	var ips []net.IP
++	for _, addr := range addrs {
++		ip, _, err := net.ParseCIDR(addr.String())
++		if err == nil && ip.To4() != nil && ip.IsGlobalUnicast() {
++			ips = append(ips, ip.To4())
++		}
++	}
++	return ips
 +}
 diff --git a/watcher/watcher.go b/watcher/watcher.go
 index f6c2681..3a91141 100644

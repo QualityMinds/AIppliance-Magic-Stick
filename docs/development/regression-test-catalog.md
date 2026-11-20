@@ -523,6 +523,12 @@ Physical apply/rollback cases need a spare management path or local console and
 a controlled test network. Unsupported bridges/bonds/VLANs/multi-address or
 control-plane address migration must stay rejected, not be tried remotely.
 
+Link failover is separate from saving a network trial. The managed single-node
+candidate supplements NET-01/05/06 and HOST-07 with isolated K3s startup and
+HTTPS tests and packet tests for late addresses, new links and renumbering.
+Physical acceptance still requires normal hostname/TLS/SSO and ready workloads
+on both independent paths, with console or independent recovery access.
+
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
 | NET-01 | Discover Ethernet and Wi-Fi, link/addresses/gateway/MAC and current IPv4 settings. Absent/disabled radio and missing Ethernet driver stay distinct; inspection never enables a connection. | U+C+A+E | P1 · functional |

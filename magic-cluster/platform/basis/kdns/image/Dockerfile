@@ -3,7 +3,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine3.24 AS build
 
 ARG TARGETOS
 ARG TARGETARCH
-ARG KDNS_VERSION=v0.2.22-gateway-api.1
+ARG KDNS_VERSION=v0.2.22-gateway-api.2
 ARG KDNS_REF=f956ab5d35564ee84e58ba155e78a17423cc835b
 ARG BUILD_DATE=unknown
 
@@ -31,7 +31,7 @@ RUN set -eu; \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
-    go build -trimpath \
+    go build -mod=vendor -trimpath \
       -ldflags="-s -w -extldflags '-static' \
         -X github.com/lab42/kdns/cmd.Version=$KDNS_VERSION \
         -X github.com/lab42/kdns/cmd.Commit=$KDNS_REF \
@@ -46,6 +46,7 @@ FROM scratch
 COPY --from=setup /etc/passwd /etc/passwd
 COPY --from=build /out/kdns /kdns
 COPY --from=build /src/.magicstick-license-evidence/ /usr/share/licenses/kdns/
+COPY --from=build /src/vendor/github.com/brutella/dnssd/LICENSE /usr/share/licenses/kdns/dnssd-LICENSE
 USER appuser
 EXPOSE 5353
 ENTRYPOINT ["/kdns"]
