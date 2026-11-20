@@ -1,0 +1,5 @@
+{
+  "dashboardApi": "ghcr.io/qualityminds/magicstick-dashboard:api-sha-7e72816e51667c2e3867ada93ab50ba4640c982a@sha256:cd16b38b2546a8bbbd94761be08c101534de579920c55a8c9e89f95694265845",
+  "kdns": "ghcr.io/qualityminds/magicstick-kdns@sha256:4dffd191c30cf850588bc2a271cdbd813fb7751eea5fda0cb598f2e0e3a0be2d",
+  "version": 1
+}
