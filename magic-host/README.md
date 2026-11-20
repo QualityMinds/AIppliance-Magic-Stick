@@ -215,6 +215,12 @@ The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. 
 In `readonly-public` mode the runner skips the external deployment checkout and
 Flux reads only the public Magicstick repository.
 
+When the root service has no home directory in its environment, the converge
+runner uses a private directory under `/var/lib/magicstick/host-management`.
+This keeps Kubernetes client caches out of the source checkout. Only the known
+legacy discovery and HTTP cache directories in the public playbook are ignored;
+the network maintenance command still rejects other unreviewed checkout changes.
+
 Administrators can select a verified released version, or explicitly choose a
 development `main`/custom branch, tag or full commit
 under **System → Settings → Updates**. The existing host-operation worker handles

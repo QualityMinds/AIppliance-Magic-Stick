@@ -1,6 +1,7 @@
 import os
 import pathlib
 import shlex
+import stat
 import subprocess
 import tempfile
 import textwrap
@@ -125,16 +126,20 @@ class GitHttpFallbackTests(unittest.TestCase):
 
             fake_ansible = fake_bin / "ansible-playbook"
             fake_ansible.write_text(
-                "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >\"$FAKE_ANSIBLE_LOG\"\n",
+                "#!/usr/bin/env bash\nset -eu\nprintf '%s\\n' \"$*\" >\"$FAKE_ANSIBLE_LOG\"\n"
+                "printf '%s\\n' \"$HOME\" >\"$FAKE_ANSIBLE_HOME\"\n",
                 encoding="utf-8",
             )
             fake_ansible.chmod(0o755)
 
             environment = os.environ.copy()
+            environment.pop("HOME", None)  # Match the guarded network maintenance environment.
             environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
             environment["REPO_METADATA_ENV_FILE"] = str(metadata)
             environment["FAKE_GIT_LOG"] = str(git_log)
             environment["FAKE_ANSIBLE_LOG"] = str(ansible_log)
+            ansible_home = temporary / "ansible.home"
+            environment["FAKE_ANSIBLE_HOME"] = str(ansible_home)
             result = subprocess.run(
                 ["bash", str(converge)],
                 cwd=ROOT,
@@ -154,6 +159,54 @@ class GitHttpFallbackTests(unittest.TestCase):
             self.assertIn("-C", calls)
             self.assertIn("-c http.version=HTTP/1.1 -C", calls)
             self.assertTrue(ansible_log.read_text(encoding="utf-8").strip())
+            fallback_home = temporary / "host-management/converge-home"
+            self.assertEqual(pathlib.Path(ansible_home.read_text().strip()), fallback_home)
+            self.assertEqual(stat.S_IMODE(fallback_home.stat().st_mode), 0o700)
+
+            # An administrator's explicitly configured home remains in use.
+            configured_home = temporary / "operator-home"
+            configured_home.mkdir()
+            retained = subprocess.run(
+                ["bash", str(converge)],
+                cwd=ROOT,
+                env={**environment, "HOME": str(configured_home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(retained.returncode, 0, retained.stderr)
+            self.assertEqual(pathlib.Path(ansible_home.read_text().strip()), configured_home)
+
+    def test_legacy_kubernetes_caches_do_not_hide_kubeconfig_or_source_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = pathlib.Path(directory)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "core.excludesFile=/dev/null", *args], cwd=checkout, text=True,
+                )
+
+            git("init", "-q")
+            (checkout / ".gitignore").write_bytes((ROOT / ".gitignore").read_bytes())
+            playbook = checkout / "magic-host/playbooks/local.yml"
+            playbook.parent.mkdir(parents=True)
+            playbook.write_text("---\n", encoding="utf-8")
+            git("add", ".gitignore", "magic-host/playbooks/local.yml")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "-c", "commit.gpgsign=false", "commit", "-qm", "Initial fixture")
+            kube = playbook.parent / ".kube"
+            for path in ("cache/discovery/127.0.0.1_6443/servergroups.json", "cache/http/f/cached"):
+                cache_file = kube / path
+                cache_file.parent.mkdir(parents=True)
+                cache_file.write_text("fixture\n", encoding="utf-8")
+            self.assertEqual(git("status", "--porcelain", "--untracked-files=all"), "")
+
+            (kube / "config").write_text("fixture, no credentials\n", encoding="utf-8")
+            playbook.write_text("---\n# Unreviewed change\n", encoding="utf-8")
+            self.assertEqual(set(git("status", "--porcelain", "--untracked-files=all").splitlines()), {
+                " M magic-host/playbooks/local.yml",
+                "?? magic-host/playbooks/.kube/config",
+            })
 
 
 if __name__ == "__main__":
