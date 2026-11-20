@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -69,6 +70,34 @@ class NetworkContractTests(unittest.TestCase):
 
 
 class NetplanTests(unittest.TestCase):
+    def test_netplan_writes_readable_backend_files_without_widening_worker_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = config.subprocess.run
+
+            def render_profile(argv, **kwargs):
+                # The isolated runner mounts its temporary directory noexec.
+                # Exercise the real child-process umask through the system shell.
+                self.assertEqual(argv[0], "netplan")
+                return run(["/bin/sh", "-c", ': > "$1.network"; (umask 077; : > "$1.credentials")',
+                            "netplan-probe", argv[2]], **kwargs)
+
+            previous = os.umask(0o077)
+            try:
+                with patch.object(config.subprocess, "run", side_effect=render_profile):
+                    for action in ("generate", "apply"):
+                        config.command(["netplan", action, str(root / action)])
+                    config.command(["netplan", "get", str(root / "get")])
+                (root / "worker-state").write_text("private")
+            finally:
+                os.umask(previous)
+            for action in ("generate", "apply"):
+                with self.subTest(action=action):
+                    self.assertEqual((root / f"{action}.network").stat().st_mode & 0o777, 0o640)
+                    self.assertEqual((root / f"{action}.credentials").stat().st_mode & 0o777, 0o600)
+            self.assertEqual((root / "get.network").stat().st_mode & 0o777, 0o600)
+            self.assertEqual((root / "worker-state").stat().st_mode & 0o777, 0o600)
+
     def test_public_fingerprint_uses_a_persistent_private_key(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             left = config.private_fingerprint({'config': 'example'}, Path(first))

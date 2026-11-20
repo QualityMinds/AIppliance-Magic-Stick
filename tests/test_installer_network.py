@@ -32,6 +32,17 @@ class InstallerNetworkTests(unittest.TestCase):
         self.assertNotIn("wifis:", self.user_data)
         self.assertNotIn("access-points:", self.user_data)
 
+    def test_first_boot_prepares_unconfigured_ethernet_before_k3s(self):
+        playbook = yaml.safe_load((ROOT / "magic-host/playbooks/local.yml").read_text())[0]
+        prepare = [
+            task for task in playbook["pre_tasks"]
+            if any(str(arg).endswith("/ethernet_defaults.py")
+                   for arg in task.get("ansible.builtin.command", {}).get("argv", []))
+        ]
+        self.assertEqual(len(prepare), 1)
+        self.assertIn("k3s", playbook["roles"])
+        self.assertIn("touch /var/lib/magicstick/setup/new-install", self.autoinstall["user-data"]["runcmd"])
+
     def test_archive_mirror_remains_interactive_with_a_country_suggestion(self):
         self.assertIn("apt", self.autoinstall["interactive-sections"])
         apt = self.autoinstall["apt"]
