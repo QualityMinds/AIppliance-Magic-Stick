@@ -63,6 +63,16 @@ class HostTests(unittest.TestCase):
         channel.METADATA.write_text("X='$(touch /tmp/never)'\n")
         self.assertEqual(channel.metadata()["X"], "$(touch /tmp/never)")
 
+    def test_unconfirmed_network_transition_blocks_normal_software_changes(self):
+        with patch.object(channel, "git_commit", return_value="d" * 40), patch.object(
+            channel, "operation_status", return_value=None,
+        ):
+            self.assertFalse(channel.status()["blocked"])
+            journal = self.root / "control-plane-network-migration.json"
+            journal.write_text('{"phase":"awaiting-verification"}')
+            self.assertTrue(channel.status()["blocked"])
+            self.assertTrue(journal.exists())
+
     def test_release_selection_persists_approved_identity_and_branch_switch_clears_only_that_pin(self):
         selected = {"kind": "tag", "value": "v1.2.3"}
         channel.save_selection(selected, "d" * 40, "e" * 40)

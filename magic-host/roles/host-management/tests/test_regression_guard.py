@@ -38,6 +38,15 @@ class RegressionGuardTests(unittest.TestCase):
                                    {"type": "Ready", "status": "True", "observedGeneration": self.generation}]}}]}
         raise AssertionError(args)
 
+    def test_bounded_outage_reservation_uses_requested_duration_on_acquire_and_renew(self):
+        reservation = Reservation(self.kube, duration=900)
+        self.assertTrue(reservation.acquire())
+        self.assertEqual(self.lease["spec"]["leaseDurationSeconds"], 900)
+        reservation.renew()
+        self.assertEqual(self.lease["spec"]["leaseDurationSeconds"], 900)
+        reservation.release()
+        self.assertEqual(self.lease["spec"]["holderIdentity"], "")
+
     def test_test_adapter_requires_exact_kubernetes_resource_arguments_not_url_substrings(self):
         self.generation = 2
         expected = "kustomizations.kustomize.toolkit.fluxcd.io"

@@ -1,0 +1,135 @@
+---
+- name: Check whether this source has promoted matching link-independent images
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ role_path }}/files/control_plane_release.py"
+      - "{{ playbook_dir }}/../.."
+  changed_when: false
+  register: k3s_link_release
+
+- name: Inspect the managed link-independent configuration
+  ansible.builtin.stat:
+    path: /etc/rancher/k3s/config.yaml.d/20-magicstick-control-plane-network.yaml
+    checksum_algorithm: sha256
+  register: k3s_managed_link_config
+
+- name: Refuse a foreign configuration at the managed network path
+  ansible.builtin.assert:
+    that:
+      - k3s_managed_link_config.stat.isreg
+      - k3s_managed_link_config.stat.uid == 0
+      - k3s_managed_link_config.stat.checksum == (lookup('ansible.builtin.file', role_path ~ '/files/20-magicstick-control-plane-network.yaml', rstrip=False) | hash('sha256'))
+    fail_msg: "The existing control-plane network configuration must be reviewed."
+  when: k3s_managed_link_config.stat.exists
+
+- name: Inspect the local K3s executable before link-independent bootstrap
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_link_existing_binary
+  when: k3s_link_release.stdout == 'qualified'
+
+- name: Check compatibility of an already configured link-independent cluster
+  ansible.builtin.assert:
+    that:
+      - k3s_link_release.stdout == 'qualified'
+    fail_msg: >-
+      This revision cannot operate the link-independent network. Restore the
+      previous network in a planned maintenance window before selecting it.
+  when: k3s_managed_link_config.stat.exists
+
+- name: Record whether the managed link-independent configuration is selected
+  ansible.builtin.set_fact:
+    magicstick_link_independent_network: >-
+      {{
+        k3s_managed_link_config.stat.exists or (
+          k3s_link_release.stdout == 'qualified'
+          and (flux_bootstrap_mode | default('readonly-public')) == 'readonly-public'
+          and k3s_version == 'v1.36.4+k3s1'
+          and not k3s_existing_config.stat.exists
+          and not k3s_link_existing_binary.stat.exists
+        )
+      }}
+
+- name: Install the local maintenance entry point for this qualified release
+  when: k3s_link_release.stdout == 'qualified'
+  block:
+    - name: Prepare the local network maintenance library
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /usr/local/lib/magicstick/k3s
+        - /etc/rancher/k3s/config.yaml.d
+        - /etc/systemd/system/k3s.service.d
+    - name: Install the revision-owned maintenance files
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/usr/local/lib/magicstick/k3s/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - control_plane_maintenance.py
+        - control_plane_migration.py
+        - control_plane_network.py
+        - control_plane_release.py
+        - 20-magicstick-control-plane-network.yaml
+        - 20-magicstick-control-plane-network.conf
+
+- name: Prepare the fixed internal endpoint before K3s can start
+  when: magicstick_link_independent_network | bool
+  block:
+    - name: Ensure scoped K3s helper and configuration directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /usr/local/lib/magicstick/k3s
+        - /etc/rancher/k3s/config.yaml.d
+        - /etc/systemd/system/k3s.service.d
+
+    - name: Install the owned internal network helper
+      ansible.builtin.copy:
+        src: control_plane_network.py
+        dest: /usr/local/lib/magicstick/k3s/control_plane_network.py
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Validate the reserved address without changing interfaces or firewall rules
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - /usr/local/lib/magicstick/k3s/control_plane_network.py
+          - --check
+      changed_when: false
+
+    - name: Protect the startup ordering of the internal network
+      ansible.builtin.copy:
+        src: 20-magicstick-control-plane-network.conf
+        dest: /etc/systemd/system/k3s.service.d/20-magicstick-control-plane-network.conf
+        owner: root
+        group: root
+        mode: "0644"
+      register: k3s_control_plane_startup
+
+    - name: Reload K3s service definition without restarting the running node
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: k3s_control_plane_startup.changed
+
+    - name: Install the link-independent K3s configuration on first bootstrap
+      ansible.builtin.copy:
+        src: 20-magicstick-control-plane-network.yaml
+        dest: /etc/rancher/k3s/config.yaml.d/20-magicstick-control-plane-network.yaml
+        owner: root
+        group: root
+        mode: "0644"
+      when: not k3s_managed_link_config.stat.exists

@@ -151,6 +151,7 @@ jobs:
       - name: Check source license and publication metadata contracts
         run: |
           python3 tools/license_audit.py --check
+          python3 magic-host/roles/k3s/files/control_plane_release.py .
           python3 -m unittest tests.test_collect_python_notices
           python3 -m unittest tests/test_license_release.py tests/test_license_audit.py tests/test_license_kdns.py tests.test_release_catalog tests.test_product_release tests.test_release_bootstrap tests.test_trunk_promotion tests.test_trunk_policy
 

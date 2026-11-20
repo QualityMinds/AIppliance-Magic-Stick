@@ -17,6 +17,7 @@ import product_release as product
 import license_audit
 
 ALLOWED = dashboard.ALLOWED | {regression.PIN}
+ALLOWED_WITH_NETWORK = dashboard.ALLOWED_WITH_NETWORK | {regression.PIN}
 REPO = "repos/" + dashboard.REPOSITORY
 
 
@@ -30,8 +31,9 @@ def pin_only(root, base, head):
         if dashboard.git(root, "rev-parse", "HEAD") != head:
             return False
         paths = set(dashboard.git(root, "diff", "--name-only", base, head, "--").splitlines())
-        if not paths or not paths <= ALLOWED or not paths - {dashboard.INVENTORY}:
+        if not paths or not paths <= ALLOWED_WITH_NETWORK or not paths - {dashboard.INVENTORY}:
             return False
+        api_change = None
         for component, (path, key, prefix) in dashboard.FILES.items():
             if path not in paths:
                 continue
@@ -40,6 +42,16 @@ def pin_only(root, base, head):
             old, new = re.search(pattern, before), re.search(pattern, after)
             if not old or not new or before[:old.start()] + old[1] + dashboard.IMAGE + ":" + prefix + new[2] + "@" + new[3] + old[4] + before[old.end():] != after:
                 return False
+            if component == "api":
+                api_change = tuple(dashboard.IMAGE + ":" + prefix + match[2] + "@" + match[3] for match in (old, new))
+        if dashboard.NETWORK_MARKER in paths:
+            if not api_change:  # Never allow initial activation, deletion or kdns replacement as an API pin edit.
+                return False
+            before, after = (dashboard.git(root, "show", rev + ":" + dashboard.NETWORK_MARKER) for rev in (base, head))
+            if dashboard.control_plane_release.rebind_api(before, *api_change).strip() != after:
+                return False
+        elif api_change and (root / dashboard.NETWORK_MARKER).exists():
+            return False  # Changing only the API leaves an enabled network profile unbootable.
         if regression.PIN in paths:
             before, after = (dashboard.git(root, "show", rev + ":" + regression.PIN) for rev in (base, head))
             match = re.search(r'^  image: "ghcr[.]io/qualityminds/magicstick-regression:sha-([a-f0-9]{40})@(sha256:[a-f0-9]{64})"$', after, re.M)
@@ -174,7 +186,7 @@ def propose(root, source, *, api=product.github, read_candidates=candidates):
     changed = set(dashboard.git(root, "diff", "--name-only").splitlines())
     if not changed:
         return None
-    if not changed <= ALLOWED or license_audit.source_checks(root):
+    if not changed <= ALLOWED_WITH_NETWORK or license_audit.source_checks(root):
         raise dashboard.PromotionError("Only canonical pins and generated deployment references may enter a promotion PR.")
     dashboard.git(root, "add", "--", *sorted(changed))
     if set(dashboard.git(root, "diff", "--cached", "--name-only").splitlines()) != changed:

@@ -1049,7 +1049,7 @@ data:
 
 
     def _appliance_api_server_endpoint(api_server, current_mdns_domain):
-        """Prefer a current control-plane IP when the marker still uses mDNS."""
+        """Keep the legacy IP fallback, but never export an internal service address."""
         if not _safe_https_endpoint(api_server):
             return api_server
         parsed = urllib.parse.urlsplit(api_server)
@@ -1093,6 +1093,7 @@ data:
                     or candidate.is_loopback
                     or candidate.is_multicast
                     or candidate.is_unspecified
+                    or candidate == ipaddress.IPv4Address("10.43.0.0")
                 ):
                     continue
                 host = "[" + candidate.compressed + "]" if candidate.version == 6 else candidate.compressed

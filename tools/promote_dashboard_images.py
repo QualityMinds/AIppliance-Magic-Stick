@@ -15,6 +15,8 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "magic-host/roles/host-management/files"))
+sys.path.insert(0, str(ROOT / "magic-host/roles/k3s/files"))
+import control_plane_release
 import license_audit
 import promote_regression_image as regression_promotion
 from software_channel import image_source_path
@@ -29,7 +31,9 @@ FILES = {
     "cli": ("magic-host/roles/dashboard-console/defaults/main.yml", "dashboard_console_image", "cli-sha-"),
 }
 INVENTORY = "licenses/dependency-inventory.json"
+NETWORK_MARKER = control_plane_release.MARKER.as_posix()
 ALLOWED = {item[0] for item in FILES.values()} | {INVENTORY}
+ALLOWED_WITH_NETWORK = ALLOWED | {NETWORK_MARKER}
 AUTOMATION = {"tools/promote_dashboard_images.py", "tests/test_dashboard_image_promotion.py",
               "tools/promote_regression_image.py", ".github/workflows/regression-runner.yml",
               ".github/workflows/build-dashboard-image.yml", ".github/workflows/dashboard-browser-smoke.yml",
@@ -262,7 +266,7 @@ def candidate_head(root, branch, source):
     git(root, "merge-base", "--is-ancestor", source, head)
     if head != source:
         changed = git(root, "diff", "--name-only", source, head, "--").splitlines()
-        if any(image_source_path(path) or path in AUTOMATION or path in ALLOWED - {INVENTORY}
+        if any(image_source_path(path) or path in AUTOMATION or path in ALLOWED_WITH_NETWORK - {INVENTORY}
                for path in changed):
             raise Superseded("A newer runtime or promotion revision owns this channel; the older build was not applied.")
     return head
@@ -354,6 +358,14 @@ def rewrite_pins(root, source, digests):
                                        lambda match, component=component: match[1] + new[component],
                                        (root / FILES[component][0]).read_text(), flags=re.M)
              for component in FILES}
+    marker = root / NETWORK_MARKER
+    if marker.is_symlink():
+        raise PromotionError("The managed network image declaration must be a regular file.")
+    if marker.exists():
+        try:
+            texts[NETWORK_MARKER] = control_plane_release.rebind_api(marker.read_text(), old["api"], new["api"])
+        except ValueError as error:
+            raise PromotionError("Review the current managed network image declaration before promoting.") from error
     for path, text in texts.items():
         if text != (root / path).read_text():
             (root / path).write_text(text)
@@ -377,8 +389,8 @@ def publish(root, branch, source, digests, head):
     if errors:
         raise PromotionError("Promoted source/license inventory failed consistency checks; nothing was pushed.")
     changed = set(git(root, "diff", "--name-only").splitlines())
-    if not changed or not changed <= ALLOWED:
-        raise PromotionError("Promotion must change only the three image pins and deployment inventory.")
+    if not changed or not changed <= ALLOWED_WITH_NETWORK:
+        raise PromotionError("Promotion must change only the three image pins and their deployment references.")
     git(root, "add", "--", *sorted(changed))
     if set(git(root, "diff", "--cached", "--name-only").splitlines()) != changed:
         raise PromotionError("Unexpected staged content; nothing was pushed.")

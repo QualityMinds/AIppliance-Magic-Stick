@@ -2,6 +2,7 @@ import pathlib
 import unittest
 
 import yaml
+from jinja2 import Environment
 
 
 ROLE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -23,7 +24,6 @@ class KubernetesOidcRoleTests(unittest.TestCase):
         self.assertIn("AI_APPLIANCE_MDNS_DOMAIN", tasks)
         self.assertIn("ansible_default_ipv4.address", defaults)
         self.assertIn("kubernetes_oidc_host_address", defaults)
-        self.assertIn('https://{{ kubernetes_oidc_host_address }}:6443', defaults)
         self.assertIn('- "{{ kubernetes_oidc_host_address }}"', tasks)
         self.assertNotIn("tls.key", tasks)
         self.assertIn('mode: "0644"', tasks)
@@ -34,6 +34,22 @@ class KubernetesOidcRoleTests(unittest.TestCase):
         self.assertNotIn("password", template.lower())
         self.assertNotIn("client-secret", template.lower())
         self.assertNotIn("tls.key", template.lower())
+
+    def test_link_independent_profile_uses_the_canonical_url_and_local_issuer_route(self):
+        defaults = yaml.safe_load((ROLE_DIR / "defaults/main.yml").read_text())
+        env = Environment()
+        env.filters["bool"] = bool
+        facts = {
+            "kubernetes_oidc_host_address": "192.0.2.17",
+            "kubernetes_oidc_mdns_domain": "example.local",
+        }
+        api = env.from_string(defaults["kubernetes_oidc_api_server"])
+        issuer = env.from_string(defaults["kubernetes_oidc_gateway_address"])
+        self.assertEqual(api.render(**facts), "https://192.0.2.17:6443")
+        self.assertEqual(issuer.render(**facts), "192.0.2.17")
+        facts["magicstick_link_independent_network"] = True
+        self.assertEqual(api.render(**facts), "https://example.local:6443")
+        self.assertEqual(issuer.render(**facts), "127.0.0.1")
 
     def test_k3s_template_enables_expected_oidc_claim_contract_only_after_ca_exists(self):
         template = (HOST_DIR / "roles" / "k3s" / "templates" / "config.yaml.j2").read_text(encoding="utf-8")

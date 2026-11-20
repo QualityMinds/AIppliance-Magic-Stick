@@ -71,7 +71,14 @@
             'AI_APPLIANCE_DASHBOARD_HOST': flux_existing_settings_data.get('AI_APPLIANCE_DASHBOARD_HOST', flux_seed_settings_data.get('AI_APPLIANCE_DASHBOARD_HOST')),
             'AI_APPLIANCE_MDNS_DOMAIN': flux_settings_mdns_domain,
             'AI_APPLIANCE_MDNS_NAME': flux_settings_mdns_name,
-            'AI_APPLIANCE_DASHBOARD_MDNS_NAME': flux_settings_mdns_name
+            'AI_APPLIANCE_DASHBOARD_MDNS_NAME': flux_settings_mdns_name,
+            'AI_APPLIANCE_MDNS_ADDRESS_MODE': (
+              'host-link-ipv4' if (magicstick_link_independent_network | default(false) | bool) else 'gateway-status'
+            ),
+            'AI_APPLIANCE_SETUP_DIRECT_IPV4': (
+              (ansible_facts.get('default_ipv4', {})).get('address', '')
+              if (magicstick_link_independent_network | default(false) | bool) else ''
+            )
           })
       }}
 

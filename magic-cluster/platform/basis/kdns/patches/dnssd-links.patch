@@ -1,0 +1,770 @@
+diff --git a/cache.go b/cache.go
+index 23093db..8ae399a 100644
+--- a/cache.go
++++ b/cache.go
+@@ -159,7 +159,7 @@ func (a byType) Less(i, j int) bool {
+ // - A and AAAA records for the same hostname as in defined by the service
+ // - SRV records related to the same service instance name
+ func filterRecords(req *Request, service *Service) []dns.RR {
+-	if req.iface != nil && service != nil && len(service.Ifaces) > 0 {
++	if req.iface != nil && service != nil && (len(service.Ifaces) > 0 || service.interfaceAddresses != nil) {
+ 		if !service.IsVisibleAtInterface(req.iface.Name) {
+ 			// Ignore records if the request coming from an ignored interface.
+ 			return []dns.RR{}
+diff --git a/mdns.go b/mdns.go
+index 7ca3ffe..6c44d26 100644
+--- a/mdns.go
++++ b/mdns.go
+@@ -116,9 +116,11 @@ type MDNSConn interface {
+ }
+ 
+ type mdnsConn struct {
+-	ipv4 *ipv4.PacketConn
+-	ipv6 *ipv6.PacketConn
+-	ch   chan *Request
++	ipv4            *ipv4.PacketConn
++	ipv6            *ipv6.PacketConn
++	ch              chan *Request
++	interfaceFilter []string
++	links           map[int]multicastLink
+ }
+ 
+ // NewMDNSConn returns a new mdns connection.
+@@ -188,13 +190,6 @@ func newMDNSConn(ifs ...string) (*mdnsConn, error) {
+ 			log.Debug.Println("IPv4 set multicast TTL:", err)
+ 		}
+ 
+-		for _, iface := range MulticastInterfaces(ifs...) {
+-			if err := connIPv4.JoinGroup(iface, &net.UDPAddr{IP: IPv4LinkLocalMulticast}); err != nil {
+-				log.Debug.Printf("Failed joining IPv4 %v: %v", iface.Name, err)
+-			} else {
+-				log.Debug.Printf("Joined IPv4 %v", iface.Name)
+-			}
+-		}
+ 	}
+ 
+ 	if conn, err := net.ListenUDP("udp6", AddrIPv6LinkLocalMulticast); err != nil {
+@@ -215,24 +210,20 @@ func newMDNSConn(ifs ...string) (*mdnsConn, error) {
+ 		if err := connIPv6.SetMulticastHopLimit(255); err != nil {
+ 			log.Debug.Println("IPv4 set multicast TTL:", err)
+ 		}
+-		for _, iface := range MulticastInterfaces(ifs...) {
+-			if err := connIPv6.JoinGroup(iface, &net.UDPAddr{IP: IPv6LinkLocalMulticast}); err != nil {
+-				log.Debug.Printf("Failed joining IPv6 %v: %v", iface.Name, err)
+-			} else {
+-				log.Debug.Printf("Joined IPv6 %v", iface.Name)
+-			}
+-		}
+ 	}
+ 
+ 	if err := first(errs...); connIPv4 == nil && connIPv6 == nil {
+ 		return nil, fmt.Errorf("Failed setting up UDP server: %v", err)
+ 	}
+ 
+-	return &mdnsConn{
+-		ipv4: connIPv4,
+-		ipv6: connIPv6,
+-		ch:   make(chan *Request),
+-	}, nil
++	c := &mdnsConn{
++		ipv4:            connIPv4,
++		ipv6:            connIPv6,
++		ch:              make(chan *Request),
++		interfaceFilter: ifs,
++	}
++	c.refreshMulticastLinks()
++	return c, nil
+ }
+ 
+ func (c *mdnsConn) close() {
+diff --git a/multicast_links.go b/multicast_links.go
+new file mode 100644
+index 0000000..07a2b2e
+--- /dev/null
++++ b/multicast_links.go
+@@ -0,0 +1,99 @@
++package dnssd
++
++import (
++	"errors"
++	"net"
++	"sort"
++	"strings"
++	"syscall"
++
++	"github.com/brutella/dnssd/log"
++)
++
++type multicastLink struct {
++	iface     *net.Interface
++	addresses string
++	want4     bool
++	want6     bool
++	joined4   bool
++	joined6   bool
++}
++
++func linkForAddresses(iface *net.Interface, addrs []net.Addr) multicastLink {
++	link := multicastLink{iface: iface}
++	var addresses []string
++	for _, addr := range addrs {
++		ip, _, err := net.ParseCIDR(addr.String())
++		if err != nil || ip.IsUnspecified() {
++			continue
++		}
++		addresses = append(addresses, addr.String())
++		if ip.To4() != nil {
++			link.want4 = true
++		} else {
++			link.want6 = true
++		}
++	}
++	sort.Strings(addresses)
++	link.addresses = strings.Join(addresses, ",")
++	return link
++}
++
++// The responder owns these memberships; short-lived probe connections also
++// get their own initial snapshot. A failed join remains pending for the next
++// refresh rather than recording an interface as reachable.
++func (c *mdnsConn) refreshMulticastLinks() bool {
++	next := make(map[int]multicastLink)
++	for _, iface := range MulticastInterfaces(c.interfaceFilter...) {
++		addrs, err := iface.Addrs()
++		if err == nil {
++			next[iface.Index] = linkForAddresses(iface, addrs)
++		}
++	}
++	changed := false
++	group4 := &net.UDPAddr{IP: IPv4LinkLocalMulticast}
++	group6 := &net.UDPAddr{IP: IPv6LinkLocalMulticast}
++	for index, old := range c.links {
++		link, exists := next[index]
++		same := exists && link.iface.Name == old.iface.Name
++		if old.joined4 && (!same || !link.want4) {
++			_ = c.ipv4.LeaveGroup(old.iface, group4)
++		}
++		if old.joined6 && (!same || !link.want6) {
++			_ = c.ipv6.LeaveGroup(old.iface, group6)
++		}
++		if !same {
++			changed = true
++		}
++	}
++	for index, link := range next {
++		old, exists := c.links[index]
++		same := exists && link.iface.Name == old.iface.Name
++		if c.ipv4 != nil && link.want4 {
++			link.joined4 = same && old.joined4
++			if !link.joined4 {
++				err := c.ipv4.JoinGroup(link.iface, group4)
++				link.joined4 = err == nil || errors.Is(err, syscall.EADDRINUSE)
++				if !link.joined4 {
++					log.Debug.Printf("Failed joining IPv4 %v: %v", link.iface.Name, err)
++				}
++			}
++		}
++		if c.ipv6 != nil && link.want6 {
++			link.joined6 = same && old.joined6
++			if !link.joined6 {
++				err := c.ipv6.JoinGroup(link.iface, group6)
++				link.joined6 = err == nil || errors.Is(err, syscall.EADDRINUSE)
++				if !link.joined6 {
++					log.Debug.Printf("Failed joining IPv6 %v: %v", link.iface.Name, err)
++				}
++			}
++		}
++		next[index] = link
++		changed = changed || !same || old.addresses != link.addresses ||
++			old.joined4 != link.joined4 || old.joined6 != link.joined6 ||
++			old.iface.Flags != link.iface.Flags
++	}
++	c.links = next
++	return changed
++}
+diff --git a/multicast_links_linux_test.go b/multicast_links_linux_test.go
+new file mode 100644
+index 0000000..a30538a
+--- /dev/null
++++ b/multicast_links_linux_test.go
+@@ -0,0 +1,224 @@
++package dnssd
++
++import (
++	"context"
++	"fmt"
++	"net"
++	"os"
++	"os/exec"
++	"testing"
++	"time"
++
++	"github.com/brutella/dnssd/log"
++	"github.com/miekg/dns"
++	"golang.org/x/net/ipv4"
++)
++
++// Opt-in packet-level test. Refuse to create interfaces unless this process
++// is in an empty, disposable network namespace.
++func TestLateIPv4AndRenumberingOnRealMulticastSocket(t *testing.T) {
++	if os.Getenv("MAGICSTICK_TEST_PRIVATE_NETNS") != "1" {
++		t.Skip("requires an explicitly isolated Linux network namespace")
++	}
++	if os.Getenv("MAGICSTICK_TEST_MDNS_TRACE") == "1" {
++		log.Debug.Enable()
++		t.Cleanup(log.Debug.Disable)
++	}
++	ifaces, err := net.Interfaces()
++	if err != nil || len(ifaces) != 1 || ifaces[0].Flags&net.FlagLoopback == 0 {
++		t.Fatalf("expected an empty private namespace: %v, %v", ifaces, err)
++	}
++	ip := func(args ...string) {
++		t.Helper()
++		if out, err := exec.Command("ip", args...).CombinedOutput(); err != nil {
++			t.Fatalf("ip %v: %v: %s", args, err, out)
++		}
++	}
++	// Peers must really reside on the other side of the link. Otherwise
++	// Linux rejects their traffic as a locally sourced packet arriving on
++	// an interface, or delivers the reply by its loopback route.
++	clients := exec.Command("unshare", "--net", "sleep", "60")
++	if err := clients.Start(); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		_ = clients.Process.Kill()
++		_ = clients.Wait()
++	})
++	peerNamespace := fmt.Sprintf("/proc/%d/ns/net", clients.Process.Pid)
++	self, err := os.Readlink("/proc/self/ns/net")
++	if err != nil {
++		t.Fatal(err)
++	}
++	for attempt := 0; ; attempt++ {
++		peer, err := os.Readlink(peerNamespace)
++		if err == nil && peer != self {
++			break
++		}
++		if attempt == 100 {
++			t.Fatal("client network namespace was not created")
++		}
++		time.Sleep(10 * time.Millisecond)
++	}
++	inClients := func(command string, args ...string) *exec.Cmd {
++		return exec.Command("nsenter", append([]string{"--net=" + peerNamespace, "--", command}, args...)...)
++	}
++	pair := func(server, client, clientAddress string) {
++		t.Helper()
++		ip("link", "add", server, "type", "veth", "peer", "name", client)
++		ip("link", "set", server, "up")
++		ip("link", "set", client, "netns", fmt.Sprint(clients.Process.Pid))
++		if out, err := inClients("ip", "link", "set", client, "up").CombinedOutput(); err != nil {
++			t.Fatalf("set up client link: %v: %s", err, out)
++		}
++		if out, err := inClients("ip", "addr", "add", clientAddress, "dev", client).CombinedOutput(); err != nil {
++			t.Fatalf("address client link: %v: %s", err, out)
++		}
++	}
++	pair("server-a", "client-a", "192.0.2.2/24")
++	ip("addr", "add", "192.0.2.1/24", "dev", "server-a")
++	pair("server-b", "client-b", "198.51.100.2/24")
++
++	r, err := NewResponder()
++	if err != nil {
++		t.Fatal(err)
++	}
++	svc, err := NewService(Config{
++		Name: "failover-test", Host: "failover-test", Type: "_https._tcp", Port: 443,
++		Ifaces: []string{"server-a", "server-b", "server-c"},
++		InterfaceAddresses: func(iface *net.Interface) []net.IP {
++			addresses, _ := iface.Addrs()
++			var ips []net.IP
++			for _, address := range addresses {
++				ip, _, err := net.ParseCIDR(address.String())
++				if err == nil && ip.To4() != nil {
++					ips = append(ips, ip.To4())
++				}
++			}
++			return ips
++		},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := r.Add(svc); err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	done := make(chan error, 1)
++	go func() { done <- r.Respond(ctx) }()
++	t.Cleanup(func() {
++		cancel()
++		select {
++		case <-done:
++		case <-time.After(3 * time.Second):
++			t.Error("mDNS responder did not stop")
++		}
++	})
++
++	check := func(device, source, expected string) {
++		t.Helper()
++		exe, err := os.Executable()
++		if err != nil {
++			t.Fatal(err)
++		}
++		cmd := inClients(exe, "-test.run=^TestPrivateClientQuery$", "-test.timeout=12s")
++		cmd.Env = append(os.Environ(), "MAGICSTICK_TEST_MDNS_DEVICE="+device,
++			"MAGICSTICK_TEST_MDNS_SOURCE="+source, "MAGICSTICK_TEST_MDNS_EXPECTED="+expected)
++		if out, err := cmd.CombinedOutput(); err != nil {
++			t.Fatalf("client %s: %v: %s", device, err, out)
++		}
++	}
++
++	check("client-a", "192.0.2.2", "192.0.2.1")
++	// B's carrier is already up; DHCP happens after the responder opens its
++	// sockets. There is no link-up event here to trigger the old responder.
++	ip("addr", "add", "198.51.100.1/24", "dev", "server-b")
++	check("client-b", "198.51.100.2", "198.51.100.1")
++	// C was not present at all when the responder acquired its sockets.
++	pair("server-c", "client-c", "203.0.113.2/24")
++	ip("addr", "add", "203.0.113.1/24", "dev", "server-c")
++	check("client-c", "203.0.113.2", "203.0.113.1")
++	ip("link", "set", "server-a", "down")
++	ip("addr", "del", "198.51.100.1/24", "dev", "server-b")
++	ip("addr", "add", "198.51.100.3/24", "dev", "server-b")
++	check("client-b", "198.51.100.2", "198.51.100.3")
++	ip("link", "set", "server-a", "up")
++	check("client-a", "192.0.2.2", "192.0.2.1")
++}
++
++func TestPrivateClientQuery(t *testing.T) {
++	device := os.Getenv("MAGICSTICK_TEST_MDNS_DEVICE")
++	if os.Getenv("MAGICSTICK_TEST_PRIVATE_NETNS") != "1" || device == "" {
++		t.Skip("helper for the isolated packet test")
++	}
++	source := os.Getenv("MAGICSTICK_TEST_MDNS_SOURCE")
++	expected := os.Getenv("MAGICSTICK_TEST_MDNS_EXPECTED")
++	iface, err := net.InterfaceByName(device)
++	if err != nil {
++		t.Fatal(err)
++	}
++	addrs, err := iface.Addrs()
++	if err != nil {
++		t.Fatal(err)
++	}
++	hasSource := false
++	for _, address := range addrs {
++		ip, _, err := net.ParseCIDR(address.String())
++		hasSource = hasSource || (err == nil && ip.Equal(net.ParseIP(source)))
++	}
++	if !hasSource {
++		t.Fatalf("client %s does not have %s", device, source)
++	}
++	raw, err := net.ListenMulticastUDP("udp4", iface, AddrIPv4LinkLocalMulticast)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer raw.Close()
++	conn := ipv4.NewPacketConn(raw)
++	if err := conn.SetMulticastInterface(iface); err != nil {
++		t.Fatal(err)
++	}
++	if err := conn.SetMulticastTTL(255); err != nil {
++		t.Fatal(err)
++	}
++	deadline := time.Now().Add(8 * time.Second)
++	for time.Now().Before(deadline) {
++		msg := new(dns.Msg).SetQuestion("failover-test.local.", dns.TypeA)
++		msg.Id = 0
++		msg.RecursionDesired = false
++		pkt, err := msg.Pack()
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := raw.WriteToUDP(pkt, AddrIPv4LinkLocalMulticast); err != nil {
++			t.Fatal(err)
++		}
++		if err := raw.SetReadDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
++			t.Fatal(err)
++		}
++		var payload [2048]byte
++		n, _, err := raw.ReadFromUDP(payload[:])
++		if err != nil {
++			continue
++		}
++		answer := new(dns.Msg)
++		if answer.Unpack(payload[:n]) != nil || !answer.Response {
++			continue
++		}
++		var records []string
++		for _, resource := range answer.Answer {
++			if a, ok := resource.(*dns.A); ok && a.Hdr.Name == "failover-test.local." {
++				records = append(records, a.A.String())
++			}
++		}
++		if len(records) == 0 {
++			continue
++		}
++		if len(records) != 1 || records[0] != expected {
++			t.Fatalf("%s: wanted %s, got %v", device, expected, records)
++		}
++		return
++	}
++	t.Fatalf("%s: no A record for %s", device, expected)
++}
+diff --git a/multicast_links_test.go b/multicast_links_test.go
+new file mode 100644
+index 0000000..f6100db
+--- /dev/null
++++ b/multicast_links_test.go
+@@ -0,0 +1,61 @@
++package dnssd
++
++import (
++	"net"
++	"testing"
++)
++
++func TestLinkSnapshotTracksAddressFamilyAndRenumbering(t *testing.T) {
++	iface := &net.Interface{Name: "eth-test", Index: 42}
++	address := func(value string) net.Addr {
++		ip, subnet, err := net.ParseCIDR(value)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return &net.IPNet{IP: ip, Mask: subnet.Mask}
++	}
++	a := address("192.0.2.12/24")
++	b := address("2001:db8::12/64")
++	start := linkForAddresses(iface, []net.Addr{a, b})
++	reordered := linkForAddresses(iface, []net.Addr{b, a})
++	if !start.want4 || !start.want6 || start.addresses != reordered.addresses {
++		t.Fatalf("unexpected dual-stack snapshots: %+v / %+v", start, reordered)
++	}
++	changed := linkForAddresses(iface, []net.Addr{address("192.0.2.13/24")})
++	if !changed.want4 || changed.want6 || changed.addresses == start.addresses {
++		t.Fatalf("renumbering or address loss not reflected: %+v", changed)
++	}
++}
++
++func TestServiceAddressSelectorIsLinkLocalAndNotCached(t *testing.T) {
++	lan := &net.Interface{Name: "wired"}
++	wlan := &net.Interface{Name: "wifi"}
++	links := map[string][]net.IP{
++		lan.Name:  {net.ParseIP("192.0.2.17")},
++		wlan.Name: {net.ParseIP("198.51.100.69")},
++	}
++	svc, err := NewService(Config{
++		Name: "appliance", Type: "_https._tcp", Host: "appliance.example", Port: 443,
++		IPs:                []net.IP{net.ParseIP("203.0.113.88")},
++		InterfaceAddresses: func(iface *net.Interface) []net.IP { return links[iface.Name] },
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	probed := svc.Copy()
++	check := func(iface *net.Interface, want string) {
++		t.Helper()
++		got := probed.IPsAtInterface(iface)
++		if len(got) != 1 || got[0].String() != want {
++			t.Fatalf("%s: got %v, want %s", iface.Name, got, want)
++		}
++	}
++	check(lan, "192.0.2.17")
++	check(wlan, "198.51.100.69")
++	delete(links, wlan.Name)
++	if got := probed.IPsAtInterface(wlan); len(got) != 0 {
++		t.Fatalf("disconnected Wi-Fi returned %v", got)
++	}
++	links[lan.Name] = []net.IP{net.ParseIP("192.0.2.18")}
++	check(lan, "192.0.2.18")
++}
+diff --git a/netlink_linux.go b/netlink_linux.go
+index 2c6e3f1..a624c32 100644
+--- a/netlink_linux.go
++++ b/netlink_linux.go
+@@ -2,55 +2,32 @@ package dnssd
+ 
+ import (
+ 	"context"
+-	"net"
+-
+-	"github.com/brutella/dnssd/log"
+-	"github.com/vishvananda/netlink"
++	"time"
+ )
+ 
+-// linkSubscribe subscribes to network interface updates (Ethernet cable is plugged in) via the netlink API.
+-// For simplicity reasons, all network interfaces are re-announced, when network interfaces change.
++// Check the effective addresses as well as carrier. A link-up notification may
++// arrive before DHCP assigns an address, or a lease can change without a
++// link event. Refresh the real socket memberships without restarting services.
+ func (r *responder) linkSubscribe(ctx context.Context) {
+-	done := make(chan struct{})
+-	defer close(done)
+-
+-	ch := make(chan netlink.LinkUpdate, 1)
+-	if err := netlink.LinkSubscribe(ch, done); err != nil {
++	conn, ok := r.conn.(*mdnsConn)
++	if !ok {
+ 		return
+ 	}
+-
+-	log.Debug.Println("waiting for link updates...")
+-
++	ticker := time.NewTicker(2 * time.Second)
++	defer ticker.Stop()
+ 	for {
+ 		select {
+-		case update := <-ch:
+-			iface, err := net.InterfaceByIndex(int(update.Index))
+-			if err != nil {
+-				log.Info.Println(err)
++		case <-ticker.C:
++			if !conn.refreshMulticastLinks() {
+ 				continue
+ 			}
+-
+-			if isInterfaceUpAndRunning(iface) {
+-				log.Debug.Printf("interface %s is up", iface.Name)
+-
+-				addrs, err := iface.Addrs()
+-				if err == nil {
+-					log.Debug.Printf("addrs %+v", addrs)
+-				}
+-			} else {
+-				log.Debug.Printf("interface %s is down", iface.Name)
+-			}
+-
+-			log.Debug.Println("announcing services after link update")
+ 			r.mutex.Lock()
+-			r.announce(services(r.managed))
++			if r.isRunning {
++				r.announce(services(r.managed))
++			}
+ 			r.mutex.Unlock()
+ 		case <-ctx.Done():
+ 			return
+ 		}
+ 	}
+ }
+-
+-func isInterfaceUpAndRunning(iface *net.Interface) bool {
+-	return iface.Flags&net.FlagUp == net.FlagUp && iface.Flags&net.FlagRunning == net.FlagRunning
+-}
+diff --git a/responder.go b/responder.go
+index 5f0ab0e..8f63506 100644
+--- a/responder.go
++++ b/responder.go
+@@ -137,10 +137,29 @@ func (r *responder) announce(services []*Service) {
+ }
+ 
+ func (r *responder) announceAtInterface(service *Service, iface *net.Interface) {
++	if err := r.sendAnnouncement(service, iface); err != nil {
++		log.Debug.Println("1st announcement:", err)
++	}
++	time.Sleep(1 * time.Second)
++	// The interface may have been disconnected or renumbered between the two
++	// announcements. Never replay a captured address on a changed link.
++	if err := r.sendAnnouncement(service, iface); err != nil {
++		log.Debug.Println("2nd announcement:", err)
++	}
++}
++
++func (r *responder) sendAnnouncement(service *Service, iface *net.Interface) error {
++	if service.interfaceAddresses != nil {
++		current, err := net.InterfaceByIndex(iface.Index)
++		if err != nil || current.Name != iface.Name || !service.IsVisibleAtInterface(current.Name) {
++			return nil
++		}
++		iface = current
++	}
+ 	ips := service.IPsAtInterface(iface)
+ 	if len(ips) == 0 {
+ 		log.Debug.Printf("No IPs for service %s at %s\n", service.ServiceInstanceName(), iface.Name)
+-		return
++		return nil
+ 	}
+ 
+ 	var answer []dns.RR
+@@ -162,15 +181,8 @@ func (r *responder) announceAtInterface(service *Service, iface *net.Interface)
+ 
+ 	resp := &Response{msg: msg, iface: iface}
+ 
+-	log.Debug.Println("Sending 1st announcement", msg)
+-	if err := r.conn.SendResponse(resp); err != nil {
+-		log.Debug.Println("1st announcement:", err)
+-	}
+-	time.Sleep(1 * time.Second)
+-	log.Debug.Println("Sending 2nd announcement", msg)
+-	if err := r.conn.SendResponse(resp); err != nil {
+-		log.Debug.Println("2nd announcement:", err)
+-	}
++	log.Debug.Println("Sending announcement", msg)
++	return r.conn.SendResponse(resp)
+ }
+ 
+ func (r *responder) register(ctx context.Context, srv Service) (Service, error) {
+@@ -222,9 +234,11 @@ func (r *responder) respond(ctx context.Context) error {
+ 			r.mutex.Unlock()
+ 
+ 		case <-ctx.Done():
++			r.mutex.Lock()
+ 			r.unannounce(services(r.managed))
+ 			r.conn.Close()
+ 			r.isRunning = false
++			r.mutex.Unlock()
+ 			return ctx.Err()
+ 		}
+ 	}
+@@ -382,6 +396,9 @@ func (r *responder) reprobe(h *serviceHandle) {
+ }
+ 
+ func (r *responder) handleQuestion(q dns.Question, req *Request, srv Service) *dns.Msg {
++	if srv.interfaceAddresses != nil && (req.iface == nil || !srv.IsVisibleAtInterface(req.iface.Name)) {
++		return nil
++	}
+ 	resp := new(dns.Msg)
+ 	switch strings.ToLower(q.Name) {
+ 	case strings.ToLower(srv.ServiceName()):
+diff --git a/service.go b/service.go
+index 3be815d..81e6a67 100644
+--- a/service.go
++++ b/service.go
+@@ -39,18 +39,23 @@ type Config struct {
+ 
+ 	// Interfaces at which the service should be registered
+ 	Ifaces []string
++
++	// InterfaceAddresses selects current addresses for a service on each link.
++	// A non-nil selector returning no addresses also hides all records there.
++	InterfaceAddresses func(*net.Interface) []net.IP
+ }
+ 
+ func (c Config) Copy() Config {
+ 	return Config{
+-		Name:   c.Name,
+-		Type:   c.Type,
+-		Domain: c.Domain,
+-		Host:   c.Host,
+-		Text:   c.Text,
+-		IPs:    c.IPs,
+-		Port:   c.Port,
+-		Ifaces: c.Ifaces,
++		Name:               c.Name,
++		Type:               c.Type,
++		Domain:             c.Domain,
++		Host:               c.Host,
++		Text:               c.Text,
++		IPs:                c.IPs,
++		Port:               c.Port,
++		Ifaces:             c.Ifaces,
++		InterfaceAddresses: c.InterfaceAddresses,
+ 	}
+ }
+ 
+@@ -110,8 +115,9 @@ type Service struct {
+ 	Ifaces []string
+ 
+ 	// stores ips by interface name for caching purposes
+-	ifaceIPs   map[string][]net.IP
+-	expiration time.Time
++	ifaceIPs           map[string][]net.IP
++	expiration         time.Time
++	interfaceAddresses func(*net.Interface) []net.IP
+ }
+ 
+ // NewService returns a new service for the given config.
+@@ -162,21 +168,31 @@ func NewService(cfg Config) (s Service, err error) {
+ 	}
+ 
+ 	return Service{
+-		Name:     trimServiceNameSuffixRight(name),
+-		Type:     typ,
+-		Domain:   domain,
+-		Host:     validHostname(host),
+-		Text:     text,
+-		Port:     port,
+-		IPs:      ips,
+-		Ifaces:   ifaces,
+-		ifaceIPs: map[string][]net.IP{},
++		Name:               trimServiceNameSuffixRight(name),
++		Type:               typ,
++		Domain:             domain,
++		Host:               validHostname(host),
++		Text:               text,
++		Port:               port,
++		IPs:                ips,
++		Ifaces:             ifaces,
++		ifaceIPs:           map[string][]net.IP{},
++		interfaceAddresses: cfg.InterfaceAddresses,
+ 	}, nil
+ }
+ 
+ // Interfaces returns the network interfaces for which the service is registered,
+ // or all multicast network interfaces, if no IP addresses are specified.
+ func (s *Service) Interfaces() []*net.Interface {
++	if s.interfaceAddresses != nil {
++		var interfaces []*net.Interface
++		for _, iface := range MulticastInterfaces(s.Ifaces...) {
++			if len(s.IPsAtInterface(iface)) != 0 {
++				interfaces = append(interfaces, iface)
++			}
++		}
++		return interfaces
++	}
+ 	if len(s.Ifaces) > 0 {
+ 		ifis := []*net.Interface{}
+ 		for _, name := range s.Ifaces {
+@@ -194,6 +210,10 @@ func (s *Service) Interfaces() []*net.Interface {
+ // IsVisibleAtInterface returns true, if the service is published
+ // at the network interface with name n.
+ func (s *Service) IsVisibleAtInterface(n string) bool {
++	if s.interfaceAddresses != nil {
++		iface, err := net.InterfaceByName(n)
++		return err == nil && containsIfaces(n, s.Ifaces) && len(s.IPsAtInterface(iface)) != 0
++	}
+ 	if len(s.Ifaces) == 0 {
+ 		return true
+ 	}
+@@ -213,6 +233,10 @@ func (s *Service) IPsAtInterface(iface *net.Interface) []net.IP {
+ 		return []net.IP{}
+ 	}
+ 
++	if s.interfaceAddresses != nil {
++		return s.interfaceAddresses(iface)
++	}
++
+ 	if ips, ok := s.ifaceIPs[iface.Name]; ok {
+ 		return ips
+ 	}
+@@ -256,17 +280,18 @@ func (s *Service) HasIPOnAnyInterface(ip net.IP) bool {
+ // Copy returns a copy of the service.
+ func (s Service) Copy() *Service {
+ 	return &Service{
+-		Name:       s.Name,
+-		Type:       s.Type,
+-		Domain:     s.Domain,
+-		Host:       s.Host,
+-		Text:       s.Text,
+-		TTL:        s.TTL,
+-		IPs:        s.IPs,
+-		Port:       s.Port,
+-		Ifaces:     s.Ifaces,
+-		ifaceIPs:   s.ifaceIPs,
+-		expiration: s.expiration,
++		Name:               s.Name,
++		Type:               s.Type,
++		Domain:             s.Domain,
++		Host:               s.Host,
++		Text:               s.Text,
++		TTL:                s.TTL,
++		IPs:                s.IPs,
++		Port:               s.Port,
++		Ifaces:             s.Ifaces,
++		ifaceIPs:           s.ifaceIPs,
++		expiration:         s.expiration,
++		interfaceAddresses: s.interfaceAddresses,
+ 	}
+ }
+ 

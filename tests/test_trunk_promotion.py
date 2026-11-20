@@ -9,6 +9,7 @@ import urllib.parse
 from tools import trunk_promotion as trunk
 from tests import test_dashboard_image_promotion as fixtures
 DIGESTS = fixtures.DIGESTS
+KDNS_IMAGE = "ghcr.io/qualityminds/magicstick-kdns@sha256:" + "a" * 64
 
 
 class TrunkPromotionTests(unittest.TestCase):
@@ -58,6 +59,13 @@ class TrunkPromotionTests(unittest.TestCase):
         self.commit("Synthetic pin promotion")
         return self.git("rev-parse", "HEAD")
 
+    def enable_managed_network(self):
+        self.write(trunk.dashboard.NETWORK_MARKER, json.dumps({
+            "version": 1, "kdns": KDNS_IMAGE, "dashboardApi": trunk.dashboard.read_pins(self.root)["api"],
+        }))
+        self.commit("Synthetic reviewed network activation")
+        return self.git("rev-parse", "HEAD")
+
     def test_content_proof_preserves_legal_data_and_does_not_trust_commit_message(self):
         head = self.pin_commit()
         with patch.object(trunk.license_audit, "source_checks", return_value=[]):
@@ -77,6 +85,40 @@ class TrunkPromotionTests(unittest.TestCase):
             self.commit("Synthetic counterexample")
             with patch.object(trunk.license_audit, "source_checks", return_value=[]):
                 self.assertFalse(trunk.pin_only(self.root, self.source, self.git("rev-parse", "HEAD")))
+
+    def test_enabled_network_marker_tracks_the_next_api_without_changing_kdns(self):
+        base = self.enable_managed_network()
+        head = self.pin_commit()
+        marker = json.loads((self.root / trunk.dashboard.NETWORK_MARKER).read_text())
+        self.assertEqual(marker, {"version": 1, "kdns": KDNS_IMAGE,
+                                 "dashboardApi": trunk.dashboard.replacements(self.source, DIGESTS)["api"]})
+        self.assertEqual(set(self.git("diff", "--name-only", base, head).splitlines()), trunk.ALLOWED_WITH_NETWORK)
+        with patch.object(trunk.license_audit, "source_checks", return_value=[]):
+            self.assertTrue(trunk.pin_only(self.root, base, head))
+
+    def test_unmatched_or_new_network_artifacts_do_not_get_the_pin_only_skip(self):
+        base = self.enable_managed_network()
+        old = (self.root / trunk.dashboard.NETWORK_MARKER).read_text()
+        head = self.pin_commit()
+        marker = json.loads((self.root / trunk.dashboard.NETWORK_MARKER).read_text())
+        for replacement in (old, json.dumps({**marker, "kdns": KDNS_IMAGE[:-1] + "b"})):
+            self.git("checkout", "--detach", head)
+            self.write(trunk.dashboard.NETWORK_MARKER, replacement)
+            self.commit("Synthetic incompatible network promotion")
+            with patch.object(trunk.license_audit, "source_checks", return_value=[]):
+                self.assertFalse(trunk.pin_only(self.root, base, self.git("rev-parse", "HEAD")))
+        self.git("checkout", "--detach", head)
+        with patch.object(trunk.license_audit, "source_checks", return_value=[]):
+            self.assertFalse(trunk.pin_only(self.root, self.source, head))
+
+    def test_promotion_refuses_a_stale_marker_before_writing_any_runtime_pin(self):
+        self.enable_managed_network()
+        marker = json.loads((self.root / trunk.dashboard.NETWORK_MARKER).read_text())
+        self.write(trunk.dashboard.NETWORK_MARKER, json.dumps({**marker, "dashboardApi": marker["dashboardApi"][:-1] + "9"}))
+        original = trunk.dashboard.read_pins(self.root)
+        with self.assertRaisesRegex(trunk.dashboard.PromotionError, "managed network"):
+            trunk.dashboard.rewrite_pins(self.root, self.source, DIGESTS)
+        self.assertEqual(trunk.dashboard.read_pins(self.root), original)
 
     def test_an_actual_pin_merge_never_becomes_a_new_build_source_or_pr(self):
         head = self.pin_commit(); self.git("push", "origin", "HEAD:main")
