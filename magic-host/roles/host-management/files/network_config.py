@@ -33,7 +33,13 @@ def private_fingerprint(value, state=Path("/var/lib/magicstick/host-management")
 
 
 def command(argv, timeout=20):
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=ENV, check=False)
+    # The worker's 0077 umask protects approvals and rollback state. Netplan
+    # needs group read access on its generated root:systemd-network profiles.
+    # Let only the two rendering commands preserve that bit; Netplan still
+    # creates credential-bearing files with mode 0600.
+    netplan_render = tuple(argv[:2]) in {("netplan", "generate"), ("netplan", "apply")}
+    result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=ENV,
+                            check=False, umask=0o027 if netplan_render else -1)
     if result.returncode:
         raise RuntimeError("Local network command failed. No command output or credentials are published.")
     return result.stdout

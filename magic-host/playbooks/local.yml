@@ -165,6 +165,27 @@
           ansible-pull -e.
       when: flux_bootstrap_mode | default('readonly-public') == 'readonly-public'
 
+    - name: Prepare DHCP on unconfigured Ethernet before first-install K3s starts
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - "{{ playbook_dir }}/../roles/host-management/files/ethernet_defaults.py"
+      register: first_install_ethernet
+      changed_when: first_install_ethernet.stdout == "configured"
+
+    - name: Explain when first-install Ethernet defaults could not be applied
+      ansible.builtin.debug:
+        msg: "Automatic Ethernet preparation was rolled back. Existing network settings were restored; Ethernet can still be configured in Settings."
+      when: first_install_ethernet.stdout | default('') == "rolled-back"
+
+    - name: Refresh network facts after first-install link configuration
+      ansible.builtin.setup:
+        gather_subset:
+          - '!all'
+          - '!min'
+          - network
+      when: first_install_ethernet.changed
+
   roles:
     - common
     - gpu-compatibility

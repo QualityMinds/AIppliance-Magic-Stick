@@ -7,6 +7,14 @@ IPv4 settings; for Wi-Fi, select or enter the network name and credentials.
 After applying, verify connectivity and choose **Keep this network configuration**
 within three minutes. Without confirmation the worker restores the old settings.
 
+On a new installation using Ubuntu's default network backend, Magic Stick
+prepares unconfigured physical Ethernet ports for IPv4 DHCP. You can install
+over Wi-Fi and plug in Ethernet later without editing the port settings. The port
+does not delay boot while unplugged. It needs an available DHCP server, and its
+new route does not take priority over the connection already used for setup.
+Explicit DHCP, static or disabled configurations and existing appliances are not
+changed. Getting a second IP does not migrate Kubernetes' management address.
+
 ## Configuration forms
 
 [![Ethernet configuration form with automatic DHCP, route metric and optional DNS servers.](../assets/screenshots/network-dhcp.webp)](../assets/screenshots/network-dhcp.webp)
@@ -89,6 +97,8 @@ DNS, VPN or application routing.
   API/browser connectivity. `ExecStopPost` restores unconfirmed trials on service
   failure. `magicstick-network-recovery.service` restores files and regenerates
   backend configuration before network services start after an interrupted boot.
+- Apply and recovery let the network backend read its generated profiles.
+  The saved Netplan YAML, Wi-Fi credentials and worker state stay private.
 - Confirmation removes credential-bearing backups. Recovery state remains until
   restoration succeeds. Concurrent externally created files stop recovery rather
   than being deleted. Rollback cannot guarantee recovery from failed hardware,
