@@ -84,7 +84,9 @@ class FirstInstallEthernetTests(unittest.TestCase):
         self.netplan = root / "netplan"
         self.netplan.mkdir()
         self.config = self.netplan / "50-installer.yaml"
-        self.config.write_text("network: {version: 2}\n")
+        self.original = {"network": {"version": 2}}
+        self.original_yaml = yaml.safe_dump(self.original)
+        self.config.write_text(self.original_yaml)
         self.output = self.netplan / ethernet.OVERLAY
         for obj, field, value in (
             (ethernet, "FIRST_INSTALL", self.first_install),
@@ -97,7 +99,7 @@ class FirstInstallEthernetTests(unittest.TestCase):
         self.command = patch.object(network, "command", side_effect=lambda args, **_: {
             "systemctl": "active\n", "ip": "[]",
         }.get(args[0], "")).start()
-        patch.object(network, "configuration", return_value=({"network": {"version": 2}}, {}, "")).start()
+        patch.object(network, "configuration", return_value=(self.original, {}, "")).start()
         patch.object(ethernet, "physical_ethernet", return_value=[("eno1", MAC)]).start()
         patch.object(ethernet.os, "geteuid", return_value=0).start()
         self.addCleanup(patch.stopall)
@@ -112,7 +114,7 @@ class FirstInstallEthernetTests(unittest.TestCase):
     def test_apply_is_persistent_idempotent_and_does_not_reapply_wifi(self):
         self.first_install.touch()
         self.assertEqual(ethernet.apply_defaults(), "configured")
-        self.assertEqual(self.config.read_text(), "network: {version: 2}\n")
+        self.assertEqual(self.config.read_text(), self.original_yaml)
         self.assertEqual(self.output.stat().st_mode & 0o777, 0o600)
         self.assertTrue(yaml.safe_load(self.output.read_text())["network"]["ethernets"]["eno1"]["dhcp4"])
         self.assertEqual(self.command.call_args_list[-2:], [
@@ -129,7 +131,7 @@ class FirstInstallEthernetTests(unittest.TestCase):
         ]
         self.assertEqual(ethernet.apply_defaults(), "rolled-back")
         self.assertFalse(self.output.exists())
-        self.assertEqual(self.config.read_text(), "network: {version: 2}\n")
+        self.assertEqual(self.config.read_text(), self.original_yaml)
         self.assertEqual(self.command.call_args_list[-2:], [
             call(["netplan", "generate"], timeout=30), call(["networkctl", "reload"], timeout=30),
         ])
