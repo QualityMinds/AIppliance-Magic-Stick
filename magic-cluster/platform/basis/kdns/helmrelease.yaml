@@ -25,7 +25,7 @@ spec:
             patch: |
               - op: replace
                 path: /spec/template/spec/containers/0/image
-                value: ghcr.io/qualityminds/magicstick-kdns@sha256:6b8ed100b7b9da6b54b536895c99d3d7334ed0bb0f90d091168ca40f95c1461b
+                value: ghcr.io/qualityminds/magicstick-kdns@sha256:4dffd191c30cf850588bc2a271cdbd813fb7751eea5fda0cb598f2e0e3a0be2d
               - op: replace
                 path: /spec/template/spec/containers/0/env/0
                 value:

@@ -1982,27 +1982,27 @@
     },
     {
       "file": ".github/workflows/build-kdns-image.yml",
-      "line": 42,
+      "line": 44,
       "reference": "repository: lab42/kdns"
     },
     {
       "file": ".github/workflows/build-kdns-image.yml",
-      "line": 47,
+      "line": 50,
       "reference": "go-version: 1.26.0"
     },
     {
       "file": ".github/workflows/build-kdns-image.yml",
-      "line": 74,
+      "line": 92,
       "reference": "repository: lab42/kdns"
     },
     {
       "file": ".github/workflows/build-kdns-image.yml",
-      "line": 81,
+      "line": 100,
       "reference": "go-version: 1.26.0"
     },
     {
       "file": ".github/workflows/build-kdns-image.yml",
-      "line": 126,
+      "line": 145,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
