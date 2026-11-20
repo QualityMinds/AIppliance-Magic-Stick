@@ -20,6 +20,13 @@ if [[ -e /var/lib/magicstick/host-management/control-plane-network-migration.jso
   echo "Control-plane network maintenance needs local verification or recovery." >&2
   exit 1
 fi
+# Some system services and the isolated control-plane worker omit HOME.
+# Kubernetes clients in the playbook must not fall back to a cache in its
+# working directory, which would block the next migration or rollback.
+if [[ -z "${HOME:-}" ]]; then
+  export HOME=/var/lib/magicstick/host-management/converge-home
+  install -d -m 0700 "$HOME"
+fi
 # Keep the local maintenance lock across the guard and child. This also proves
 # that an expired reservation from this same host has no live applying child.
 regression_guard=/usr/local/lib/magicstick/host-management/regression_guard.py
