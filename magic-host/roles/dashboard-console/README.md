@@ -35,6 +35,27 @@ has asked for them. The TUI draws the pointer itself. Without the helper, the
 device, or with `dashboard_console_mouse_enabled: false`, the launcher starts
 the TUI directly and the monitor is operated with the keyboard as before.
 
+The monitor saves downloads to and opens files from USB sticks. The TUI cannot
+reach host devices, so it writes a small JSON request into
+`dashboard_console_transfer_directory/requests` (the only folder there that
+the runtime user may write). `magicstick-console-usb.path` then runs
+`magicstick-console-usb` (`files/console-usb.py`) as root:
+
+- `scan` mounts every attached USB stick formatted as FAT32 or exFAT below
+  `usb/<name>` with `nosuid,nodev,noexec,umask=0077` for the runtime user
+  (FAT also flushes each file on close);
+- `eject` flushes and unmounts one of those sticks;
+- each request also detaches sticks that were unplugged without `eject`.
+
+A disk is never offered while it holds a mounted filesystem, active swap or a
+volume in use, and an EFI system partition is never offered. The helper answers
+in `status/status.json` and only unmounts what it mounted. Nothing is mounted
+when a stick is inserted, only when the signed-in TUI asks. The runtime mounts
+the transfer folder with `mountPropagation: HostToContainer`, so sticks
+mounted later appear in the running Pod. With `dashboard_console_usb_enabled:
+false` the watcher is stopped and the launcher does not offer sticks to the
+TUI.
+
 The first-run role owns terminal 9 while its claim file exists. Its cleanup
 service starts this role's systemd unit only after the claim reaches
 `Completed` or `CompletedLegacy`.

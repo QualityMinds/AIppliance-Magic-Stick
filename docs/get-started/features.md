@@ -124,6 +124,11 @@
   separately; an old report without cleanup evidence is not labelled clean.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
+  The terminal dashboard offers every browser page, dialog and option, including
+  model editing and logs, Mesh, all Settings sections, hardware and host controls,
+  System Status tools and Computer power. At the appliance's own monitor,
+  downloads and imports such as a signed license use a USB stick that is mounted
+  only on request. [CLI and TUI](../reference/cli.md).
 - Operate the appliance at its own monitor and keyboard without logging in: the
   terminal dashboard signs in automatically, also without a network connection.
   Administrators can lower its access or switch it off, and any user can switch

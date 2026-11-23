@@ -118,18 +118,17 @@ cache, minimum, recommendation, and offloading when the selection changes; its
 info overlays show the selected format, per-token bytes, F16 baseline, and
 estimated saving.
 
-The terminal UI can create the same local and external activation types without
-a JSON file. A local TUI form lists only live engine/compute-target pairs,
-accepts a direct `hf://` or `ollama://` reference, obtains the normal server-side
-memory estimate, offers only KV-cache formats compatible with the selected
-runtime/target, and rounds an automatic recommendation upward to the same
-100 MiB planning increment as the browser. An explicit reservation remains
-possible. NVIDIA models also expose the opt-in **Use additional system RAM**
-choice and a separate total host-RAM budget. Leaving that budget empty uses the
-server recommendation; inadequate or unverifiable budgets are rejected.
-
-Dynamic catalog search and tested-preset browsing remain richer in
-the browser; the non-interactive CLI continues to accept the complete API
+The terminal UI creates and edits the same local and external activation types
+without a JSON file. Its local model dialog follows the browser form field by
+field: engine (including the experimental vLLM-Omni Realtime profiles), model
+source (Hugging Face or Ollama search, tested presets or a direct reference),
+hardware with its slot and availability reasons, NVIDIA card selection and
+deployment mode, task detection, KV-cache formats compatible with the selected
+runtime/target, the live server-side memory estimate with Minimum, Recommended
+and 100% budgets in the same 100 MiB increments, system-RAM planning, the opt-in
+**Use additional system RAM** choice and the advanced CPU, vision-attention and
+multi-GPU settings. It builds the request with the same shared core functions as
+the browser. The non-interactive CLI continues to accept the complete API
 payload with `model create-local --file`.
 
 CPU-backed variants use a RAM reservation slider. The slider is capped at

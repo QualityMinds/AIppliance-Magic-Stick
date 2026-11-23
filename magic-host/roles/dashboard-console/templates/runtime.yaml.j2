@@ -81,6 +81,10 @@ spec:
             - name: console-client
               mountPath: {{ dashboard_console_client_secret_directory }}
               readOnly: true
+            # USB sticks the host mounts on request appear below usb/ while the Pod runs.
+            - name: transfer
+              mountPath: {{ dashboard_console_transfer_mount_path }}
+              mountPropagation: HostToContainer
       volumes:
         - name: state
           hostPath:
@@ -88,6 +92,10 @@ spec:
             type: Directory
         - name: tmp
           emptyDir: {}
+        - name: transfer
+          hostPath:
+            path: {{ dashboard_console_transfer_directory }}
+            type: Directory
         # Optional: an appliance whose platform revision predates automatic
         # console sign-in keeps starting and falls back to the device login.
         - name: console-client

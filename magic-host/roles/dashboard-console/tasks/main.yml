@@ -15,6 +15,70 @@
     group: root
     mode: "0755"
 
+- name: Create dashboard console USB transfer folders
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    # The console Pod may only write its request; status and mount points belong to root.
+    - {path: "{{ dashboard_console_transfer_directory }}", owner: root, group: root, mode: "0755"}
+    - {path: "{{ dashboard_console_transfer_directory }}/requests", owner: "{{ dashboard_console_runtime_uid }}", group: "{{ dashboard_console_runtime_gid }}", mode: "0700"}
+    - {path: "{{ dashboard_console_transfer_directory }}/status", owner: root, group: root, mode: "0755"}
+    - {path: "{{ dashboard_console_transfer_directory }}/usb", owner: root, group: root, mode: "0755"}
+
+- name: Install dashboard console USB helper
+  ansible.builtin.copy:
+    src: console-usb.py
+    dest: "{{ dashboard_console_usb_helper }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install dashboard console USB request service
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ dashboard_console_usb_service }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Mount or unmount USB sticks requested by the Magic Stick console
+      # Requests come from a person at the monitor; never stop answering them.
+      StartLimitIntervalSec=0
+
+      [Service]
+      Type=oneshot
+      ExecStart={{ dashboard_console_usb_helper }} process --root {{ dashboard_console_transfer_directory }} --uid {{ dashboard_console_runtime_uid }} --gid {{ dashboard_console_runtime_gid }} --filesystems {{ dashboard_console_usb_filesystems | join(',') }}
+  notify: Reload systemd for dashboard console
+
+- name: Install dashboard console USB request watcher
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ dashboard_console_usb_path_unit }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Watch for USB stick requests from the Magic Stick console
+
+      [Path]
+      PathChanged={{ dashboard_console_transfer_directory }}/requests/request
+      Unit={{ dashboard_console_usb_service }}
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Reload systemd for dashboard console
+
+- name: Switch dashboard console USB requests on or off
+  ansible.builtin.systemd:
+    name: "{{ dashboard_console_usb_path_unit }}"
+    enabled: "{{ dashboard_console_usb_enabled | bool }}"
+    state: "{{ 'started' if dashboard_console_usb_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+
 - name: Install dashboard console launcher
   ansible.builtin.template:
     src: launcher.j2

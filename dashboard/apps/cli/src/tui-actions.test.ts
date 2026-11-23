@@ -66,12 +66,15 @@ describe('terminal dashboard actions shared with the browser', () => {
       await io.key('3');
       await io.key('n');
       expect(io.screen()).toContain('Create Instance');
-      expect(io.screen()).toContain('× Paperclip — required services are not ready: Paperclip');
-      await io.key('\r');
-      expect(io.screen()).toContain('New Hermes instance');
+      expect(io.screen()).toContain('Application: < Hermes >');
       expect(io.screen()).toContain('Model: < demo-chat >');
       expect(io.screen()).not.toContain('Postgres');
+      await io.key(' '); // the full application list, with the unavailable one explained
+      expect(io.screen()).toContain('× Paperclip · unavailable — Required services are not ready: Paperclip.');
+      await io.key('\x1b');
+      expect(io.screen()).toContain('Application: < Hermes >');
 
+      await io.key('\x1b[B'); // Name
       await io.key('\x15');
       await io.key('Bad Name');
       await io.key('\x13');
@@ -128,28 +131,29 @@ describe('terminal dashboard actions shared with the browser', () => {
       await io.key('3');
       await io.click('► Show 1 instance');
       await io.click('[ Sharing ]');
-      expect(io.screen()).toContain('Visible to: all users with the required role');
-      await io.key('\x1b[B'); // Save sharing: nothing changed yet
-      await io.key('\r');
-      expect(io.screen()).toContain('no changes to save');
-      await io.key('\r');
-      expect(io.screen()).not.toContain('Sharing · demo');
-
-      await io.click('[ Sharing ]');
-      await io.key('\r'); // → selected users or groups
-      await io.key('\x1b[B');
-      await io.key('\r'); // Add user…
-      await io.key('to');
-      await io.key('\r');
-      expect(calls.instancePrincipals).toHaveBeenCalledWith('users', 'to');
-      await io.key('\r'); // choose tova
-      expect(io.screen()).toContain('User tova');
-      for (let step = 0; step < 4; step += 1) await io.key('\x1b[B');
-      await io.key('\r');
-      expect(io.screen()).toContain('Only these will be able to see and use this instance: tova.');
+      expect(io.screen()).toContain('Visible and accessible to: < All users with the required role >');
+      await io.key('\x13'); // Nothing is saved before the confirmation.
+      expect(io.screen()).toContain('Confirm who will be able to see and use this instance first.');
       expect(calls.updateInstanceAccess).not.toHaveBeenCalled();
+
+      await io.key('\x1b[C'); // → selected users or groups: the directory loads its first page
+      expect(calls.instancePrincipals).toHaveBeenLastCalledWith('users', '', 0);
+      expect(io.screen()).toContain('No one can use this instance until at least one user or group is selected.');
+      await io.key('\x1b[B'); // Search directory
+      await io.key('\x1b[B'); // User or group name
+      await io.key('to');
+      await io.key('\x1b[B'); // [ Search ]
       await io.key('\r');
+      expect(calls.instancePrincipals).toHaveBeenLastCalledWith('users', 'to', 0);
+      for (let step = 0; step < 3; step += 1) await io.key('\x1b[B'); // Previous, Next, + tova
+      await io.key('\r');
+      expect(io.screen()).toContain('[ tova × ]');
+      for (let step = 0; step < 2; step += 1) await io.key('\x1b[B'); // tova ×, confirmation
+      await io.key(' ');
+      expect(io.screen()).toContain('[x] I confirm who will be able to see and use this instance.');
+      await io.key('\x13');
       expect(calls.updateInstanceAccess).toHaveBeenCalledWith('demo', {mode: 'selected', users: ['u1'], groups: []}, 'r1');
+      expect(io.screen()).toContain('Sharing for demo was saved.');
     } finally { await io.close(); }
   });
 

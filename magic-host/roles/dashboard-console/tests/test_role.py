@@ -33,6 +33,8 @@ class DashboardConsoleRoleTests(unittest.TestCase):
             "{{ dashboard_console_mouse_enabled | bool | string | lower | quote }}": shlex.quote("true"),
             "{{ dashboard_console_mouse_helper | quote }}": shlex.quote("/usr/local/sbin/magicstick-console-mouse"),
             "{{ dashboard_console_mouse_device | quote }}": shlex.quote("/dev/input/mice"),
+            "{{ dashboard_console_usb_enabled | bool | string | lower | quote }}": shlex.quote("true"),
+            "{{ dashboard_console_transfer_mount_path | quote }}": shlex.quote("/var/lib/magicstick-transfer"),
         }
         rendered_launcher = LAUNCHER
         for source, target in values.items():
@@ -61,6 +63,8 @@ class DashboardConsoleRoleTests(unittest.TestCase):
             "{{ dashboard_console_state_directory }}": "/var/lib/magicstick/dashboard-console",
             "{{ dashboard_console_client_secret_directory }}": "/var/run/magicstick-console-client",
             "{{ dashboard_console_client_secret }}": "magicstick-console-client",
+            "{{ dashboard_console_transfer_mount_path }}": "/var/lib/magicstick-transfer",
+            "{{ dashboard_console_transfer_directory }}": "/var/lib/magicstick/console-transfer",
         }.items():
             rendered_runtime = rendered_runtime.replace(source, target)
         self.assertNotIn("{{", rendered_runtime)
@@ -79,6 +83,11 @@ class DashboardConsoleRoleTests(unittest.TestCase):
         self.assertEqual(mount, {
             "name": "console-client", "mountPath": "/var/run/magicstick-console-client", "readOnly": True,
         })
+        # USB sticks mounted by the host later must appear in the running Pod.
+        transfer = next(volume for volume in pod["volumes"] if volume["name"] == "transfer")["hostPath"]
+        self.assertEqual(transfer, {"path": "/var/lib/magicstick/console-transfer", "type": "Directory"})
+        transfer_mount = next(item for item in pod["containers"][0]["volumeMounts"] if item["name"] == "transfer")
+        self.assertEqual(transfer_mount, {"name": "transfer", "mountPath": "/var/lib/magicstick-transfer", "mountPropagation": "HostToContainer"})
         # A digest-pinned image must restart from the local store while offline.
         self.assertEqual(pod["containers"][0]["imagePullPolicy"], "IfNotPresent")
         self.assertIn("@sha256:", (ROLE_DIR / "defaults" / "main.yml").read_text(encoding="utf-8").split("dashboard_console_image:")[1].splitlines()[0])
@@ -121,6 +130,29 @@ class DashboardConsoleRoleTests(unittest.TestCase):
         defaults = yaml.safe_load((ROLE_DIR / "defaults" / "main.yml").read_text(encoding="utf-8"))
         self.assertIs(defaults["dashboard_console_mouse_enabled"], True)
         self.assertEqual(defaults["dashboard_console_mouse_device"], "/dev/input/mice")
+
+    def test_usb_sticks_are_mounted_only_on_request_from_the_console(self):
+        defaults = yaml.safe_load((ROLE_DIR / "defaults" / "main.yml").read_text(encoding="utf-8"))
+        self.assertIs(defaults["dashboard_console_usb_enabled"], True)
+        self.assertEqual(defaults["dashboard_console_usb_filesystems"], ["vfat", "exfat"])
+        tasks = yaml.safe_load(TASKS)
+        folders = next(task for task in tasks if task["name"] == "Create dashboard console USB transfer folders")["loop"]
+        modes = {item["path"].split("/")[-1].replace("}}", "").strip(): (item["owner"], item["mode"]) for item in folders}
+        # Only the request folder belongs to the console runtime; status and mount points stay root's.
+        self.assertEqual(modes["requests"], ("{{ dashboard_console_runtime_uid }}", "0700"))
+        self.assertEqual(modes["status"], ("root", "0755"))
+        self.assertEqual(modes["usb"], ("root", "0755"))
+        # A path unit starts the helper for each request; nothing is mounted by udev on insertion.
+        self.assertIn("PathChanged={{ dashboard_console_transfer_directory }}/requests/request", TASKS)
+        self.assertIn("ExecStart={{ dashboard_console_usb_helper }} process --root {{ dashboard_console_transfer_directory }}", TASKS)
+        self.assertIn("--uid {{ dashboard_console_runtime_uid }}", TASKS)
+        self.assertIn("StartLimitIntervalSec=0", TASKS)
+        self.assertNotIn("udev", TASKS.lower())
+        self.assertIn("src: console-usb.py", TASKS)
+        # The TUI uses sticks only when the launcher hands over the transfer folder.
+        self.assertIn('MAGICSTICK_CONSOLE_TRANSFER_DIR="$transfer"', LAUNCHER)
+        self.assertIn('if [[ "$USB_ENABLED" == "true" ]]; then', LAUNCHER)
+        self.assertIn('transfer=""', LAUNCHER)
 
     def test_systemd_owns_tty9_only_after_the_claim_is_removed(self):
         self.assertIn("ConditionPathExists=!{{ dashboard_console_setup_claim_file }}", TASKS)

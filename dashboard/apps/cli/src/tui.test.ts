@@ -18,6 +18,7 @@ import {
   type TuiViewState,
 } from './tui';
 import {hitTarget} from './tui-screen';
+import {formDialog} from './tui-dialogs';
 
 const snapshot = (roles = ['magicstick-admin']): DashboardSnapshot => ({
   session: {subject: '1', username: 'tova', roles, identityManagementAvailable: true, identityManagementMode: 'keycloak'},
@@ -96,16 +97,16 @@ describe('terminal dashboard', () => {
   });
 
   it('shows the monitor sign-in level in Settings only when the appliance reports it', () => {
-    const settings = (data: DashboardSnapshot) => renderTui(data, {page: 'system', systemSection: 'settings'}, 121, 40, false);
+    const settings = (data: DashboardSnapshot) => renderTui(data, {page: 'system', systemSection: 'settings', settingsSection: 'console'}, 121, 40, false);
     const configured = settings({...snapshot(), consoleAccess: {available: true, accessLevel: 'admin' as const}});
     expect(configured).toContain('Automatic sign-in  Administrator');
-    expect(configured).toContain('without a password');
+    expect(configured).toContain('attached keyboard gets Administrator access');
     expect(configured).toContain('[ Change ]');
     expect(configured).toContain('e Monitor sign-in');
 
     const off = settings({...snapshot(), consoleAccess: {available: true, accessLevel: 'off' as const}});
     expect(off).toContain('Off — sign-in required');
-    expect(off).not.toContain('without a password');
+    expect(off).not.toContain('keyboard gets');
     const unprovisioned = settings({...snapshot(), consoleAccess: {available: false, accessLevel: 'off' as const}});
     expect(unprovisioned).toContain('Not provisioned');
     expect(unprovisioned).not.toContain('[ Change ]');
@@ -219,10 +220,9 @@ describe('terminal dashboard', () => {
   });
 
   it('keeps a selected form field and the submit keys visible in a long form', () => {
-    const rendered = renderTui(snapshot(), {page: 'models', overlay: {
-      kind: 'form', title: 'Long form', fields: Array.from({length: 20}, (_, index) => ({id: String(index), label: `Field ${index}`, value: 'example'})),
-      active: 19, submitLabel: 'save', onSubmit: async () => undefined,
-    }}, 121, 24, false);
+    const overlay = formDialog('Long form', '', Array.from({length: 20}, (_, index) => ({id: String(index), label: `Field ${index}`, value: 'example'})), 'save', async () => undefined);
+    overlay.focus = '19';
+    const rendered = renderTui(snapshot(), {page: 'models', overlay}, 121, 24, false);
     expect(rendered).toContain('►Field 19: example_');
     expect(rendered).toContain('field 20 of 20');
     expect(rendered).toContain('[ Cancel ] [ Save ]');
@@ -255,16 +255,20 @@ describe('terminal dashboard', () => {
   });
 
   it('shows hardware validation separately and restricts its buttons to administrators', () => {
-    const hardware = (data: DashboardSnapshot) => renderTui(data, {page: 'system', systemSection: 'hardware'}, 151, 70, false);
+    const hardware = (data: DashboardSnapshot) => renderTui(data, {page: 'system', systemSection: 'hardware', expanded: {'hw:dev:undefined/legacy-amd': true}}, 151, 120, false);
     const state = snapshot();
     state.status.hardwareOperators = {'amd-gpu': {phase: 'Degraded', compatibility: {schemaVersion: 1, profiles: [], selectedProfile: 'strix-halo', allowExperimental: true, nodes: [{node: 'example-node', eligible: true, hostDriverReady: true, resourceRegistered: true, memoryArchitecture: 'unified', memoryAccountingVerified: false, physicalMemoryMi: 65536, gpuAccessibleMi: 49152, validation: {OLlama: {state: 'passed'}, VLLM: {state: 'failed'}}}]}}};
-    expect(hardware(state)).toContain('Ollama: passed · runtime pending · vLLM: failed');
-    expect(hardware(state)).toContain('Shared accounting: not verified');
-    expect(hardware(state)).toContain('OS-visible shared RAM: 64 GiB');
-    expect(hardware(state)).toContain('[ Change profile ] [ Run validation ] [ Use upstream rules ]');
+    // Without physical inventory the node keeps its evidence on a placeholder device, as in the browser.
+    expect(hardware(state)).toContain('GPU Configuration AMD · AMD GPU · PCI address not reported');
+    expect(hardware(state)).toContain('● GPU smoke passed');
+    expect(hardware(state)).toContain('● failed');
+    expect(hardware(state)).toContain('[Accounting unverified]');
+    expect(hardware(state)).toMatch(/Linux-visible RAM +64 GiB/);
+    expect(hardware(state)).toContain('[ Change profile ]');
+    expect(hardware(state)).toContain('[ Verify Ollama ]');
     const viewer = {...state, session: {...state.session, roles: ['magicstick-viewer']}};
-    expect(hardware(viewer)).toContain('Shared accounting: not verified');
-    expect(hardware(viewer)).not.toMatch(/Change profile|Run validation/);
+    expect(hardware(viewer)).toContain('[Accounting unverified]');
+    expect(hardware(viewer)).not.toMatch(/Change profile|Verify Ollama/);
   });
 
   it('offers service switches only for modules an operator may toggle', () => {
@@ -323,11 +327,9 @@ describe('terminal dashboard', () => {
   });
 
   it('never renders form secrets as plaintext', () => {
-    const rendered = renderTui(snapshot(), {page: 'system', systemSection: 'users', overlay: {
-      kind: 'form', title: 'Create user', fields: [
-        {id: 'password', label: 'Temporary password', value: 'not-for-display', kind: 'secret'},
-      ], active: 0, submitLabel: 'create', onSubmit: async () => undefined,
-    }}, 121, 30, false);
+    const rendered = renderTui(snapshot(), {page: 'system', systemSection: 'users', overlay: formDialog('Create user', '', [
+      {id: 'password', label: 'Temporary password', value: 'not-for-display', kind: 'secret'},
+    ], 'create', async () => undefined)}, 121, 30, false);
     expect(rendered).toContain('•••••••••••••••');
     expect(rendered).not.toContain('not-for-display');
   });

@@ -98,6 +98,8 @@ describe('appliance-console user switching', () => {
       await io.key('7'); // System
       await io.key('l'); // into the page: the Settings section button
       await io.key('\r');
+      // Settings → Local console, the last selectable Settings tab (Federated SSO needs a license).
+      for (let tab = 0; tab < 3; tab += 1) await io.key('t');
       expect(io.screen()).toContain('Automatic sign-in  Administrator');
       await io.key('e');
       expect(io.screen()).toContain('Monitor sign-in');

@@ -19,6 +19,15 @@ dashboard_console_tty_path: /dev/tty9
 dashboard_console_mouse_enabled: true
 dashboard_console_mouse_helper: /usr/local/sbin/magicstick-console-mouse
 dashboard_console_mouse_device: /dev/input/mice
+# USB sticks on the attached monitor: the console TUI saves downloads to and opens
+# files from a stick that this helper mounts only when the signed-in TUI asks for it.
+dashboard_console_usb_enabled: true
+dashboard_console_usb_helper: /usr/local/sbin/magicstick-console-usb
+dashboard_console_usb_filesystems: [vfat, exfat]
+dashboard_console_transfer_directory: /var/lib/magicstick/console-transfer
+dashboard_console_transfer_mount_path: /var/lib/magicstick-transfer
+dashboard_console_usb_path_unit: magicstick-console-usb.path
+dashboard_console_usb_service: magicstick-console-usb.service
 dashboard_console_virtual_terminal: 9
 dashboard_console_runtime_uid: 65532
 dashboard_console_runtime_gid: 65532

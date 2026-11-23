@@ -11,29 +11,62 @@ catalog-backed instance payloads, model estimation and lifecycle, settings,
 the complete local-user lifecycle, named API keys, and Kubernetes access and
 kubeconfig generation.
 
-The interactive `magicstick tui` command exposes the same role-filtered areas
-as the React application and refreshes the shared snapshot automatically. It is
-also a lifecycle client: operators can enable or disable catalog services,
-create and remove application instances, show service and instance credentials
-on request, create or remove local and external models, and start, stop or
-restart them; administrators can change instance sharing, perform the
-local-user lifecycle, create and revoke named API keys, and assign or revoke
-SSO-backed Kubernetes access. The TUI calls the same authenticated API client
-as the explicit CLI commands, preserves API authorization checks, confirms
-destructive actions, masks passwords, and shows API-key secrets only once.
-Token-free kubeconfigs can be copied with the terminal's OSC 52 clipboard
-protocol. The create-instance form offers the same values as the browser form
-and both send the same request; the complete JSON-payload CLI command remains
-available for scripts. Editing a model's settings and reading model logs remain
-in the browser.
+The interactive `magicstick tui` command exposes the same role-filtered pages,
+sections, dialogs and options as the browser dashboard and refreshes the shared
+snapshot automatically. Everything that can be done in the browser can be done
+in the TUI, through the same authenticated API client and API authorization as
+the explicit CLI commands:
+
+- **Models:** compute memory and slots, every model detail, the complete local
+  model dialog for creating and editing (engine, Hugging Face/Ollama search,
+  tested presets or a direct reference, hardware and NVIDIA cards, memory
+  estimate and budgets, CPU offloading, advanced settings, vLLM-Omni Realtime),
+  external providers, start/stop/restart, runtime logs and removal of the local
+  inference runtime.
+- **Services:** module parameters, credentials, instance creation with sharing
+  and application-specific options, instance sharing with directory search.
+- **API Access, Kubernetes Access and Mesh:** named API keys, SSO-backed cluster
+  roles and kubeconfigs, and creating, joining and managing a private mesh
+  (model sharing, invitations, relay).
+- **System:** Settings (Domains, Federated SSO, Network, Updates and the Local
+  console), License, Users, Hardware (host preparation, GPU sharing, AMD profile,
+  shared GPU memory, engine validation), System Status (overview, GPU operators,
+  Flux, routes, model cache and regression tests) and Computer power.
+
+The TUI confirms destructive actions, asks for the exact computer name, alias or
+user name wherever the browser does, masks passwords and shows secrets only on
+request or once. Pages that show host operations, the mesh or regression runs
+poll their own data every few seconds while they are open, as in the browser,
+while the shared state keeps its normal refresh interval;
+opening a page or polling never starts an operation, and dialogs keep their
+drafts while the page refreshes. Browser downloads become **Save as** dialogs
+and file inputs **Open file** dialogs. In a terminal they use local paths: a
+download is saved as a new file (an existing file is never overwritten; `~/`
+means the home directory). Copy actions use the terminal's OSC 52 clipboard
+protocol.
+
+On the attached appliance monitor the same dialogs save to and open from a
+**USB stick** formatted as FAT32 or exFAT. Plug it in, then use any save or
+import action, such as **Download Kubeconfig**, a regression report, the license
+request or **Import license**. The dialog asks the host to look for sticks
+(**Scan for USB sticks**). Nothing is mounted until a signed-in console user asks
+for it, and the stick is mounted for the console only, without running programs
+from it. A saved file is flushed to the stick before the TUI reports success;
+choose **Safely remove** before unplugging. The host never offers a disk that
+holds mounted system filesystems, swap or the EFI system partition. Set
+`dashboard_console_usb_enabled: false` for the host role to switch this off; the
+console then has no way to save or open files. The Linux console does not
+support OSC 52, so copying works only in terminal sessions.
 
 The screen is laid out like the browser dashboard and is designed for a
 terminal 120 columns wide. Below the banner, one line shows the connection and
 the signed-in user. The page list on the left has the same pages as the browser
 (Overview, Models, Services, API Access, Mesh, Kubernetes Access and System,
-with the System sections as a button row). Pages consist of the same panels,
-status badges and `[ buttons ]`. Mesh, Computer power, model editing and logs,
-and the settings that the TUI cannot change point to the browser dashboard.
+with the System sections, the Settings and System Status subtabs and the Mesh
+tabs as button rows). Pages consist of the same panels, status badges and
+`[ buttons ]`; inline browser forms and explanatory popovers open as dialogs or
+**Info** messages. A signed-in user without a dashboard role sees **My
+applications**, as in the browser.
 
 A cursor marks one element at a time. The arrow keys (or `h`/`j`/`k`/`l`) move
 it to the nearest element in that direction, Tab and Shift+Tab walk through all
@@ -42,9 +75,16 @@ list, Up and Down switch pages and Right enters the page; Left returns to the
 list. Page Up, Page Down, Home and End scroll long pages, and the number keys
 open a page directly. The bottom line is a hotkey bar: it names what Enter does
 on the current element and lists the shortcuts of the current page, such as
-`a` to add a model, `n` for a new instance, `f` to change the Services filter or `s` to change the
-System section, together with `r` (reload), `x` (switch user or sign out), `?`
-(help) and `q` (quit).
+`a` to add a model, `n` for a new instance, `f` to change the Services filter,
+`s` to change the System section or `t` to change a subtab, together with `r`
+(reload), `x` (switch user or sign out), `?` (help) and `q` (quit).
+
+In dialogs, Up and Down move between fields. Left and Right change a choice or
+adjust a number in its steps, like a slider; Space opens the full list of a
+choice or toggles a checkbox, and a letter jumps to a matching choice. Enter
+moves to the next field or presses a button, Ctrl+S submits, Ctrl+U clears a
+text field and Esc returns to the previous dialog or closes it. Long text such
+as runtime logs, license texts and test results opens in a scrollable viewer.
 
 Terminals that report mouse events, such as common SSH clients, also accept
 clicks on every element and hotkey-bar entry, and the wheel scrolls the page.

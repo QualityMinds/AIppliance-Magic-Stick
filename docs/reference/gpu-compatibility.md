@@ -298,8 +298,9 @@ configuration checksums. See the [Flux values-reference contract](https://fluxcd
 
 Use **Verify Ollama** or **Verify vLLM** under **System → Hardware → GPU nodes**
 to request a bounded test only for that engine and node. Its scoped request does
-not reset other engine results. `hardware validate --yes` and the TUI's
-validation action still request both engines on matching nodes. Profile
+not reset other engine results. The TUI offers the same per-engine, per-node
+**Verify** actions; `hardware validate --yes` still requests both engines on
+matching nodes. Profile
 saves and host preparation never start them. A request is bound to the host boot,
 hardware and runtime images at its first test; changed evidence becomes stale
 without automatically launching another test. Request a new run to refresh it.
