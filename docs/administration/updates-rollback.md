@@ -66,6 +66,13 @@ new commit from another reviewed source. This normal, repeated apply preserves
 the source object's identity; it does not delete the source or change a fixed
 selection into a moving branch.
 
+For a commit-pinned public source, Flux checks Git every hour as a fallback.
+Ansible asks Flux to reconcile a new commit during the normal host update
+without waiting for that hour. If Flux already reports a current, ready artifact
+for the same commit, Ansible reuses it and only reconciles the Kubernetes
+configuration. The host's 15-minute check and the Kubernetes reconciliation
+intervals stay the same. External GitOps deployments keep their own timing.
+
 ## Three separate update paths
 
 | Layer | Managed through | Important boundary |

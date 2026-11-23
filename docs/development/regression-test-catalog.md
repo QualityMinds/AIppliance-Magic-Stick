@@ -569,13 +569,17 @@ branch is not permission to execute arbitrary unreviewed code on the runner/host
 | CHANNEL-08 | Select/recover a compatible previous revision using the documented saved runner. Leave it commit-pinned, restore source/config consistently and verify login/inference; do not promise database/OS rollback. | U+C+A+O | P0 · maintenance |
 
 CHANNEL-06's owning `flux-bootstrap/tests/test_public_source_ref.py` renders the
-actual role for resolved commits and legacy branch/tag/commit/semver bootstrap.
-Public release checks select it through existing role discovery. Both existing
-native Gateway profiles additionally reproduce Kubernetes retaining an unmanaged
-old branch, then verify explicit-null apply, preserved UID/unrelated fields,
-repeated apply and fresh creation using the real Flux CRD. That API proof is not
-a successful Git fetch, appliance convergence or installed inference result.
-No new campaign case or selection is registered.
+actual role for resolved commits and legacy branch/tag/commit/semver bootstrap,
+including the hourly pinned source and unchanged Kustomization intervals.
+It evaluates the role's decision to skip a redundant Git reconcile for a
+current Ready artifact, and to reconcile the source once for a new, missing,
+not-ready or stale artifact before reconciling the Kustomization. Public release
+checks select it through existing role discovery. Both existing native Gateway
+profiles reproduce Kubernetes retaining an unmanaged old branch and verify
+explicit-null apply, the hourly interval, preserved UID/unrelated fields,
+repeated apply and fresh creation using the real Flux CRD. That API proof is
+not a successful Git fetch, appliance convergence or installed inference
+result. No new campaign case or selection is registered.
 
 ## 27. Model-cache disk management
 

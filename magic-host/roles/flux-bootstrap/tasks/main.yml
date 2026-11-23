@@ -254,6 +254,14 @@
     - name: Seed AI Appliance settings ConfigMap
       ansible.builtin.include_tasks: settings-configmap.yml
 
+    - name: Determine the exact public Flux commit pin
+      ansible.builtin.set_fact:
+        flux_public_source_commit: >-
+          {{
+            magicstick_public_resolved_commit | default('', true)
+            or (magicstick_public_ref if magicstick_public_ref_kind == 'commit' else '')
+          }}
+
     - name: Render public Flux sync manifest
       ansible.builtin.copy:
         dest: "{{ flux_public_sync_manifest_path }}"
@@ -268,10 +276,10 @@
             name: flux-system
             namespace: flux-system
           spec:
-            interval: 1m0s
+            interval: {{ '1h0m0s' if flux_public_source_commit else '1m0s' }}
             # Explicit nulls remove selectors left by an older field manager.
             # In particular, branch + commit restricts Flux to that branch.
-            ref: {{ {'branch': none, 'tag': none, 'semver': none, 'name': none, 'commit': none} | combine({'commit': magicstick_public_resolved_commit} if magicstick_public_resolved_commit | default('') | length > 0 else {magicstick_public_ref_kind: magicstick_public_ref}) | to_json }}
+            ref: {{ {'branch': none, 'tag': none, 'semver': none, 'name': none, 'commit': none} | combine({'commit': flux_public_source_commit} if flux_public_source_commit else {magicstick_public_ref_kind: magicstick_public_ref}) | to_json }}
             url: {{ magicstick_public_repo | to_json }}
           ---
           apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -320,6 +328,55 @@
       changed_when: "'patched' in flux_public_source_secret_patch.stdout"
       failed_when: false
 
+    - name: Observe the pinned public Flux source
+      ansible.builtin.command:
+        argv:
+          - "{{ flux_kubectl_binary }}"
+          - "{{ flux_kubectl_subcommand }}"
+          - --kubeconfig
+          - "{{ flux_kubeconfig_path }}"
+          - get
+          - gitrepository
+          - flux-system
+          - --namespace=flux-system
+          - -o
+          - json
+      register: flux_public_source_observation
+      changed_when: false
+      no_log: true
+      when: flux_public_source_commit | length > 0
+
+    - name: Check for a current pinned Flux artifact
+      ansible.builtin.set_fact:
+        flux_public_source_current: >-
+          {{
+            public_source.spec.url == magicstick_public_repo
+            and (public_source.spec.ref | default({}, true)).commit | default('') == flux_public_source_commit
+            and not (public_source.spec.suspend | default(false))
+            and public_status.observedGeneration | default(0) == public_generation
+            and public_ready | length == 1
+            and public_artifact.digest | default('', true) | length > 0
+            and public_artifact.url | default('', true) | length > 0
+            and ((public_artifact.revision | default('', true)).split('@') | last)
+                == ('sha1:' ~ (flux_public_source_commit | lower))
+          }}
+      vars:
+        public_source: "{{ flux_public_source_observation.stdout | from_json }}"
+        public_generation: "{{ public_source.metadata.generation }}"
+        public_status: "{{ public_source.status | default({}, true) }}"
+        public_artifact: "{{ public_status.artifact | default({}, true) }}"
+        public_ready: >-
+          {{
+            public_status.conditions | default([], true)
+            | selectattr('type', 'equalto', 'Ready')
+            | selectattr('status', 'equalto', 'True')
+            | selectattr('observedGeneration', 'defined')
+            | selectattr('observedGeneration', 'equalto', public_generation)
+            | list
+          }}
+      no_log: true
+      when: flux_public_source_commit | length > 0
+
     - name: Reconcile public Flux source
       ansible.builtin.command:
         argv:
@@ -333,6 +390,7 @@
       environment:
         KUBECONFIG: "{{ flux_kubeconfig_path }}"
       changed_when: true
+      when: flux_public_source_commit | length == 0 or not (flux_public_source_current | default(false))
 
     - name: Reconcile public Flux kustomization
       ansible.builtin.command:
@@ -342,7 +400,6 @@
           - kustomization
           - flux-system
           - --namespace=flux-system
-          - --with-source
           - "--timeout={{ flux_reconcile_timeout }}"
       environment:
         KUBECONFIG: "{{ flux_kubeconfig_path }}"

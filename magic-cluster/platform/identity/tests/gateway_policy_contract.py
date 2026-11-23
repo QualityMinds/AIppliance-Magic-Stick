@@ -86,16 +86,18 @@ def verify_source_ref_apply(call):
     # This exact null-bearing map is required by the owning role-render tests.
     desired['spec']['ref'] = dict.fromkeys(('branch', 'tag', 'semver', 'name', 'commit'))
     desired['spec']['ref']['commit'] = 'b' * 40
+    desired['spec']['interval'] = '1h0m0s'
     fixed = write('apply', desired)
-    expected = {**original['spec'], 'ref': {'commit': 'b' * 40}}
+    expected = {**original['spec'], 'ref': {'commit': 'b' * 40}, 'interval': '1h0m0s'}
     assert fixed['metadata']['uid'] == original['metadata']['uid'] and fixed['spec'] == expected
     repeated = write('apply', desired)
     assert repeated['metadata']['uid'] == original['metadata']['uid'] and repeated['spec'] == expected
     desired['metadata']['name'] += '-fresh'
     fresh = write('apply', desired)
     assert fresh['spec']['ref'] == {'commit': 'b' * 40}
+    assert fresh['spec']['interval'] == '1h0m0s'
     print('CHANNEL-06 source reference API: obsolete selector retained without explicit null; '
-          'commit-only upgrade, unchanged UID/unrelated fields, repeated apply and fresh create passed. '
+          'commit-only hourly source, unchanged UID/unrelated fields, repeated apply and fresh create passed. '
           'Git checkout and installed convergence remain separate.')
 
 
