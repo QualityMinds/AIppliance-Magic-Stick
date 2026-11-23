@@ -61,6 +61,8 @@
   and persistent workspaces and sessions.
 - Share running local chat models through the opt-in Private Mesh module.
 - Manage local users, GPU allocation, host networking, model cache and Ubuntu updates.
+- [Plug in Ethernet after Wi-Fi setup](../administration/network.md) on a new
+  installation: an unconfigured wired port can get its address via DHCP.
 - Inspect **System → System Status** through separate Overview, GPU Operators,
   Flux and Network & routes tabs; administrators also find Model cache and Regression tests there.
 - Run the existing P0 suite from **System → System Status → Regression tests** on a dedicated,

@@ -129,6 +129,11 @@ restart after it installs the display driver. Leave the USB stick removed and
 wait for the setup console to return. Fixed-version media retains its approved
 host playbook; only explicitly selected development media follows `main`.
 
+If you install over Wi-Fi, the first boot also prepares unconfigured physical
+Ethernet ports for DHCP on Ubuntu's default network backend. You can plug in a
+cable later without repeating setup. See [Ethernet and Wi-Fi](../administration/network.md)
+for network requirements and the Kubernetes management-address limitation.
+
 <a id="5-first-run-setup-öffnen"></a>
 <a id="6-installation-prüfen"></a>
 

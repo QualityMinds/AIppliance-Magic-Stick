@@ -8,6 +8,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Fix network trials and rollback on systems where systemd-networkd runs
+  unprivileged. Netplan's generated profiles remain readable by the network
+  backend; saved network settings and credentials remain private.
+
+- Prepare unconfigured physical Ethernet ports for DHCP on new installations,
+  even when their cables are disconnected during setup. Preserve explicitly
+  configured ports, Wi-Fi settings and the existing preferred route.
+
 - Complete product release delivery with an automatic exact-tag installer build
   and public image/checksum/evidence verification. Preserve the product tag and
   locked assets; append verified download links only after completion. Missing

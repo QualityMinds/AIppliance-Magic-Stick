@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -69,6 +70,28 @@ class NetworkContractTests(unittest.TestCase):
 
 
 class NetplanTests(unittest.TestCase):
+    def test_netplan_writes_readable_backend_files_without_widening_worker_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            probe = root / "netplan"
+            probe.write_text('#!/bin/sh\n: > "$2.network"\n(umask 077; : > "$2.credentials")\n')
+            probe.chmod(0o700)
+            previous = os.umask(0o077)
+            try:
+                with patch.object(config, "ENV", {**config.ENV, "PATH": f"{tmp}:{config.ENV['PATH']}"}):
+                    for action in ("generate", "apply"):
+                        config.command(["netplan", action, str(root / action)])
+                    config.command(["netplan", "get", str(root / "get")])
+                (root / "worker-state").write_text("private")
+            finally:
+                os.umask(previous)
+            for action in ("generate", "apply"):
+                with self.subTest(action=action):
+                    self.assertEqual((root / f"{action}.network").stat().st_mode & 0o777, 0o640)
+                    self.assertEqual((root / f"{action}.credentials").stat().st_mode & 0o777, 0o600)
+            self.assertEqual((root / "get.network").stat().st_mode & 0o777, 0o600)
+            self.assertEqual((root / "worker-state").stat().st_mode & 0o777, 0o600)
+
     def test_public_fingerprint_uses_a_persistent_private_key(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             left = config.private_fingerprint({'config': 'example'}, Path(first))

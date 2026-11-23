@@ -307,6 +307,10 @@ therefore stored only on that system, where Netplan files must remain readable
 only by root. If the Ubuntu installer does not detect a wireless adapter, use a
 supported adapter or Ethernet for installation and configure the device later.
 
+The first-boot host playbook prepares unconfigured physical Ethernet ports for
+DHCP before K3s starts, without replacing the installer-selected Wi-Fi or
+Ethernet settings. See [Ethernet and Wi-Fi](../docs/administration/network.md).
+
 ### APT mirror selection
 
 The **Ubuntu archive mirror configuration** screen is interactive (`apt` in
