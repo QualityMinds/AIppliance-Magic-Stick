@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Reduce Git polling on managed, commit-pinned installations to once an hour.
+  Reuse a ready Flux artifact for the same commit; apply approved new commits
+  without waiting for the hourly fallback. Host and Kubernetes checks keep their
+  existing intervals.
+
 - Fix network trials and rollback on systems where systemd-networkd runs
   unprivileged. Netplan's generated profiles remain readable by the network
   backend; saved network settings and credentials remain private.

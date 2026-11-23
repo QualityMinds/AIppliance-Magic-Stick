@@ -26,6 +26,15 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
    preserves the GitRepository UID and unrelated settings; no source deletion,
    mutable fallback or maintenance-state edit is used.
 
+   A commit-pinned public Git source polls hourly as a fallback. A changed pin
+   is reconciled during the host run without waiting for that interval. When
+   Flux reports a Ready artifact for the current generation and exact commit,
+   Ansible reuses it instead of forcing another Git fetch. Fresh, stale or
+   missing artifact status triggers a source reconcile before the Kubernetes
+   configuration reconcile. The latter does not request Git a second time.
+   The host and Kustomization intervals are unchanged; unpinned public sources
+   still poll every minute, and external GitOps is not changed.
+
 ## Variables
 
 | Variable | Required for auto-bootstrap | Description |
