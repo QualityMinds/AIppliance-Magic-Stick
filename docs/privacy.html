@@ -5,202 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="index,follow" />
   <meta name="description" content="Privacy policy for the MagicStick project website and handbook: hosting on Azure, cookie-free Umami visitor statistics, GitHub, social media profiles, contact, retention and your rights." />
-  <meta name="theme-color" content="#050b16" />
+  <meta name="theme-color" content="#080f1c" />
   <link rel="canonical" href="https://magic-stick.ai/privacy.html" />
   <link rel="alternate" hreflang="en" href="https://magic-stick.ai/privacy.html" />
   <link rel="alternate" hreflang="de" href="https://magic-stick.ai/datenschutz.html" />
   <link rel="alternate" hreflang="x-default" href="https://magic-stick.ai/privacy.html" />
   <title>Privacy Policy - MagicStick</title>
-  <style>
-    @font-face {
-      font-family: "Bricolage Grotesque";
-      font-style: normal;
-      font-weight: 600 800;
-      font-display: swap;
-      src: url("assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
-    }
-
-    :root {
-      color-scheme: dark;
-      --bg: #050b16;
-      --surface: #091321;
-      --text: #eef3ff;
-      --muted: #aebdd4;
-      --line: #263a57;
-      --teal: #2ed2ed;
-      --max: 900px;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-      line-height: 1.65;
-    }
-
-    a {
-      color: var(--teal);
-    }
-
-    :focus-visible {
-      outline: 3px solid #2ed2ed;
-      outline-offset: 5px;
-    }
-
-    .shell {
-      width: min(var(--max), calc(100% - 40px));
-      margin: 0 auto;
-      padding: 42px 0 56px;
-    }
-
-    .top-bar {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px 20px;
-      margin-bottom: 28px;
-    }
-
-    .language-switch {
-      display: inline-flex;
-      gap: 4px;
-      font-size: 0.85rem;
-    }
-
-    .language-switch a {
-      padding: 6px 9px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    .language-switch a[aria-current="page"] {
-      border-color: var(--teal);
-      color: var(--text);
-    }
-
-    .language-switch a:hover,
-    .language-switch a:focus-visible {
-      color: var(--text);
-    }
-
-    .top-link {
-      display: inline-flex;
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    .top-link:hover,
-    .top-link:focus-visible {
-      color: var(--text);
-    }
-
-    h1 {
-      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
-      font-weight: 700;
-      margin: 0 0 12px;
-      font-size: clamp(1.9rem, 8vw, 2.5rem);
-      line-height: 1.1;
-      overflow-wrap: anywhere;
-      hyphens: auto;
-    }
-
-    h2 {
-      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
-      font-weight: 700;
-      margin: 34px 0 10px;
-      font-size: 1.25rem;
-    }
-
-    h3 {
-      margin: 24px 0 8px;
-      font-size: 1.04rem;
-    }
-
-    p,
-    li {
-      color: var(--muted);
-    }
-
-    p {
-      margin: 0 0 14px;
-    }
-
-    ul {
-      margin: 0 0 14px;
-      padding-left: 1.2rem;
-    }
-
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      margin-top: 24px;
-      padding: 22px;
-      background: var(--surface);
-    }
-
-    .address {
-      color: var(--text);
-      font-style: normal;
-    }
-
-    footer {
-      border-top: 1px solid var(--line);
-      margin-top: 42px;
-      padding-top: 22px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
-    footer a {
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    footer a:hover,
-    footer a:focus-visible {
-      color: var(--text);
-    }
-
-    .opt-out button {
-      border: 1px solid var(--teal);
-      border-radius: 6px;
-      padding: 8px 16px;
-      background: transparent;
-      color: var(--text);
-      font: inherit;
-      cursor: pointer;
-    }
-
-    .opt-out button:hover,
-    .opt-out button:focus-visible {
-      background: var(--line);
-    }
-
-    .opt-out [role="status"] {
-      margin-top: 10px;
-      color: var(--text);
-    }
-  </style>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="site.css" />
+  <script src="site.js" defer></script>
 </head>
 <body>
-  <main class="shell">
-    <div class="top-bar">
-      <a class="top-link" href="index.html">Back to MagicStick</a>
-      <span class="language-switch" aria-label="Language"><a href="privacy.html" lang="en" aria-label="EN, English" hreflang="en" aria-current="page">EN</a><a href="datenschutz.html" lang="de" aria-label="DE, Deutsch" hreflang="de">DE</a></span>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="logo" href="index.html#top" aria-label="Magic Stick home"><img src="assets/brand/logo.svg" alt="" width="146" height="22" /></a>
+      <button class="menu-toggle" aria-controls="main-navigation" aria-expanded="false" hidden>Menu <span aria-hidden="true">+</span></button>
+      <nav id="main-navigation" aria-label="Main navigation">
+        <a href="index.html#produkt">Product</a>
+        <a href="index.html#requirements">Requirements</a>
+        <a href="index.html#teams">For teams</a>
+        <a href="index.html#faq">FAQ</a>
+        <a href="editions.html">Licensing</a>
+        <a href="README.md">Docs</a>
+        <a class="external" href="https://github.com/QualityMinds/AIppliance-Magic-Stick" rel="noopener">GitHub<span aria-hidden="true">↗</span><span class="visually-hidden"> (external link)</span></a>
+        <span class="language-switch"><a href="privacy.html" lang="en" aria-label="EN, English" aria-current="page">EN</a><a href="datenschutz.html" lang="de" aria-label="DE, Deutsch">DE</a></span>
+        <a class="button button-small" href="index.html#starten">Get started</a>
+      </nav>
     </div>
+  </header>
+  <main id="main" class="legal">
     <h1>Privacy Policy</h1>
     <p>
       This privacy policy applies to the MagicStick project website, consisting
@@ -375,7 +209,7 @@
     <section class="card" aria-labelledby="social-media">
       <h2 id="social-media">7. Social media profiles</h2>
       <p>
-        We maintain profiles on Instagram, LinkedIn and YouTube to share
+        We maintain profiles on Instagram, LinkedIn, TikTok and YouTube to share
         information about the project and to stay in touch with interested
         people. When you visit one of these profiles, the respective provider
         processes your data under its own terms and privacy information, usually
@@ -438,6 +272,24 @@
         applies to the statistics of our profile. Details on how your data is
         handled are in the
         <a href="https://www.linkedin.com/legal/privacy-policy">LinkedIn Privacy Policy</a>.
+      </p>
+
+      <h3 id="tiktok">TikTok</h3>
+      <p>
+        The providers for users in the European Economic Area and Switzerland
+        are TikTok Technology Limited, 10 Earlsfort Terrace, Dublin, D02 T380,
+        Ireland, and TikTok Information Technologies UK Limited, Kaleidoscope,
+        4 Lindsey Street, London, EC1A 9HP, United Kingdom, as joint
+        controllers. According to TikTok, data is stored on servers in the
+        United States, Malaysia and Singapore, and companies of its corporate
+        group outside your country of residence have limited remote access.
+        TikTok bases these transfers on adequacy decisions of the European
+        Commission (Article 45 GDPR) and otherwise on the EU Commission's
+        Standard Contractual Clauses (Article 46(2)(c) GDPR). The
+        <a href="https://www.tiktok.com/legal/page/global/tiktok-analytics-joint-controller-addendum/en">TikTok Analytics Joint Controller Addendum</a>
+        applies to the statistics of our profile. Details on how your data is
+        handled are in the
+        <a href="https://www.tiktok.com/legal/page/eea/privacy-policy/en">TikTok Privacy Policy</a>.
       </p>
 
       <h3 id="youtube">YouTube</h3>
@@ -587,13 +439,13 @@
       </p>
     </section>
 
-    <footer>
-      <span>Last updated: <time datetime="2026-10-20">October 20, 2026</time></span>
-      <a href="index.html">Home</a>
-      <a href="imprint.html">Imprint</a>
-      <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
-    </footer>
+    <p class="legal-updated">Last updated: <time datetime="2026-11-13">November 13, 2026</time></p>
   </main>
+  <footer class="site-footer container">
+    <div class="footer-brand"><a class="logo" href="index.html#top" aria-label="Magic Stick home"><img src="assets/brand/logo.svg" alt="" width="146" height="22" loading="lazy" /></a><p>Your own AI Appliance.</p></div>
+    <nav class="footer-links" aria-label="Legal and licensing"><a href="editions.html">License · BSL 1.1</a><a href="imprint.html">Imprint</a><a href="privacy.html">Privacy</a></nav>
+    <span class="footer-note">Static website. No first-party tracking cookies.</span>
+  </footer>
   <script>
     // Umami skips tracking while localStorage holds `umami.disabled`.
     (() => {

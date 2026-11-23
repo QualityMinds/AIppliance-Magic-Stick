@@ -11,14 +11,16 @@ on:
       - tools/license_*.py
       - tests/test_license_kdns.py
       - magic-cluster/platform/basis/kdns/image/**
-      - magic-cluster/platform/basis/kdns/patches/gateway-api.patch
+      - magic-cluster/platform/basis/kdns/patches/**
+  pull_request:
+    paths:
+      - .github/workflows/build-kdns-image.yml
+      - magic-cluster/platform/basis/kdns/image/**
+      - magic-cluster/platform/basis/kdns/patches/**
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
-  attestations: write
-  id-token: write
 
 concurrency:
   group: kdns-image-${{ github.ref }}
@@ -26,16 +28,60 @@ concurrency:
 
 env:
   IMAGE_NAME: ghcr.io/qualityminds/magicstick-kdns
-  IMAGE_VERSION: v0.2.22-gateway-api.1
+  IMAGE_VERSION: v0.2.22-gateway-api.2
   KDNS_REF: f956ab5d35564ee84e58ba155e78a17423cc835b
 
 jobs:
+  verify:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: lab42/kdns
+          ref: ${{ env.KDNS_REF }}
+          path: .build/kdns
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.0
+          cache-dependency-path: .build/kdns/go.sum
+      - name: Verify pinned patched kdns source
+        env:
+          MAGICSTICK_TEST_LINUX_PACKETS: "1"
+        run: |
+          bash magic-cluster/platform/basis/kdns/patches/prepare-source.sh .build/kdns
+          bash magic-cluster/platform/basis/kdns/patches/test-source.sh .build/kdns
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build both image variants without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .build/kdns
+          file: magic-cluster/platform/basis/kdns/image/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          outputs: type=cacheonly
+          build-args: |
+            KDNS_VERSION=${{ env.IMAGE_VERSION }}
+            KDNS_REF=${{ env.KDNS_REF }}
+
   build:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
     steps:
       - name: Check out MagicStick
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Test upstream license evidence handling
         run: python3 -m unittest tests/test_license_kdns.py
@@ -46,6 +92,7 @@ jobs:
           repository: lab42/kdns
           ref: ${{ env.KDNS_REF }}
           path: .build/kdns
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -53,21 +100,14 @@ jobs:
           go-version: 1.26.0
           cache-dependency-path: .build/kdns/go.sum
 
-      - name: Apply Gateway API contribution
+      - name: Prepare pinned patched source
         run: |
-          git -C .build/kdns apply \
-            "$GITHUB_WORKSPACE/magic-cluster/platform/basis/kdns/patches/gateway-api.patch"
-          test -z "$(gofmt -l \
-            .build/kdns/handler/gateway_api_handler.go \
-            .build/kdns/handler/gateway_api_handler_test.go \
-            .build/kdns/watcher/watcher.go \
-            .build/kdns/cmd/root.go)"
+          bash magic-cluster/platform/basis/kdns/patches/prepare-source.sh .build/kdns
 
       - name: Test patched source
-        working-directory: .build/kdns
-        run: |
-          go test ./...
-          go vet ./...
+        env:
+          MAGICSTICK_TEST_LINUX_PACKETS: "1"
+        run: bash magic-cluster/platform/basis/kdns/patches/test-source.sh .build/kdns
 
       - name: Set build metadata
         id: build-metadata

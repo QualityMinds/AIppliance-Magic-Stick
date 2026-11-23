@@ -44,3 +44,7 @@ dashboard/apps/web/regression/.regression-output/
 # Kubernetes local tooling
 kubeconfig
 kubeconfig.yaml
+# Legacy Kubernetes client caches created by Ansible with HOME unset.
+# Keep every other path visible, including a kubeconfig in .kube.
+/magic-host/playbooks/.kube/cache/discovery/
+/magic-host/playbooks/.kube/cache/http/

@@ -72,8 +72,11 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 | 00 | `infrastructure-basis` | `magic-cluster/platform/basis` | none |
 | 02 | `first-run-bootstrap` | `magic-cluster/platform/first-run-setup` | none |
 | 03 | `hardware-discovery` | `magic-cluster/platform/hardware-discovery` | `infrastructure-basis` |
-| 05 | `envoy-gateway` | `magic-cluster/platform/gateway/envoy-gateway` | `infrastructure-basis` |
-| 10 | `identity-pilot` | `magic-cluster/platform/identity` | `first-run-bootstrap`, `envoy-gateway` |
+| 04 | `callback-backend-admission` | `magic-cluster/platform/gateway/callback-backend-admission` | `infrastructure-basis` |
+| 05 | `envoy-gateway` | `magic-cluster/platform/gateway/envoy-gateway` | `infrastructure-basis`, `callback-backend-admission` |
+| 07 | `callback-backend-activation` | `magic-cluster/platform/gateway/callback-backend-activation` | `first-run-bootstrap`, `envoy-gateway` |
+| 08 | `identity-bootstrap` | `magic-cluster/platform/identity-bootstrap` | `first-run-bootstrap`, `envoy-gateway`, `callback-backend-activation` |
+| 10 | `identity-pilot` | `magic-cluster/platform/identity/routes` | `identity-bootstrap` |
 | 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis`, `hardware-discovery` |
 | 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis`, `identity-pilot` |
 
@@ -87,6 +90,17 @@ The first-run namespace and `ApplianceSetup` CRD are intentionally reconciled
 before and independently of Envoy Gateway. Host automation can therefore
 persist setup state even while the gateway and identity workloads are still
 starting or reporting an unrelated error.
+
+Identity prerequisites and routes have separate apply waves. Flux dry-runs an
+entire wave before persisting any object: combining a new admission dependency
+with routes that already require it would deadlock both fresh installation and
+upgrade. The bootstrap wave creates the Gateway, TLS/CA publisher, identity
+workloads and fail-closed root policies without any HTTPRoute. Its explicit
+health checks require ready identity workloads and current-generation controller
+acceptance of both root policies. Only then is the route-only wave admitted.
+Missing or stale policy proof still denies route creation and updates; admission
+is never temporarily disabled. The aggregate `platform/identity` base remains
+available for composition/renders, but must not be applied as one Flux wave.
 
 ## Appliance Model
 

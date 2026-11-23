@@ -46,6 +46,9 @@
 - Create applications from the service catalog and grant access to specific users or groups.
 - Keep separate OpenClaw and KubeOpenCode model choices while sharing the common
   model catalog. Catalog updates preserve each instance's selection.
+- Open unmodified upstream OpenCode instances through `<name>.oc.<domain>`;
+  their HTTPS address, SSO callback and local certificate stay aligned without
+  a custom OpenCode image or a per-browser server setting.
 - Choose separate initial chat and embedding models for AnythingLLM in
   **Services → Configure**, or use the catalog defaults. Retain its own model
   preferences across restarts. Existing installations need the
@@ -55,7 +58,9 @@
   sessions and workspaces.
 - Create [Paperclip](../reference/paperclip-agents.md) instances for companies,
   tasks and OpenCode agents, with isolated Kubernetes workspaces, LiteLLM models
-  and the common SSO access controls. The current sandbox runtime requires AMD64.
+  and the common SSO access controls. The pinned onboarding offers the instance's
+  existing Magic Stick model connection without a cloud subscription. The
+  current sandbox runtime requires AMD64.
 - Run the optional [Pi Coding Agent](../user-guide/applications.md#pi-coding-agent)
   from **Services**, with a browser terminal, model selection, SSO access controls,
   and persistent workspaces and sessions.
@@ -63,6 +68,7 @@
 - Manage local users, GPU allocation, host networking, model cache and Ubuntu updates.
 - [Plug in Ethernet after Wi-Fi setup](../administration/network.md) on a new
   installation: an unconfigured wired port can get its address via DHCP.
+  This does not by itself verify access to the dashboard after switching links.
 - Inspect **System → System Status** through separate Overview, GPU Operators,
   Flux and Network & routes tabs; administrators also find Model cache and Regression tests there.
 - Run the existing P0 suite from **System → System Status → Regression tests** on a dedicated,
@@ -82,6 +88,10 @@
   viewer account; excluded live steps are named, not counted as passed.
   Product-service/application live workflows, including Hermes, service
   credentials and app access, are currently deferred to separate regression.
+  The explicit separate Services selection tests catalog-derived installation
+  and removal, access with SSO and supported public access, including Pi Coding
+  Agent. Model integration remains deferred; Hermes remains separate. Ordinary
+  runs keep their exclusions.
   Isolated checks and core identity/license/Kubernetes/model/GPU coverage stay
   active; reports name exclusions without claiming service/application acceptance.
   Fixed diagnostic selections can repeat existing external-provider, GPU-verification,
@@ -114,9 +124,25 @@
   separately; an old report without cleanup evidence is not labelled clean.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
+- Operate the appliance at its own monitor and keyboard without logging in: the
+  terminal dashboard signs in automatically, also without a network connection.
+  Administrators can lower its access or switch it off, and any user can switch
+  to their own account. [Automatic sign-in](../reference/cli.md#automatic-sign-in).
 - Optionally select **Remember me** on the local login page to stay signed in
   across browser restarts: seven days idle, thirty days maximum. Unchecked
   sessions keep the thirty-minute idle limit. [Signing in](../user-guide/dashboard.md#signing-in).
+- Browser SSO cookies stay on each dashboard/service hostname instead of growing
+  one appliance-wide cookie header. Services share the central sign-in; global
+  logout invalidates the session across those hosts. Missing gateway protection
+  denies access rather than making an application public.
+  Parallel page files share only a currently running host-readiness check;
+  each request still passes its own authentication and access controls.
+  Paperclip keeps browser sign-in separate from its native agent credentials;
+  the central browser token is not sent to its agent-token verifier.
+  Revisiting a logged-out application in the browser starts sign-in again;
+  a permission denial or unavailable identity service does not restart login.
+  Existing SSO access can migrate even with a stopped application model, while
+  invalid instances remain blocked and no new workload is provisioned.
 
 ## What is not automatic
 

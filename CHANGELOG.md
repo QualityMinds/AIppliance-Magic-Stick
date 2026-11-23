@@ -16,6 +16,197 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   even when their cables are disconnected during setup. Preserve explicitly
   configured ports, Wi-Fi settings and the existing preferred route.
 
+- Prepare a managed single-node link-failover candidate: isolate Kubernetes'
+  internal address from Ethernet and Wi-Fi, and announce eligible addresses on
+  their own physical links without changing the appliance hostname or SSO.
+  Activate new managed installations only with matching promoted images.
+  Existing installations require maintenance with a verified rollback path and
+  separate link and sign-in confirmation; they are not silently migrated.
+
+- Offer OpenCode in the pinned Paperclip on-premises onboarding flow. Select an
+  available model from the Magic Stick catalog, initially using the instance's
+  configured default, and use its existing LiteLLM connection without asking for
+  a cloud subscription or a browser API key. Preserve Paperclip's environment
+  check before agent creation.
+
+- Add a checksum-bound local `picomatch` 4.0.7 patch for the single-branch
+  repeated-extglob behavior documented in the withdrawn GHSA-fc5q-39xc-vjpf,
+  with bounded matcher tests and ordinary glob/build compatibility checks.
+  Preserve the upstream version, integrity and notices. Retire the expired
+  advisory exceptions and keep the unfiltered registry audit mandatory.
+
+- Bound the Dashboard API's pending connection queue to 128 so parallel
+  authenticated application resources do not depend on the five-slot default.
+  Keep live per-request session/instance authorization and existing HTTP framing;
+  classify guard failures without private request/exception data and never send
+  a second response to a disconnected peer. Add held-accept TCP controls and
+  authenticated 32/64/128-module Envoy/Keycloak browser checks. Application images,
+  data, models, TLS and standard Services exclusions stay unchanged; matching
+  image qualification and installed acceptance remain separate requirements.
+
+- Keep Paperclip browser SSO tokens separate from native agent credentials.
+  Its catalogue now selects `forwardAccessToken: false` for the existing OIDC
+  policy; other applications retain their previous forwarding. Host-only
+  identity cookies, role/UID guards and revision-bound readiness stay required.
+  Native agent Authorization is preserved, not stripped or converted to trusted
+  board access. Application images, private data and runtime pins are unchanged.
+  Owning controller and real-Keycloak/Envoy browser counterexamples cover the
+  boundary; installed acceptance remains a separate rollout gate.
+
+- Fix Pi Coding Agent startup through Kubernetes ConfigMap symlinks. Separate
+  explicit CLI entry points from importable functions, verify both pinned
+  executable versions before reporting installation success, and reject an
+  incomplete runtime before opening the terminal. Add direct/projected CLI
+  counterexamples and an isolated real-Kubernetes cold/restart contract that
+  preserves workspace settings, auth and sessions. Existing image pins,
+  non-root restrictions, SSO and persistent-data retention remain unchanged.
+
+- Use the catalogued `oc` label for KubeOpenCode instance addresses. Keep the
+  existing Agent, instance identity, workspace, model and upstream image pins;
+  align generated local/public links, exact UID-bound SSO callbacks and the
+  local certificate. This avoids OpenCode's substring-based `opencode.ai`
+  detection on appliance names beginning with `ai`. Old instance addresses and
+  callbacks retire; the central module URL is unchanged. Recheck the catalog
+  before acknowledging a callback update, and retain strict guards during
+  migration. No custom OpenCode image or authentication bypass is introduced.
+
+- Coalesce overlapping requests for the same host at the pre-OIDC callback
+  gate, including the complete route/policy and identity-readiness observation.
+  Parallel application scripts no longer each trigger a separate copy of that
+  check. Completed decisions are not cached; distinct hosts, current ownership,
+  revision validation, per-request authorization, TLS and bounded timeouts remain
+  enforced. Add 40-resource gRPC/HTTP and real-Keycloak counterexamples plus
+  credential-free failure reasons. Application images and instance data are
+  unchanged; a qualified Dashboard API image and live acceptance remain separate.
+
+- Restart a logged-out application's browser sign-in instead of showing the
+  instance guard's generic forbidden response. Expire only that host's owned
+  access/ID cookies, use a bounded same-origin navigation redirect and clear the
+  loop fence only after successful protected traffic. API requests and writes
+  remain 401 without replay; real permission denials remain 403 and unavailable
+  identity verification remains 503 without erasing cookies. Extend existing
+  authentication checks with repeated real Keycloak logout/re-login for both
+  service and UID-bound instance guards; no new campaign case is registered.
+
+- Migrate an existing application's UID-bound SSO access even when its selected
+  model is stopped or has an unknown context. Verify the current instance and
+  complete old access scope, fence every backend first and use atomic resource
+  UID/version preconditions. New invalid instances still get no routes, keys or
+  workloads; existing ones retain the model error until it is actually resolved.
+
+- Retain the dashboard nginx's four bounded 16 KiB large-header buffers for
+  existing SSO cookie/token headers during host-only cookie migration.
+  Requests exceeding the per-field or total limit remain rejected.
+
+- Add an explicitly selected, catalog-derived Services regression with ordered
+  installation/removal and SSO/public access stages.
+  Include Pi Coding Agent without re-enabling deferred service workflows in
+  ordinary runs; keep Hermes separate. Require exact per-entry evidence and
+  identity-bound runtime removal and interruption recovery. Model integration remains
+  deferred; a small owned model may be required solely to install an application.
+  Preserve AnythingLLM and Qdrant persistent data during module removal, as promised by
+  their keep-data contract. Allow AnythingLLM's native setup with a genuinely empty
+  initial model catalog without inventing a model or replacing saved choices.
+  Local/CI checks and native acceptance remain separate.
+  Allow bounded cold image pulls during application and optional operator Helm
+  installation. Recovery can snapshot a failed Helm install without treating it
+  as healthy, and retains exact release identities when checking for late resources.
+  Permit DNS-qualified native API groups with hyphens in the read-only observer,
+  while continuing to reject Secrets, subresources and invalid resource paths.
+- Read explicit native Keycloak attribute children for logout verification and
+  the existing secret-rotation fence. A parent-only CLI projection looked empty
+  and prevented the startup hook from accepting already verified callbacks.
+  Cover the real pinned CLI, unchanged shell helper and refused rotation writes
+  with synthetic scoped credentials; no role or authentication bypass is added.
+- Clear obsolete public Flux source selectors when applying an approved commit.
+  Preserve the source UID and fixed revision instead of retaining an old branch
+  that prevents checkout of the new commit. Add owning role renders and a real
+  Kubernetes apply counterexample; installed rollout remains separate evidence.
+  Keep the exact old/new identity-wave ownership allowlist in setup strategy
+  migration, so a completed bootstrap transfer also permits the next convergence.
+- Split identity prerequisites and routes into ordered Flux apply waves. Keep
+  fail-closed route admission active while root policies acquire current
+  controller acceptance, avoiding a whole-wave dry-run bootstrap deadlock on
+  fresh installations and upgrades. Add native server-side dry-run and exact
+  resource-partition counterexamples without changing cookies, credentials,
+  model definitions or application data.
+- Isolate gateway SSO cookies by dashboard or application host and register
+  exact, instance-owned login callbacks. Global logout checks the active identity
+  session for later protected requests. Legacy gateway token cookies are
+  migrated without deleting unrelated application cookies; users sign in again.
+  Native Gateway defaults and admission guards preserve callback/authentication
+  checks when route policies are missing or weakened. Backend activation requires
+  a real, revision-bound admission deny probe; no additional proxy is introduced.
+- The privacy policy now also covers the project's TikTok profile in both
+  languages: providers, joint controllership for profile statistics, transfer
+  safeguards and TikTok's privacy policy.
+- Website: add a combined page with the imprint and the privacy policy below
+  each other (`/social`, German `/sozial`) as the legal link for social
+  media profiles. The build includes both texts from the existing legal pages,
+  so there is no second copy to maintain. The imprint and privacy policy pages
+  now carry the website header and footer like the other pages.
+- Redesign the terminal dashboard as a text version of the browser dashboard.
+  It now has the same pages in a list on the left, with the System sections,
+  panels, status badges and buttons of the web interface, designed for a
+  terminal 120 columns wide. A cursor moves between elements with the arrow
+  keys or Tab and uses them with Enter, the bottom line is a hotkey bar for
+  the current page, and dialogs open over the page. Terminals that report the
+  mouse, such as SSH clients, also accept clicks and wheel scrolling. The former flat tabs
+  and their `a`/`d`/`e` row shortcuts are replaced: Settings, License, Users
+  and Hardware are sections of **System**, and row actions are buttons. Text
+  selection with the mouse needs Shift while the dashboard is open.
+- Support a mouse on the attached appliance monitor without a graphical
+  desktop. A host helper turns the kernel's mouse device into mouse reports for
+  the terminal dashboard, which draws the pointer itself; clicks and the wheel
+  work as in an SSH terminal. Takes effect once the updated host role and CLI
+  image are both installed; otherwise, or without a mouse, the monitor keeps
+  working with the keyboard. `dashboard_console_mouse_enabled: false` switches
+  it off.
+- Add browser actions to the terminal dashboard: create and remove application
+  instances, show service and instance credentials on request, change instance
+  sharing (administrators), and start, stop or restart models. The create form
+  sends the same request as the browser form. Stopping, restarting, removing
+  and saving a sharing policy ask for confirmation first. Editing model
+  settings, model logs, Mesh and Computer power remain in the browser.
+- Sign the attached appliance monitor in automatically. The terminal dashboard
+  no longer needs a device login from a second device, so the appliance can be
+  operated at the machine itself while the network is unavailable. **Security
+  note:** after this update, physical access to the attached keyboard grants
+  Administrator dashboard access by default, on existing installations too.
+  Administrators can lower it to Operator or Viewer or switch it off under
+  **System → Settings → Local console**, in the TUI or with
+  `magicstick console-access`; lower levels apply immediately and cannot be
+  raised from the console itself. The console identity is accepted only on
+  the cluster-internal API connection, so its secret is useless from the
+  network. `x` now switches to a personal device login
+  and back. The console runtime no longer requires the image registry to
+  restart. Takes effect once the updated platform revision, CLI image and host
+  role are installed; older combinations keep the device login.
+- On OpenClaw startup, repair only the instance PVC root's expected root ownership
+  using a short-lived, narrowly scoped CHOWN init container; keep the gateway
+  non-root and refuse foreign owners rather than modifying their files.
+
+- Bound ordinary automatic NVIDIA model memory planning to one eligible physical
+  card, not the sum of a scheduling pool. Create/Edit sliders and recommendations
+  keep that ceiling even with an older API or an invalid saved budget; the API
+  rejects physically impossible single-card reservations regardless of risk
+  acceptance. Preserve explicit split/replicated budgets and add existing
+  MEM-01/MEM-05 API, component and desktop/mobile regression counterexamples.
+
+- Fix HAR-07 recovery after terminal rejected/interrupted/rolled-back host
+  operations. Register interrupted workers and recovery processes before their
+  first writes, aggregate their exact cleanup evidence, and retain the safe
+  original recovery cause instead of a generic exit-code assertion. Unfinished
+  children fence later live checks; historical reports remain unchanged.
+
+- Wait for the exact borrowed GPU configuration and its physical-inventory
+  generation before HW-06 submits verification. Preserve identity, intent,
+  admission and revision guards without retrying rejected writes. Retain bounded
+  fixed HTTP/rejection/generation observations in Dashboard and filtered report
+  exports; raw response bodies and credentials remain excluded. Extend the
+  existing cases with delayed-projection and desktop/mobile counterexamples;
+  native GPU acceptance and historical results remain separate.
+
 - Complete product release delivery with an automatic exact-tag installer build
   and public image/checksum/evidence verification. Preserve the product tag and
   locked assets; append verified download links only after completion. Missing
@@ -715,6 +906,56 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   by OpenClaw 2026.9.8.
 - Preserve KubeOpenCode instance model choices during catalog synchronization,
   remove withdrawn provider routes and roll updated configuration automatically.
+
+## v1.0.1 - 2026-11-19
+
+Magic Stick 1.0.1 improves application sign-in, local application setup, and the
+attached-console experience. It also improves recovery diagnostics and delivers
+a fixed-version installer for this exact product release.
+
+### Dashboard and services
+
+- The terminal dashboard now follows the web dashboard's sections and supports
+  keyboard and mouse navigation, instance create/remove actions, and model
+  start, stop, and restart controls.
+- Paperclip onboarding offers OpenCode with models from the Magic Stick catalog
+  through the instance's existing LiteLLM connection, without requiring a cloud
+  subscription. Pi Coding Agent starts correctly with projected Kubernetes
+  configuration, and OpenClaw checks the ownership of its own data volume
+  before starting its non-root gateway.
+- KubeOpenCode instance links use the `oc` address label. Use the new link from
+  the dashboard; old instance addresses are retired. The central module
+  address and persistent workspaces are unchanged.
+- Automatic NVIDIA model memory planning uses the capacity of one eligible card
+  rather than adding together cards in a pool for a single-card reservation.
+
+### Sign-in, upgrades, and security
+
+- Gateway SSO cookies are scoped to their own hosts. A logged-out browser
+  navigation can restart sign-in, while unauthorized API calls are not replayed.
+  Sign in again if prompted after upgrading. Callback verification and startup
+  ordering are improved for fresh installations and saved instances.
+- The attached local console signs in automatically as administrator by default,
+  including on existing installations. **Physical access to the local keyboard
+  can grant dashboard administrator access.** Use **System → Settings → Local
+  console** to select a lower role or disable automatic sign-in where needed.
+- Approved commits clear obsolete Flux branch/tag selectors. Regression recovery
+  keeps cleanup receipts tied to their owning runs, and GPU verification waits
+  for the exact inventory revision. These changes do not reinterpret past reports.
+- The temporary Picomatch exception is removed. The local matcher patch is
+  retained, and the unfiltered npm advisory check remains mandatory.
+
+### Install and update
+
+Use **System → Settings → Updates → Released version** to select `v1.0.1` on
+supported installations. Devices pinned to older product versions do not change
+automatically. For a fresh installation, use the verified fixed-version USB
+download linked from this release after media verification, and follow the
+[installation guide](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v1.0.1/docs/installation/README.md).
+
+The Services regression remains an explicit, separate selection. Release CI
+and installer integrity checks do not claim acceptance on every physical
+machine, GPU, or installation path.
 
 ## v1.0.0 - 2026-11-07
 

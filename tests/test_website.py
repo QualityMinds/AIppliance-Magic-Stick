@@ -41,13 +41,20 @@ class WebsiteTests(unittest.TestCase):
         'de.html': ('de', 'de.html', ''),
         'editions.html': ('en', 'editions.html', 'editionen.html'),
         'editionen.html': ('de', 'editionen.html', 'editions.html'),
+        'social.html': ('en', 'social.html', 'sozial.html'),
+        'sozial.html': ('de', 'sozial.html', 'social.html'),
     }
+    # Combined page -> the legal pages the build includes in it, in order.
+    social_pages = {'social.html': ('imprint.html', 'privacy.html'),
+                    'sozial.html': ('impressum.html', 'datenschutz.html')}
     # English legal page -> German twin. Both must change together (see
     # test_legal_pages_stay_in_sync_across_languages).
     legal_pairs = {'imprint.html': 'impressum.html', 'privacy.html': 'datenschutz.html'}
     # Link targets that differ only by language are compared as their English form.
     language_pairs = {**legal_pairs, 'de.html': 'index.html', 'editionen.html': 'editions.html',
-                      'https://www.microsoft.com/de-de/': 'https://www.microsoft.com/en-us/'}
+                      'https://www.microsoft.com/de-de/': 'https://www.microsoft.com/en-us/',
+                      'https://www.tiktok.com/legal/page/eea/privacy-policy/de-DE':
+                          'https://www.tiktok.com/legal/page/eea/privacy-policy/en'}
     public = 'https://magic-stick.ai/'
 
     @property
@@ -412,7 +419,7 @@ class WebsiteTests(unittest.TestCase):
                 self.assertTrue(page.matching('link', rel='alternate', hreflang='x-default', href=self.public + english))
                 self.assertTrue(page.matching('a', lang=language, href=name, **{'aria-current': 'page'}))
                 self.assertTrue(page.matching('a', lang=other, href=twin))
-                self.assertTrue(page.matching('a', href='index.html' if language == 'en' else 'de.html'))
+                self.assertTrue(page.matching('a', href='index.html#top' if language == 'en' else 'de.html#top'))
                 self.assertGreater(len(page.matching('meta', name='description')[0]['content']), 80)
                 self.assertTrue(page.matching('meta', name='robots', content='index,follow'))
                 for tag in ('title', 'h1', 'main', 'footer', 'time'):
@@ -420,12 +427,67 @@ class WebsiteTests(unittest.TestCase):
                 ids = [a['id'] for _, a in page.elements if 'id' in a]
                 self.assertEqual(len(ids), len(set(ids)))
                 for _, attrs in page.elements:
-                    for target in attrs.get('aria-labelledby', '').split():
-                        self.assertIn(target, ids)
-                # Self-contained: inline styles and at most the inline opt-out script.
-                self.assertFalse([a for _, a in page.elements if 'src' in a])
-                self.assertFalse(page.matching('link', rel='stylesheet'))
+                    for attribute in ('aria-controls', 'aria-labelledby'):
+                        for target in attrs.get(attribute, '').split():
+                            self.assertIn(target, ids)
+                # Website header, footer and stylesheet as on the landing pages; the
+                # only other script is the inline statistics opt-out.
+                self.assertTrue(page.matching('header', **{'class': 'site-header'}))
+                self.assertTrue(page.matching('footer', **{'class': 'site-footer container'}))
+                self.assertTrue(page.matching('main', id='main', **{'class': 'legal'}))
+                self.assertTrue(page.matching('a', href='#main'))
+                hrefs = [a['href'] for a in self.header_links(page)]
+                self.assertLess(hrefs.index('editions.html' if language == 'en' else 'editionen.html'),
+                                hrefs.index('README.md'))
+                self.assertEqual([a for a in page.matching('script') if a], [{'src': 'site.js', 'defer': None}])
+                self.assertEqual(page.matching('link', rel='stylesheet'),
+                                 [{'rel': 'stylesheet', 'href': 'site.css'}])
+                self.assertEqual({a['src'] for _, a in page.elements if 'src' in a},
+                                 {'site.js', 'assets/brand/logo.svg'})
                 self.assertFalse(page.matching('iframe') or page.matching('form'))
+
+    def test_social_pages_include_both_legal_texts_without_a_copy(self):
+        """social.html/sozial.html hold no legal text; the build includes it."""
+        for name, sources in self.social_pages.items():
+            with self.subTest(page=name):
+                template = (docs.DOCS / name).read_text()
+                placeholders = Markup(template).matching('article', **{'class': 'legal-document'})
+                self.assertEqual([a['data-legal-include'] for a in placeholders], list(sources))
+                self.assertEqual([a['id'] for a in placeholders], ['imprint', 'privacy'])
+                self.assertNotIn('<time', template)
+                built = docs.legal_includes(template)
+                self.assertNotIn('data-legal-include', built)
+                # The jump to the social media section stays on the combined page.
+                self.assertTrue(Markup(template).matching('a', href=sources[1] + '#social-media'))
+                self.assertTrue(Markup(built).matching('a', href='#social-media'))
+                self.assertNotIn(sources[1] + '#', built)
+                page = Markup(built)
+                for tag, count in (('h1', 1), ('main', 1), ('footer', 1), ('time', 2)):
+                    self.assertEqual(len(page.matching(tag)), count, tag)
+                ids = [a['id'] for _, a in page.elements if 'id' in a]
+                self.assertEqual(len(ids), len(set(ids)))
+                for _, attrs in page.elements:
+                    for attribute in ('aria-controls', 'aria-labelledby'):
+                        for target in attrs.get(attribute, '').split():
+                            self.assertIn(target, ids)
+                tags = [tag for tag, _ in page.elements]
+                text = re.sub(r'\s+', ' ', ''.join(page.text))
+                for source in sources:
+                    original = self.markup(source)
+                    main = [tag for tag, _ in original.elements]
+                    main = main[main.index('main') + 1:main.index('footer')]
+                    # Same elements, headings one level below the page heading.
+                    lowered = [f'h{int(t[1]) + 1}' if re.fullmatch(r'h[1-5]', t) else t for t in main]
+                    self.assertTrue(any(tags[i:i + len(lowered)] == lowered for i in range(len(tags))), source)
+                    for paragraph in re.findall(r'<p>(.*?)</p>', (docs.DOCS / source).read_text(), re.S):
+                        plain = re.sub(r'\s+', ' ', ''.join(Markup(paragraph).text)).strip()
+                        self.assertIn(plain, text)
+                    for section in original.matching('section'):
+                        self.assertIn(section['aria-labelledby'], ids)
+                # The inline statistics opt-out of the privacy policy comes along.
+                self.assertEqual([s for s in page.scripts if s.strip()],
+                                 [s for source in sources for s in self.markup(source).scripts if s.strip()])
+                self.assertTrue(page.matching(**{'data-opt-out': None}))
 
     def test_legal_pages_stay_in_sync_across_languages(self):
         """The German and English versions are one legal text in two languages.

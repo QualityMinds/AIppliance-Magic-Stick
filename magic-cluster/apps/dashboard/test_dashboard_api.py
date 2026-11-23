@@ -204,7 +204,7 @@ class LocalRuntimeTests(unittest.TestCase):
     def test_dashboard_and_cli_oidc_clients_are_trusted(self):
         self.assertEqual(
             self.server["OIDC_EXPECTED_CLIENT_IDS"],
-            {"magicstick-human-gateway-local", "magicstick-cli"},
+            {"magicstick-human-gateway-local", "magicstick-cli", "magicstick-console"},
         )
 
     def test_remove_local_runtime_deletes_only_auto_enabled_modules(self):
@@ -585,14 +585,15 @@ class LocalRuntimeTests(unittest.TestCase):
             self.server["model_activation_payload"]("local", base)
 
     def test_gpu_model_payload_drops_cpu_memory_reservation(self):
-        resource = self.server["model_activation_payload"]("local", {
-            "name": "gpu-chat",
-            "local": {
-                "computeTarget": "nvidia-gpu",
-                "vram": "8Gi",
-                "memoryRequiredMi": 32768,
-            },
-        })
+        with patch.dict(self.server, {"compute_memory_summary": lambda *_: {"devices": []}}):
+            resource = self.server["model_activation_payload"]("local", {
+                "name": "gpu-chat",
+                "local": {
+                    "computeTarget": "nvidia-gpu",
+                    "vram": "8Gi",
+                    "memoryRequiredMi": 32768,
+                },
+            })
 
         self.assertNotIn("memoryRequiredMi", resource["spec"]["local"])
 
@@ -2396,6 +2397,19 @@ class KubernetesAccessTests(unittest.TestCase):
         result = self.server["kubernetes_access_info"](required=True)
 
         self.assertEqual(result["apiServer"], "https://192.0.2.44:6443")
+
+    def test_link_independent_control_plane_address_is_not_exported(self):
+        self.server["list_resource"] = lambda path: [{
+            "metadata": {"labels": {"node-role.kubernetes.io/control-plane": "true"}},
+            "status": {
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "addresses": [{"type": "InternalIP", "address": "10.43.0.0"}],
+            },
+        }]
+        endpoint = self.server["_appliance_api_server_endpoint"](
+            "https://example.local:6443", "example.local",
+        )
+        self.assertEqual(endpoint, "https://example.local:6443")
 
     def test_cluster_configuration_preserves_platform_managed_api_endpoint(self):
         self.server["request_json"] = lambda method, path: {

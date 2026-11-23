@@ -50,6 +50,8 @@ class LiteLlmGatewayTests(unittest.TestCase):
                 self.assertEqual(oidc["clientID"], "magicstick-human-gateway-local")
                 self.assertIn("issuer", oidc["provider"])
                 self.assertIn("redirectURL", oidc)
+                self.assertNotIn("cookieDomain", oidc)
+                self.assertEqual(oidc["cookieNames"]["accessToken"], "__Host-MagicStickAccessToken")
 
     def test_litellm_routes_remain_sso_and_role_protected(self):
         for name in ("static-litellm-local-sso", "static-litellm-public-sso"):
@@ -58,8 +60,10 @@ class LiteLlmGatewayTests(unittest.TestCase):
                 self.assertIn("oidc", policy)
                 self.assertEqual(
                     policy["jwt"]["providers"][0]["extractFrom"]["cookies"],
-                    ["MagicStickAccessToken"],
+                    ["__Host-MagicStickAccessToken"],
                 )
+                self.assertFalse(policy["extAuth"]["failOpen"])
+                self.assertEqual(policy["extAuth"]["http"]["path"], "/internal/session-access")
                 roles = policy["authorization"]["rules"][0]["principal"]["jwt"]["claims"][0]["values"]
                 self.assertEqual(
                     roles,

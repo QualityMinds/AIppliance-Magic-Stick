@@ -7,6 +7,14 @@
     group: "{{ dashboard_console_runtime_gid }}"
     mode: "0700"
 
+- name: Install dashboard console mouse helper
+  ansible.builtin.copy:
+    src: console-mouse.py
+    dest: "{{ dashboard_console_mouse_helper }}"
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Install dashboard console launcher
   ansible.builtin.template:
     src: launcher.j2

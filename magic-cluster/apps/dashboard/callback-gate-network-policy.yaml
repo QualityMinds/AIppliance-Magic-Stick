@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dashboard-api-callback-gate
+  namespace: identity-system
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-appliance-dashboard-api
+  policyTypes: [Ingress]
+  ingress:
+    # Preserve the existing API ingress contract.
+    - ports: [{protocol: TCP, port: 8080}]
+    # Only the managed Gateway namespace may reach the internal gRPC port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+      ports: [{protocol: TCP, port: 8081}]

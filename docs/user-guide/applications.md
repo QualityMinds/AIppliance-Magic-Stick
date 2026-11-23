@@ -32,6 +32,12 @@ instance keeps its selection when the shared catalog or global default changes.
 If that model becomes unavailable, select a replacement explicitly. OpenClaw's
 compaction budget follows the chosen model's context limit.
 
+OpenCode instance links use `<name>.oc.<domain>`, for example
+`example.oc.magicstick.local`. Open the current link from **Services** after an
+address update; your agent and workspace are not recreated. The official
+OpenCode image automatically connects to that same HTTPS address. The central
+KubeOpenCode console has its own, separate module link.
+
 AnythingLLM is enabled directly from its service card. Before enabling it, open
 **Services → AnythingLLM → Configure** and choose **Chat model** and
 **Embedding model**. Each list offers the available models for that task. You
@@ -96,6 +102,12 @@ one browser connection at a time; users with access share its files, sessions an
 runtime credentials. Give access to trusted users, and create separate instances
 for separate workspaces. Pi's tools can execute commands inside its container;
 they do not receive host mounts or a Kubernetes API credential.
+
+If installation shows **Degraded**, inspect the instance's error before removing
+it. The bootstrap checks downloads and starts both pinned programs to verify
+compatibility; an unavailable selected model also blocks terminal startup.
+Correct the reported prerequisite or install the qualified software fix rather
+than deleting the workspace. An upgrade keeps the existing instance data.
 
 Removing a Pi instance keeps its data volume. Recreating the same instance name
 reuses it; an administrator must explicitly remove the retained volume to erase it.

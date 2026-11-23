@@ -1,4 +1,4 @@
-import {expect,type Page} from '@playwright/test';
+import {expect,test,type Page} from '@playwright/test';
 import type {GpuValidationRequest,GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {GpuScenario,podSpec} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
@@ -8,6 +8,8 @@ import {poll} from '../core/poll.ts';
 import {join} from 'node:path';
 import {requireGpuProvider} from './prerequisites.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
+import {waitValidationConfiguration} from './validation-readiness.ts';
+import {parseGpuValidationDiagnostic,gpuValidationResponseReason,gpuValidationResponseGenerations,type GpuValidationDiagnostic,type GpuValidationObservation} from '../core/gpu-validation-diagnostic.ts';
 
 export async function validationJobs(s:GpuScenario) {
   return [...await s.live.observer.list('jobs','ai'),...await s.live.observer.list('jobs',s.config.expected.applianceNamespace)];
@@ -87,9 +89,10 @@ function validationDevices(s:GpuScenario,devices:HardwareGpuDevice[],scope:'all'
  * journal. Legacy extended resources cannot select one of several same-node
  * cards; never wait on a deliberately disabled Verify button or accept an
  * arbitrary NVIDIA allocation as proof of exact-card verification. */
-export async function prepareValidation(s:GpuScenario,engine:'OLlama'|'VLLM',scope:'all'|'nvidia') {
+export async function prepareValidation(s:GpuScenario,engine:'OLlama'|'VLLM',scope:'all'|'nvidia',
+  options:{timeoutMs?:number;intervalMs?:number;observe?:(value:GpuValidationObservation)=>Promise<void>}={}) {
   return atStage('gpu-validation',async()=>{
-    let inventory=await s.inventory(),selected=validationDevices(s,inventory.devices,scope),changed=false;
+    const inventory=await s.inventory();let selected=validationDevices(s,inventory.devices,scope);
     if(selected.some(device=>!['amd','nvidia'].includes(device.vendor) || device.eligible===false || device.hostDriverReady===false))
       throw new HarnessError('GPU_VALIDATION','Blocked','gpu-validation');
     if(selected.some(device=>device.vendor==='nvidia')) {
@@ -97,14 +100,10 @@ export async function prepareValidation(s:GpuScenario,engine:'OLlama'|'VLLM',sco
       const state=await s.state('nvidia');
       if(count>1 && state.backend!=='dra') {
         if(!state.draAvailable)throw new HarnessError('GPU_VALIDATION','Blocked','gpu-validation');
-        await s.transition('nvidia',state.mode,state.maxModels,'dra');changed=true;
+        await s.transition('nvidia',state.mode,state.maxModels,'dra');
       }
     }
-    if(changed) {
-      inventory=await poll(()=>s.inventory(),value=>validationDevices(s,value.devices,scope).every(device=>device.validationAvailable===true),
-        {timeoutMs:60_000,intervalMs:1000,stage:'gpu-validation'});
-      selected=validationDevices(s,inventory.devices,scope);
-    }
+    selected=await waitValidationConfiguration(s,selected,devices=>validationDevices(s,devices,scope),options);
     if(selected.some(device=>device.validationAvailable!==true))throw new HarnessError('GPU_VALIDATION','Blocked','gpu-validation');
     if(selected.some(device=>['queued','running'].includes(device.validation?.[engine]?.state ?? '')))
       throw new HarnessError('BUSY','Blocked','gpu-validation');
@@ -115,7 +114,27 @@ export async function prepareValidation(s:GpuScenario,engine:'OLlama'|'VLLM',sco
  * confirmation, authenticated API, controller and GPU diagnostic. No result,
  * hardware fact, token, routing or health response is mocked. */
 export async function requestValidationUi(s:GpuScenario,page:Page,engine:'OLlama'|'VLLM',scope:'all'|'nvidia',index:number) {
-  const devices=await prepareValidation(s,engine,scope);
+  requireSafe(Number.isSafeInteger(index)&&index>=0&&index<=32,'CONFIG');
+  const diagnostic:GpuValidationDiagnostic={version:1,engine,scope,reason:'NOT_REQUESTED',requestAttempted:false,
+    httpStatus:null,history:[],omittedObservations:0};
+  const capture=async()=>{
+    try {
+      const value=parseGpuValidationDiagnostic(diagnostic),body=Buffer.from(JSON.stringify(value));
+      // Either capture can survive independently; a diagnostic IO error must
+      // never hide the original rejection, authorize retry or weaken cleanup.
+      const captures=await Promise.allSettled([writePrivate(join(s.directory,`gpu-verification-${index}.json`),value),
+        test.info().attach('magicstick-gpu-validation-diagnostic',{body,contentType:'application/json'})]);
+      if(captures.every(result=>result.status==='rejected'))throw new Error('Diagnostic capture unavailable');
+    }catch{try{await test.info().attach('magicstick-gpu-validation-unavailable',{
+      body:Buffer.from('{"version":1}'),contentType:'application/json'});}catch{/* Optional diagnostic only. */}}
+  };
+  try {
+  const devices=await prepareValidation(s,engine,scope,{observe:async observation=>{
+    diagnostic.history.push(observation);
+    if(diagnostic.history.length>8){diagnostic.history.splice(1,1);diagnostic.omittedObservations++;}
+    diagnostic.reason=observation.state==='ready'?'READY':'NOT_REQUESTED';
+    await capture();
+  }});
   const now=Date.now()+index,uuid=s.live.journal.runId.slice(4),requestId=`dashboard-${now}-${uuid}`;
   const deviceIds=devices.map(device=>device.id);
   const body:GpuValidationRequest={nodeName:s.config.gpu!.nodeName,nodeUid:s.config.gpu!.nodeUid,engine,deviceIds,requestId,acknowledgeResourceUse:true};
@@ -134,12 +153,35 @@ export async function requestValidationUi(s:GpuScenario,page:Page,engine:'OLlama
   const dialog=page.getByRole('dialog'); await expect(dialog).toContainText(/GPU|verification/);
   s.allowed.splice(0,s.allowed.length,{method:'POST',path:'/api/hardware/validation',body});
   const response=page.waitForResponse(r=>new URL(r.url()).pathname === '/api/hardware/validation' && r.request().method() === 'POST');
-  await s.live.guard(); await dialog.getByRole('button',{name:'Run verification'}).click();
-  const http=await response;requireSafe(http.status() === 202,'API');
-  const result=await http.json() as {accepted?:boolean;requestId?:string;deviceIds?:string[]};
-  requireSafe(result.accepted && result.requestId === requestId && result.deviceIds?.length === deviceIds.length &&
-    result.deviceIds.every(id=>deviceIds.includes(id)),'API');s.allowed.length=0;
+  void response.catch(()=>{}); // A failed guard/click must not leave an unhandled late page-close rejection.
+  await s.live.guard();diagnostic.requestAttempted=true;
+  await dialog.getByRole('button',{name:'Run verification'}).click();
+  const http=await response;diagnostic.httpStatus=http.status();
+  let result:{accepted?:boolean;requestId?:string;deviceIds?:string[]}|undefined;
+  let payload:unknown;
+  try {const body=await http.body();if(body.length<=16*1024)payload=JSON.parse(body.toString('utf8'));}catch{/* Unknown response stays unknown. */}
+  diagnostic.reason=gpuValidationResponseReason(http.status(),payload);
+  if(diagnostic.httpStatus===409&&diagnostic.reason==='GPU_CONFIGURATION_CHANGED')diagnostic.responseGenerations=gpuValidationResponseGenerations(payload);
+  await capture();
+  requireSafe(http.status() === 202,'API');
+  result=payload as typeof result;
+  const accepted=result?.accepted===true && result.requestId === requestId && Array.isArray(result.deviceIds)&&result.deviceIds.length === deviceIds.length &&
+    new Set(result.deviceIds).size===deviceIds.length&&result.deviceIds.every(id=>deviceIds.includes(id));
+  if(!accepted)diagnostic.reason='RESPONSE_CONTRACT';
+  await capture();
+  requireSafe(accepted,'API');s.allowed.length=0;
   return {requestId,deviceIds,engine,startedAt:now-index};
+  }catch(error) {
+    if(diagnostic.httpStatus===null)diagnostic.reason=diagnostic.requestAttempted?'TRANSPORT_FAILED':
+      error instanceof HarnessError?error.code==='DEADLINE'?'READINESS_DEADLINE':error.code==='IDENTITY'?'IDENTITY_CHANGED':
+        error.code==='CONFLICT'||error.code==='OWNERSHIP'?'INTENT_CHANGED':error.code==='BUSY'?'BUSY':
+        error.outcome==='Blocked'?'PREREQUISITE':'READ_FAILED':'READ_FAILED';
+    await capture();
+    if(error instanceof HarnessError&&!error.stage)throw new HarnessError(error.code,error.outcome,'gpu-validation');
+    throw error;
+  }finally{
+    s.allowed.length=0;
+  }
 }
 
 export async function completedValidation(s:GpuScenario,request:Awaited<ReturnType<typeof requestValidationUi>>) {

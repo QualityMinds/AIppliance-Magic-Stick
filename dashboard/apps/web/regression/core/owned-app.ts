@@ -11,8 +11,11 @@ import {ownedJournalName,type JournalEntry} from './journal.ts';
 import {poll,currentReady} from './poll.ts';
 import type {ApplicationAdapter} from './application-adapters.ts';
 import {waitOpenCodeBackend} from './opencode-backend.ts';
+import {AppRuntimeProof,appRuntimeAssociated} from './app-lifecycle.ts';
+import {modulePodTemplateMatches} from './module-lifecycle.ts';
+import {advanceNativeBinding,type NativeBinding,type NativeSchema} from './native-defaults.ts';
 
-export const appTypes=['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const;
+export const appTypes=['openclaw','hermes','paperclip','kubeopencode','pi-coding','odysseus'] as const;
 export type AppType=typeof appTypes[number];
 export interface AppFixture {type:AppType; originTemplate:string; adapter?:ApplicationAdapter; promptLabel?:string; sendButton?:string; responseSelector?:string; responseMarker:string}
 const resource='appinstances.appliance.magicstick.dev';
@@ -38,6 +41,141 @@ export function appReleaseReady(item:AppInstance,observed:KubeObject,children:Ku
     !child.metadata.deletionTimestamp && child.spec?.suspend!==true && child.spec?.targetNamespace===item.spec?.targetNamespace &&
     typeof child.metadata.uid==='string' && Number.isSafeInteger(child.metadata.generation) &&
     currentReady(child,child.metadata.uid,Number(child.metadata.generation)));
+}
+
+/** Direct chart workloads (Pi and Odysseus) have no intermediate operator CR.
+ * Inspect the Helm-owned Service, exact Deployment/ReplicaSet chain and real
+ * Ready Pod rather than treating the accepted HelmRelease as application boot. */
+export function directAppBackendReady(name:string,namespace:string,service:KubeObject|undefined,
+  deployment:KubeObject|undefined,replicas:KubeObject[],pods:KubeObject[]) {
+  if(!service||!deployment)return false;
+  for(const item of [service,deployment])requireSafe(item.metadata.name===name&&item.metadata.namespace===namespace&&item.metadata.uid&&
+    item.metadata.annotations?.['meta.helm.sh/release-name']===name&&item.metadata.annotations?.['meta.helm.sh/release-namespace']===namespace,'OWNERSHIP');
+  const selector=service.spec?.selector as Record<string,string>|undefined;
+  requireSafe(selector&&Object.keys(selector).length>0&&selector['app.kubernetes.io/instance']===name&&
+    Object.values(selector).every(value=>typeof value==='string'&&value),'OWNERSHIP');
+  const ownedRs=new Set(replicas.filter(item=>item.metadata.namespace===namespace&&item.metadata.ownerReferences?.some(owner=>
+    owner.kind==='Deployment'&&owner.uid===deployment.metadata.uid)).map(item=>item.metadata.uid));
+  const selected=pods.filter(item=>item.metadata.namespace===namespace&&Object.entries(selector).every(([key,value])=>item.metadata.labels?.[key]===value)&&
+    !['Succeeded','Failed'].includes(item.status?.phase??''));
+  requireSafe(selected.every(item=>item.metadata.ownerReferences?.some(owner=>owner.kind==='ReplicaSet'&&ownedRs.has(owner.uid))),'OWNERSHIP');
+  const status=deployment.status as {observedGeneration?:number;replicas?:number;updatedReplicas?:number;readyReplicas?:number;availableReplicas?:number}|undefined;
+  if(service.metadata.deletionTimestamp||deployment.metadata.deletionTimestamp||deployment.spec?.replicas!==1||
+    status?.observedGeneration!==deployment.metadata.generation||status?.replicas!==1||status?.updatedReplicas!==1||status?.readyReplicas!==1||
+    status?.availableReplicas!==1||selected.length!==1)return false;
+  const pod=selected[0]!,template=deployment.spec?.template as {spec?:{containers?:Array<{name:string;image:string}>}}|undefined;
+  const configured=template?.spec?.containers??[],actual=(pod.spec?.containers??[]) as Array<{name:string;image:string}>;
+  requireSafe(configured.length>0&&configured.every(container=>container.image&&actual.some(candidate=>candidate.name===container.name&&candidate.image===container.image)),'REVISION');
+  return !pod.metadata.deletionTimestamp&&pod.status?.phase==='Running'&&
+    configured.every(container=>pod.status?.containerStatuses?.some(candidate=>candidate.name===container.name&&candidate.ready&&candidate.imageID))&&
+    pod.status?.conditions?.some(condition=>condition.type==='Ready'&&condition.status==='True')===true;
+}
+
+async function waitDirectAppBackend(live:LiveFoundation,name:string,namespace:string) {
+  return poll(async()=>{
+    await live.guard();const [services,deployments,replicas,pods]=await Promise.all(['services','deployments.apps','replicasets.apps','pods']
+      .map(resource=>live.observer.list(resource,namespace)));
+    return directAppBackendReady(name,namespace,services!.find(item=>item.metadata.name===name),deployments!.find(item=>item.metadata.name===name),replicas!,pods!);
+  },Boolean,{timeoutMs:300_000,intervalMs:1000,stage:'app-ready'});
+}
+
+type NativeApplication='openclaw'|'paperclip';
+const nativeApplications={openclaw:{resource:'openclawinstances.openclaw.rocks',kind:'OpenClawInstance',port:18789},
+  paperclip:{resource:'instances.paperclip.inc',kind:'Instance',port:3100}} as const;
+function nativeInstanceIdentity(type:NativeApplication,name:string,namespace:string,item:KubeObject) {
+  requireSafe(item.metadata.name===name&&item.metadata.namespace===namespace&&item.metadata.uid&&
+    Number.isSafeInteger(item.metadata.generation)&&Number(item.metadata.generation)>0&&
+    item.metadata.labels?.['app.kubernetes.io/name']===type&&
+    item.metadata.labels?.['appliance.magicstick.dev/appinstance']===name&&
+    item.metadata.labels?.['app.kubernetes.io/instance']===name&&
+    item.metadata.annotations?.['meta.helm.sh/release-name']===name&&
+    item.metadata.annotations?.['meta.helm.sh/release-namespace']===namespace,'OWNERSHIP');
+  return {uid:item.metadata.uid,generation:Number(item.metadata.generation)};
+}
+
+/** Pinned native operator contracts: OpenClaw v0.40.0 and Paperclip v0.19.1.
+ * A Ready HelmRelease merely created their CR. Bind that Helm-owned native CR,
+ * its current Ready generation, Service and full workload/Pod owner chain. */
+export function nativeAppBackendReady(type:NativeApplication,name:string,namespace:string,native:KubeObject|undefined,
+  service:KubeObject|undefined,workload:KubeObject|undefined,replicas:KubeObject[],pods:KubeObject[],owned:{uid:string;generation:number}) {
+  if(!native)return false;
+  const identity=nativeInstanceIdentity(type,name,namespace,native);
+  requireSafe(identity.uid===owned.uid&&identity.generation===owned.generation,'OWNERSHIP');
+  const status=native.status as KubeObject['status']&{managedResources?:{service?:string;statefulSet?:string;deployment?:string}};
+  const current=status?.observedGeneration===identity.generation;
+  if(current&&['Failed','Degraded'].includes(status?.phase??''))throw new HarnessError('API','Failed','app-ready');
+  const ready=status?.conditions?.find(condition=>condition.type==='Ready');
+  // OpenClaw's pinned controller intentionally writes no per-Ready-condition
+  // generation. Its global observedGeneration is mandatory; Paperclip has both.
+  if(native.metadata.deletionTimestamp||native.spec?.suspended===true||!current||status?.phase!=='Running'||ready?.status!=='True'||
+    (type==='paperclip'?ready.observedGeneration!==identity.generation:
+      ready.observedGeneration!==undefined&&ready.observedGeneration!==0&&ready.observedGeneration!==identity.generation))return false;
+  const kind=status.managedResources?.statefulSet===name?'StatefulSet':type==='paperclip'&&status.managedResources?.deployment===name?'Deployment':undefined;
+  if(!kind||status.managedResources?.service!==name||!service||!workload)return false;
+  const nativeKind=nativeApplications[type].kind;
+  for(const item of [service,workload])requireSafe(item.metadata.name===name&&item.metadata.namespace===namespace&&item.metadata.uid&&
+    item.metadata.ownerReferences?.some(owner=>owner.kind===nativeKind&&owner.uid===owned.uid&&owner.name===name&&owner.controller===true),'OWNERSHIP');
+  const selector=service.spec?.selector as Record<string,string>|undefined;
+  requireSafe(selector&&selector['app.kubernetes.io/instance']===name&&selector['app.kubernetes.io/name']===type&&
+    Object.entries(selector).every(([key,value])=>key&&typeof value==='string'&&value)&&
+    Array.isArray(service.spec?.ports)&&(service.spec.ports as Array<{port?:number}>).some(port=>port.port===nativeApplications[type].port),'API');
+  const selected=pods.filter(pod=>pod.metadata.namespace===namespace&&Object.entries(selector).every(([key,value])=>pod.metadata.labels?.[key]===value));
+  const rs=new Set(replicas.filter(replica=>replica.metadata.namespace===namespace&&replica.metadata.ownerReferences?.some(owner=>
+    owner.kind==='Deployment'&&owner.uid===workload.metadata.uid&&owner.controller===true)).map(replica=>replica.metadata.uid));
+  requireSafe(selected.every(pod=>pod.metadata.ownerReferences?.some(owner=>owner.controller===true&&
+    (kind==='StatefulSet'?owner.kind==='StatefulSet'&&owner.uid===workload.metadata.uid:owner.kind==='ReplicaSet'&&rs.has(owner.uid)))),'OWNERSHIP');
+  const rollout=workload.status as KubeObject['status']&{updatedReplicas?:number;availableReplicas?:number;currentReplicas?:number;currentRevision?:string;updateRevision?:string};
+  if(service.metadata.deletionTimestamp||workload.metadata.deletionTimestamp||workload.spec?.replicas!==1||
+    !Number.isSafeInteger(workload.metadata.generation)||Number(workload.metadata.generation)<1||
+    rollout?.observedGeneration!==workload.metadata.generation||rollout.replicas!==1||rollout.readyReplicas!==1||rollout.updatedReplicas!==1||
+    (kind==='StatefulSet'?rollout.currentReplicas!==1||!rollout.currentRevision||rollout.currentRevision!==rollout.updateRevision:rollout.availableReplicas!==1)||selected.length!==1)return false;
+  const template=workload.spec?.template as {spec?:{containers?:Array<{name:string;image:string}>}}|undefined,
+    configured=template?.spec?.containers??[],pod=selected[0]!,actual=pod.spec?.containers as Array<{name:string;image:string}>|undefined;
+  const image=native.spec?.image as {repository?:string;digest?:string;tag?:string}|undefined,
+    expected=image?.repository&&(image.digest?image.repository+'@'+image.digest:image.tag?image.repository+':'+image.tag:undefined);
+  requireSafe(expected&&configured.some(container=>container.name===type&&container.image===expected)&&actual&&configured.length===actual.length&&
+    configured.every(container=>container.image&&actual.some(candidate=>candidate.name===container.name&&candidate.image===container.image))&&
+    template?.spec&&modulePodTemplateMatches(template.spec,pod.spec),'REVISION');
+  return Boolean(pod.metadata.uid&&!pod.metadata.deletionTimestamp&&pod.status?.phase==='Running'&&
+    pod.status.conditions?.some(condition=>condition.type==='Ready'&&condition.status==='True')&&
+    configured.every(container=>pod.status?.containerStatuses?.some(status=>status.name===container.name&&status.ready&&status.imageID)));
+}
+
+export async function waitNativeAppBackend(live:LiveFoundation,type:NativeApplication,name:string,namespace:string,identities:Map<string,NativeBinding>) {
+  const resource=nativeApplications[type].resource;
+  const catalog=(await live.api.modules()).catalogJson?.applications?.[type];
+  requireSafe(Array.isArray(catalog?.requiredCrds)&&catalog.requiredCrds.includes(resource),'CONFIG');
+  const crdResource='customresourcedefinitions.apiextensions.k8s.io';
+  const readSchema=async()=>{
+    await live.guard();const crd=await live.observer.get(crdResource,undefined,resource);
+    const versions=crd.spec?.versions as Array<{name?:string;served?:boolean;schema?:{openAPIV3Schema?:{properties?:{spec?:NativeSchema}}}}> | undefined;
+    const names=crd.spec?.names as {kind?:string}|undefined;
+    const schema=versions?.find(version=>version.name==='v1alpha1'&&version.served===true)?.schema?.openAPIV3Schema?.properties?.spec;
+    requireSafe(crd.metadata.name===resource&&crd.metadata.uid&&Number.isSafeInteger(crd.metadata.generation)&&
+      Number(crd.metadata.generation)>0&&crd.spec?.group===resource.split('.').slice(1).join('.')&&
+      names?.kind===nativeApplications[type].kind&&schema?.type==='object'&&schema.properties,'CONFIG');
+    return {uid:crd.metadata.uid,generation:Number(crd.metadata.generation),schema};
+  };
+  const pinnedSchema=await readSchema();
+  const verifySchema=async()=>{const current=await readSchema();requireSafe(current.uid===pinnedSchema.uid&&
+    current.generation===pinnedSchema.generation,'CONFLICT');};
+  const result=await poll(async()=>{
+    await live.guard();
+    const [instances,services,statefulsets,deployments,replicas,pods]=await Promise.all([resource,'services','statefulsets.apps','deployments.apps','replicasets.apps','pods']
+      .map(resource=>live.observer.list(resource,namespace)));
+    const native=instances!.find(item=>item.metadata.name===name);if(!native)return false;
+    const observed=nativeInstanceIdentity(type,name,namespace,native),previous=identities.get(name);
+    requireSafe(native.spec&&typeof native.spec==='object','CONFIG');
+    if(previous&&observed.generation!==previous.generation)await verifySchema();
+    const binding=advanceNativeBinding(previous,{...observed,spec:native.spec,observedGeneration:native.status?.observedGeneration},pinnedSchema.schema);
+    if(!binding)return false;
+    identities.set(name,binding);
+    const managed=(native.status as {managedResources?:{statefulSet?:string;deployment?:string}})?.managedResources;
+    const workloads=managed?.statefulSet===name?statefulsets!:managed?.deployment===name?deployments!:[];
+    return nativeAppBackendReady(type,name,namespace,native,services!.find(item=>item.metadata.name===name),
+      workloads.find(item=>item.metadata.name===name),replicas!,pods!,binding);
+  },Boolean,{timeoutMs:900_000,intervalMs:1500,stage:'app-ready'});
+  await verifySchema();return result;
 }
 
 export function verifyAppCleanerRules(review:{status?:{incomplete?:boolean;resourceRules?:Array<{apiGroups:string[];resources:string[];verbs:string[]}>}}) {
@@ -82,21 +220,18 @@ export class OwnedAppClient {
   readonly api:AdministrationApi;
   readonly permits:ExactDashboardRequest[]=[];
   private readonly owned=new Map<string,{uid:string;generation:number}>();
+  private readonly native=new Map<string,NativeBinding>();
   readonly live:LiveFoundation;
   readonly cleaner:AppCleaner;
+  readonly runtime:AppRuntimeProof;
   constructor(live:LiveFoundation,cleaner:AppCleaner) {
     this.live=live;this.cleaner=cleaner;
     this.api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
+    this.runtime=new AppRuntimeProof(live,name=>cleaner.find(name),()=>this.api.api.modules());
     live.registerDomainCleanup('app',{
       lookup:async entry=>{const item=await cleaner.find(entry.name);return item?.metadata.uid ? {uid:item.metadata.uid} : null;},
-      removeIfUid:async(entry,uid)=>{requireSafe(entry.uid === uid,'OWNERSHIP');await cleaner.remove(entry,live.journal.prefix);},
-      verifyRemoved:async entry=>{
-        await poll(async()=>{await live.guard();const [item,pods,routes]=await Promise.all([cleaner.find(entry.name),live.observer.list('pods','ai'),
-          live.observer.list('httproutes.gateway.networking.k8s.io','identity-system')]);
-          return !item && !pods.some(p=>p.metadata.labels?.['appliance.magicstick.dev/appinstance'] === entry.name) &&
-            !routes.some(route=>route.metadata.labels?.['appliance.magicstick.dev/appinstance'] === entry.name);
-        },Boolean,{timeoutMs:300_000,intervalMs:1000,stage:'cleanup'});return true;
-      },
+      removeIfUid:async(entry,uid)=>{requireSafe(entry.uid === uid,'OWNERSHIP');await this.runtime.capture(entry);await cleaner.remove(entry,live.journal.prefix);},
+      verifyRemoved:entry=>this.runtime.verifyRemoved(entry),
     });
   }
   async read(name:string):Promise<AppInstance|undefined> {
@@ -180,9 +315,15 @@ export class OwnedAppClient {
       const children=await this.live.observer.list('helmreleases.helm.toolkit.fluxcd.io',target.namespace);
       return {item,observed,target,children:children.filter(child=>child.metadata.name===target.name)};
     },value=>appReleaseReady(value.item,value.observed,value.children,owned,value.target.namespace),
-    {timeoutMs:900_000,intervalMs:1500,stage:'app-ready'}));
+    // Helm has a 15 minute cold-install budget; allow chart reconciliation
+    // and status propagation beyond that without treating acceptance as Ready.
+    {timeoutMs:1_200_000,intervalMs:1500,stage:'app-ready'}));
     if(ready.item.spec?.application==='kubeopencode')await atStage('app-ready',()=>
       waitOpenCodeBackend(this.live,name,String(ready.item.spec?.targetNamespace)));
+    if(['pi-coding','odysseus'].includes(String(ready.item.spec?.application)))await atStage('app-ready',()=>
+      waitDirectAppBackend(this.live,name,String(ready.item.spec?.targetNamespace)));
+    if(ready.item.spec?.application==='openclaw'||ready.item.spec?.application==='paperclip')await atStage('app-ready',()=>
+      waitNativeAppBackend(this.live,ready.item.spec!.application as NativeApplication,name,String(ready.item.spec?.targetNamespace),this.native));
     return ready;
   }
   async remove(name:string) {await this.live.cleanup(this.live.journal,{kind:'app',name});}
@@ -192,6 +333,7 @@ export class OwnedAppClient {
     const handler=async(route:import('@playwright/test').Route)=>{
       requireSafe(route.request().method() === 'DELETE' && !route.request().postData(),'MUTATION');
       const fresh=await this.cleaner.find(name);requireSafe(fresh?.metadata.uid === owned.uid && fresh.metadata.generation === owned.generation,'OWNERSHIP');
+      await this.runtime.capture({kind:'app',name,uid:owned.uid,generation:owned.generation,state:'owned'});
       await this.live.guard();await route.continue();
     };
     const path=this.live.config.dashboardUrl+'/api/instances/'+name;
@@ -211,6 +353,13 @@ export class OwnedAppClient {
       previous.generation=Number(current.metadata.generation);
     }
   }
+}
+
+/** Read-only absence predicate, never an adoption/deletion rule. The direct
+ * chart's standard instance/Helm labels differ from its AppInstance label.
+ * Even a changed same-name resource fences cleanup rather than being removed. */
+export function appResourceAssociated(item:KubeObject,name:string,uid:string) {
+  return appRuntimeAssociated(item,name,uid);
 }
 
 export function ownedChild(item:KubeObject,name:string,uid:string) {

@@ -18,6 +18,22 @@ feature is installed, sign out and sign in once with the checkbox; an existing
 browser may still carry the earlier, shorter cookie expiry. Administrator-customized policies and
 an external identity provider can impose different limits.
 
+Dashboard and application token cookies are limited to each exact hostname.
+Opening another service reuses the central sign-in without sending the first
+service's token cookies to it. Signing out ends that shared identity session;
+old cookies on another service do not grant continued access. After upgrading,
+sign in again. Legacy Magic Stick token cookies are migrated narrowly, not by
+erasing all application data. If an older browser still reports **Request Header
+Or Cookie Too Large**, clear that appliance site's old cookies once and sign in
+again; do not disable certificate validation or authentication.
+
+After signing out, opening a protected application's page starts sign-in again
+on the central login page and returns to that application's home page. Only its
+own expired token cookies are cleared. A real **Access denied** response means
+your account lacks permission; repeatedly signing in does not grant it. If
+identity verification is unavailable, retry later instead of clearing all site
+data. API requests and unsaved writes are never automatically replayed.
+
 ## UI Areas
 
 | Area | Purpose |
@@ -29,7 +45,8 @@ an external identity provider can impose different limits.
 | Mesh | Administrator-only page directly below API Access for Private Mesh setup, membership, invitations, local-model sharing, and relay settings. Existing Settings Mesh links open this page. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System → Settings → Federated SSO | Free Registered or Commercial: validates OIDC discovery or SAML metadata, stores providers in Keycloak, and maps exact upstream claim/attribute values to fixed Magic Stick roles. |
-| System | Groups Settings, License, Users, Hardware, System Status, and Computer power behind one primary navigation item. Settings contains the Domains, Federated SSO, Network, and Updates subtabs. System Status contains Overview, GPU Operators, Flux, Network & routes, Model cache, and Regression tests. Administration areas retain their role, identity, and entitlement restrictions; Hardware and the read-only status tabs remain available to every dashboard role. Model cache and Regression tests are administrator-only; Computer power remains an administrator-only System tab immediately after System Status. |
+| System → Settings → Local console | Lets administrators choose which access the monitor and keyboard attached to the appliance have without a login: Administrator (default), Operator, Viewer, or Off. See [automatic sign-in](../reference/cli.md#automatic-sign-in). |
+| System | Groups Settings, License, Users, Hardware, System Status, and Computer power behind one primary navigation item. Settings contains the Domains, Federated SSO, Network, Updates, and Local console subtabs. System Status contains Overview, GPU Operators, Flux, Network & routes, Model cache, and Regression tests. Administration areas retain their role, identity, and entitlement restrictions; Hardware and the read-only status tabs remain available to every dashboard role. Model cache and Regression tests are administrator-only; Computer power remains an administrator-only System tab immediately after System Status. |
 
 Mesh has a direct link at `#/mesh`. Settings subtabs have direct links at `#/system/settings/<section>`; Domains
 is the default at `#/system/settings`. Former `#/system/network` and
@@ -79,6 +96,14 @@ and service credentials) are currently excluded from standard runs and marked
 Kubernetes, model and GPU tests remain active. This does not disable product
 services or claim full service/application acceptance. Existing failed reports
 and the cleanup of old test resources are unchanged.
+An explicit **Separate services: installation, SSO/public access and removal
+(including Pi Coding Agent)** selection runs those services separately on a
+disposable server. It checks lifecycle first, access with SSO and supported public
+access second, and verifies removal. Model functions remain deferred. Hermes
+remains separate. This selection requires matching updated
+images and does not change the scope of ordinary complete runs.
+Without-SSO coverage uses only the normal **Public without login** option on
+owned application instances, not a bypass of protected standalone services.
 For a focused repeat, **Test selection** offers fixed external-provider, GPU
 verification, two-card independent-copy Ollama, two-/four-card shared Ollama split
 and sharing scenarios. Choosing one selects its advertised phase
@@ -138,7 +163,12 @@ cleaned. Cleanup is `unknown`, `required`, `running`, `verified`, or `blocked`, 
 its recorded reason/stage. Missing fields in old reports mean not verified, not
 clean; retain the exact private journal for recovery. Expand **Failures and blocked checks** for the reason,
 phase, variant, check layer, stage, next action and available filtered trace
-location. **Blocked by prerequisite** means required hardware, access or fixtures
+location. When recorded, **GPU verification observations** separately shows
+the attempted engine/scope, HTTP status, fixed rejection reason and configuration
+generations. Missing values mean unknown. The runner may wait briefly for an
+unchanged configuration to settle, but never repeats a rejected verification
+request automatically. These observations are not a successful GPU test or a
+cleanup proof. **Blocked by prerequisite** means required hardware, access or fixtures
 are unavailable. **Blocked by failure** means an earlier test, preparation or
 cleanup failed; its recorded blocking check and trace are shown. Cancelled and
 unrecorded causes in older reports remain separate. Missing execution evidence in

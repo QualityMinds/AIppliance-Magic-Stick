@@ -73,12 +73,18 @@ class NetplanTests(unittest.TestCase):
     def test_netplan_writes_readable_backend_files_without_widening_worker_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            probe = root / "netplan"
-            probe.write_text('#!/bin/sh\n: > "$2.network"\n(umask 077; : > "$2.credentials")\n')
-            probe.chmod(0o700)
+            run = config.subprocess.run
+
+            def render_profile(argv, **kwargs):
+                # The isolated runner mounts its temporary directory noexec.
+                # Exercise the real child-process umask through the system shell.
+                self.assertEqual(argv[0], "netplan")
+                return run(["/bin/sh", "-c", ': > "$1.network"; (umask 077; : > "$1.credentials")',
+                            "netplan-probe", argv[2]], **kwargs)
+
             previous = os.umask(0o077)
             try:
-                with patch.object(config, "ENV", {**config.ENV, "PATH": f"{tmp}:{config.ENV['PATH']}"}):
+                with patch.object(config.subprocess, "run", side_effect=render_profile):
                     for action in ("generate", "apply"):
                         config.command(["netplan", action, str(root / action)])
                     config.command(["netplan", "get", str(root / "get")])

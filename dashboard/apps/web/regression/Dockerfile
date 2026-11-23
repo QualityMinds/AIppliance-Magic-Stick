@@ -52,7 +52,7 @@ RUN --mount=type=bind,source=.,target=/source \
     && test "$(helm version --template '{{.Version}}')" = "${HELM_VERSION}" \
     && mkdir -p /opt/magicstick/regression-runtime /opt/magicstick/docs/development \
     && cd /source && cp -a --parents dashboard LICENSE LICENSING.md THIRD_PARTY_NOTICES.md LICENSE-RELEASE.json \
-      CHANGELOG.md README.md .gitleaks.toml install-from-linux.sh licenses magic-installer core tools tests .github magic-host \
+      CHANGELOG.md README.md .gitattributes .gitleaks.toml install-from-linux.sh licenses magic-installer core tools tests .github magic-host \
       docs/development/regression-test-catalog.md magic-cluster /opt/magicstick/ \
     && cp /tmp/amd-recovery.test /opt/magicstick/regression-runtime/amd-recovery.test \
     && cd /opt/magicstick/dashboard \

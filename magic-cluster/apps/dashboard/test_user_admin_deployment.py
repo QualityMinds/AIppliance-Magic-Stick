@@ -60,7 +60,9 @@ class UserAdminDeploymentTests(unittest.TestCase):
         for protected_route, protected_policy in ((route, policy), (public_route, public_policy)):
             self.assertEqual(protected_route["spec"]["rules"][0]["backendRefs"], [{"name": "ai-appliance-dashboard", "namespace": "dashboard", "port": 80}])
             self.assertEqual(protected_policy["spec"]["targetRefs"][0]["name"], protected_route["metadata"]["name"])
-            self.assertEqual(protected_policy["spec"]["oidc"]["cookieNames"]["accessToken"], "MagicStickAccessToken")
+            self.assertEqual(protected_policy["spec"]["oidc"]["cookieNames"]["accessToken"], "__Host-MagicStickAccessToken")
+            self.assertNotIn("cookieDomain", protected_policy["spec"]["oidc"])
+            self.assertFalse(protected_policy["spec"]["extAuth"]["failOpen"])
             self.assertEqual(protected_policy["spec"]["oidc"]["logoutPath"], "/logout")
             self.assertTrue(protected_policy["spec"]["oidc"]["forwardAccessToken"])
 
@@ -88,7 +90,7 @@ class UserAdminDeploymentTests(unittest.TestCase):
         self.assertEqual(env["KUBERNETES_OIDC_CLIENT_ID"], "magicstick-kubernetes")
         self.assertEqual(
             env["OIDC_EXPECTED_CLIENT_IDS"],
-            "magicstick-human-gateway-local,magicstick-cli",
+            "magicstick-human-gateway-local,magicstick-cli,magicstick-console",
         )
         self.assertEqual(
             env["DASHBOARD_ALLOWED_ORIGINS"],
@@ -112,8 +114,21 @@ class UserAdminDeploymentTests(unittest.TestCase):
             "port": 8080,
         })
         self.assertEqual(policy["spec"]["jwt"]["providers"][0]["name"], "keycloak")
-        claims = policy["spec"]["authorization"]["rules"][0]["principal"]["jwt"]["claims"]
-        self.assertIn("magicstick-admin", claims[0]["values"])
+        rules = policy["spec"]["authorization"]["rules"]
+        allow = next(rule for rule in rules if rule["name"] == "required-magicstick-user")
+        self.assertEqual(allow["action"], "Allow")
+        self.assertIn("magicstick-admin", allow["principal"]["jwt"]["claims"][0]["values"])
+        # The attached console's identity is refused on the network route, and
+        # the refusal precedes the role-based allow rule.
+        self.assertEqual(policy["spec"]["authorization"]["defaultAction"], "Deny")
+        self.assertEqual(rules[0], {
+            "name": "deny-local-console-identity",
+            "action": "Deny",
+            "principal": {"jwt": {"provider": "keycloak", "claims": [
+                {"name": "azp", "values": ["magicstick-console"]},
+            ]}},
+        })
+        self.assertLess(rules.index(rules[0]), rules.index(allow))
 
     def test_api_configmap_and_service_share_the_identity_namespace(self):
         configmap = load_documents("dashboard-api.yaml")[0]

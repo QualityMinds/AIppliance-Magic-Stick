@@ -4,17 +4,19 @@ import {canAdminister} from '@magicstick/dashboard-core';
 import type {Session} from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ErrorNotice, Field, Loading, Panel} from '../components';
+import {ConsoleAccessSettings} from './ConsoleAccessSettings';
 import {FederatedSsoPage} from './FederatedSsoPage';
 import {NetworkPage} from './NetworkPage';
 import {UpdatesPage} from './UpdatesPage';
 
-export type SettingsSectionId = 'domains' | 'federated-sso' | 'network' | 'updates';
+export type SettingsSectionId = 'domains' | 'federated-sso' | 'network' | 'updates' | 'console';
 
 const sections: Array<{id: SettingsSectionId; label: string; identity?: boolean; entitlement?: string}> = [
   {id: 'domains', label: 'Domains'},
   {id: 'federated-sso', label: 'Federated SSO', identity: true, entitlement: 'federated-sso'},
   {id: 'network', label: 'Network'},
   {id: 'updates', label: 'Updates'},
+  {id: 'console', label: 'Local console', identity: true},
 ];
 
 export const isSettingsSection = (value: string): value is SettingsSectionId => sections.some((section) => section.id === value);
@@ -57,6 +59,7 @@ export const SettingsPage = ({session, section, onSectionChange}: {
       {active === 'federated-sso' && <FederatedSsoPage />}
       {active === 'network' && <NetworkPage />}
       {active === 'updates' && <UpdatesPage />}
+      {active === 'console' && <ConsoleAccessSettings />}
     </div>
   </div>;
 };

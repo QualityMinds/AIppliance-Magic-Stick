@@ -279,6 +279,25 @@ figcaption { font-size: .78rem; line-height: 1.6; color: var(--muted); }
 .footer-links a:hover { color: var(--cyan); }
 .footer-note { font-size: .78rem; color: #9bacc4; }
 
+/* Legal pages: imprint, privacy policy and the combined social page. The build
+   demotes the headings of the included texts by one level on the combined page. */
+.legal { width: min(900px, calc(100% - 40px)); margin-inline: auto; padding-block: 56px 10px; line-height: 1.65; }
+.legal h1, .legal-document > h2 { margin-bottom: 14px; font-size: clamp(1.9rem, 8vw, 2.5rem); line-height: 1.1; overflow-wrap: anywhere; hyphens: auto; }
+.legal h4 { font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif; font-weight: 700; letter-spacing: -.015em; }
+.legal p, .legal ul { margin: 0 0 14px; }
+.legal ul { padding-left: 1.2rem; }
+.legal li { color: var(--muted); }
+.legal .card { margin-top: 24px; padding: 26px 22px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.legal .card h3, .legal-document .card h4 { margin: 24px 0 8px; font-size: 1.04rem; line-height: 1.3; }
+.legal .card h2, .legal-document .card h3 { margin: 30px 0 10px; font-size: 1.25rem; line-height: 1.3; overflow-wrap: anywhere; }
+.legal .card > :first-child { margin-top: 0; }
+.legal .address { color: var(--ink); font-style: normal; margin-bottom: 14px; }
+.legal .opt-out button { padding: 8px 16px; border: 1px solid var(--cyan); border-radius: 6px; background: transparent; color: var(--ink); }
+.legal .opt-out button:hover, .legal .opt-out button:focus-visible { background: var(--line); }
+.legal .opt-out [role="status"] { margin-top: 10px; color: var(--ink); }
+.legal .legal-updated { margin-top: 28px; font-size: .92rem; }
+.legal-document { margin-top: 64px; }
+
 /* Editions pages */
 .hero-description { font-size: 1.1rem; line-height: 1.75; margin-top: 26px; max-width: 570px; }
 .editions-hero { padding-block: 64px 56px; }

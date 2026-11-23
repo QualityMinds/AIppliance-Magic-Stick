@@ -75,6 +75,7 @@ data:
         ("gateway.networking.k8s.io", "HTTPRoute"): "httproutes",
         ("gateway.networking.k8s.io", "ReferenceGrant"): "referencegrants",
         ("gateway.envoyproxy.io", "SecurityPolicy"): "securitypolicies",
+        ("gateway.envoyproxy.io", "EnvoyExtensionPolicy"): "envoyextensionpolicies",
         ("networking.k8s.io", "NetworkPolicy"): "networkpolicies",
         ("apps", "Deployment"): "deployments",
         ("amd.com", "DeviceConfig"): "deviceconfigs",
@@ -464,12 +465,19 @@ data:
         return dns_label_part(raw, "default")
 
 
-    def app_instance_local_host(instance, instance_type):
-        return local_http_host(app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance"))
+    def app_instance_hostname_label(instance_type, definition=None):
+        label = ((definition or {}).get("route") or {}).get("hostnameLabel", instance_type)
+        if not isinstance(label, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label):
+            raise ValueError("application route.hostnameLabel must be a single DNS label")
+        return label
 
 
-    def app_instance_public_host(instance, instance_type):
-        prefix = app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance")
+    def app_instance_local_host(instance, instance_type, definition=None):
+        return local_http_host(app_instance_short_name(instance, instance_type) + "." + app_instance_hostname_label(instance_type, definition))
+
+
+    def app_instance_public_host(instance, instance_type, definition=None):
+        prefix = app_instance_short_name(instance, instance_type) + "." + app_instance_hostname_label(instance_type, definition)
         return prefix + "." + public_domain()
 
 
@@ -989,11 +997,11 @@ data:
         }})
 
 
-    def patch_instance_status(instance, phase, target, reason, message, url="", access=None, generation=0):
+    def patch_instance_status(instance, phase, target, reason, message, url="", access=None, generation=0, guarded=False):
         metadata = instance.get("metadata") or {}
         access = access or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/appinstances/{metadata.get('name')}/status"
-        patch_json(path, {"status": {
+        status = {
             "observedGeneration": generation,
             "phase": phase,
             "kind": target.get("kind", ""),
@@ -1007,7 +1015,17 @@ data:
             "accessGuardReady": access.get("accessGuardReady", False),
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Suspended", "Disabled") else "False", reason, message, generation)],
-        }})
+        }
+        if guarded:
+            if not metadata.get("uid") or not metadata.get("resourceVersion"):
+                raise ValueError("Cannot report migrated access without its current instance identity")
+            patch_json(path, [
+                {"op": "test", "path": "/metadata/uid", "value": metadata["uid"]},
+                {"op": "test", "path": "/metadata/resourceVersion", "value": metadata["resourceVersion"]},
+                {"op": "add", "path": "/status", "value": {**(instance.get("status") or {}), **status}},
+            ], "application/json-patch+json")
+        else:
+            patch_json(path, {"status": status})
 
 
     def patch_model_status(
@@ -5364,6 +5382,7 @@ data:
             "app.kubernetes.io/managed-by": "magicstick-operator",
             "appliance.magicstick.dev/appinstance": metadata.get("name"),
             "appliance.magicstick.dev/application": application,
+            "appliance.magicstick.dev/owner-uid": metadata.get("uid"),
         }
 
 
@@ -5448,7 +5467,7 @@ data:
         metadata = instance.get("metadata") or {}
         return {
             "failOpen": False,
-            "headersToExtAuth": ["Cookie", "Authorization"],
+            "headersToExtAuth": ["Cookie", "Authorization", "Accept", "Sec-Fetch-Mode", "Sec-Fetch-Dest"],
             "http": {
                 "backendRefs": [{"name": "ai-appliance-dashboard-api", "port": 8080}],
                 "path": "/internal/instance-access/" + str(metadata.get("name", "")) + "/" + str(metadata.get("uid", "")),
@@ -5465,7 +5484,7 @@ data:
         }
 
 
-    def app_instance_security_policy(instance, policy_name, route_names, redirect_url, cookie_domain, required_role):
+    def app_instance_security_policy(instance, policy_name, route_names, redirect_url, cookie_domain, required_role, forward_access_token=True):
         issuer = "https://id." + mdns_domain() + "/realms/magicstick"
         allowed_roles = {
             "user": ["magicstick-user", "magicstick-viewer", "magicstick-operator", "magicstick-admin"],
@@ -5499,12 +5518,11 @@ data:
                     "clientSecret": {"name": OIDC_CLIENT_SECRET_NAME},
                     "redirectURL": redirect_url,
                     "logoutPath": "/logout",
-                    "cookieDomain": cookie_domain,
                     "cookieNames": {
-                        "accessToken": "MagicStickAccessToken",
-                        "idToken": "MagicStickIDToken",
+                        "accessToken": "__Host-MagicStickAccessToken",
+                        "idToken": "__Host-MagicStickIDToken",
                     },
-                    "forwardAccessToken": True,
+                    "forwardAccessToken": forward_access_token,
                 },
                 "jwt": {
                     "providers": [{
@@ -5514,7 +5532,7 @@ data:
                             "uri": "http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/certs",
                             "backendRefs": [{"name": "keycloak", "port": 8080}],
                         },
-                        "extractFrom": {"cookies": ["MagicStickAccessToken"]},
+                        "extractFrom": {"cookies": ["__Host-MagicStickAccessToken"]},
                     }],
                 },
                 "authorization": {
@@ -5538,6 +5556,23 @@ data:
         }
 
 
+    def app_instance_callback_gate(instance, policy_name, route_names):
+        owner_uid = str((instance.get("metadata") or {}).get("uid") or "")
+        if not owner_uid:
+            raise ValueError("Cannot bind callback gate without an instance UID")
+        return {
+            "apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyExtensionPolicy",
+            "metadata": {"name": policy_name, "namespace": IDENTITY_NAMESPACE,
+                         "labels": {**access_resource_labels(instance), "appliance.magicstick.dev/owner-uid": owner_uid}},
+            "spec": {
+                "targetRefs": [{"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": route} for route in route_names],
+                "lua": [{"type": "ValueRef", "valueRef": {"group": "", "kind": "ConfigMap", "name": "magicstick-cookie-migration"}}],
+                "extProc": [{"backendRefs": [{"group": "gateway.envoyproxy.io", "kind": "Backend", "name": "magicstick-callback-gate"}],
+                             "failOpen": False, "messageTimeout": "8s", "processingMode": {"request": {}}}],
+            },
+        }
+
+
     def app_instance_access_resources(instance, definition):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
@@ -5546,8 +5581,8 @@ data:
         application = spec.get("application") or ""
         authentication, required_role, exposure = app_instance_access_config(instance)
         service_name, service_port = app_instance_backend(instance, definition)
-        local_host = app_instance_local_host(instance, application)
-        public_host = app_instance_public_host(instance, application)
+        local_host = app_instance_local_host(instance, application, definition)
+        public_host = app_instance_public_host(instance, application, definition)
         local_route_name = managed_resource_name(name, "local")
         public_route_name = managed_resource_name(name, "public")
         local_callback_name = managed_resource_name(name, "local-callback")
@@ -5574,6 +5609,9 @@ data:
         }]
         strip_cookies = bool((definition.get("route") or {}).get("stripCookies"))
         request_timeout = (definition.get("route") or {}).get("requestTimeout")
+        forward_access_token = (definition.get("route") or {}).get("forwardAccessToken", True)
+        if not isinstance(forward_access_token, bool):
+            raise ValueError("Application route.forwardAccessToken must be a boolean")
         resources.append(app_instance_route(
             instance,
             local_route_name,
@@ -5586,10 +5624,11 @@ data:
         ))
         if authentication == "sso":
             local_callback_path = "/oauth2/callback/" + local_route_name
+            resources.append(app_instance_callback_gate(instance, managed_resource_name(name, "local-gate"), [local_route_name, local_callback_name]))
             resources.append(app_instance_callback_route(
                 instance,
                 local_callback_name,
-                mdns_domain(),
+                local_host,
                 local_callback_path,
                 service_name,
                 service_port,
@@ -5598,9 +5637,10 @@ data:
                 instance,
                 local_policy_name,
                 [local_route_name, local_callback_name],
-                "https://" + mdns_domain() + local_callback_path,
+                "https://" + local_host + local_callback_path,
                 mdns_domain(),
                 required_role,
+                forward_access_token,
             ))
         else:
             resources.append(app_instance_guard_policy(instance, local_policy_name, local_route_name))
@@ -5618,10 +5658,11 @@ data:
             public_url = "https://" + public_host + "/"
             if authentication == "sso":
                 public_callback_path = "/oauth2/callback/" + public_route_name
+                resources.append(app_instance_callback_gate(instance, managed_resource_name(name, "public-gate"), [public_route_name, public_callback_name]))
                 resources.append(app_instance_callback_route(
                     instance,
                     public_callback_name,
-                    dashboard_public_host(),
+                    public_host,
                     public_callback_path,
                     service_name,
                     service_port,
@@ -5630,9 +5671,10 @@ data:
                     instance,
                     public_policy_name,
                     [public_route_name, public_callback_name],
-                    "https://" + dashboard_public_host() + public_callback_path,
+                    "https://" + public_host + public_callback_path,
                     public_domain(),
                     required_role,
+                    forward_access_token,
                 ))
             else:
                 resources.append(app_instance_guard_policy(instance, public_policy_name, public_route_name))
@@ -5654,8 +5696,122 @@ data:
             {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute", "metadata": {"name": managed_resource_name(name, "public-callback"), "namespace": IDENTITY_NAMESPACE}},
             {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy", "metadata": {"name": managed_resource_name(name, "local-sso"), "namespace": IDENTITY_NAMESPACE}},
             {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy", "metadata": {"name": managed_resource_name(name, "public-sso"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyExtensionPolicy", "metadata": {"name": managed_resource_name(name, "local-gate"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyExtensionPolicy", "metadata": {"name": managed_resource_name(name, "public-gate"), "namespace": IDENTITY_NAMESPACE}},
             {"apiVersion": "gateway.networking.k8s.io/v1beta1", "kind": "ReferenceGrant", "metadata": {"name": managed_resource_name(name, "route-access"), "namespace": target_namespace}},
         ]
+
+
+    CALLBACK_REGISTRY_READY = False
+    CALLBACK_ADMITTED_UIDS = set()
+    CALLBACK_REJECTED_UIDS = set()
+
+
+    def callback_registry_fits(entries):
+        # Mirror the identity reconciler's conservative 8100-byte bootstrap
+        # bound. Account for the static callbacks before admitting instances.
+        local, public, dashboard = mdns_domain(), public_domain(), dashboard_public_host()
+        redirects = {f"https://{local}/oauth2/callback", f"https://{dashboard}/oauth2/callback", f"https://auth-pilot.{local}/oauth2/callback"}
+        origins = {f"https://{local}", f"https://{dashboard}", f"https://auth-pilot.{local}"}
+        for service, route in (("anythingllm", "anything-llm"), ("litellm", "litellm"), ("kubeopencode", "kubeopencode")):
+            for scope, domain in (("local", local), ("public", public)):
+                host = f"{service}.{domain}"
+                redirects.add(f"https://{host}/oauth2/callback/static-{route}-{scope}")
+                origins.add(f"https://{host}")
+        for entry in entries:
+            for scope in ("local", "public"):
+                url = entry[scope]
+                if url:
+                    parsed = urllib.parse.urlsplit(url)
+                    redirects.add(url)
+                    origins.add(parsed.scheme + "://" + parsed.netloc)
+        return len(entries) <= 256 and all(len(json.dumps(sorted(values), separators=(",", ":")).encode("utf-8")) <= 8100 for values in (redirects, origins))
+
+
+    def reconcile_callback_registry(instances, app_catalog=None):
+        global CALLBACK_ADMITTED_UIDS, CALLBACK_REJECTED_UIDS
+        CALLBACK_ADMITTED_UIDS = set()
+        CALLBACK_REJECTED_UIDS = set()
+        base = "/api/v1/namespaces/" + IDENTITY_NAMESPACE + "/configmaps/"
+        current = get_json(base + "magicstick-oidc-callbacks")
+        raw_current = (current.get("data") or {}).get("callbacks.json") or '{"entries":[],"version":1}'
+        previous = json.loads(raw_current)
+        if not isinstance(previous, dict) or previous.get("version") != 1 or not isinstance(previous.get("entries"), list):
+            raise ValueError("Invalid existing callback registry")
+        entries = []
+        for instance in instances:
+            metadata = instance.get("metadata") or {}
+            spec = instance.get("spec") or {}
+            if metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
+                continue
+            authentication, _, exposure = app_instance_access_config(instance)
+            if authentication != "sso":
+                continue
+            name = metadata.get("name")
+            uid = metadata.get("uid")
+            application = spec.get("application") or ""
+            if not name or not uid or not application:
+                raise ValueError("Cannot register callback without exact instance identity")
+            definition = ((app_catalog or {}).get("applications") or {}).get(application)
+            if app_catalog is not None and not isinstance(definition, dict):
+                # An invalid new request must not poison the shared registry
+                # and interrupt previously accepted application logins.
+                continue
+            definition = definition or {}
+            local = "https://" + app_instance_local_host(instance, application, definition) + "/oauth2/callback/" + managed_resource_name(name, "local")
+            public = ""
+            if exposure == "localAndPublic":
+                public = "https://" + app_instance_public_host(instance, application, definition) + "/oauth2/callback/" + managed_resource_name(name, "public")
+            entries.append({"uid": uid, "name": name, "application": application, "local": local, "public": public})
+        # Keep existing, unchanged identities first. A newly created instance
+        # that would overflow the Keycloak bootstrap bound must not evict a
+        # previously accepted instance or invalidate its verified registry.
+        entries.sort(key=lambda entry: (entry not in previous["entries"], entry["name"], entry["uid"]))
+        admitted = []
+        for entry in entries:
+            if callback_registry_fits(admitted + [entry]):
+                admitted.append(entry)
+            else:
+                CALLBACK_REJECTED_UIDS.add(entry["uid"])
+        entries = sorted(admitted, key=lambda entry: (entry["name"], entry["uid"]))
+        desired = json.dumps({"version": 1, "entries": entries}, sort_keys=True, separators=(",", ":"))
+        if (current.get("data") or {}).get("callbacks.json") != desired:
+            patch_json(base + "magicstick-oidc-callbacks", {"metadata": {"resourceVersion": (current.get("metadata") or {}).get("resourceVersion")}, "data": {"callbacks.json": desired}})
+        status = (get_json(base + "magicstick-oidc-callbacks-status").get("data") or {})
+        try:
+            checked = datetime.fromisoformat(status.get("verified-at", "").replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - checked).total_seconds()
+            raw_verified = status.get("verified-registry", "")
+            verified = json.loads(raw_verified)
+            verified_entries = verified["entries"]
+            digest = hashlib.sha256(raw_verified.encode("utf-8")).hexdigest()
+            if (not isinstance(verified, dict) or verified.get("version") != 1
+                    or not isinstance(verified_entries, list)):
+                return False
+        except (ValueError, TypeError, KeyError):
+            return False
+        if not (status.get("version") == "1" and status.get("client-id") == OIDC_CLIENT_ID
+                and status.get("desired-sha256") == digest and status.get("verified-sha256") == digest
+                and 0 <= age <= 60):
+            return False
+        pending_entries = verified_entries
+        raw_pending = status.get("pending-registry", "")
+        if raw_pending:
+            try:
+                pending = json.loads(raw_pending)
+                if (not isinstance(pending, dict) or pending.get("version") != 1
+                        or not isinstance(pending.get("entries"), list)
+                        or status.get("pending-sha256") != hashlib.sha256(raw_pending.encode("utf-8")).hexdigest()):
+                    return False
+                pending_entries = pending["entries"]
+            except (ValueError, TypeError):
+                return False
+        # A previous confirmed entry is safe during an additive update only if
+        # its complete UID/name/type/URLs still match the live resource, new
+        # desired set, and any identity PUT already in flight. Never reuse an
+        # ACK for changed or deleted owners.
+        CALLBACK_ADMITTED_UIDS = {entry["uid"] for entry in entries if entry in verified_entries and entry in pending_entries}
+        return True
 
 
     def sync_app_instance_access(instance, definition, enabled=True):
@@ -5667,16 +5823,36 @@ data:
         for reference in app_instance_access_refs(instance):
             metadata = reference["metadata"]
             key = (reference["apiVersion"], reference["kind"], metadata["namespace"], metadata["name"])
-            if key not in desired_keys and get_applied_resource(reference):
-                delete_applied_resource(reference)
+            current = get_applied_resource(reference) if key not in desired_keys else None
+            if current:
+                if reference["kind"] == "EnvoyExtensionPolicy":
+                    actual = current.get("metadata") or {}
+                    expected_uid = str((instance.get("metadata") or {}).get("uid") or "")
+                    if ((actual.get("labels") or {}).get("appliance.magicstick.dev/owner-uid") != expected_uid
+                            or not expected_uid or not actual.get("uid") or not actual.get("resourceVersion")):
+                        raise ValueError("Cannot delete an unowned callback gate")
+                    path = resource_path(reference["apiVersion"], reference["kind"], metadata["namespace"], metadata["name"])
+                    delete_json(path, {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {
+                        "uid": actual["uid"], "resourceVersion": actual["resourceVersion"]}})
+                else:
+                    delete_applied_resource(reference)
         # Install the guard before routing to an application. A new/unaccepted
         # policy gets a route with no backend, never a transient public route.
-        guard_ready = bool(enabled)
+        guard_ready = bool(enabled) and (access_status["authentication"] != "sso" or (CALLBACK_REGISTRY_READY and (instance.get("metadata") or {}).get("uid") in CALLBACK_ADMITTED_UIDS))
         for resource in desired:
-            if resource["kind"] != "SecurityPolicy":
+            if resource["kind"] not in ("SecurityPolicy", "EnvoyExtensionPolicy"):
                 continue
             digest = hashlib.sha256(json.dumps(resource["spec"], sort_keys=True).encode()).hexdigest()
             resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/access-guard-spec"] = digest
+            if resource["kind"] == "EnvoyExtensionPolicy":
+                previous = get_applied_resource(resource)
+                if previous:
+                    old = previous.get("metadata") or {}
+                    expected_uid = resource["metadata"]["labels"]["appliance.magicstick.dev/owner-uid"]
+                    if ((old.get("labels") or {}).get("appliance.magicstick.dev/owner-uid") != expected_uid
+                            or not old.get("uid") or not old.get("resourceVersion")):
+                        raise ValueError("Cannot adopt an unowned callback gate")
+                    resource["metadata"]["resourceVersion"] = old["resourceVersion"]
             apply_resource(resource)
             current = get_applied_resource(resource) or {}
             current_metadata = current.get("metadata") or {}
@@ -5686,13 +5862,14 @@ data:
             accepted = bool(conditions) and all(item.get("status") == "True" and item.get("observedGeneration") == current_metadata.get("generation") for item in conditions)
             guard_ready = guard_ready and accepted and (current_metadata.get("annotations") or {}).get("appliance.magicstick.dev/access-guard-spec") == digest
         for resource in desired:
-            if resource["kind"] == "SecurityPolicy":
+            if resource["kind"] in ("SecurityPolicy", "EnvoyExtensionPolicy"):
                 continue
             if resource["kind"] == "HTTPRoute" and not guard_ready:
                 for rule in resource["spec"].get("rules", []):
                     rule["backendRefs"] = []
             apply_resource(resource)
         access_status["accessGuardReady"] = guard_ready
+        access_status["callbackCapacityExceeded"] = (instance.get("metadata") or {}).get("uid") in CALLBACK_REJECTED_UIDS
         return access_status
 
 
@@ -5756,8 +5933,8 @@ data:
                                  f"{minimum_context:,} context tokens; selected model context is {actual}. "
                                  f"Select a suitable model or set values.{context_field} to its actual supported context.")
             values[context_field] = configured_context
-        local_host = app_instance_local_host(instance, application)
-        public_host = app_instance_public_host(instance, application)
+        local_host = app_instance_local_host(instance, application, definition)
+        public_host = app_instance_public_host(instance, application, definition)
         ingress = dict(values.get("ingress") or {})
         ingress["enabled"] = False
         ingress["host"] = public_host
@@ -5790,7 +5967,9 @@ data:
                 "targetNamespace": target_namespace,
                 "storageNamespace": APPLIANCE_NAMESPACE,
                 "suspend": bool(suspend),
-                "install": {"createNamespace": True},
+                # Cold appliance installs may need to pull a large immutable
+                # application image before Helm can observe a ready workload.
+                "install": {"createNamespace": True, "timeout": "15m0s"},
                 "upgrade": {"cleanupOnFail": True},
                 "uninstall": {"keepHistory": False},
                 "chart": {
@@ -5829,6 +6008,194 @@ data:
             "kind": "HelmRelease",
             "metadata": {"name": metadata.get("name"), "namespace": APPLIANCE_NAMESPACE},
         }
+
+
+    class AppAccessMigrationBlocked(ValueError):
+        pass
+
+
+    class AppAccessMigrationOwnerChanged(AppAccessMigrationBlocked):
+        pass
+
+
+    def migrate_existing_app_instance_access(instance, definition):
+        """Repair deployed SSO access without provisioning an invalid workload.
+
+        Older routes have no owner-UID label. Their existing SecurityPolicy's
+        exact, fail-closed instance-guard URL supplies that UID binding instead;
+        names or labels alone are never enough. Every old route is fenced before
+        any policy changes. Invalid model context never reopens an app backend.
+        """
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        application = spec.get("application") or ""
+        uid = metadata.get("uid")
+        if (not uid or not metadata.get("resourceVersion") or not metadata.get("generation")
+                or not metadata.get("namespace") or metadata.get("deletionTimestamp")
+                or APPINSTANCE_FINALIZER not in (metadata.get("finalizers") or [])
+                or spec.get("enabled", True) is False
+                or app_instance_access_config(instance)[0] != "sso"):
+            return None
+
+        def fresh_owner():
+            try:
+                current = get_json(app_instance_path(instance))
+            except urllib.error.HTTPError as error:
+                if error.code != 404:
+                    raise
+                raise AppAccessMigrationOwnerChanged("The instance is no longer present.") from None
+            actual = current.get("metadata") or {}
+            if (any(actual.get(key) != metadata.get(key) for key in
+                    ("uid", "resourceVersion", "generation", "namespace", "name"))
+                    or actual.get("deletionTimestamp") or current.get("spec") != spec):
+                raise AppAccessMigrationOwnerChanged("The instance identity, revision or intent changed.")
+
+        def key(resource):
+            return resource["kind"], resource["metadata"]["name"]
+
+        desired, access = app_instance_access_resources(instance, definition)
+        desired = [item for item in desired if item["kind"] != "ReferenceGrant"]
+        previous = {key(item): get_applied_resource(item) for item in desired}
+        policies = [item for item in desired if item["kind"] == "SecurityPolicy"]
+        if not any(previous[key(item)] for item in policies):
+            return None  # New invalid instances must not acquire routes or keys.
+        fresh_owner()
+        labels = access_resource_labels(instance)
+
+        def owned(current, expected, require_uid=False):
+            actual = (current or {}).get("metadata") or {}
+            actual_labels = actual.get("labels") or {}
+            if (not current or current.get("apiVersion") != expected["apiVersion"]
+                    or current.get("kind") != expected["kind"]
+                    or any(actual.get(field) != expected["metadata"].get(field) for field in ("name", "namespace"))
+                    or not actual.get("uid") or not actual.get("resourceVersion")
+                    or actual.get("deletionTimestamp")
+                    or any(actual_labels.get(label) != value for label, value in labels.items()
+                           if label != "appliance.magicstick.dev/owner-uid")
+                    or actual_labels.get("appliance.magicstick.dev/owner-uid") not in (None, uid)
+                    or (require_uid and actual_labels.get("appliance.magicstick.dev/owner-uid") != uid)):
+                raise AppAccessMigrationBlocked("Existing access resources have missing or foreign ownership.")
+
+        # Prove the complete existing scope before the first mutation, including
+        # legacy policies whose UID lives in extAuth rather than a metadata label.
+        for policy in policies:
+            current = previous[key(policy)]
+            owned(current, policy)
+            actual = current.get("spec") or {}
+            guard = actual.get("extAuth") or {}
+            http = guard.get("http") or {}
+            refs = http.get("backendRefs") or []
+            expected_guard = policy["spec"]["extAuth"]
+            if (guard.get("failOpen") is not False or guard.get("grpc")
+                    or guard.get("headersToExtAuth") not in
+                        (["Cookie", "Authorization"], expected_guard["headersToExtAuth"])
+                    or http.get("path") != expected_guard["http"]["path"]
+                    or len(refs) != 1 or refs[0].get("name") != "ai-appliance-dashboard-api"
+                    or refs[0].get("port") != 8080 or refs[0].get("group", "") != ""
+                    or refs[0].get("kind", "Service") != "Service"
+                    or refs[0].get("namespace", IDENTITY_NAMESPACE) != IDENTITY_NAMESPACE
+                    or refs[0].get("weight", 1) != 1
+                    or actual.get("targetRefs") != policy["spec"]["targetRefs"]
+                    or (actual.get("oidc") or {}).get("clientID") != OIDC_CLIENT_ID
+                    or ((actual.get("oidc") or {}).get("provider") or {}).get("issuer") != policy["spec"]["oidc"]["provider"]["issuer"]):
+                raise AppAccessMigrationBlocked("The existing SSO policy does not prove this instance's exact guard and targets.")
+
+        routes = [item for item in desired if item["kind"] == "HTTPRoute"]
+        for route in routes:
+            current = previous[key(route)]
+            owned(current, route)
+            actual = current.get("spec") or {}
+            parents = actual.get("parentRefs") or []
+            local_callback = route["metadata"]["name"] == managed_resource_name(metadata["name"], "local-callback")
+            old_callback_host = mdns_domain() if local_callback else public_domain()
+            hosts = [route["spec"]["hostnames"]]
+            # A catalogued hostname label changes only the access address, not
+            # the instance identity. Accept its exact previous type-derived
+            # host only after the same UID, route ownership and backend proof.
+            if app_instance_hostname_label(application, definition) != application:
+                old_instance_host = (app_instance_local_host(instance, application)
+                                     if route["metadata"]["name"] in (
+                                         managed_resource_name(metadata["name"], "local"),
+                                         managed_resource_name(metadata["name"], "local-callback"))
+                                     else app_instance_public_host(instance, application))
+                hosts.append([old_instance_host])
+            callback = route["metadata"]["name"].endswith("-callback")
+            if callback:
+                hosts.append([old_callback_host])
+            if (actual.get("hostnames") not in hosts or len(parents) != 1
+                    or parents[0].get("name") != IDENTITY_GATEWAY_NAME
+                    or parents[0].get("group", "gateway.networking.k8s.io") != "gateway.networking.k8s.io"
+                    or parents[0].get("kind", "Gateway") != "Gateway"
+                    or parents[0].get("namespace", IDENTITY_NAMESPACE) != IDENTITY_NAMESPACE
+                    or parents[0].get("sectionName") or parents[0].get("port")
+                    or len(actual.get("rules") or []) != 1):
+                raise AppAccessMigrationBlocked("The existing route is outside the instance's exact access scope.")
+            rule = actual["rules"][0]
+            expected_rule = route["spec"]["rules"][0]
+            refs = rule.get("backendRefs") or []
+            target = expected_rule["backendRefs"][0]
+            if (len(refs) > 1 or (refs and (
+                    any(refs[0].get(field) != target.get(field) for field in ("name", "namespace", "port"))
+                    or refs[0].get("group", "") != "" or refs[0].get("kind", "Service") != "Service"
+                    or refs[0].get("weight", 1) != 1))
+                    or (callback and rule.get("matches") != expected_rule["matches"])
+                    or (not callback and rule.get("matches") not in (None, [], [{"path": {"type": "PathPrefix", "value": "/"}}]))):
+                raise AppAccessMigrationBlocked("The existing route has a different backend or match scope.")
+
+        gates = [item for item in desired if item["kind"] == "EnvoyExtensionPolicy"]
+        for gate in gates:
+            if previous[key(gate)]:
+                owned(previous[key(gate)], gate, require_uid=True)
+
+        def update(current, new_spec):
+            observed = get_applied_resource(current)
+            owned(observed, current)
+            # The Gateway writes status between the fence and callback move.
+            # Refresh only that observation, never adopt a replacement, changed
+            # generation/spec or edited ownership/metadata. The actual PATCH
+            # still atomically tests the freshly observed UID and version.
+            if (observed.get("spec") != current.get("spec")
+                    or any(observed["metadata"].get(field) != current["metadata"].get(field) for field in
+                           ("uid", "generation", "labels", "annotations", "ownerReferences", "finalizers", "creationTimestamp"))):
+                raise AppAccessMigrationBlocked("An existing access resource changed after inspection.")
+            current = observed
+            actual = current["metadata"]
+            if (current["spec"] == new_spec
+                    and actual["labels"].get("appliance.magicstick.dev/owner-uid") == uid):
+                return current
+            fresh_owner()
+            path = resource_path(current["apiVersion"], current["kind"], actual["namespace"], actual["name"])
+            return patch_json(path, [
+                {"op": "test", "path": "/metadata/uid", "value": actual["uid"]},
+                {"op": "test", "path": "/metadata/resourceVersion", "value": actual["resourceVersion"]},
+                {"op": "add", "path": "/metadata/labels/appliance.magicstick.dev~1owner-uid", "value": uid},
+                {"op": "replace", "path": "/spec", "value": new_spec},
+            ], "application/json-patch+json")
+
+        # Fence all old backends first, while retaining the old policy and host.
+        for route in routes:
+            current = previous[key(route)]
+            fenced = json.loads(json.dumps(current["spec"]))
+            for rule in fenced["rules"]:
+                rule["backendRefs"] = []
+            previous[key(route)] = update(current, fenced)
+        for guard in gates + policies:
+            current = previous[key(guard)]
+            if current:
+                update(current, guard["spec"])
+            else:
+                # Only add the new deny-by-default guard of an already proven
+                # deployment. POST cannot overwrite a same-name replacement.
+                fresh_owner()
+                path = resource_path(guard["apiVersion"], guard["kind"], guard["metadata"]["namespace"], guard["metadata"]["name"])
+                request_json("POST", path.rsplit("/", 1)[0], guard)
+        for route in routes:
+            fenced = json.loads(json.dumps(route["spec"]))
+            for rule in fenced["rules"]:
+                rule["backendRefs"] = []
+            update(previous[key(route)], fenced)
+        access["accessGuardReady"] = False
+        return access
 
 
     def reconcile_helm_app_instance(instance, definition, source):
@@ -5876,8 +6243,9 @@ data:
         ready = ready_condition(current)
         if not access_status.get("accessGuardReady"):
             phase = "Reconciling"
-            reason = "WaitingForAccessGuard"
-            message = "Waiting for Envoy to accept the instance access guard."
+            reason = "CallbackCapacityExceeded" if access_status.get("callbackCapacityExceeded") else "WaitingForAccessGuard"
+            message = ("SSO callback capacity is full. Remove an unused instance before enabling this one."
+                       if access_status.get("callbackCapacityExceeded") else "Waiting for Envoy to accept the instance access guard and verified callbacks.")
         elif ready.get("status") == "True":
             phase = "Ready"
             reason = ready.get("reason") or "HelmReleaseReady"
@@ -5932,7 +6300,18 @@ data:
         try:
             return reconcile_helm_app_instance(instance, definition, source)
         except InvalidAppModelContext as error:
-            patch_instance_status(instance, "Degraded", target, "InvalidModelContext", str(error), generation=generation)
+            try:
+                access = migrate_existing_app_instance_access(instance, definition)
+            except AppAccessMigrationOwnerChanged:
+                # Do not report the old reconciliation onto a replaced or
+                # edited parent. The next ordinary loop reads its fresh intent.
+                return "Degraded", target
+            except AppAccessMigrationBlocked as migration_error:
+                patch_instance_status(instance, "Degraded", target, "AccessMigrationBlocked",
+                    str(error) + " Access migration is blocked: " + str(migration_error), generation=generation, guarded=True)
+                return "Degraded", target
+            patch_instance_status(instance, "Degraded", target, "InvalidModelContext", str(error),
+                url=(access or {}).get("localURL", ""), access=access, generation=generation, guarded=bool(access))
             return "Degraded", target
 
 
@@ -5970,6 +6349,7 @@ data:
 
 
     def reconcile_once():
+        global CALLBACK_REGISTRY_READY
         RegressionRuns(globals()).reconcile_all()
         catalog = load_catalog()
         app_catalog = load_app_catalog()
@@ -5979,6 +6359,11 @@ data:
         source = ((current.get("spec") or {}).get("source") or {"kind": "GitRepository", "name": "flux-system", "namespace": FLUX_NAMESPACE})
         activations = module_activations()
         instances = app_instances()
+        try:
+            CALLBACK_REGISTRY_READY = reconcile_callback_registry(instances, app_catalog)
+        except Exception as error:
+            CALLBACK_REGISTRY_READY = False
+            print("OIDC callback registry unavailable:", type(error).__name__, flush=True)
         models = model_activations()
         nodes = list_items("/api/v1/nodes")
         crd_names = existing_crd_names()

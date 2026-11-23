@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-oidc-callbacks
+  namespace: identity-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+data:
+  callbacks.json: '{"entries":[],"version":1}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-oidc-callbacks-status
+  namespace: identity-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+data:
+  version: "1"
+  desired-sha256: ""
+  verified-sha256: ""
+  verified-at: ""
+  client-id: magicstick-human-gateway-local

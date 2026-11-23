@@ -15,6 +15,11 @@ class CpuOffloadingTests(unittest.TestCase):
             "estimate_ollama_memory": lambda *_: dict(self.base),
             "model_activations": lambda: [],
             "vram_summary": lambda _: {"available": True, "plannedRemainingMi": 24000},
+            "ready_schedulable_nodes": lambda: [{"metadata": {"name": "fixture-node"}}],
+            "compute_memory_summary": lambda _a, vram=None: {"devices": [{
+                "kind": "gpu", "computeTarget": "nvidia-gpu", "nodes": ["fixture-node"],
+                "totalMi": 49152, "unreservedMi": 24000,
+            }]} if (vram or self.api["vram_summary"]([])).get("available") else {"devices": []},
             "offloading_host_memory_available": lambda _: 32000,
             "compute_target_catalog": lambda: {"targets": {"nvidia-gpu": {"kind": "gpu"}}},
             "resolve_local_preset_artifact": lambda _: None,

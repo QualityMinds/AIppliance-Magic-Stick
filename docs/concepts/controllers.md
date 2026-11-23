@@ -134,7 +134,7 @@ worker owns deletion and independently checks fresh workload state. See
   reused and the generated store is bounded. A new profile triggers a Helm
   reconcile/KubeAI controller rollout before the model can be scheduled.
 - Resolve each instance backend from the app catalog and create derived local
-  and optional public HTTPRoutes, exact callback routes on the shared dashboard
+  and optional public HTTPRoutes, exact callback routes on the instance's own
   hosts, the cross-namespace ReferenceGrant, and an Envoy SecurityPolicy for
   shared OIDC plus minimum-role authorization. Catalogued AI application routes
   disable Envoy's total request timeout for long-lived streams, while the exact
@@ -145,6 +145,14 @@ worker owns deletion and independently checks fresh workload state. See
   Live identity and explicit grants protect restricted workloads; Resource Sharing
   does not require a license entitlement. An unavailable access guard fails closed
   without removing the restriction.
+- When model-context validation blocks an already deployed instance, migrate only
+  its proven existing SSO scope. A fresh instance UID/revision/intent check and
+  the old policy's exact UID-bound guard are mandatory, including for legacy
+  resources without owner-UID labels. Close all existing backends before changing
+  any policy; each update tests the resource UID and resource version atomically.
+  Add only required callback guards, never new application routes, keys or Helm
+  workloads. Foreign, partial or changed scope blocks migration. Keep the context
+  error and closed backends until normal model and access validation succeeds.
 - Update module, instance, hardware-operator, and condition status.
 
 The static Flux `magicstick-operator` Kustomization must not wait on

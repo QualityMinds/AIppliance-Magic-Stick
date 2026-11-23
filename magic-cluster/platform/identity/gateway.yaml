@@ -6,6 +6,11 @@ metadata:
 spec:
   # Authenticate browser sessions before checking per-instance authorization.
   filterOrder:
+    # Lua still precedes OAuth on routes where no ExtProc is configured.
+    - name: envoy.filters.http.lua
+      before: envoy.filters.http.oauth2
+    - name: envoy.filters.http.ext_proc
+      before: envoy.filters.http.oauth2
     - name: envoy.filters.http.ext_authz
       after: envoy.filters.http.jwt_authn
   provider:
@@ -31,6 +36,8 @@ kind: Gateway
 metadata:
   name: identity-pilot
   namespace: identity-system
+  annotations:
+    magicstick.dev/mdns-address-mode: "${AI_APPLIANCE_MDNS_ADDRESS_MODE:=gateway-status}"
 spec:
   gatewayClassName: magicstick-envoy
   infrastructure:
@@ -62,19 +69,3 @@ spec:
           selector:
             matchLabels:
               gateway.magicstick.dev/route-access: "true"
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: redirect-http-to-https
-  namespace: identity-system
-spec:
-  parentRefs:
-    - name: identity-pilot
-      sectionName: http
-  rules:
-    - filters:
-        - type: RequestRedirect
-          requestRedirect:
-            scheme: https
-            statusCode: 301

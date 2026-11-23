@@ -20,7 +20,7 @@ README and public product collateral.
   links change. Keep actual UI labels and commands in their original form.
 - The imprint (`imprint.html`/`impressum.html`) and privacy policy
   (`privacy.html`/`datenschutz.html`) are one text in two languages. Change both
-  files of a pair in the same commit with the same footer date; the website tests
+  files of a pair in the same commit with the same "last updated" date; the website tests
   fail when structure, anchors, links, numbers or dates differ.
 - Preserve legal meaning from root license/legal sources. Distinguish shipped
   functions, experimental paths, roadmap ideas and dated acceptance evidence.

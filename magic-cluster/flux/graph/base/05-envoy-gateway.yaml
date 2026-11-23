@@ -6,6 +6,7 @@ metadata:
 spec:
   dependsOn:
     - name: infrastructure-basis
+    - name: callback-backend-admission
   interval: 10m0s
   path: ./magic-cluster/platform/gateway/envoy-gateway
   postBuild:

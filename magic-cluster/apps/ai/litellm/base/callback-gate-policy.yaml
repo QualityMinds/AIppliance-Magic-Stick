@@ -1,0 +1,19 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: litellm-callback-gate
+  namespace: identity-system
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: static-litellm-local}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: static-litellm-local-callback}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: static-litellm-public}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: static-litellm-public-callback}
+  lua:
+    - type: ValueRef
+      valueRef: {group: "", kind: ConfigMap, name: magicstick-cookie-migration}
+  extProc:
+    - backendRefs: [{group: gateway.envoyproxy.io, kind: Backend, name: magicstick-callback-gate}]
+      failOpen: false
+      messageTimeout: 8s
+      processingMode: {request: {}}

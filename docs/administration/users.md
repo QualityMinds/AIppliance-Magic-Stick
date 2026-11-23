@@ -25,6 +25,12 @@ dedicated API ServiceAccount
 memory until shortly before expiry. The React/nginx frontend Pod has no
 ServiceAccount token and therefore cannot read that Secret.
 
+The automatic **Local console** session of the attached monitor is not a human
+account and does not appear in this list. Its access level is the separate
+**System → Settings → Local console** setting; see
+[automatic sign-in](../reference/cli.md#automatic-sign-in). It can never replace
+the last human administrator.
+
 Local accounts can be created, edited, enabled, disabled, assigned one of the
 four MagicStick access levels, reset to a temporary password, and deleted.
 Passwords travel directly to Keycloak and are neither stored as Kubernetes

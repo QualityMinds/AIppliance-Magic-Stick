@@ -1,24 +1,26 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {createDemoRuntime} from './demo';
 import {loadSnapshot} from './snapshot';
-import {availableTabs, renderTui} from './tui';
+import {availablePages, availableSystemSections, renderTui} from './tui';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('offline terminal preview', () => {
-  it('loads and refreshes every tab without using the network', async () => {
+  it('loads and refreshes every page without using the network', async () => {
     const fetch = vi.fn(() => { throw new Error('Network must not be used'); });
     vi.stubGlobal('fetch', fetch);
     const runtime = createDemoRuntime();
     const snapshot = await loadSnapshot(runtime.api);
-    expect(availableTabs(snapshot)).toHaveLength(10);
-    for (let index = 0; index < availableTabs(snapshot).length; index += 1) {
-      const screen = renderTui(snapshot, index, 120, 30, false, {demo: true});
-      expect(screen).toContain('OFFLINE DEMO · read-only · sample data');
-      expect(screen).not.toContain('signed in:');
-      expect(screen).not.toContain('x: sign out');
-      expect(screen).not.toMatch(/a: (enable|add|create)|d: (disable|remove|revoke)|copy kubeconfig/);
+    expect(availablePages(snapshot)).toHaveLength(7);
+    for (const page of availablePages(snapshot)) {
+      for (const section of page.id === 'system' ? availableSystemSections(snapshot) : [{id: 'status' as const}]) {
+        const screen = renderTui(snapshot, {page: page.id, systemSection: section.id, demo: true}, 121, 30, false);
+        expect(screen).toContain('OFFLINE DEMO · read-only · sample data');
+        expect(screen).not.toContain('Signed in:');
+        expect(screen).not.toMatch(/Sign out|Switch user/);
+      }
     }
+    expect(renderTui(snapshot, {page: 'services', demo: true}, 121, 40, false)).toContain('APPLICATIONS · 2 services · 1 instance');
     snapshot.modules.modules.litellm!.enabled = false;
     expect((await loadSnapshot(runtime.api)).modules.modules.litellm?.enabled).toBe(true);
     expect(fetch).not.toHaveBeenCalled();

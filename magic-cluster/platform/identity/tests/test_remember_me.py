@@ -202,12 +202,12 @@ class RememberMeFluxBuildTests(unittest.TestCase):
         self.directory = Path(self.temp.name)
         self.identity = self.directory / "identity"
         self.graph = self.directory / "identity-pilot.yaml"
-        shutil.copyfile(REPOSITORY / "magic-cluster/flux/graph/base/10-identity-pilot.yaml", self.graph)
+        shutil.copyfile(REPOSITORY / "magic-cluster/flux/graph/base/08-identity-bootstrap.yaml", self.graph)
         shutil.copytree(ROOT, self.identity, ignore=shutil.ignore_patterns("__pycache__"))
 
     def build(self):
         return subprocess.run([
-            self.flux, "build", "kustomization", "identity-pilot",
+            self.flux, "build", "kustomization", "identity-bootstrap",
             "--path", str(self.identity), "--kustomization-file",
             str(self.graph),
             "--dry-run", "--strict-substitute", "--in-memory-build",

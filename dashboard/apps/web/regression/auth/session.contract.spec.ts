@@ -2,8 +2,9 @@ import {test, expect} from '@playwright/test';
 import {recordedApi} from '../fixtures/api-client.ts';
 import {pythonSuite} from '../components/owning.ts';
 
-test('AUTH-01 [p1:remember-me-policy-contract] owning default/migration counterexamples preserve normal and custom session policies', () => {
+test('AUTH-01 [p1:remember-me-policy-contract] owning session policy, resource transport and reauthentication counterexamples', () => {
   pythonSuite('../../../magic-cluster/platform/identity/tests', ['test_remember_me.RememberMePolicyTests']);
+  pythonSuite('../../../magic-cluster/apps/dashboard', ['test_edge_transport.EdgeTransportTests', 'test_edge_reauthentication.EdgeReauthenticationTests']);
 });
 
 test('AUTH-02 [p1:anonymous-contract] unauthorized inventory/session does not become an authenticated empty success', async () => {

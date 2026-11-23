@@ -56,10 +56,11 @@ corepack pnpm --filter @magicstick/dashboard-cli build
 corepack pnpm tui:demo
 ```
 
-The standalone equivalent is `magicstick tui --demo`. The preview shows its
-navigation using synthetic sample data, clearly labeled **OFFLINE DEMO**.
-Arrow keys (or `h/j/k/l`) navigate, `r` reloads the sample data, and `q` quits.
-Live actions, clipboard exports, and sign-out are disabled. It never contacts
+The standalone equivalent is `magicstick tui --demo`. The preview shows every
+page using synthetic sample data, clearly labeled **OFFLINE DEMO**.
+Arrow keys (or `h/j/k/l`) move the cursor, Enter uses the element under it,
+`r` reloads the sample data, and `q` quits. Buttons are shown as in a live
+session, but live actions, clipboard exports, and sign-out are disabled. It never contacts
 an API or login service, reads saved configuration or credentials, or changes
 the local session. The sample catalog and resource values are not deployment
 defaults. Omit `--demo` to use the normal authenticated appliance client.
@@ -79,10 +80,17 @@ trusted there, use `--ca-file /path/to/magicstick-oidc-ca.crt` for the first
 login; that public CA path is saved for later calls. Certificate verification
 cannot be disabled with `--insecure`; use the appliance CA instead.
 
-The TUI has the same role-filtered areas as the browser: Overview, Services,
-Models, Settings, Users, API Access, License, Kubernetes, Hardware, and System. Use left/right or
-`h`/`l` to change page, up/down or `k`/`j` to select an item, `r` to refresh,
-and `q` to quit. Operators can enable and disable catalog services and add or
+The TUI is a text version of the browser dashboard, designed for 120 columns:
+the same role-filtered pages in a list on the left (Overview, Models, Services,
+API Access, Mesh, Kubernetes Access, and System with its sections), and the
+same panels, status badges, and buttons on the right. A cursor marks one
+element; arrow keys or `h`/`j`/`k`/`l` move it, Tab walks through all elements,
+Enter or Space uses the element, and a mouse click does the same in terminals
+that report the mouse. The hotkey bar at the bottom lists the keys that work
+on the current page, including `r` to refresh and `q` to quit. Operators can
+create and remove application instances with the same values as the browser
+form, show service and instance credentials on request, and start, stop or
+restart models; administrators can also change instance sharing. Operators can enable and disable catalog services and add or
 remove local and external models. The local-model form offers only KV-cache
 formats compatible with its chosen engine and hardware and shows the requested
 or Ready-confirmed effective format in the Models view. Administrators can additionally create,

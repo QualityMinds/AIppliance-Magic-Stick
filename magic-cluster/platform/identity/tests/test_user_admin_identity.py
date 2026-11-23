@@ -69,7 +69,8 @@ def realm_import():
 
 
 def identity_gateway_documents():
-    return [document for document in load_documents("gateway.yaml") if document]
+    return [document for name in ("gateway.yaml", "routes/routes.yaml")
+            for document in load_documents(name) if document]
 
 
 class UserAdminIdentityTests(unittest.TestCase):
@@ -243,9 +244,10 @@ class UserAdminIdentityTests(unittest.TestCase):
                         with self.subTest(route=document["metadata"]["name"]):
                             self.assertIn(hostname, names)
         catalog = yaml.safe_load((cluster / "platform" / "magicstick-operator" / "app-catalog.yaml").read_text())
-        for application in json.loads(catalog["data"]["applications.json"])["applications"]:
+        for application, definition in json.loads(catalog["data"]["applications.json"])["applications"].items():
             with self.subTest(application=application):
-                self.assertIn("*." + application + ".${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)
+                label = (definition.get("route") or {}).get("hostnameLabel", application)
+                self.assertIn("*." + label + ".${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)
         # A single-label wildcard cannot cover <instance>.<application>.<domain>.
         # Do not broaden the certificate to arbitrary neighbouring appliances.
         self.assertNotIn("*.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}", names)
@@ -373,22 +375,16 @@ class UserAdminIdentityTests(unittest.TestCase):
 
     def test_upgrade_reconciliation_sets_exact_dashboard_logout_redirects(self):
         script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
-
-        self.assertIn(f"'{EXPECTED_POST_LOGOUT_REDIRECT_URIS}'", script)
-        self.assertIn('-s "attributes.\\"post.logout.redirect.uris\\"=$logout"',
-                      (IDENTITY_DIR / "keycloak-callback-policy.sh").read_text())
+        self.assertIn("if [ \"$callback_bootstrap\" = 1 ]; then", script)
+        setup = load_documents("setup-configmap.yaml")[0]["data"]["server.py"]
+        self.assertIn('"attributes": {"post.logout.redirect.uris": logout}', setup)
 
     def test_dashboard_callbacks_and_origins_match_on_install_and_upgrade(self):
         client = next(client for client in realm_import()["clients"]
                       if client["clientId"] == HUMAN_GATEWAY_CLIENT_ID)
-        script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
         for field in ("redirectUris", "webOrigins"):
-            configured = json.dumps(client[field], separators=(",", ":"))
-            self.assertIn(f"'{configured}'", script)
-            argument = "redirects" if field == "redirectUris" else "origins"
-            self.assertIn(f'-s "{field}=${argument}"',
-                          (IDENTITY_DIR / "keycloak-callback-policy.sh").read_text())
             self.assertFalse(any("dashboard2." in value for value in client[field]))
+            self.assertFalse(any("*" in value for value in client[field]))
         self.assertIn("https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
                       client["redirectUris"])
         self.assertIn("https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback",

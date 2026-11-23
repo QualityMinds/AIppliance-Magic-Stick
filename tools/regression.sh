@@ -30,7 +30,7 @@ case "$mode" in
     "$docker_cli" build --build-arg "SOURCE_REVISION=$revision" -f "$root/dashboard/apps/web/regression/Dockerfile" \
       -t "$REGRESSION_RUNNER_IMAGE" "$root"
     exit $? ;;
-  all|prepare|phase[0-8]|phase[0-8]-fast|phase[0-8]-fixtures|phase[5-8]-live|phase6-drill|selftest|typecheck|phase3-gpu|phase3-validation|phase4-sharing|gpu-recover|preflight|locktest|ownedtest|foundations|smoke-fast|smoke-fixtures|phase2-readonly|phase2-models|phase2-faults|session-smoke|core-smoke|smoke|model-edit|cleanup-plan|recover) ;;
+  all|services|prepare|phase[0-8]|phase[0-8]-fast|phase[0-8]-fixtures|phase[5-8]-live|phase6-drill|selftest|typecheck|phase3-gpu|phase3-validation|phase4-sharing|gpu-recover|preflight|locktest|ownedtest|foundations|smoke-fast|smoke-fixtures|phase2-readonly|phase2-models|phase2-faults|session-smoke|core-smoke|smoke|model-edit|cleanup-plan|recover) ;;
   *) printf '%s\n' 'Unknown regression command. Use help.' >&2; exit 2 ;;
 esac
 if ! "$docker_cli" info >/dev/null 2>&1; then

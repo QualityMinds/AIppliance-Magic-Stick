@@ -16,6 +16,17 @@ if ! flock -n "$lock_fd"; then
   echo "Host maintenance is active; convergence will retry on the next timer run."
   exit 0
 fi
+if [[ -e /var/lib/magicstick/host-management/control-plane-network-migration.json && "${MAGICSTICK_CONTROL_PLANE_TRANSITION:-}" != 1 ]]; then
+  echo "Control-plane network maintenance needs local verification or recovery." >&2
+  exit 1
+fi
+# Some system services and the isolated control-plane worker omit HOME.
+# Kubernetes clients in the playbook must not fall back to a cache in its
+# working directory, which would block the next migration or rollback.
+if [[ -z "${HOME:-}" ]]; then
+  export HOME=/var/lib/magicstick/host-management/converge-home
+  install -d -m 0700 "$HOME"
+fi
 # Keep the local maintenance lock across the guard and child. This also proves
 # that an expired reservation from this same host has no live applying child.
 regression_guard=/usr/local/lib/magicstick/host-management/regression_guard.py
@@ -209,6 +220,11 @@ sync_repo() {
       echo "The selected source moved after review; check the channel again." >&2
       return 1
     fi
+    if [[ -f /etc/rancher/k3s/config.yaml.d/20-magicstick-control-plane-network.yaml ]] &&
+      [[ "$(python3 /usr/local/lib/magicstick/k3s/control_plane_release.py "$checkout_dir" "$commit")" != qualified ]]; then
+      echo "This software source cannot operate the configured link-independent network." >&2
+      return 1
+    fi
     if [[ -f /usr/local/lib/magicstick/host-management/software_channel.py && "${MAGICSTICK_SOFTWARE_RECOVERY:-}" != 1 ]]; then
       python3 /usr/local/lib/magicstick/host-management/software_channel.py verify-commit "$checkout_dir" "$commit"
     fi
@@ -267,7 +283,20 @@ resolve_inventory_path() {
   exit 1
 }
 
-sync_repo "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_REF" "$MAGICSTICK_PUBLIC_CHECKOUT" "$MAGICSTICK_PUBLIC_REF_KIND"
+if [[ "${MAGICSTICK_CONTROL_PLANE_TRANSITION:-}" == 1 ]]; then
+  # Apply the reviewed host roles again without depending on branch movement
+  # or a fresh fetch while the network transition is being recovered.
+  [[ "$FLUX_BOOTSTRAP_MODE" == readonly-public &&
+    "${MAGICSTICK_EXPECTED_COMMIT:-}" =~ ^[0-9a-f]{40}$ &&
+    -f /var/lib/magicstick/host-management/control-plane-network-migration.json &&
+    "$(git -C "$MAGICSTICK_PUBLIC_CHECKOUT" rev-parse HEAD)" == "$MAGICSTICK_EXPECTED_COMMIT" &&
+    -z "$(git -C "$MAGICSTICK_PUBLIC_CHECKOUT" status --porcelain)" ]] || {
+    echo "The reviewed network maintenance source cannot be reused." >&2
+    exit 1
+  }
+else
+  sync_repo "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_REF" "$MAGICSTICK_PUBLIC_CHECKOUT" "$MAGICSTICK_PUBLIC_REF_KIND"
+fi
 MAGICSTICK_RESOLVED_COMMIT="$(git -C "$MAGICSTICK_PUBLIC_CHECKOUT" rev-parse HEAD)"
 
 if [[ "$FLUX_BOOTSTRAP_MODE" == "github" ]]; then

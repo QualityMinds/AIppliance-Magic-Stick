@@ -91,6 +91,8 @@ jobs:
         run: |
           REGRESSION_MODE=auth-sessions pnpm --filter @magicstick/dashboard-web exec playwright test \
             --config regression/playwright.config.ts --reporter=line
+      - name: Verify trusted HTTPS multi-host SSO and global logout
+        run: bash magic-cluster/platform/identity/tests/test_multihost_browser.sh
   chromium:
     runs-on: ubuntu-24.04
     steps:

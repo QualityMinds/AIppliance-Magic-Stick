@@ -24,7 +24,7 @@ export const phase3Variants = {
   'p3-mixed-vendor':row('HW-02',['U','C','A','E']),
   'p3-readiness':row('HW-03',['U','C','A','B']),
   'p3-validation-single':row('HW-06',['U','C','A','E']),
-  'p3-validation-all':row('HW-06',['C','A','E']),
+  'p3-validation-all':row('HW-06',['C','B','A','E']),
   'p3-identity':row('HW-08',['U','C','B','A']),
   'p3-memory-denominators':row('MEM-04',['U','C','B','A','E']),
   'p3-memory-unknown':row('MEM-08',['U','C','B','A']),

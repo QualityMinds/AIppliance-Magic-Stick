@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: magicstick-callback-admission-probe
+  namespace: envoy-gateway-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: magicstick-callback-admission-probe
+rules:
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
+    resourceNames: [magicstick-callback-backend-only, magicstick-no-backend-tls-overrides, magicstick-callback-ca-writers, magicstick-callback-gate-policies, magicstick-security-baseline, magicstick-route-needs-callback-baseline, magicstick-route-needs-security-baseline, magicstick-callback-filter-order]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: magicstick-callback-admission-probe
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: magicstick-callback-admission-probe}
+subjects:
+  - {kind: ServiceAccount, name: magicstick-callback-admission-probe, namespace: envoy-gateway-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-callback-admission-probe
+  namespace: identity-system
+rules:
+  - apiGroups: [gateway.envoyproxy.io]
+    resources: [backends, envoyextensionpolicies, securitypolicies]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-callback-admission-probe
+  namespace: identity-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: magicstick-callback-admission-probe}
+subjects:
+  - {kind: ServiceAccount, name: magicstick-callback-admission-probe, namespace: envoy-gateway-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-callback-activation-writer
+  namespace: envoy-gateway-system
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [magicstick-callback-backend-activation]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-callback-activation-writer
+  namespace: envoy-gateway-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: magicstick-callback-activation-writer}
+subjects:
+  - {kind: ServiceAccount, name: magicstick-callback-admission-probe, namespace: envoy-gateway-system}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: magicstick-callback-admission-probe
+  namespace: envoy-gateway-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: Enabled
+spec:
+  activeDeadlineSeconds: 240
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: magicstick-callback-admission-probe
+      restartPolicy: Never
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: probe
+          image: python:3.13-alpine
+          command: [python, /probe/activate.py]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: probe, mountPath: /probe, readOnly: true}
+      volumes:
+        - name: probe
+          configMap: {name: magicstick-callback-admission-probe}

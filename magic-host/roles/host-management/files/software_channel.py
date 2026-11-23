@@ -171,7 +171,8 @@ def status():
                 "approvedCommit": current.get("approvedCommit", ""),
                 "hostCommit": git_commit(current["checkout"]),
                 "busy": bool(operation and operation.get("phase") not in TERMINAL),
-                "blocked": (STATE / "software-blocked.json").exists(),
+                "blocked": ((STATE / "software-blocked.json").exists() or
+                            (STATE / "control-plane-network-migration.json").exists()),
                 "preview": read_json(STATE / "software-preview.json"),
                 "operation": operation,
                 "previousCommit": read_json(STATE / "software-previous.json").get("commit", ""),

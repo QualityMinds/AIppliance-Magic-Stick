@@ -31,8 +31,12 @@ data:
 {{ .Files.Get "files/runtime-lock.json" | nindent 4 }}
   install.mjs: |-
 {{ .Files.Get "files/install.mjs" | nindent 4 }}
+  install-cli.mjs: |-
+{{ .Files.Get "files/install-cli.mjs" | nindent 4 }}
   prepare.mjs: |-
 {{ .Files.Get "files/prepare.mjs" | nindent 4 }}
+  prepare-cli.mjs: |-
+{{ .Files.Get "files/prepare-cli.mjs" | nindent 4 }}
   start.sh: |-
 {{ .Files.Get "files/start.sh" | nindent 4 }}
   launch.sh: |-
@@ -102,7 +106,7 @@ spec:
       initContainers:
         - name: install-runtime
           image: {{ $image | quote }}
-          command: [node, /bootstrap/install.mjs]
+          command: [node, /bootstrap/install-cli.mjs]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}

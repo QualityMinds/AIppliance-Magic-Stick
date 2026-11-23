@@ -9,7 +9,7 @@ import {saveReport,type CaseResult} from './report.ts';
 /** Scoped execution uses the existing serial launcher and cleanup evidence.
  * There is deliberately no whole-phase fallback for a bad child receipt. */
 export async function runDiagnosticSelection(options:{selection:string;phases:number[];output:string;uid:string;sourceRevision?:string;
-  execute:(args:string[],environment:Record<string,string>)=>Promise<number>;cancelled:()=>boolean}) {
+  serviceProfile?:string;execute:(args:string[],environment:Record<string,string>)=>Promise<number>;cancelled:()=>boolean}) {
   const selected=diagnosticSelection(options.selection,options.phases,'full')!,mode=diagnosticMode(selected);
   requireSafe(/^[a-f0-9-]{36}$/.test(options.uid),'CONFIG');
   const receiptDirectory=join(options.output,'diagnostic-'+options.uid);await privateDirectory(receiptDirectory);
@@ -17,7 +17,7 @@ export async function runDiagnosticSelection(options:{selection:string;phases:nu
   const exit=await options.execute([mode,...(selected.phase===4?[selected.id]:[])],{
     REGRESSION_DIAGNOSTIC_SELECTION:selected.id,REGRESSION_CAMPAIGN_RESULT:receipt});
   const evidence=await childEvidence({output:options.output,receipt,mode,required:selected.caseIds,fixture:false,
-    sourceRevision:options.sourceRevision,cancelled:options.cancelled()});
+    sourceRevision:options.sourceRevision,cancelled:options.cancelled(),serviceProfile:options.serviceProfile});
   const directory=evidence.result.directory;
   let summary=JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024));
   if(summary.diagnosticSelection?.id!==selected.id)throw new HarnessError('CONFIG','Failed','report-evidence');
@@ -27,7 +27,7 @@ export async function runDiagnosticSelection(options:{selection:string;phases:nu
   // Export the independently checked status too; the downloadable formats
   // must not retain a different cleanup claim from the public status object.
   await saveReport(directory,evidence.result.runId,cases,selected.caseIds,options.sourceRevision,mode,summary.automaticPreparation,
-    {recoveryFenceActive:evidence.recoveryFence,recoveryAttempts:summary.recoveryAttempts??[],cleanup:evidence.cleanup});
+    {recoveryFenceActive:evidence.recoveryFence,recoveryAttempts:summary.recoveryAttempts??[],cleanup:evidence.cleanup,serviceProfile:options.serviceProfile});
   summary=JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024));
   const state=summary.counts.Failed||exit===1?'Failed':summary.counts.Blocked||exit||evidence.recoveryFence?'Blocked':'Passed';
   const campaign={phases:[{phase:selected.phase,state,counts:summary.counts,executionCounts:summary.executionCounts,

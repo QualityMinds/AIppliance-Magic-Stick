@@ -1,5 +1,224 @@
 # Identity validation
 
+## Isolated multi-host HTTPS session check
+
+After installing the locked Dashboard dependencies, run
+`bash magic-cluster/platform/identity/tests/test_multihost_browser.sh` on a
+Docker-enabled host. This uses synthetic credentials and a temporary Linux
+Chromium NSS trust database. It first checks that an untrusted synthetic CA is
+rejected, then imports that CA only into the disposable browser container.
+The pinned Keycloak and Envoy images and the actual Dashboard API guard exercise
+login across distinct HTTPS hosts, host-only token cookies and cross-host logout.
+The trusted profile runs separately with a fresh jar and with an old broad
+gateway jar, including real RefreshToken/HMAC helpers. The latter retains the
+native Keycloak session and uses the product migration Lua. The strengthened
+profile also covers the actual UID-bound instance guard, with only its
+Kubernetes lookup supplied by a fixed synthetic record. After real central
+logout, each service/instance guard must present the exact trusted Keycloak
+login form with its own callback and complete a fresh login, twice without
+waiting for fence expiry. A 403 page is not a successful reauthentication
+result. Actual userinfo rejects stale API GET/POST calls with 401 and no cookie
+changes; a real missing role remains 403 with its working session untouched.
+The owning HTTP-handler tests separately cover lost/changed instance identity,
+unavailable verification, unsafe methods and the bounded redirect. The actual
+Lua tests require only successful protected responses to remove the host fence.
+The first logout is from the dashboard; subsequent rounds sign out globally
+from the other protected service/instance host. Each target has a freshly
+verified session before logout. This does not certify repeated root-dashboard
+reuse with colliding, unattributed old broad helper cookies: that additional
+local counterexample still fails, and this change deliberately does not erase
+those helpers or claim a general legacy-cookie cleanup. Existing manual site
+cookie recovery remains separate from service/instance reauthentication.
+It also checks that a service configured like LiteLLM preserves its own
+synthetic Authorization header while the guard checks the gateway session.
+An actual Envoy ext_proc filter calls the product gRPC callback gate before
+OAuth; a **synthetic** readiness service supplies stale, additive and ready
+decisions. The browser checks fail-closed behavior on stale status and a stopped
+processor, then verifies recovery after a processor restart. These checks do not
+validate the real Identity service's callback status or its Kubernetes reads.
+The fixture uses handwritten Envoy filter configuration: it does **not** validate
+Envoy Gateway controller translation, actual Gateway API policy acceptance,
+real appliance routing or live hardware. Those remain separate acceptance gates.
+
+On 13 November 2026 this isolated profile passed with its synthetic readiness
+service and verified container/network cleanup. This is not an installed-system
+acceptance result and predates the stronger repeated reauthentication checks.
+
+The public release checks also run `test_callback_keycloak_load_runtime.py`
+against a disposable, pinned Keycloak. It exercises the actual Identity
+readiness and singleflight functions with synthetic Kubernetes objects: 64
+same-host requests coalesce; 64 distinct occupied checks cause a 65th to return
+503, which recovers to 204 after release. A controlled barrier creates the
+overload; this is not an appliance throughput or latency benchmark.
+
+### Complete callback-gate resource fanout
+
+The same real-Keycloak runtime gate also executes the production gRPC callback
+gate, its real HTTP readiness request and the actual Setup Gateway observation.
+Forty concurrent script-style requests for one synthetic instance must share one
+complete Keycloak check and exactly four route/policy-list reads (before and
+after). A new owner UID or identity outage after that completed allow must be
+denied by the next request, and a fresh healthy check must recover. Kubernetes
+objects remain synthetic; this is neither a real Kubernetes ownership test nor
+installed Odysseus/browser acceptance.
+
+The ordinary API discovery includes
+[`test_callback_gate_fanout.py`](../../dashboard/apps/api/test_callback_gate_fanout.py).
+Its controlled barriers reproduce the original forty dependency calls versus
+one without scheduling sleeps. It covers a real loopback gRPC/HTTP burst,
+independent hosts, canonical authorities, malformed headers, completed positive
+and negative decisions, failure recovery and bounded follower waiting. The actual
+Setup observation rejects changed route UID/generation, removed routes/policies,
+failed reads and unavailable identity during an overlapping flight. Existing
+native Gateway/default-deny checks still own denial after policy removal; the
+readiness gate is not an authorization substitute. Existing production TLS,
+certificate expiry/name/CA, session and instance-guard tests remain required.
+
+Only requests overlapping an active complete check share its boolean readiness
+result. The map entry is removed before that result is published; no TTL cache,
+stale positive decision, cross-host result or static-file exemption is introduced.
+Unknown/error/timeout outcomes remain 503 with no header or cookie replay.
+The seven-second deadline is unchanged. Diagnostics use only fixed reason codes,
+HTTP status and elapsed time, not raw failures, hostnames or credentials.
+
+The existing trusted multi-host browser gate also requires 32 anonymous HTTPS
+requests through pinned Envoy and the production TLS gRPC gate to share one
+readiness observation with 31 actual followers. A bounded barrier replaces the
+old scheduling delay; every request must still redirect to login. Subsequent
+same-host stale/ready checks must freshly deny/recover without reusing either
+completed result. Fresh and legacy-cookie browser profiles retain all their
+session, role, cookie-isolation and repeated global-logout/re-login assertions.
+
+The gate is baked into the Dashboard API image. A source push alone cannot update
+an appliance: qualify and promote matching coordinated images before an authorized
+rollout, then verify full resource loading, working navigation/settings and real
+logout/login. Odysseus and other application images/data stay unchanged. No
+registered live case or ordinary Services exclusion is changed here.
+
+### Authenticated application resource fanout
+
+Anonymous pre-OIDC fanout does not exercise the later HTTP instance guard. A
+protected application's HTML can render while rejected ES-module imports leave
+its click handlers uninitialized. The existing API discovery therefore includes
+`magic-cluster/apps/dashboard/test_edge_transport.py`: a held-accept TCP wave
+reproduces the five-slot listener bottleneck, while the production listener must
+admit the complete waiting wave. Separate 32/64/128-request HTTP bursts require
+fresh authorization on every request, correctly framed empty responses and
+unchanged connection-close semantics. Fixed-field diagnostics and peer-disconnect
+counterexamples reject credential leakage and a second response after writing
+has begun. The existing Phase 1 AUTH-01 contract and Phase 5 authentication owning
+group select the same suites; they are not CI-only files. The existing
+reauthentication/instance tests still own 401/403/503,
+owner/role/grant and navigation-versus-mutation behavior.
+
+The trusted multi-host browser gate now also loads synthetic 32/64/128-module
+graphs after real instance login. Every HTML/script response must be 200 through
+the actual API listener and per-request Keycloak userinfo check; a button becomes
+functional only after every import completes. The static/control fixture uses
+its own larger listener so it cannot hide or introduce the product bottleneck.
+It does not import or modify an upstream application's source or image. The
+fresh/legacy-cookie, untrusted-CA, stale-owner/role and repeated global-logout
+checks remain required, without shared authorization or a resource exemption.
+
+These are isolated owning/protocol checks, not installed Odysseus acceptance.
+After an authorized, qualified API-image rollout, verify the exact running
+source/images and repeat real page/asset loading and harmless button/model-picker
+actions on the target appliance. Record first-attempt failures, listener drops,
+transport resets and unexpected asset statuses separately; retrying until one
+page works is not acceptance. Existing models, application data and ordinary
+Services exclusions remain unchanged. No new registered campaign case is added.
+
+The callback gate's Envoy Backend carries its CA reference, SNI and TLS
+settings in the Backend itself, rather than relying on an optional attached
+policy. Enabling this Gateway extension increases the cluster-wide attack
+surface. The intended admission guard permits only the immutable callback
+Backend and rejects separate Backend TLS overrides; the Gateway Flux wave
+depends on the guard wave. The Setup and operator identities receive no Backend
+write permission. Manifest ordering and `Ready` alone do not prove that
+admission is active: a fresh install or upgrade must also verify an actual deny
+canary and the live controller's translated TLS/SAN behavior before enabling
+or trusting the feature. This native bootstrap barrier remains an acceptance
+requirement and is not established by the unit tests or the Envoy-only fixture.
+The initial Helm value is disabled. After the controller CRDs exist, a restricted
+bootstrap Job checks compiled policy/binding revisions and submits real dry-run
+deny canaries. RBAC, schema and transport failures do not qualify as admission
+proof. Only a successful, unchanged-revision proof enables the watched Helm
+values override. Identity waits for that Job; failed verification leaves the
+extension disabled. The probe has no Secret permissions or workload controls.
+
+The neutral Flux graph then reconciles the route-free `identity-bootstrap`
+wave, waits for both root policies' current-generation Accepted proof and the
+identity workloads, and finally applies `identity-pilot`'s route-only base.
+Keep these stages separate: a whole-wave server-side dry-run cannot create its
+own missing admission parameters. The native Gateway contract reproduces that
+rejected combined-wave upgrade, verifies that its dry-run persisted no root
+policy, then verifies the actual route-only product wave after baseline proof.
+Unit renders also require both waves to be a disjoint, unchanged partition of
+the aggregate identity resources. Installed rollout must independently verify
+resource UIDs/ownership, all Flux revisions and actual routing.
+The native CI gate runs fresh and upgrade profiles separately. The latter seeds
+its synthetic route before admission is installed while Backend remains off,
+then requires the same route UID throughout the guarded update. It never
+disables an installed guard to simulate the old state. Both profiles use the
+actual pinned Flux controller to parse the health expressions; the deliberately
+missing source used for that parser probe is an expected failure, not successful
+Flux reconciliation or installed-system acceptance.
+The native Gateway contract additionally checks actual controller translation
+of the 303 Location and all three independent host-only Set-Cookie headers,
+401 without browser-state changes and successful-response fence removal. The
+authorization response for that transport contract is synthetic; real Keycloak
+authentication and installed-system acceptance remain separate checks.
+
+The HTTPS Gateway has both a callback-gate fallback and an independent
+default-deny SecurityPolicy. Losing a route's gate still invokes the Gateway
+gate; losing its authentication policy denies access. Admission prohibits
+removing the baselines, empty/unsafe overrides, skipped request headers and
+moving callback processing after OAuth. New identity routes require both
+baseline resources through admission parameters. Native identity login and the
+exact Mesh enrollment route have explicit native-auth exceptions; a public
+AppInstance retains its UID-bound API guard. Cluster administration and the
+GitOps controller remain trusted: these rules do not protect against an
+administrator removing admission itself.
+
+`Public release checks / gateway-security` creates its own disposable Kind
+cluster and runs `tests/gateway_policy_contract.py` with an explicit kubeconfig
+and identity check. It verifies actual TLS/gRPC Gateway translation, policy
+deletion fallback, rejected unsafe overrides, pre-OAuth ordering and recovery.
+It uses a synthetic readiness service and backend, not human credentials or
+appliance data. This is separate from the real Keycloak multi-host browser test
+and installed-server acceptance. The caller always removes only its own cluster.
+
+### Paperclip browser and native agent credentials
+
+The application catalogue selects boolean `route.forwardAccessToken: false` for
+Paperclip only. The operator carries it into both host policies; missing flags
+retain the old `true` behavior and malformed values fail before applying access
+resources. Instance values cannot change it. The policy hash and observed
+generation must be current before the controller exposes the application backend.
+
+The pinned [Envoy Gateway v1.8.5 translator](https://github.com/envoyproxy/gateway/blob/v1.8.5/internal/xds/translator/oidc.go)
+maps this to disabled OAuth bearer forwarding and preserved original
+Authorization. SSO/JWT, role and UID-bound instance checks remain enabled, and
+the API already prefers the verified host-only cookie for browser identity.
+No unverified JWT classification or blanket Authorization removal is added.
+
+The existing multi-host browser gate freezes the actual catalogue/controller
+decision, uses real Keycloak, TLS Envoy and the actual instance guard, and adds
+a **synthetic** Paperclip-like backend. That backend reproduces the installed
+200-without-bearer versus 401-with-foreign-bearer contract. The probe requires
+an interactive page and browser API, preserved native agent allow/deny, denied
+anonymous/role/foreign-owner access, internal callback allow/deny and repeated
+global logout/login from fresh and legacy-cookie profiles. Native Gateway fresh
+and upgrade gates also apply the catalogue-derived option and retain pre-OAuth
+readiness denial. These are protocol/controller proofs, not an upstream
+Paperclip runtime test or installed appliance acceptance.
+
+After an authorized GitOps rollout, verify the exact existing instance and both
+policy revisions, native page/assets/API behavior, logout/login and internal
+agent callbacks without deleting data or rotating credentials. A policy-only
+fix does not require a new Paperclip, dashboard or runner image. Keep unrelated
+applications and ordinary Services campaign exclusions unchanged.
+
 ## Run the Pilot
 
 Wait until both Flux waves are ready:
@@ -48,6 +267,17 @@ responder.
 
 ## Hostname and callback reconciliation
 
+The setup reconciler derives an exact callback set from configured hosts and
+UID-validated instance intent. The operator waits for a fresh matching
+readback acknowledgement before advertising a protected instance route as
+ready. The startup hook verifies a bounded snapshot or the exact bootstrap
+set; callback or origin wildcards are not accepted. Keycloak client updates
+must not run while secret rotation metadata is present, since Keycloak removes
+rotation metadata on a client PUT. An already matching configuration needs no
+write. Native multi-host and static-route readiness checks remain separate
+acceptance gates; neither a rendered manifest nor this contract is proof of a
+working installation.
+
 Run the owning callback and whole-startup counterexamples:
 
 ```sh
@@ -70,6 +300,14 @@ even when redundant role writes are refused. Missing/extra roles exercise only
 their differences in synthetic state; denied changes, failed reads and stale
 readback fail. These fixtures do not prove a particular native write returned
 403 and do not authorize a manual role assignment on an appliance.
+
+The pinned Keycloak callback runtime profile also exercises the native `kcadm`
+field selector. Selecting only `attributes` returns an empty parent map; it is
+not evidence that logout or secret-rotation attributes are absent. The shell
+helper explicitly reads the logout field and every existing rotation-fence
+field. The unchanged helper runs through a synthetic scoped, non-persisting CLI
+adapter for idempotent readback and refused rotation writes. No real credential
+or client representation is exported, and this fixture is not an appliance test.
 
 For authorized native acceptance, first confirm idle state and the installed
 Git/Flux revision. After regular convergence, confirm the new Keycloak Pod is

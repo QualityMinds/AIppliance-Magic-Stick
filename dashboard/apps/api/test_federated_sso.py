@@ -370,7 +370,7 @@ class FederatedSsoHttpTests(unittest.TestCase):
         principal = {"subject": "admin", "username": "admin", "roles": ["magicstick-admin"]}
         self.original_authorize = self.server["authorize"]
         self.original_service = self.server["federated_sso_service"]
-        self.server["authorize"] = lambda _header, access: principal if access == "admin" else None
+        self.server["authorize"] = lambda _header, access, _headers=None: principal if access == "admin" else None
         calls = self.calls
 
         class Service:

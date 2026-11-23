@@ -73,14 +73,24 @@ sudo k3s kubectl -n identity-system get deployment,pod \
   -l app.kubernetes.io/name=magicstick-dashboard-console
 ```
 
-The monitor shows a one-time Keycloak device-login code when no usable console
-session exists. Authorize it from a browser on the local network; the TUI then
-loads automatically. The console stores only the resulting SSO token state in
-`/var/lib/magicstick/dashboard-console` with private permissions. It does not
-store the user's password. `Ctrl+Alt+F1` opens the normal system console and
-`Ctrl+Alt+F9` returns to Magic Stick. Inside the TUI, `x` signs out and starts a
-new device login; `q` exits the current TUI process, which the service starts
-again after a short delay.
+The monitor signs in automatically as **Local console** and loads the TUI
+without a browser or second device. It shows a one-time Keycloak device-login
+code instead when an administrator set **System → Settings → Local console** to
+**Off**, when the appliance has not provisioned automatic sign-in yet, or after
+`x` to act as a different user. Authorize that code from a browser on the local
+network. If the code appears unexpectedly, check the Local console setting and
+that the generated Secret exists and Keycloak restarted after the update:
+
+```bash
+kubectl -n identity-system get secret magicstick-console-client
+kubectl -n identity-system rollout status deployment/keycloak
+```
+
+Only the token state of a user who signed in with `x` is stored, in
+`/var/lib/magicstick/dashboard-console` with private permissions; no password
+is stored. `Ctrl+Alt+F1` opens the normal system console and `Ctrl+Alt+F9`
+returns to Magic Stick. Inside the TUI, `x` switches the user; `q` exits the
+current TUI process, which the service starts again after a short delay.
 
 If terminal 9 remains on the setup page after completion, inspect both handoff
 units and trigger the idempotent cleanup once:

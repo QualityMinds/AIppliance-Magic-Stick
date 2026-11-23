@@ -87,6 +87,10 @@ class SetupGatewayTests(unittest.TestCase):
         self.assertIn(f"const envoyImage = '{expected}';", fixture.read_text(encoding="utf-8"))
         self.assertEqual(source["spec"]["ref"]["tag"], "v1.8.5")
         self.assertEqual(identity_proxy["spec"]["filterOrder"], [{
+            "name": "envoy.filters.http.lua", "before": "envoy.filters.http.oauth2",
+        }, {
+            "name": "envoy.filters.http.ext_proc", "before": "envoy.filters.http.oauth2",
+        }, {
             "name": "envoy.filters.http.ext_authz", "after": "envoy.filters.http.jwt_authn",
         }])
 
@@ -128,6 +132,24 @@ class SetupGatewayTests(unittest.TestCase):
         finally:
             setup.private_node_ips = original_nodes
             setup.get_resource = original_get
+
+    def test_link_independent_setup_uses_only_the_fallback_lan_ip_in_its_certificate(self):
+        def settings(ip):
+            return {"data": {
+                "AI_APPLIANCE_MDNS_ADDRESS_MODE": "host-link-ipv4",
+                "AI_APPLIANCE_SETUP_DIRECT_IPV4": ip,
+            }}
+
+        with patch.object(setup, "private_node_ips", side_effect=AssertionError("internal IP is not a setup SAN")):
+            for ip, expected in [
+                ("192.0.2.17", ["192.0.2.17"]),
+                ("10.43.0.0", []),
+                ("", []),
+                ("127.0.0.1", []),
+                ("8.8.8.8", []),
+            ]:
+                with self.subTest(ip=ip), patch.object(setup, "get_resource", return_value=settings(ip)):
+                    self.assertEqual(setup.setup_access_ips(), expected)
 
     def test_setup_hostname_stays_stable_while_settings_change(self):
         route = {"spec": {"hostnames": ["old-name.local"]}}

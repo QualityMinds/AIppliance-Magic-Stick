@@ -1,0 +1,107 @@
+# Enabling the Gateway Backend API must not permit arbitrary network targets.
+# This admission guard is installed before the Gateway feature is enabled.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-callback-backend-only
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.envoyproxy.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [backends]
+  validations:
+    - expression: >-
+        object.metadata.namespace == 'identity-system' &&
+        object.metadata.name == 'magicstick-callback-gate' &&
+        (!has(object.spec.type) || object.spec.type == 'Endpoints') &&
+        (!has(object.spec.fallback) || object.spec.fallback == false) &&
+        object.spec.endpoints.size() == 1 &&
+        has(object.spec.endpoints[0].fqdn) &&
+        !has(object.spec.endpoints[0].ip) && !has(object.spec.endpoints[0].unix) &&
+        object.spec.endpoints[0].fqdn.hostname == 'magicstick-callback-gate.identity-system.svc.cluster.local' &&
+        object.spec.endpoints[0].fqdn.port == 8081 &&
+        object.spec.appProtocols == ['gateway.envoyproxy.io/h2c'] &&
+        has(object.spec.tls) && object.spec.tls.caCertificateRefs.size() == 1 &&
+        object.spec.tls.caCertificateRefs[0].group == '' &&
+        object.spec.tls.caCertificateRefs[0].kind == 'ConfigMap' &&
+        object.spec.tls.caCertificateRefs[0].name == 'magicstick-callback-gate-ca' &&
+        object.spec.tls.sni == 'magicstick-callback-gate.identity-system.svc.cluster.local' &&
+        (!has(object.spec.tls.insecureSkipVerify) || object.spec.tls.insecureSkipVerify == false) &&
+        !has(object.spec.tls.wellKnownCACertificates) &&
+        !has(object.spec.tls.clientCertificateRef) &&
+        (!has(object.spec.tls.minVersion) || object.spec.tls.minVersion in ['1.2', '1.3']) &&
+        (request.operation == 'CREATE' || object.spec == oldObject.spec)
+      message: Only the immutable, CA-verified Magic Stick callback Backend is allowed.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-callback-backend-only
+spec:
+  policyName: magicstick-callback-backend-only
+  validationActions: [Deny]
+---
+# A separately attached policy overrides Backend TLS fields. Prohibit that
+# indirection: TLS for every allowed Backend remains in its immutable spec.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-no-backend-tls-overrides
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [backendtlspolicies]
+  validations:
+    - expression: >-
+        object.spec.targetRefs.all(ref,
+          !(ref.group == 'gateway.envoyproxy.io' && ref.kind == 'Backend'))
+      message: Backend TLS must not be overridden by a separate policy.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-no-backend-tls-overrides
+spec:
+  policyName: magicstick-no-backend-tls-overrides
+  validationActions: [Deny]
+---
+# Keep the trust anchor writable only by its two existing lifecycle owners.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: magicstick-callback-ca-writers
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [configmaps]
+  matchConditions:
+    - name: callback-ca-only
+      expression: >-
+        request.namespace == 'identity-system' &&
+        (request.name == 'magicstick-callback-gate-ca' ||
+         (object != null && has(object.metadata.name) && object.metadata.name == 'magicstick-callback-gate-ca'))
+  validations:
+    - expression: >-
+        request.userInfo.username in [
+          'system:serviceaccount:identity-system:magicstick-setup',
+          'system:serviceaccount:flux-system:kustomize-controller']
+      message: Only the callback CA reconciler and Flux may update the callback trust anchor.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: magicstick-callback-ca-writers
+spec:
+  policyName: magicstick-callback-ca-writers
+  validationActions: [Deny]

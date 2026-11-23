@@ -31,6 +31,9 @@ class ModelUpdateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.api = load_server()
+        # These revision/lifecycle fixtures have no physical GPU inventory.
+        # Physical-capacity admission is exercised by test_nvidia_pool_memory.
+        cls.api["ready_schedulable_nodes"] = lambda: []
 
     def test_capability_declarations_validate_booleans_and_survive_model_edits(self):
         for invalid in ({'vision':'false'}, {'tools':1}, {'unknown':True}, [], None):

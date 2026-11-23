@@ -51,6 +51,14 @@ export const phase2FastVariants = {
 } as const satisfies Record<string, VariantDefinition>;
 
 export const phase2FixtureVariants = {
+  'nvidia-pool-vllm-desktop-create-browser': {id: 'MEM-01', layers: ['B']},
+  'nvidia-pool-vllm-mobile-create-browser': {id: 'MEM-01', layers: ['B']},
+  'nvidia-pool-ollama-desktop-create-browser': {id: 'MEM-01', layers: ['B']},
+  'nvidia-pool-ollama-mobile-create-browser': {id: 'MEM-01', layers: ['B']},
+  'nvidia-pool-vllm-desktop-edit-browser': {id: 'MEM-05', layers: ['B']},
+  'nvidia-pool-vllm-mobile-edit-browser': {id: 'MEM-05', layers: ['B']},
+  'nvidia-pool-ollama-desktop-edit-browser': {id: 'MEM-05', layers: ['B']},
+  'nvidia-pool-ollama-mobile-edit-browser': {id: 'MEM-05', layers: ['B']},
   'model-name-local-ollama-desktop-browser': {id: 'DISC-01', layers: ['B']},
   'model-name-local-ollama-mobile-browser': {id: 'DISC-01', layers: ['B']},
   'model-name-local-vllm-desktop-browser': {id: 'DISC-01', layers: ['B']},

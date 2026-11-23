@@ -1,7 +1,10 @@
 import pathlib
+import shutil
 import subprocess
 import textwrap
 import unittest
+
+import yaml
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
@@ -15,6 +18,48 @@ PAPERCLIP_CHART = (
 
 
 class PaperclipKubernetesProviderChartTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("helm"), "Helm is required to render the instance")
+    def test_onboarding_overlay_is_digest_bound_and_uses_the_instance_model(self):
+        def render(*overrides):
+            return {
+                doc["kind"]: doc
+                for doc in yaml.safe_load_all(subprocess.check_output([
+                    "helm", "template", "fixture", str(PAPERCLIP_CHART),
+                    "--set", "instance.application=paperclip",
+                    "--set", "instance.name=paperclip-fixture",
+                    "--set", "instance.namespace=ai",
+                    "--set", "instance.localName=paperclip-fixture",
+                    "--set", "instance.localHost=paperclip.example.local",
+                    "--set", "instance.values.ingress.host=paperclip.example.local",
+                    "--set", "instance.values.model=fixture-local",
+                    *overrides,
+                ], text=True))
+                if doc
+            }
+
+        docs = render()
+        spec = docs["Instance"]["spec"]
+        init = next(item for item in spec["initContainers"] if item["name"] == "prepare-paperclip-onboarding")
+        self.assertEqual(init["image"], f'{spec["image"]["repository"]}@{spec["image"]["digest"]}')
+        self.assertEqual(init["env"], [{"name": "PAPERCLIP_DEFAULT_OPENCODE_MODEL", "value": "litellm/fixture-local"}])
+        self.assertTrue(init["securityContext"]["readOnlyRootFilesystem"])
+        self.assertTrue(init["securityContext"]["runAsNonRoot"])
+        self.assertFalse(init["securityContext"]["allowPrivilegeEscalation"])
+        self.assertIn("managed-onboarding.cjs", docs["ConfigMap"]["data"])
+        self.assertIn({
+            "name": "paperclip-onboarding-ui", "mountPath": "/app/ui/dist", "readOnly": True,
+        }, spec["extraVolumeMounts"])
+        self.assertEqual(spec["deployment"]["exposure"], "private")
+        self.assertEqual(spec["adapters"]["registry"][0]["adapterType"], "opencode_local")
+        self.assertIn(
+            {"name": "PAPERCLIP_K8S_RPC_TIMEOUT_MS", "value": "150000"},
+            spec["env"],
+        )
+        alternate = render("--set", "instance.values.image.tag=fixture-upstream-other")
+        self.assertNotIn("managed-onboarding.cjs", alternate["ConfigMap"]["data"])
+        self.assertFalse(any(item["name"] == "prepare-paperclip-onboarding"
+                             for item in alternate["Instance"]["spec"]["initContainers"]))
+
     def test_gateway_bootstraps_the_pinned_provider_before_becoming_ready(self):
         template = (PAPERCLIP_CHART / "templates" / "instance.yaml").read_text(
             encoding="utf-8"

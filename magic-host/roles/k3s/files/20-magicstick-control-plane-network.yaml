@@ -1,0 +1,5 @@
+# MagicStick's managed single-node IPv4 configuration. The reserved address
+# belongs to the stock ServiceCIDR but is not a valid ClusterIP.
+node-ip: 10.43.0.0
+advertise-address: 10.43.0.0
+flannel-iface: magicstick-int

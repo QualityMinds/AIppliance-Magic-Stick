@@ -6,6 +6,32 @@ import {readPrivate,writePrivate} from './private-files.ts';
 import {HarnessError,requireSafe,reasons,stages} from './errors.ts';
 import type {Lease} from './lease.ts';
 
+/** The serial interruption test allocates these exact children before spawning
+ * them. Use the launcher's existing ledger, never a prefix-based orphan sweep. */
+export async function registerRecoveryChild(directory:string,runId:string,mode:'recover'|'recovery-target') {
+  requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId)&&runId!==basename(directory)&&
+    ['recover','recovery-target'].includes(mode),'RECOVERY');
+  const filename=join(directory,'child-runs.json');
+  const saved=await optionalJson(filename)??{version:1,children:[]};
+  requireSafe(saved.version===1&&Array.isArray(saved.children)&&saved.children.length<1000&&
+    saved.children.every((c:any)=>/^reg-[0-9a-f-]{36}$/.test(c.runId)&&typeof c.mode==='string'&&typeof c.fixture==='boolean'),'RECOVERY');
+  const prior=saved.children.find((c:any)=>c.runId===runId);
+  requireSafe(!prior||prior.mode===mode&&prior.fixture===false,'RECOVERY');
+  if(!prior)await writePrivate(filename,{version:1,children:[...saved.children,{runId,mode,fixture:false}]});
+}
+
+/** Preserve the child's fixed cause; a generic exit-code assertion loses it. */
+export function requireRecoveryResult(value:any,runId:string,exit:number|null) {
+  if(value?.version!==2||value.runId!==runId||!Array.isArray(value.cases))
+    throw new HarnessError('RECOVERY','Failed','recovery-journal');
+  const failed=value.cases.filter((c:any)=>c.outcome!=='Passed');
+  if(exit===0&&!failed.length&&value.cases.some((c:any)=>c.id==='HAR-07'&&c.outcome==='Passed')&&
+    value.cleanup?.state==='verified'&&value.recoveryFenceActive===false)return;
+  const cause=failed.find((c:any)=>c.reason!=='CLEANUP'&&Object.hasOwn(reasons,c.reason??''))??failed[0];
+  throw new HarnessError('CLEANUP','Failed','cleanup',cause&&Object.hasOwn(reasons,cause.reason??'')?
+    {reason:cause.reason,stage:stages.includes(cause.stage)?cause.stage:undefined}:undefined);
+}
+
 async function optionalJson(filename:string) {
   try {await lstat(filename);}catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}
   return JSON.parse(await readPrivate(filename));

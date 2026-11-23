@@ -5,6 +5,7 @@ resources:
   - configmap.yaml
   - deployment.yaml
   - gateway.yaml
+  - callback-gate-policy.yaml
   - service.yaml
   - pvc.yaml
 configMapGenerator:

@@ -33,7 +33,7 @@ data:
           "litellmKey": true,
           "displayName": "Paperclip",
           "chartPath": "magic-cluster/apps/instances/paperclip",
-          "route": {"serviceName": "instance", "port": 3100, "requestTimeout": "0s"},
+          "route": {"serviceName": "instance", "port": 3100, "requestTimeout": "0s", "forwardAccessToken": false},
           "requiredModules": ["paperclip-operator", "agent-sandbox", "litellm", "model-catalog"],
           "requiredCrds": ["instances.paperclip.inc", "sandboxes.agents.x-k8s.io"]
         },
@@ -41,7 +41,7 @@ data:
           "litellmKey": true,
           "displayName": "KubeOpenCode",
           "chartPath": "magic-cluster/apps/instances/kubeopencode",
-          "route": {"serviceName": "shortName", "port": 4096, "requestTimeout": "0s"},
+          "route": {"serviceName": "shortName", "port": 4096, "requestTimeout": "0s", "hostnameLabel": "oc"},
           "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
           "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"]
         },

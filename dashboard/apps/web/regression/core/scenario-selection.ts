@@ -4,19 +4,20 @@ import type {Evidence} from './evidence.ts';
 import {phase2Requirements} from '../profiles/phase2-p0.ts';
 import {phase3Requirements} from '../profiles/gpu-p0.ts';
 import type {DiagnosticSelection} from './diagnostic-selection.ts';
+import {servicesRequirements,type ServiceMatrix,serviceStages} from './service-matrix.ts';
 
 export interface GpuScenarioSelection {id:string;title:string;source:{file:string;line:number};evidence:Evidence[]}
-export const diagnosticRequirements=(selection:DiagnosticSelection)=>(selection.phase===2?phase2Requirements:
+export const diagnosticRequirements=(selection:DiagnosticSelection,matrix?:ServiceMatrix)=>selection.phase===5?(matrix?servicesRequirements(matrix):[]):(selection.phase===2?phase2Requirements:
   selection.phase===3?phase3Requirements:phase4Requirements).filter(r=>r.environment==='live'&&selection.caseIds.includes(r.id)&&
     (!selection.variants||selection.variants.includes(r.variant)));
-export const registeredScenarioSource=(phase:2|3|4,file:string)=>(phase===2?/^regression\/models\/cpu-model-control\.e2e\.spec\.ts$/:
+export const registeredScenarioSource=(phase:2|3|4|5,file:string)=>(phase===5?/^regression\/administration\/services\.e2e\.spec\.ts$/:phase===2?/^regression\/models\/cpu-model-control\.e2e\.spec\.ts$/:
   phase===3?/^regression\/hardware\/(?:validation|multi-gpu)\.e2e\.spec\.ts$/:/^regression\/hardware\/(?:sharing|multi-gpu)\.e2e\.spec\.ts$/).test(file);
 
 /** Discover first, then select exact registered variants. The public selection
  * cannot pass a grep/script or accidentally execute another case's live work. */
-export function diagnosticScenarios(value:unknown,selection:DiagnosticSelection):GpuScenarioSelection[] {
+export function diagnosticScenarios(value:unknown,selection:DiagnosticSelection,matrix?:ServiceMatrix):GpuScenarioSelection[] {
   const manifest=value as {version?:number;scenarios?:GpuScenarioSelection[]};
-  const required=diagnosticRequirements(selection);
+  const required=diagnosticRequirements(selection,matrix);
   requireSafe(manifest?.version===1&&Array.isArray(manifest.scenarios)&&manifest.scenarios.length>0&&manifest.scenarios.length<=64&&
     required.length>0&&(!selection.variants||selection.variants.every(v=>required.some(r=>r.variant===v))),'CONFIG');
   const matches=(e:Evidence)=>required.some(r=>r.id===e.id&&r.variant===e.variant&&r.layer===e.layer);
@@ -31,7 +32,14 @@ export function diagnosticScenarios(value:unknown,selection:DiagnosticSelection)
   // Several provider scenarios may prove the same case/variant/layer tuple.
   // Scenario IDs, not tuple counts, guarantee one execution of each scenario.
   requireSafe(required.every(r=>selected.some(s=>s.evidence.some(e=>e.id===r.id&&e.variant===r.variant&&e.layer===r.layer))),'CONFIG');
-  return selected;
+  // The catalog stage order is intentional: finish every installation/removal
+  // before any access test. Model integration remains explicitly out of scope.
+  // Do not depend on file ordering.
+  return selection.phase===5?selected.sort((a,b)=>{
+    const stage=(s:GpuScenarioSelection)=>serviceStages.findIndex(stage=>s.evidence.every(e=>
+      e.variant?.match(/-(installation|access)-[a-z]+-\d{2}$/)?.[1]===stage));
+    return stage(a)-stage(b)||a.title.localeCompare(b.title);
+  }):selected;
 }
 /** Collect from Playwright itself, then validate against the existing profile.
  * No second hand-written test list and no arbitrary browser-supplied grep. */

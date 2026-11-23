@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp, mkdir, readFile, readlink, rm, writeFile} from 'node:fs/promises';
+import {chmod, copyFile, mkdtemp, mkdir, readFile, readdir, readlink, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
-import {install, verifyAsset} from '../../instances/pi-coding/files/install.mjs';
+import {install, verifyAsset, verifyInstallation} from '../../instances/pi-coding/files/install.mjs';
 import {prepare, toolMode} from '../../instances/pi-coding/files/prepare.mjs';
 
 async function fixture(t) {
@@ -85,4 +87,78 @@ test('known tool-less models disable native Pi tools without guessing unknown ca
   assert.equal(toolMode(catalog,'no-tools'), 'disabled');
   assert.equal(toolMode(catalog,'tools'), 'default');
   assert.equal(toolMode(catalog,'unknown'), 'default');
+});
+
+async function projectedBootstrap(t) {
+  const root = await mkdtemp(join(tmpdir(), 'pi-coding-projection-'));
+  t.after(() => rm(root, {recursive: true, force: true}));
+  const source = fileURLToPath(new URL('../../instances/pi-coding/files/', import.meta.url));
+  const revision = join(root, '..2026_fixture');
+  await mkdir(revision);
+  await symlink('..2026_fixture', join(root, '..data'));
+  for (const name of await readdir(source)) {
+    await copyFile(join(source, name), join(revision, name));
+    await symlink(`..data/${name}`, join(root, name));
+  }
+  return {root, source};
+}
+
+function cli(path, env = {}, args = []) {
+  return spawnSync(process.execPath, [path, ...args], {env: {PATH: '', ...env},
+    encoding: 'utf8', timeout: 10000});
+}
+
+test('CLI preparation rejects missing credentials through both direct and ConfigMap-projected paths', async t => {
+  const {root, source} = await projectedBootstrap(t);
+  for (const directory of [source, root]) {
+    for (const args of [[], ['--tool-mode']]) {
+      const result = cli(join(directory, 'prepare-cli.mjs'), {}, args);
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /The LiteLLM runtime credential is unavailable/);
+    }
+  }
+});
+
+test('a ConfigMap-projected installer actually runs and refuses an unavailable download tool', async t => {
+  const {root, source} = await projectedBootstrap(t);
+  for (const [index, directory] of [source, root].entries()) {
+    const runtimeDir = join(root, `runtime-${index}`);
+    const result = cli(join(directory, 'install-cli.mjs'), {PI_RUNTIME_DIR: runtimeDir});
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Unable to download the pinned Pi Coding runtime/);
+    assert.deepEqual(await readdir(runtimeDir), []);
+  }
+});
+
+test('importing runtime functions does not install or prepare an application', async t => {
+  const {root} = await projectedBootstrap(t);
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `await import(${JSON.stringify(join(root, 'install.mjs'))}); await import(${JSON.stringify(join(root, 'prepare.mjs'))});`],
+  {env: {}, encoding: 'utf8', timeout: 10000});
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, '');
+});
+
+test('installation requires executable, compatible versions and redacts child diagnostics', async t => {
+  const {root} = await projectedBootstrap(t);
+  const terminal = join(root, 'ttyd');
+  const agent = join(root, 'pi', 'pi');
+  await assert.rejects(verifyInstallation(root), /pinned ttyd runtime is missing/);
+  await mkdir(join(root, 'pi'));
+  await writeFile(terminal, '#!/bin/sh\nprintf "ttyd version 1.7.7\\n"\n', {mode: 0o755});
+  await writeFile(agent, '#!/bin/sh\nprintf "Pi v1.0.0\\n"\n', {mode: 0o755});
+  await verifyInstallation(root);
+  await chmod(terminal, 0o600);
+  await assert.rejects(verifyInstallation(root), /pinned ttyd runtime/);
+  await chmod(terminal, 0o755);
+  await writeFile(agent, '#!/bin/sh\nprintf "unexpected-version\\n"\n');
+  await assert.rejects(verifyInstallation(root), /pinned Pi runtime/);
+  await writeFile(agent, '#!/bin/sh\nprintf "synthetic-private-diagnostic" >&2\nexit 1\n');
+  await assert.rejects(verifyInstallation(root), error =>
+    error.message === 'The pinned Pi runtime is missing, not executable or incompatible.');
+  await rm(agent);
+  await symlink(terminal, agent);
+  await assert.rejects(verifyInstallation(root), /pinned Pi runtime/);
 });

@@ -49,6 +49,7 @@ spec:
     - "*.hermes.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "*.paperclip.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "*.kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "*.oc.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "*.pi-coding.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "*.odysseus.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"

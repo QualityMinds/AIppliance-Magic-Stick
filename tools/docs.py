@@ -30,7 +30,8 @@ REDIRECT_OUT = ROOT / 'dist/pages-redirect'
 CATALOG = ROOT / 'magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml'
 REPO = 'https://github.com/QualityMinds/AIppliance-Magic-Stick'
 MARKETING_PAGES = ('index.html', 'de.html', 'editions.html', 'editionen.html',
-                   'imprint.html', 'impressum.html', 'privacy.html', 'datenschutz.html')
+                   'imprint.html', 'impressum.html', 'privacy.html', 'datenschutz.html',
+                   'social.html', 'sozial.html')
 # Search-engine ownership verification files, published unchanged at the site root.
 VERIFICATION_FILES = ('BingSiteAuth.xml',)
 
@@ -224,6 +225,33 @@ def marketing_links(text):
     return re.sub(r'(href=")([^"]+)(")', replace, text)
 
 
+def legal_includes(text, root=DOCS):
+    """Fill `data-legal-include` elements with the text of the named legal page.
+
+    The combined social page (social.html, sozial.html) shows the imprint and
+    the privacy policy below each other without a second copy of the text: each
+    placeholder receives the content of that page's `<main>`, with headings one
+    level lower below the page's own `<h1>`, followed by the page's inline script
+    (the statistics opt-out). The legal pages use unique section IDs between
+    them, which tests/test_website.py checks on the combined result. Links from
+    the combined page to a section of an included page (`privacy.html#video`)
+    become links within the page (`#video`).
+    """
+    included = []
+    def replace(match):
+        opening, name, rest, closing = match[1], match[3], match[4], match[5]
+        included.append(name)
+        source = (root / name).read_text()
+        body = re.search(r'<main\b[^>]*>(.*?)</main>', source, re.S)[1]
+        body = re.sub(r'<(/?)h([1-5])\b', lambda m: f'<{m[1]}h{int(m[2]) + 1}', body)
+        scripts = ''.join(re.findall(r'<script>.*?</script>', source, re.S | re.I))
+        return opening + rest + body.rstrip() + '\n    ' + scripts + closing
+    text = re.sub(r'(<(\w+)\b[^>]*?) data-legal-include="([^"]+)"([^>]*>).*?(</\2>)', replace, text, flags=re.S)
+    for name in included:
+        text = text.replace(f'href="{name}#', 'href="#')
+    return text
+
+
 def llms_links(text):
     return re.findall(r'\]\(([^)\s]+)\)', text)
 
@@ -327,7 +355,7 @@ def build():
         page.write_text(with_analytics(page.read_text(), analytics))
     for name in (*MARKETING_PAGES, *VERIFICATION_FILES, 'site.css', 'site.js'):
         if name.endswith('.html'):
-            (OUT / name).write_text(with_analytics(marketing_links((DOCS / name).read_text()), analytics))
+            (OUT / name).write_text(with_analytics(marketing_links(legal_includes((DOCS / name).read_text())), analytics))
         else:
             shutil.copy2(DOCS / name, OUT / name)
     shutil.copytree(DOCS / 'assets', OUT / 'assets', dirs_exist_ok=True)

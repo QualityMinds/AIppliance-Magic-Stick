@@ -109,15 +109,25 @@ data:
     OIDC_EXPECTED_CLIENT_IDS_RAW = (
         os.environ.get("OIDC_EXPECTED_CLIENT_IDS")
         or os.environ.get("OIDC_EXPECTED_CLIENT_ID")
-        or "magicstick-human-gateway-local,magicstick-cli"
+        or "magicstick-human-gateway-local,magicstick-cli,magicstick-console"
     )
     OIDC_EXPECTED_CLIENT_IDS = {
         value.strip()
         for value in OIDC_EXPECTED_CLIENT_IDS_RAW.split(",")
         if value.strip()
     }
-    AUTH_CACHE_TTL_SECONDS = 30
-    AUTH_CACHE = {}
+    # The physical appliance console signs in with this confidential
+    # service-account client; its access level is an administrator setting.
+    CONSOLE_CLIENT_ID = os.environ.get("CONSOLE_OIDC_CLIENT_ID", "magicstick-console").strip()
+    CONSOLE_SERVICE_ACCOUNT_USERNAME = "service-account-" + CONSOLE_CLIENT_ID
+    CONSOLE_ACCESS_LEVELS = ("off", "viewer", "operator", "admin")
+    # The gateway and the frontend proxy always add at least one of these and a
+    # network client cannot remove them. The attached console calls the
+    # cluster-internal Service directly and sends none.
+    PROXIED_REQUEST_HEADERS = (
+        "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP",
+        "X-Envoy-External-Address", "X-Envoy-Original-Path", "Forwarded", "Via",
+    )
     ROLE_ACCESS = {
         "user": {"magicstick-user", "magicstick-viewer", "magicstick-operator", "magicstick-admin"},
         "viewer": {"magicstick-viewer", "magicstick-operator", "magicstick-admin"},
@@ -215,6 +225,28 @@ data:
             self.status = status
 
 
+    class GpuValidationConflict(RequestError):
+        # Fixed public reasons only; no Kubernetes response or exception text.
+        messages = {
+            "GPU_NODE_CHANGED": "The node changed; refresh Hardware before requesting validation",
+            "GPU_DEVICE_UNAVAILABLE": "A selected GPU changed, is unavailable or already has a pending diagnostic; refresh Hardware",
+            "GPU_EVIDENCE_STALE": "Physical GPU evidence changed or expired; refresh Hardware before validation",
+            "GPU_PROVIDER_UNSUPPORTED": "No approved diagnostic exists for the selected provider",
+            "GPU_OPERATOR_DISABLED": "The GPU operator is no longer enabled; refresh Hardware",
+            "GPU_CONFIGURATION_CHANGED": "The GPU configuration changed; refresh Hardware before validation",
+            "GPU_REQUEST_CONFLICT": "Validation could not be recorded for every provider",
+        }
+
+        def __init__(self, code, accepted=None, current_generation=None, inventory_generation=None):
+            message = self.messages[code]
+            if code == "GPU_REQUEST_CONFLICT":
+                message += ". Accepted providers: " + (", ".join(x for x in (accepted or []) if x in ("amd-gpu", "gpu")) or "none") + ". Refresh Hardware before retrying."
+            super().__init__(409, message)
+            self.code = code
+            valid = lambda value: value if type(value) is int and 0 < value <= 2147483647 else None
+            self.generations = {"currentGeneration": valid(current_generation), "inventoryGeneration": valid(inventory_generation)} if code == "GPU_CONFIGURATION_CHANGED" else None
+
+
     def jwt_payload(access_token):
         try:
             encoded = access_token.split(".")[1]
@@ -230,10 +262,8 @@ data:
             raise AuthError(401, "authentication required")
         access_token = access_token.strip()
         now = time.time()
-        cache_key = hashlib.sha256(access_token.encode("utf-8")).hexdigest()
-        cached = AUTH_CACHE.get(cache_key)
-        if cached and cached[0] > now:
-            return cached[1]
+        # Check the live Keycloak session on every request. Cached positive
+        # decisions would leave another host usable after central logout.
 
         request = urllib.request.Request(
             OIDC_USERINFO_URL,
@@ -266,6 +296,11 @@ data:
         realm_access = claims.get("realm_access") or {}
         raw_roles = realm_access.get("roles", []) if isinstance(realm_access, dict) else []
         roles = {str(role) for role in raw_roles} if isinstance(raw_roles, list) else set()
+        local_console = bool(CONSOLE_CLIENT_ID) and str(claims.get("azp") or "") == CONSOLE_CLIENT_ID
+        if local_console:
+            # Token claims can be up to one token lifetime old. The console
+            # setting must take effect immediately, so read the live roles.
+            roles = console_live_roles(str(userinfo.get("sub") or claims.get("sub") or ""), roles)
         principal = {
             "subject": str(userinfo.get("sub") or claims.get("sub") or ""),
             "username": str(
@@ -277,12 +312,23 @@ data:
             ),
             "roles": sorted(roles),
         }
-        AUTH_CACHE[cache_key] = (min(now + AUTH_CACHE_TTL_SECONDS, float(claims["exp"])), principal)
+        if local_console:
+            principal["localConsole"] = True
         return principal
 
 
-    def authorize(authorization, required_access):
+    def require_local_console_transport(principal, headers):
+        # A copied console secret must be useless away from the appliance:
+        # its tokens are honoured only on the direct in-cluster connection.
+        if not (principal or {}).get("localConsole"):
+            return
+        if headers is None or any(headers.get(name) for name in PROXIED_REQUEST_HEADERS):
+            raise AuthError(403, "the local console session is only accepted on the appliance itself")
+
+
+    def authorize(authorization, required_access, headers=None):
         principal = authenticated_principal(authorization)
+        require_local_console_transport(principal, headers)
         allowed_roles = ROLE_ACCESS[required_access]
         if not allowed_roles.intersection(principal["roles"]):
             raise AuthError(403, f"{required_access} role required")
@@ -708,13 +754,93 @@ data:
         }
 
 
+    def is_console_service_account(user):
+        if not isinstance(user, dict) or not user.get("id"):
+            return False
+        client_id = str(user.get("serviceAccountClientId") or "")
+        username = str(user.get("username") or "").lower()
+        return client_id == CONSOLE_CLIENT_ID or (not client_id and username == CONSOLE_SERVICE_ACCOUNT_USERNAME.lower())
+
+
+    def console_service_account(user_id):
+        payload, _ = keycloak_admin_request("GET", _user_path(user_id))
+        if not is_console_service_account(payload):
+            raise RequestError(404, "user not found")
+        return payload
+
+
+    def console_live_roles(subject, token_roles):
+        if IDENTITY_MANAGEMENT_MODE != "keycloak":
+            return set(token_roles)
+        if not subject or not USER_ID.fullmatch(subject):
+            raise AuthError(401, "invalid access token")
+        try:
+            account = console_service_account(subject)
+            if not account.get("enabled"):
+                return set()
+            return role_names(keycloak_user_roles(subject, effective=True)) & MANAGED_REALM_ROLES
+        except RequestError as error:
+            if error.status == 404:
+                raise AuthError(401, "access token client is not trusted") from error
+            raise AuthError(503, "identity provider unavailable") from error
+        except (urllib.error.URLError, TimeoutError) as error:
+            raise AuthError(503, "identity provider unavailable") from error
+
+
+    def console_account():
+        require_identity_management()
+        query = urllib.parse.urlencode({"username": CONSOLE_SERVICE_ACCOUNT_USERNAME, "exact": "true"})
+        page, _ = keycloak_admin_request("GET", _realm_path("/users?") + query)
+        if not isinstance(page, list):
+            raise RequestError(503, "identity provider returned an invalid response")
+        return next((user for user in page if is_console_service_account(user)), None)
+
+
+    def console_access_payload(account):
+        level = "off"
+        if account and account.get("enabled"):
+            direct = role_names(keycloak_user_roles(str(account["id"]), effective=False)) & MANAGED_REALM_ROLES
+            candidate = access_level(direct) if direct else "off"
+            level = candidate if candidate in CONSOLE_ACCESS_LEVELS else "off"
+        return {"available": bool(account), "accessLevel": level, "accessLevels": list(CONSOLE_ACCESS_LEVELS)}
+
+
+    def get_console_access(principal):
+        live_admin_actor(principal)
+        return console_access_payload(console_account())
+
+
+    def update_console_access(principal, payload, request_id=""):
+        _reject_unknown_fields(payload, {"accessLevel"})
+        level = _clean_text(payload, "accessLevel", 16, required=True)
+        if level not in CONSOLE_ACCESS_LEVELS:
+            raise RequestError(400, "accessLevel must be off, viewer, operator, or admin")
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            try:
+                account = console_account()
+                if not account:
+                    raise RequestError(409, "automatic console sign-in is not provisioned on this appliance yet")
+                if not account.get("enabled"):
+                    raise RequestError(409, "the local console account is disabled in the identity provider")
+                _replace_managed_roles(str(account["id"]), set() if level == "off" else ACCESS_LEVEL_ROLES[level])
+                # Principal checks always consult Keycloak; a downgrade takes
+                # effect on the next request without a positive session cache.
+                result = console_access_payload(account)
+            except Exception as error:
+                _audit_failure(principal, "update-console-access", "local-console", request_id, error)
+                raise
+            audit_user_action(principal, "update-console-access", "local-console:" + level, "success", request_id, 200)
+            return result
+
+
     def live_admin_actor(principal):
         require_identity_management()
         subject = str((principal or {}).get("subject") or "")
         if not subject:
             raise AuthError(403, "administrator identity is unavailable")
         try:
-            actor = keycloak_user(subject)
+            actor = console_service_account(subject) if (principal or {}).get("localConsole") else keycloak_user(subject)
         except RequestError as error:
             if error.status == 404:
                 raise AuthError(403, "administrator access has been revoked") from error
@@ -923,7 +1049,7 @@ data:
 
 
     def _appliance_api_server_endpoint(api_server, current_mdns_domain):
-        """Prefer a current control-plane IP when the marker still uses mDNS."""
+        """Keep the legacy IP fallback, but never export an internal service address."""
         if not _safe_https_endpoint(api_server):
             return api_server
         parsed = urllib.parse.urlsplit(api_server)
@@ -967,6 +1093,7 @@ data:
                     or candidate.is_loopback
                     or candidate.is_multicast
                     or candidate.is_unspecified
+                    or candidate == ipaddress.IPv4Address("10.43.0.0")
                 ):
                     continue
                 host = "[" + candidate.compressed + "]" if candidate.version == 6 else candidate.compressed
@@ -3449,12 +3576,12 @@ data:
         uid = (node.get("metadata") or {}).get("uid")
         boot = (node.get("status") or {}).get("nodeInfo", {}).get("bootID")
         if not uid or payload.get("nodeUid") != uid:
-            raise RequestError(409, "The node changed; refresh Hardware before requesting validation")
+            raise GpuValidationConflict("GPU_NODE_CHANGED")
         devices = [d for o in (appliance().get("status", {}).get("hardwareOperators") or {}).values() for d in o.get("devices", [])]
         selected = [d for d in devices if d.get("id") in ids and d.get("nodeUid") == uid and d.get("node") == name]
         if len(selected) != len(ids) or any(not d.get("validationAvailable") or d.get("bootId") != boot
                                           or d.get("validation", {}).get(engine, {}).get("state") in ("queued", "running") for d in selected):
-            raise RequestError(409, "A selected GPU changed, is unavailable or already has a pending diagnostic; refresh Hardware")
+            raise GpuValidationConflict("GPU_DEVICE_UNAVAILABLE")
         try:
             host = json.loads((node.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/gpu-host-preflight", ""))
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(host["generatedAt"].replace("Z", "+00:00"))).total_seconds()
@@ -3464,23 +3591,24 @@ data:
                            or host.get("fingerprint") != d.get("hostFingerprint") for d in selected)):
                 raise ValueError("stale host")
         except (ValueError, TypeError, KeyError, AttributeError):
-            raise RequestError(409, "Physical GPU evidence changed or expired; refresh Hardware before validation")
+            raise GpuValidationConflict("GPU_EVIDENCE_STALE")
         # Verify all targets before writing any request. Requests are recorded on
         # their existing vendor ModuleActivations, never in Git-owned spec.
         changes = {}
         for device in selected:
             module = device.get("module")
             if module not in ("amd-gpu", "gpu"):
-                raise RequestError(409, "No approved diagnostic exists for the selected provider")
+                raise GpuValidationConflict("GPU_PROVIDER_UNSUPPORTED")
             if module not in changes:
                 activation = module_activation(module) or {}
                 metadata = activation.get("metadata") or {}
                 if not metadata.get("resourceVersion") or activation.get("spec", {}).get("enabled", True) is False or metadata.get("deletionTimestamp"):
-                    raise RequestError(409, "The GPU operator is no longer enabled; refresh Hardware")
+                    raise GpuValidationConflict("GPU_OPERATOR_DISABLED")
                 changes[module] = (metadata, {})
             metadata, annotations = changes[module]
             if metadata.get("generation") != device.get("activationGeneration"):
-                raise RequestError(409, "The GPU configuration changed; refresh Hardware before validation")
+                raise GpuValidationConflict("GPU_CONFIGURATION_CHANGED", current_generation=metadata.get("generation"),
+                                            inventory_generation=device.get("activationGeneration"))
             key = "appliance.magicstick.dev/device-validation-" + hashlib.sha256((device["id"] + ":" + engine).encode()).hexdigest()[:24]
             annotations[key] = json.dumps({"requestId": request_id, "context": device["validationContext"]}, sort_keys=True)
         accepted = []
@@ -3491,7 +3619,7 @@ data:
                                  {"metadata": {"resourceVersion": metadata["resourceVersion"], "annotations": annotations}}, "application/merge-patch+json")
                 accepted.append(module)
             except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-                raise RequestError(409, "Validation could not be recorded for every provider. Accepted providers: " + (", ".join(accepted) or "none") + ". Refresh Hardware before retrying.")
+                raise GpuValidationConflict("GPU_REQUEST_CONFLICT", accepted)
         return {"accepted": True, "requestId": request_id, "deviceIds": ids}
 
 
@@ -6381,6 +6509,35 @@ data:
                 *([] if cache_known else ["Cache placement is incomplete; unquantified recurrent/unsupported caches still require runtime validation."])]}
 
 
+    def nvidia_model_memory_capacity(local, activations, vram=None):
+        """One automatic GPU is not the sum of a node/cluster scheduling pool.
+
+        Device-plugin placement does not promise which physical card is chosen.
+        Bound a one-card budget by every eligible card's physical capacity;
+        unreserved planning can use a free sibling, never their summed bytes.
+        Explicit DRA groups retain the existing smallest-per-card contract.
+        """
+        memory = compute_memory_summary(activations, vram)
+        selections = nvidia_model_devices(local) if local.get("gpuDevice") or local.get("gpuDevices") else []
+        if selections:
+            cards = [next((d for d in memory.get("devices", []) if d.get("gpuDevice") == selection), {}) for selection in selections]
+        else:
+            definition = (compute_target_catalog().get("targets") or {}).get("nvidia-gpu") or {}
+            selector = {**(definition.get("nodeSelector") or {}),
+                        **(target_engine_profile(definition, normalize_local_engine(local.get("engine"))).get("nodeSelector") or {})}
+            nodes = {(n.get("metadata") or {}).get("name") for n in ready_schedulable_nodes() if all(
+                str(((n.get("metadata") or {}).get("labels") or {}).get(k) or "") == str(v) for k, v in selector.items())}
+            cards = [d for d in memory.get("devices", []) if d.get("computeTarget") == "nvidia-gpu"
+                     and len(d.get("nodes") or []) == 1 and d["nodes"][0] in nodes]
+        physical = [nvidia_physical_capacity_mi(d) for d in cards]
+        physical_maximum = min(physical) if physical and all(physical) else None
+        unreserved = [d.get("unreservedMi") for d in cards]
+        known = bool(cards) and all(type(v) is int and v >= 0 for v in unreserved)
+        available = (min(unreserved) if selections else max(unreserved)) if known else None
+        maximum = min(available, physical_maximum) if available is not None and physical_maximum is not None else None
+        return {"maximumMi": maximum, "physicalMaximumMi": physical_maximum, "devices": cards}
+
+
     def estimate_model_memory(payload, exclude_model=""):
         payload = payload or {}
         engine = normalize_local_engine(payload.get("engine"))
@@ -6420,17 +6577,17 @@ data:
                 if not exclude_model or (activation.get("metadata") or {}).get("name") != exclude_model
             ]
         vram = vram_summary(activations) if compute_target == "nvidia-gpu" else {"available": False}
-        maximum_mi = vram.get("plannedRemainingMi") if vram.get("available") else None
+        maximum_mi = None
+        nvidia_capacity = None
         selections = []
         selected_memory = []
+        if compute_target == "nvidia-gpu":
+            nvidia_capacity = nvidia_model_memory_capacity(payload, activations, vram)
+            maximum_mi = nvidia_capacity["maximumMi"]
         if payload.get("gpuDevice") or payload.get("gpuDevices"):
             validate_nvidia_gpu_selection(payload, exclude_model)
             selections = nvidia_model_devices(payload)
-            memory = compute_memory_summary(activations, vram)
-            selected_memory = [next((d for d in memory.get("devices", []) if d.get("gpuDevice") == selection), {}) for selection in selections]
-            maximum_mi = min(d["unreservedMi"] for d in selected_memory) if all(d.get("unreservedMi") is not None for d in selected_memory) else None
-            if len(selections) > 1 and maximum_mi is not None:
-                maximum_mi = min(maximum_mi, *(nvidia_physical_capacity_mi(d) or 0 for d in selected_memory))
+            selected_memory = nvidia_capacity["devices"]
         shared_pools = []
         if compute_target == "amd-gpu":
             definition = (compute_target_catalog().get("targets") or {}).get(compute_target) or {}
@@ -6495,6 +6652,10 @@ data:
             "gpuAvailable": bool(vram.get("available")),
             "warnings": warnings,
         }
+        if nvidia_capacity is not None:
+            result.update(physicalMaximumMi=nvidia_capacity["physicalMaximumMi"], memoryBudgetScope="per-device")
+            if not selections:
+                warnings.append("Automatic NVIDIA placement uses one GPU, not pooled VRAM. The smallest eligible physical card bounds the budget; unreserved memory is a planning estimate, not an exact assignment.")
         if len(selections) > 1:
             replica_count = len(selections) if payload.get("gpuDeployment") == "replicated" else 1
             host_maximum = offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"])
@@ -7003,6 +7164,14 @@ data:
                         )
             else:
                 gpu_count = len(local.get("gpuDevices") or [])
+                if compute_target == "nvidia-gpu" and gpu_count <= 1:
+                    budget = positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or parse_mib((selected_artifact or {}).get("vram"))
+                    if budget:
+                        # Physical capacity is independent of reservations and
+                        # of the old budget being edited, including invalid ones.
+                        physical = nvidia_model_memory_capacity(local, [])["physicalMaximumMi"]
+                        if physical is not None and budget > physical:
+                            raise ValueError("The VRAM budget exceeds physical memory for a single GPU. Choose a smaller budget or an explicit multi-GPU split; memory-risk acceptance cannot combine cards.")
                 if gpu_count > 1:
                     estimate = estimate_model_memory({**local, "url": resolved_model_url}, exclude_model)
                     budget = positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or parse_mib((selected_artifact or {}).get("vram"))
@@ -9104,13 +9273,21 @@ data:
         return "operator" if credential_route else "viewer"
 
 
+    class DashboardHTTPServer(ThreadingHTTPServer):
+        # HTTP/2 page loads become many independent HTTP ext_authz connections.
+        # The stdlib's five-slot accept queue loses short resource bursts before
+        # the handler (and therefore its authorization/error handling) can run.
+        # This bounds waiting connections, not authentication decisions/workers.
+        request_queue_size = 128
+
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "MagicStickDashboardAPI/0.6"
 
         def log_message(self, format, *args):
             # Broker callbacks can contain authorization codes in their query.
             # Envoy appends that original path to the internal ext_authz prefix.
-            if urllib.parse.urlparse(getattr(self, "path", "")).path.startswith("/internal/federation-license"):
+            if urllib.parse.urlparse(getattr(self, "path", "")).path.startswith("/internal/"):
                 return
             print("%s - %s" % (self.address_string(), format % args), flush=True)
 
@@ -9123,8 +9300,12 @@ data:
             self.end_headers()
             self.wfile.write(data)
 
-        def send_error_json(self, status, message):
-            self.send_json({"error": message}, status)
+        def send_error_json(self, status, message, code=None, generations=None):
+            extra = {"code": code} if isinstance(code, str) and code in GpuValidationConflict.messages else {}
+            if code == "GPU_CONFIGURATION_CHANGED" and isinstance(generations, dict):
+                extra["generations"] = {key: value if type(value) is int and 0 < value <= 2147483647 else None
+                                        for key in ("currentGeneration", "inventoryGeneration") for value in [generations.get(key)]}
+            self.send_json({"error": message, **extra}, status)
 
         def send_auth_error(self, error):
             if error.status == 401:
@@ -9140,7 +9321,7 @@ data:
             self.send_error_json(error.status, str(error))
 
         def require_access(self, required_access):
-            return authorize(self.headers.get("Authorization", ""), required_access)
+            return authorize(self.headers.get("Authorization", ""), required_access, self.headers)
 
         def request_id(self):
             candidate = str(self.headers.get("X-Request-ID", "") or "").strip()
@@ -9152,45 +9333,155 @@ data:
             parsed = urllib.parse.urlparse(self.path)
             return parsed.path.rstrip("/") or "/"
 
+        def edge_authorization(self):
+            # LiteLLM preserves its own Authorization header; prefer the
+            # verified gateway cookie for the browser identity in that case.
+            from http.cookies import SimpleCookie
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            cookie = cookies.get("__Host-MagicStickAccessToken")
+            return "Bearer " + cookie.value if cookie else self.headers.get("Authorization", "")
+
+        def send_edge_auth_error(self, error):
+            # A navigation hint is never an authorization decision. Only a
+            # confirmed authentication rejection can restart this host's OIDC
+            # flow; missing grants and verification outages remain closed.
+            status = error.status if isinstance(error, AuthError) and error.status in {401, 403} else 503
+            from http.cookies import CookieError, SimpleCookie
+            cookies = SimpleCookie()
+            try:
+                cookies.load(self.headers.get("Cookie", ""))
+            except CookieError:
+                cookies = SimpleCookie()
+            navigation = (
+                self.command in {"GET", "HEAD"}
+                and self.headers.get("Sec-Fetch-Mode", "") == "navigate"
+                and self.headers.get("Sec-Fetch-Dest", "") == "document"
+                and any(part.strip().split(";", 1)[0].lower() == "text/html"
+                        for part in self.headers.get("Accept", "").split(","))
+            )
+            if (status == 401 and navigation and cookies.get("__Host-MagicStickAccessToken")
+                    and not cookies.get("__Host-MagicStickReauth")):
+                self.send_response(303)
+                # Constant same-origin destination: no Host, Referer, query or
+                # original-path value can turn this into an open redirect.
+                self.send_header("Location", "/")
+                self.send_header("Cache-Control", "no-store")
+                attrs = "; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax"
+                for name in ("__Host-MagicStickAccessToken", "__Host-MagicStickIDToken"):
+                    self.send_header("Set-Cookie", name + "=" + attrs)
+                # The existing Lua clears this host-only loop fence only after
+                # a successful protected response. It contains no identity.
+                self.send_header("Set-Cookie", "__Host-MagicStickReauth=1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if status == 401:
+                self.send_auth_error(AuthError(401, "Sign-in is required; return to the application to sign in again."))
+            elif status == 403:
+                self.send_error_json(403, "Access denied.")
+            else:
+                self.send_error_json(503, "Access verification is unavailable. Please retry later.")
+
+        def edge_guard_failure(self, error, stage, started):
+            # The original request may contain callback codes, tokens or private
+            # instance names. Emit only fixed classifications and our own opaque
+            # identifier; never log exception text, headers, paths or bodies.
+            check_id = secrets.token_hex(12)
+
+            def record(failure, failure_stage):
+                status = failure.status if isinstance(failure, AuthError) and failure.status in {401, 403} else 503
+                cause = failure.__cause__ or failure
+                if isinstance(failure, BrokenPipeError):
+                    reason = "peer_closed"
+                elif isinstance(failure, ConnectionResetError):
+                    reason = "connection_reset"
+                elif status == 401:
+                    reason = "authentication_rejected"
+                elif status == 403:
+                    reason = "access_denied"
+                elif isinstance(cause, urllib.error.HTTPError):
+                    reason = "dependency_http"
+                elif isinstance(cause, TimeoutError) or (
+                        isinstance(cause, urllib.error.URLError) and isinstance(cause.reason, TimeoutError)):
+                    reason = "dependency_timeout"
+                elif isinstance(cause, (urllib.error.URLError, OSError)):
+                    reason = "transport_unavailable"
+                else:
+                    reason = "verification_unavailable"
+                allowed = {"instance-input", "instance-read", "session-check", "access-check", "response-write"}
+                print(json.dumps({"event": "edge_guard_failure", "check_id": check_id,
+                                  "stage": failure_stage if failure_stage in allowed else "unknown",
+                                  "reason": reason, "status": None if failure_stage == "response-write" else status,
+                                  "elapsed_ms": min(120000, max(0, int((time.monotonic() - started) * 1000)))}), flush=True)
+
+            record(error, stage)
+            if stage == "response-write":
+                # A response has already started. A disconnected peer must not
+                # cause a second HTTP status line or a speculative retry.
+                self.close_connection = True
+                return
+            try:
+                self.send_edge_auth_error(error)
+            except (BrokenPipeError, ConnectionResetError) as write_error:
+                record(write_error, "response-write")
+                self.close_connection = True
+
         def handle_instance_guard(self):
             parts = self.route().strip("/").split("/")
             if len(parts) < 2 or parts[:2] != ["internal", "instance-access"]:
                 return False
+            started, stage = time.monotonic(), "instance-input"
             try:
                 if len(parts) < 4 or not DNS_LABEL.fullmatch(parts[2]) or not USER_ID.fullmatch(parts[3]):
                     raise AuthError(403, "Invalid instance access request.")
+                stage = "instance-read"
                 instance = app_instance(parts[2])
                 metadata = (instance or {}).get("metadata") or {}
                 spec = (instance or {}).get("spec") or {}
                 if metadata.get("uid") != parts[3] or metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
                     raise AuthError(403, "Instance is unavailable.")
-                if instance_is_restricted(instance):
-                    authorization = self.headers.get("Authorization", "")
-                    if not authorization:
-                        from http.cookies import SimpleCookie
-                        cookies = SimpleCookie()
-                        cookies.load(self.headers.get("Cookie", ""))
-                        cookie = cookies.get("MagicStickAccessToken")
-                        authorization = "Bearer " + cookie.value if cookie else ""
-                    principal = authenticated_principal(authorization)
-                    access = spec.get("access") or {}
+                access = spec.get("access") or {}
+                authentication = access.get("authentication", "sso")
+                if authentication not in {"sso", "none"}:
+                    raise AuthError(403, "Invalid instance authentication.")
+                if authentication == "sso" or instance_is_restricted(instance):
+                    stage = "session-check"
+                    principal = authenticated_principal(self.edge_authorization())
+                    require_local_console_transport(principal, self.headers)
+                    stage = "access-check"
                     role = access.get("role", "user")
                     allowed = MANAGED_REALM_ROLES if role == "user" else ROLE_ACCESS.get(role, set())
                     if not allowed.intersection(principal.get("roles", [])):
                         raise AuthError(403, "Instance access denied.")
-                    require_instance_usage(instance, principal)
+                    if instance_is_restricted(instance):
+                        require_instance_usage(instance, principal)
                 # HTTP ext_authz accepts exactly 200 OK, not arbitrary 2xx.
+                stage = "response-write"
                 self.send_response(200)
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
-            except Exception:
+            except Exception as error:
                 # No PII, upstream response body, credential or policy is exposed at the edge.
-                self.send_error_json(403, "Instance access denied or verification unavailable.")
+                self.edge_guard_failure(error, stage, started)
             return True
 
         def handle_edge_guard(self):
             path = self.route()
+            if path == "/internal/session-access" or path.startswith("/internal/session-access/"):
+                started, stage = time.monotonic(), "session-check"
+                try:
+                    principal = authenticated_principal(self.edge_authorization())
+                    require_local_console_transport(principal, self.headers)
+                    stage = "response-write"
+                    self.send_response(200)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                except Exception as error:
+                    self.edge_guard_failure(error, stage, started)
+                return True
             if path != "/internal/federation-license" and not path.startswith("/internal/federation-license/"):
                 return self.handle_instance_guard()
             try:
@@ -9465,6 +9756,10 @@ data:
                 if path == "/api/api-access":
                     self.require_access("admin")
                     self.send_json(list_api_access())
+                    return
+                if path == "/api/console-access":
+                    principal = self.require_access("admin")
+                    self.send_json(get_console_access(principal))
                     return
                 required_access = required_get_access(parts)
                 principal = self.require_access(required_access)
@@ -9790,7 +10085,8 @@ data:
             except AuthError as error:
                 self.send_auth_error(error)
             except RequestError as error:
-                self.send_error_json(error.status, str(error))
+                self.send_error_json(error.status, str(error), error.code if isinstance(error, GpuValidationConflict) else None,
+                                     error.generations if isinstance(error, GpuValidationConflict) else None)
             except urllib.error.HTTPError as error:
                 if self.route().startswith("/api/api-access"):
                     self.send_error_json(503, "API access management is unavailable")
@@ -9838,6 +10134,11 @@ data:
                             self.request_id(),
                         )
                     )
+                    return
+                if path == "/api/console-access":
+                    principal = self.require_access("admin")
+                    validate_user_mutation_request(self)
+                    self.send_json(update_console_access(principal, read_body(self), self.request_id()))
                     return
                 if len(parts) != 4 or parts[:2] != ["api", "users"]:
                     self.send_error_json(404, "not found")
@@ -9972,7 +10273,9 @@ data:
 
 
     if __name__ == "__main__":
+        from callback_gate import start as start_callback_gate
+        callback_gate_server = start_callback_gate()
         port = int(os.environ.get("PORT", "8080"))
         threading.Thread(target=federation_entitlement_loop, daemon=True, name="federation-entitlement").start()
         threading.Thread(target=regression_cleanup_loop, daemon=True, name="regression-cleanup").start()
-        ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+        DashboardHTTPServer(("0.0.0.0", port), Handler).serve_forever()

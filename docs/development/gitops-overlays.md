@@ -26,6 +26,16 @@ before the Magic Stick Operator. NVIDIA, AMD, and Intel operator bases stay out
 of the static graph and are requested through hardware-driven
 `ModuleActivation` resources only when matching nodes are detected.
 
+Identity uses two nonoverlapping Flux apply waves: `identity-bootstrap` owns
+every non-route resource and waits for the root authentication/callback policy
+proof; `identity-pilot` owns only `platform/identity/routes` and depends on that
+bootstrap wave. Keep this ordering in external graphs too. The aggregate
+`platform/identity` render is not a safe single-wave bootstrap once route
+admission requires those policies. On an upgrade, the new bootstrap owner must
+apply and become ready before the old identity owner prunes its former
+non-route inventory. Verify the live owner labels and retained UIDs; never
+delete identity storage or credentials to resolve an ordering error.
+
 ## Optional Repository Include Pattern
 
 Advanced deployments should include this repository into their Flux source

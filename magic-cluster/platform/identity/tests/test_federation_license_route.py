@@ -9,6 +9,7 @@ import yaml
 class FederationRouteTests(unittest.TestCase):
     def setUp(self):
         self.docs = list(yaml.safe_load_all((Path(__file__).parents[1] / "routes.yaml").read_text()))
+        self.docs.extend(yaml.safe_load_all((Path(__file__).parents[1] / "routes/routes.yaml").read_text()))
 
     def resource(self, kind, name):
         return next(item for item in self.docs if item["kind"] == kind and item["metadata"]["name"] == name)

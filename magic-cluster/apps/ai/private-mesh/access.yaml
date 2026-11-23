@@ -73,3 +73,16 @@ spec:
         - {path: {type: Exact, value: /mesh/heartbeat}, method: POST}
       backendRefs:
         - {name: private-mesh, namespace: ai, port: 8083}
+---
+# These exact enrollment routes authenticate single-use/member proofs in the
+# service, not a browser login. Losing this exception closes them by default.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: private-mesh-enrollment-native-auth
+  namespace: identity-system
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: private-mesh-enrollment}
+  authorization:
+    defaultAction: Allow

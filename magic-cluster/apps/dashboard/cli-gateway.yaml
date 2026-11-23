@@ -38,6 +38,17 @@ spec:
   authorization:
     defaultAction: Deny
     rules:
+      # Rules are evaluated in order. The attached console's service account
+      # is only valid on the cluster-internal API; the API enforces the same.
+      - name: deny-local-console-identity
+        action: Deny
+        principal:
+          jwt:
+            provider: keycloak
+            claims:
+              - name: azp
+                values:
+                  - magicstick-console
       - name: required-magicstick-user
         action: Allow
         principal:

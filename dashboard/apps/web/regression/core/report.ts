@@ -5,9 +5,12 @@ import {phase1Coverage, phase1Variants, phase1Requirements, type Phase1Variant} 
 import {phase2Coverage, phase2Variants, phase2Requirements, type Phase2Variant} from '../profiles/phase2-p0.ts';
 import {gpuCoverage,gpuRequirements,phase3Variants,phase4Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
 import {remainingCoverage,remainingRequirements,remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
+import {serviceVariantCase,type ServiceMatrix} from './service-matrix.ts';
+import {loadServicePlan} from './service-plan.ts';
 import {writePrivate} from './private-files.ts';
 import {preflightDiagnosticText} from './preflight-diagnostic.ts';
 import {gpuMemoryDiagnosticText} from './gpu-memory-diagnostic.ts';
+import {parseGpuValidationDiagnostic,gpuValidationDiagnosticText,type GpuValidationDiagnostic} from './gpu-validation-diagnostic.ts';
 import {join} from 'node:path';
 import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from './evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
@@ -31,7 +34,7 @@ export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; env
   executionId?:string; executionOutcome?:'Passed'|'Failed'|'Blocked';
   traceRunId?:string;recoveryRequired?:true;
   blockedBy?:RegressionBlocker;
-  causeReason?:ReasonCode;causeStage?:Stage;cleanupDiagnostic?:CleanupDiagnostic;
+  causeReason?:ReasonCode;causeStage?:Stage;cleanupDiagnostic?:CleanupDiagnostic;gpuValidationDiagnostics?:GpuValidationDiagnostic[];
   stage?: Stage; variant?: Phase0Variant | Phase1Variant | Phase2Variant | GpuVariant | `p${5|6|7|8}-${string}` | `p${0|1|2|3|4}-non-destructive-${'tls'|'read'}`}
 export interface RecoveryAttempt {runId:string;state:'restored'|'blocked';reason?:ReasonCode}
 export function needsRecovery(cases:CaseResult[]) {
@@ -41,6 +44,7 @@ export function needsRecovery(cases:CaseResult[]) {
 
 export const reportVariants: Record<string, string> = {...phase0Variants, ...phase1Variants,...nonDestructiveVariants,
   ...Object.fromEntries(Object.entries({...phase2Variants,...phase3Variants,...phase4Variants,...remainingVariants}).map(([variant, definition]) => [variant, definition.id]))};
+export const reportVariantCase=(variant:string)=>reportVariants[variant]??serviceVariantCase(variant);
 
 export function terminalOutcome(value: Outcome): 'Passed'|'Failed'|'Blocked' {
   return value === 'Passed' ? 'Passed' : value === 'Failed' || value === 'Flaky' ? 'Failed' : 'Blocked';
@@ -61,7 +65,7 @@ export function summarizeExecutions(cases:Array<{executionId?:string;executionOu
 /** Fill the finite matrix, not just one row per catalogue family. A missing
  * prerequisite or interrupted serial group must remain visible in JSON/JUnit. */
 export function completeCases(mode:string|undefined,cases:CaseResult[],required:string[],reason:ReasonCode='PREREQUISITE',
-  recoveryFenceAtStart=false,preparation?:PreparationDiagnostic):CaseResult[] {
+  recoveryFenceAtStart=false,preparation?:PreparationDiagnostic,serviceMatrix?:ServiceMatrix):CaseResult[] {
   const result=cases.map(item=>({...item,outcome:terminalOutcome(item.outcome)}));
   const missingCause=(id:string,variant?:string):RegressionBlocker=>{
     const peers=cases.filter(item=>variant?item.variant===variant:item.id===id);
@@ -97,7 +101,7 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
   const limited=testMode(process.env.REGRESSION_TEST_MODE??'full')==='non-destructive';
   const diagnostic=diagnosticForMode(mode);
   const matrix=limited?[]:mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
-    diagnostic&&!process.env.REGRESSION_SCENARIO_ID?diagnosticRequirements(diagnostic):
+    diagnostic&&!process.env.REGRESSION_SCENARIO_ID?diagnosticRequirements(diagnostic,serviceMatrix):
     mode === 'phase3' || mode === 'phase4' ? gpuRequirements(Number(mode[5]) as 3|4) :
     mode && remainingPhase(mode) ? remainingRequirements(mode) ?? [] : [];
   for(const item of matrix)if(!result.some(proof=>proof.id === item.id && proof.variant === item.variant &&
@@ -230,19 +234,33 @@ export function liveReportScope(mode?: string) {
 
 /** Allowlisted output only. Never serialize a Playwright response, error or attachment. */
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
-  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup}) {
+  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean;cleanup?:RegressionCleanup;serviceProfile?:string}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const runTestMode=testMode(process.env.REGRESSION_TEST_MODE??'full'),limited=runTestMode==='non-destructive';
   const diagnostic=diagnosticForMode(mode);
+  const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
+  let servicePlan:Awaited<ReturnType<typeof loadServicePlan>>|undefined;
+  if(mode==='services') {
+    try {servicePlan=await loadServicePlan(lifecycle?.serviceProfile);}
+    catch(error) {
+      // Preparation may fail before an inventory can be created. Keep its
+      // original failure and scoped selection; do not invent a green empty
+      // inventory or falsely expand it into another diagnostic/full phase.
+      if(prepared?.outcome==='Passed'||!prepared&&!cases.some(item=>
+        ['HAR-02','HAR-10'].includes(item.id)&&item.outcome!=='Passed'))throw error;
+    }
+  }
   const selectionPhases=/^phase[0-8]$/.test(mode??'')?[Number(mode!.slice(-1))]:mode==='phase5-live'?[5]:mode==='all'?
     (process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number):[];
   const omittedSteps=excludedSteps(runTestMode,selectionPhases);
   const deferredApplications=deferredApplicationSteps(selectionPhases);
   const deferredText=deferredApplications.length?' Product-service/application live workflows deferred to separate regression: '+deferredApplications.join(', ')+'. Full Phase 5 service/application acceptance is not assessed.':'';
-  const selectionText=(diagnostic?`Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.')+deferredText;
+  const selectionText=(diagnostic?`Phase ${diagnostic.phase} diagnostic subset: ${diagnostic.title} (${diagnostic.caseIds.join(', ')}). Full-phase acceptance is not assessed. Preparation and resource cleanup remain required.`:limited?'Non-destructive tests only: existing workloads/settings/caches are unchanged; destructive and preparation-dependent live steps are excluded, not passed. Full-phase acceptance is not assessed.':isolatedStep(mode??'')?'Isolated tests only; no appliance changes or installed acceptance.':'Full tests, including destructive scenarios.')+deferredText+
+    (mode==='services'&&!servicePlan?' Service inventory is unavailable; no service acceptance is assessed.':'');
   const portableArchive=Boolean(diagnostic)||mode==='all'||mode==='selftest'||mode==='recover'||mode==='phase4-sharing'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
-  const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
-  const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true,prepared).map(item => {
+  const reportCases=mode==='services'&&!servicePlan&&!cases.length&&prepared&&prepared.outcome!=='Passed'?
+    [{id:'HAR-02',layer:'A' as const,environment:'live' as const,outcome:prepared.outcome,durationMs:0,reason:prepared.reason??'PREREQUISITE' as const}]:cases;
+  const safe = withBlockedCauses(completeCases(mode,reportCases,mode==='services'&&!servicePlan?[]:required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true,prepared,servicePlan?.matrix).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
     requireSafe(['Passed', 'Failed', 'Blocked', 'Skipped', 'Not run', 'Flaky'].includes(item.outcome) &&
       testLayers.includes(item.layer) && Number.isFinite(item.durationMs) && item.durationMs >= 0, 'CONFIG');
@@ -251,15 +269,18 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       environment === environmentFor(item.layer)), 'CONFIG');
     const reason = item.reason && Object.hasOwn(reasons, item.reason) ? item.reason : item.outcome === 'Blocked' ? 'PREREQUISITE' as const : undefined;
     const stage = item.stage && stages.includes(item.stage) ? item.stage : undefined;
-    const variant = item.variant && Object.hasOwn(reportVariants, item.variant) && reportVariants[item.variant] === item.id ? item.variant : undefined;
+    const variant = item.variant && reportVariantCase(item.variant) === item.id ? item.variant : undefined;
     const executionId=item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) ? item.executionId : undefined;
     const executionOutcome=executionId && ['Passed','Failed','Blocked'].includes(item.executionOutcome ?? '') ? item.executionOutcome : undefined;
     const cleanupDiagnostic=item.cleanupDiagnostic?parseCleanupDiagnostic(item.cleanupDiagnostic):undefined;
+    if(item.gpuValidationDiagnostics)requireSafe(Array.isArray(item.gpuValidationDiagnostics)&&item.gpuValidationDiagnostics.length<=4,'CONFIG');
+    const gpuValidationDiagnostics=item.gpuValidationDiagnostics?.map(parseGpuValidationDiagnostic);
     if(cleanupDiagnostic)requireSafe(cleanupDiagnostic.runId===(item.traceRunId??runId),'CONFIG');
     return {id: item.id, description: caseDescription(item.id), outcome: item.outcome, layer: item.layer, environment, durationMs: Math.max(0, Math.round(item.durationMs)),
       ...(item.causeReason&&Object.hasOwn(reasons,item.causeReason)?{causeReason:item.causeReason}:{}),
       ...(item.causeStage&&stages.includes(item.causeStage)?{causeStage:item.causeStage}:{}),
       ...(cleanupDiagnostic?{cleanupDiagnostic}:{}),
+      ...(gpuValidationDiagnostics?.length?{gpuValidationDiagnostics}:{}),
       ...(reason ? {reason} : {}), ...(stage ? {stage} : {}), ...(variant ? {variant} : {}),...(executionId ? {executionId} : {}),
       ...(executionOutcome ? {executionOutcome} : {}),
       ...(item.outcome==='Blocked' && environment==='live' && prepared?.outcome==='Failed' && ['PREPARATION_FAILED','PREREQUISITE'].includes(reason ?? '') ?
@@ -280,6 +301,8 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     const d=trace.cleanupDiagnostics?.find(d=>d.state==='failed')??trace.cleanupDiagnostics?.find(d=>d.state==='running');
     if(d)row.cleanupDiagnostic=parseCleanupDiagnostic(d);
   }
+  for(const {trace} of artifacts)for(const row of safe)if(row.executionId===trace.executionId&&row.traceRunId===trace.runId&&trace.gpuValidationDiagnostics?.length)
+    row.gpuValidationDiagnostics=trace.gpuValidationDiagnostics.map(parseGpuValidationDiagnostic);
   const cleanup=cleanupStatus(lifecycle?.cleanup);
   const recoveryFenceActive=limited?false:cleanup?cleanup.state!=='verified':lifecycle?.recoveryFenceActive??needsRecovery(safe);
   const recoveryAttempts=(lifecycle?.recoveryAttempts??[]).map(item=>{
@@ -316,6 +339,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     mode?.startsWith('phase3') ? ['Intel: unavailable lab hardware'] : [];
   openGates.push(...deferredApplications);
   await writePrivate(join(directory, 'summary.json'), {version: 2, runId, sourceRevision: revision,testMode:runTestMode,excludedSteps:omittedSteps,
+    ...(servicePlan?{serviceMatrix:servicePlan.matrix}:{}),
     ...(diagnostic?{diagnosticSelection:diagnosticMetadata(diagnostic)}:{}),
     ...(prepared ? {automaticPreparation: prepared} : {}),
     scope: limited?selectionText:safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning-layer tests; no appliance acceptance',
@@ -354,6 +378,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       (item.reason ? `<br>${item.reason}: ${xml(blockerDescription(item.reason,item.id,item.variant,item.layer))}` : '')+
       (item.causeReason?`<br>Underlying cause: ${item.causeReason}${item.causeStage?' · '+item.causeStage:''}`:'')+
       (item.cleanupDiagnostic?'<details><summary>Cleanup observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(cleanupDiagnosticText(item.cleanupDiagnostic).join('\n'))+'</pre></details>':'')+
+      (item.gpuValidationDiagnostics??[]).map(d=>'<details><summary>GPU verification observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(gpuValidationDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
       (item.blockedBy?.caseId ? `<br>Blocking check: ${xml(item.blockedBy.caseId)}${item.blockedBy.reason ? ` (${xml(item.blockedBy.reason)})` : ''}${item.blockedBy.stage ? ` · Stage: ${xml(item.blockedBy.stage)}` : ''}` : '')+
       (item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason,item.blockedBy?.kind))}` : '')+'</td></tr>').join('')+'</table>'+
     '<h2>Execution steps and diagnostics</h2><p>Filtered call traces omit credentials, selectors, URLs and raw responses.</p>'+
@@ -368,6 +393,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+
       (trace.preflightDiagnostics??[]).map(d=>'<details><summary>Preflight observations — '+d.state+'</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(preflightDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
       (trace.gpuMemoryDiagnostics??[]).map(d=>'<details><summary>GPU memory draft observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(gpuMemoryDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
+      (trace.gpuValidationDiagnostics??[]).map(d=>'<details><summary>GPU verification observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(gpuValidationDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
       (trace.omittedPreflightDiagnostics?`<p>${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.</p>`:'')+
       (trace.cleanupDiagnostics??[]).map(d=>'<details><summary>Cleanup observations — '+d.state+'</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(cleanupDiagnosticText(d).join('\n'))+'</pre></details>').join('')+
       (trace.runtimeDiagnostics??[]).map(d=>'<details><summary>Runtime observations</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+xml(JSON.stringify(d,null,2))+'</pre></details>').join('')+
@@ -400,10 +426,12 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${blockerDescription(item.reason,item.id,item.variant,item.layer)}` : ''}`+
       (item.causeReason?`\n  Underlying cause: ${item.causeReason}${item.causeStage?' / '+item.causeStage:''}`:'')+
       (item.cleanupDiagnostic?'\n  Cleanup observations:\n'+cleanupDiagnosticText(item.cleanupDiagnostic).map(line=>'    '+line).join('\n'):'')+
+      (item.gpuValidationDiagnostics?.length?'\n  GPU verification observations:\n'+item.gpuValidationDiagnostics.flatMap(gpuValidationDiagnosticText).map(line=>'    '+line).join('\n'):'')+
       (item.blockedBy?.caseId ? `\n  Blocking check: ${item.blockedBy.caseId}${item.blockedBy.reason ? ` (${item.blockedBy.reason})` : ''}${item.blockedBy.stage ? ` [${item.blockedBy.stage}]` : ''}` : '')+
       (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n'+
     artifacts.flatMap(({trace})=>[...(trace.preflightDiagnostics??[]).map(d=>`\nPreflight / ${trace.executionId}\n${preflightDiagnosticText(d).join('\n')}\n`),
       ...(trace.gpuMemoryDiagnostics??[]).map(d=>`\nGPU memory draft / ${trace.executionId}\n${gpuMemoryDiagnosticText(d).join('\n')}\n`),
+      ...(trace.gpuValidationDiagnostics??[]).map(d=>`\nGPU verification / ${trace.executionId}\n${gpuValidationDiagnosticText(d).join('\n')}\n`),
       ...(trace.omittedPreflightDiagnostics?[`${trace.omittedPreflightDiagnostics} additional baseline scopes omitted; first failure and recent scopes retained.\n`]:[]),
       ...(trace.cleanupDiagnostics??[]).flatMap(d=>[`\nCleanup / ${trace.executionId}\n`,...cleanupDiagnosticText(d).map(line=>line+'\n')]),
       ...(trace.runtimeDiagnostics??[]).map(d=>`\nRuntime / ${trace.executionId}\n${JSON.stringify(d)}\n`),

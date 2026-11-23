@@ -9,6 +9,46 @@ Browser login lifetime is configured in Keycloak, not through this API. Its
 optional [Remember me policy](../concepts/identity.md#browser-session-lifetime)
 does not change access-token validation, API keys or service-account rights.
 
+The internal session and UID-bound instance guards distinguish rejected
+authentication (401), missing access (403) and unavailable verification (503).
+Only GET/HEAD top-level HTML navigation with an existing owned host cookie and
+no pending reauthentication fence may turn a confirmed 401 into a 303 to `/`.
+The response expires only `__Host-MagicStickAccessToken` and
+`__Host-MagicStickIDToken` on that same host and sets a 60-second
+`__Host-MagicStickReauth` fence. No request-derived redirect destination or
+cookie Domain is accepted. The Gateway clears the fence only on a subsequent
+successful protected response; redirects and errors cannot reset the bound.
+Navigation hints never grant access. API/fetch requests and mutations retain
+401 without redirects, cookie changes or replay, and real authorization/UID
+denials and verification outages never clear cookies.
+
+The pre-OIDC gRPC callback gate inspects only the request authority. Concurrent
+requests for the same canonical host share one **in-progress** complete readiness
+check, not a user-authorization result. Its entry is removed before completion is
+published; the next non-overlapping request and every distinct host obtain a fresh
+check. Both positive and negative completed results are discarded. Existing
+route/policy and callback-owner revision checks, the seven-second dependency
+deadline, fail-closed 503 behavior and per-request authentication remain intact.
+Scripts and other page resources do not receive an authentication exception.
+Failure diagnostics contain only fixed reasons, bounded HTTP status codes and
+elapsed milliseconds, never headers, response bodies or exception text.
+
+The post-OIDC HTTP session/instance guards use the same API listener as normal
+API requests. Its pending accept queue is explicitly bounded to 128 connections
+instead of the standard library's five-slot default, so a parallel application
+resource burst can wait for dispatch. This is not an authorization cache or a
+worker/concurrency guarantee. Every protected resource still performs its live
+session and current instance/role/grant checks. HTTP response framing and the
+existing connection-close behavior are unchanged. A peer disconnect during a
+guard response closes that connection without writing a second response or
+replaying a request. Failure records contain only a generated opaque `check_id`,
+an allowlisted stage/reason, status and bounded elapsed milliseconds; request
+paths, identity values, headers, bodies and exception messages are excluded.
+The status is unknown (`null`) after a response-write failure, not an invented
+HTTP 503 attributed to the identity provider.
+See [identity validation](../development/identity-validation.md#authenticated-application-resource-fanout)
+for the distinct transport and browser acceptance gates.
+
 Model create/update payloads accept optional `local.capabilities` or
 `external.capabilities` objects containing `tools`, `vision` and `reasoning`
 booleans. Omitted fields remain unknown; string/numeric booleans and unsupported
@@ -26,6 +66,8 @@ React browser dashboard
 Terminal client (CLI or TUI)
   -> Keycloak Device Authorization Flow
   -> Envoy Gateway JWT validation on api.<mDNS-domain>
+Attached appliance monitor (TUI)
+  -> automatic magicstick-console service-account token, cluster-internal only
 Both
   -> Dashboard Backend API
      -> Kubernetes API
@@ -100,6 +142,13 @@ lock check; an unexpected permission error remains an error, not an empty lab.
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
 | `GET /api/regression/runs/<id>/archive`, `/html`, `/junit` | Allowlisted completed report attachment, at most 64 MiB; never private input/journal/log download. |
 | `GET /api/regression/preflight-logs` | Private runner-only bounded diagnostic read; additional exact active-run/generated-account and workload-identity guards below. Never a report download or general administrator log endpoint. |
+
+The fixed Phase 5 `services` diagnostic is offered only with runner capability
+`diagnosticSelectionVersion: "3"`; version 2 retains the existing Phase 2–4
+profiles. It requires full mode and phases `[5]`, keeps its selection immutable
+and never enables deferred workflows in ordinary runs. Its catalog-derived
+installation/access/removal evidence is separate from model integration or
+whole-Phase-5 acceptance.
 
 The optional private diagnostic read requires exactly `runUid`, `namespace`,
 `deployment`, `container`, `deploymentUid`, `generation` and `podUid`, each once.
@@ -331,6 +380,18 @@ global model defaults or overwrite saved application settings and indexes.
 
 ### NVIDIA multi-GPU models
 
+For ordinary NVIDIA models, both memory-estimation endpoints return
+`physicalMaximumMi` (nullable) separately from unreserved `maximumMi`, with
+`memoryBudgetScope: per-device`. Without an explicit DRA card selection,
+automatic placement receives one GPU: `maximumMi` is bounded by the smallest
+eligible physical card, never aggregate DCGM/pool VRAM. Only schedulable nodes
+matching the target/engine selector contribute. Unknown candidate capacity
+remains null. Create/update reject a known physically oversized one-card budget
+even with `allowMemoryRisk: true`; estimated underbudgeting and unreserved
+oversubscription retain their separate documented risk contract. Edit estimates
+exclude the old model's own reservation, never add its old budget to physical
+capacity. This does not select or promise an exact device-plugin GPU.
+
 The existing local-model create, estimate, edit, start and stop endpoints remain
 the only control path. Optional `local.gpuDeployment` selects `single`, `split`
 or `replicated`. Omission preserves existing single/split behavior; replication
@@ -425,6 +486,19 @@ remain. Active validation, custom settings and incomplete backend transitions
 are not reset. Response acceptance remains HTTP 202, not runtime completion.
 The runner journals the original representation and confirms the resulting
 UID/generation/spec; a lost acknowledgement remains fenced.
+
+The physical-device form of administrator-only, CSRF-protected
+`POST /api/hardware/validation` retains its existing node/boot, eligible PCI-device,
+fresh-host-evidence, module-generation, busy-state and resource-version checks.
+HTTP 409 now also includes one fixed `code`: `GPU_NODE_CHANGED`,
+`GPU_DEVICE_UNAVAILABLE`, `GPU_EVIDENCE_STALE`, `GPU_PROVIDER_UNSUPPORTED`,
+`GPU_OPERATOR_DISABLED`, `GPU_CONFIGURATION_CHANGED` or `GPU_REQUEST_CONFLICT`.
+Only `GPU_CONFIGURATION_CHANGED` includes `generations.currentGeneration` and
+`generations.inventoryGeneration`: positive bounded integers, or `null` when
+unknown. No native error, UID, request header or arbitrary metadata is added.
+Partial provider acceptance remains a rejection, not permission to replay the
+request. HTTP 202 still means only accepted intent; diagnostic execution and
+physical workload binding require independent observation.
 
 The user API identifies locally managed accounts with `source: "local"`. Clients
 must not require a separate `local: true` property. Regression-created accounts

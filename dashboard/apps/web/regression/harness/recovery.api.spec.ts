@@ -8,7 +8,7 @@ import {LabLease} from '../core/lease.ts';
 import {ResourceJournal} from '../core/journal.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
 import {OwnedModelClient, remainingModelResources} from '../core/owned-model.ts';
-import {verifyCapabilities, verifyIdentity} from '../core/preflight.ts';
+import {verifyCapabilities, verifyIdentity, hostOperationTerminal} from '../core/preflight.ts';
 import {requireSafe} from '../core/errors.ts';
 import {dirname} from 'node:path';
 import {attestCleanup} from '../core/cleanup-state.ts';
@@ -38,7 +38,7 @@ test('HAR-07 explicit recovery resumes one journal and removes only unchanged UI
     requireSafe(models.activations.every(item => item.spec?.type !== 'local' || item.spec.enabled === false ||
       ownedNames.has(item.metadata?.name ?? '')), 'BUSY');
     requireSafe(hosts.nodes.every(host => !host.updates?.busy && !host.software?.busy &&
-      (!host.operation || ['Succeeded', 'Failed', 'Cancelled'].includes(host.operation.phase))), 'BUSY');
+      (!host.operation || hostOperationTerminal(host.operation.phase))), 'BUSY');
     const guard = async () => {
       requireSafe(lock && context, 'LOCK_LOST'); await lock.assertHeld();
       await ensureDashboardSession(context); await lock.assertHeld();

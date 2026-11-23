@@ -22,3 +22,5 @@ resources:
   - service.yaml
   - cli-gateway.yaml
   - gateway.yaml
+  - callback-gate-policy.yaml
+  - callback-gate-network-policy.yaml

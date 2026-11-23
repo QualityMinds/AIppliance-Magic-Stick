@@ -28,8 +28,9 @@ explicit promotion candidates. Verify promotion and live convergence separately 
 The React frontend is the only browser dashboard, deployed as
 `dashboard/ai-appliance-dashboard`. Open `https://<mDNS-domain>/` (by default
 `https://magicstick.local/`) or the configured public-domain root. The existing
-Service, primary routes, OIDC callbacks and `MagicStickAccessToken` cookie names
-are retained. The local route keeps `lab42.io/mdns.enabled: "true"`, so kdns
+Service and primary routes remain in place. Each SSO host uses its own callback
+and host-only `__Host-MagicStickAccessToken` cookie. The local route keeps
+`lab42.io/mdns.enabled: "true"`, so kdns
 publishes the primary hostname when the route is accepted and the Gateway has
 an address. First-run setup and the physical CLI/TUI console keep their existing
 handoff URLs and do not require another dashboard address.
@@ -60,11 +61,60 @@ The React implementation retains the established tab-by-tab feature contract:
 | Mesh | Administrator-only top-level page immediately after API Access; optional module activation, membership, invitations, local-model sharing, relay configuration, and status. Former Settings Mesh links redirect here. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
 | Federated SSO | Entitlement status, stable issuer and per-provider callback, OIDC/SAML metadata validation, redacted provider state, exact role mappings, guarded save/delete, and local-recovery guidance. |
-| System | Category tabs for Settings, License, Users, Hardware, System Status and Computer power. Settings retains its own subtabs. System Status has a separate role-filtered tab bar: Overview resource counts and summaries; GPU Operators; Flux reasons/messages; Network & routes; administrator-only Model cache at `#/system/status/model-cache`; and license-free administrator regression execution/reports at `#/system/status/regression`. Only the selected status tool mounts and queries its API, independent of resource-status loading/errors. Old `#/system/model-cache` and `#/system/regression` hashes redirect to the matching nested status page. Existing Settings, License and Users compatibility links and administrator-only power controls remain intact. |
+| System | Category tabs for Settings, License, Users, Hardware, System Status and Computer power. Settings retains its own subtabs, including the identity-gated Local console level (`/api/console-access`, shared with the CLI `console-access` command and the TUI Settings tab). System Status has a separate role-filtered tab bar: Overview resource counts and summaries; GPU Operators; Flux reasons/messages; Network & routes; administrator-only Model cache at `#/system/status/model-cache`; and license-free administrator regression execution/reports at `#/system/status/regression`. Only the selected status tool mounts and queries its API, independent of resource-status loading/errors. Old `#/system/model-cache` and `#/system/regression` hashes redirect to the matching nested status page. Existing Settings, License and Users compatibility links and administrator-only power controls remain intact. |
 
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
 API behavior remain covered by the existing Python dashboard tests.
+
+### Temporary dependency patch
+
+The frozen workspace applies
+[`picomatch@4.0.7.patch`](../../dashboard/patches/picomatch@4.0.7.patch) for
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
+An unescaped glob star inside a repeated extglob can produce nested unbounded
+regular-expression quantifiers even with a single branch. The patch uses the
+parser's existing conservative literal fallback for that risky form, after its
+existing safe character-star reduction. Such a risky pattern is treated as
+literal text, not executed as a repeated glob. This deliberately changes those
+patterns; it is not a general proof that arbitrary regular expressions are safe.
+Quoted, escaped and simple bracket-literal stars retain their normal meaning.
+Nested extglob operators are not mistaken for plain glob stars; known POSIX
+classes retain their bracket-literal meaning too.
+Disabling the upstream recursion protection explicitly remains unsafe for
+untrusted patterns and is not done by the reviewed build consumers.
+
+`pnpm-lock.yaml` binds the patch checksum and every transitive consumer. The Web
+and CLI Docker build contexts include the patch before frozen installation;
+the regression image copies the complete workspace. The upstream version,
+tarball integrity and MIT notices are retained rather than assigning a fictitious
+fixed version. `pnpm test` runs `test:dependency-patches` before the existing
+client suites. The existing SEC-03 supply-chain owning selection also invokes
+[`DependencyPatchTests`](../../tests/test_dependency_patches.py), checking the
+actual installed matcher, lock graph, build contexts and strict audit defaults.
+
+The unpatched counterexample must exceed a bounded child-process budget; with
+the patch, the same short attack and its variants finish and preserve the
+literal fallback. Ordinary file/test globs and both client builds are separate
+compatibility checks, not appliance acceptance.
+
+Compatibility comparison against the exact upstream 4.0.7 revision
+`6bb40679c218cefba5d4e9662408c5fdf699a8bb` runs its unchanged Mocha tests:
+the baseline has 1,983 passes; with this mitigation 1,979 pass and four upstream
+assertions retain their old expectation for the intentionally literalized risky
+forms (`+(*)c`, `*(a*|b)` and `*/*(W*, *)*`). These four assertions are not
+reported as passed or removed. The project-specific counterexamples additionally
+exercise bounded rejection of those repeated-wildcard forms with failing
+suffixes. The ordinary reviewed Web/CLI test/build checks are separate evidence;
+this candidate is not a fully upstream-compatible general-purpose replacement.
+
+GitHub withdrew the advisory on 18 November 2026; this did not change the npm
+package contents. The local patch and its coverage remain in place. The
+[Dependency security workflow](../../.github/workflows/dependency-security.yml)
+always runs the unfiltered `pnpm audit --audit-level high` on the frozen graph.
+High or critical findings and registry failures still fail the check. Removing
+the patch is a separate compatibility decision that requires a reviewed lock
+and inventory update, matcher and client tests, and exact-commit CI.
 
 ## First-run setup sessions
 
@@ -129,18 +179,25 @@ The start dialog selects one or more P0 phases (0–8, all by default) through t
 shared start API. The API validates and sorts the immutable selection; the
 existing operator passes it to the Kubernetes runner. Subset runs keep automatic
 cleanup and baseline checks, and show only their selected-phase progress/results.
-An optional immutable `diagnosticSelection` selects a fixed Phase 2, 3 or 4 subset from
+An optional immutable `diagnosticSelection` selects a fixed Phase 2, 3, 4 or 5 subset from
 the Git-owned regression catalog. The API advertises profiles only for a qualified
 runner; the operator rechecks catalog, phase, pins and capability before creating its
 Job. Distinct credential readiness and a diagnostic entrypoint fail closed during
 mixed-version upgrades. The native runner discovers exact registered scenario
 IDs and reuses the serial launcher for `phase2-models`, `phase3-validation` or
-`phase4-sharing`, not an arbitrary script or an all-phase fallback. Reports retain the diagnostic
+`phase4-sharing`, or the separate `services` mode, not an arbitrary script or an all-phase fallback. Reports retain the diagnostic
 scope and do not grant full-phase acceptance.
 The fixed `ollama-two-card-split` profile selects only the existing Phase 4
 `MGPU-01 / p4-multigpu-ollama-2` A/E/O evidence, distinct from four-card split or
 independent copies. Product-service/application live workflows are currently
-deferred to separate regression, including service credentials and app ACLs.
+deferred in ordinary runs, including service credentials and app ACLs. The explicit
+`services` profile requires runner capability 3 and discovers every applicable
+catalog entry/stage before execution: installation/removal, then access with
+SSO and supported public access. Model integration stays deferred. Capability 2
+continues to offer the existing Phase 2–4 profiles but
+never advertises the new service profile. Pi Coding Agent is included; Hermes
+remains separate. Exact runtime UID receipts verify removal before restoring a
+borrowed service; unknown writes stay fenced.
 The shared source policy governs selected live layers, input preparation and
 workflow dispatch; isolated contracts and core user/license/Kubernetes/model/GPU
 checks stay selected. `MOD-06` uses its own GPU-profile prerequisite. Reports
@@ -191,6 +248,14 @@ pnpm cli --version
 pnpm cli --help
 ```
 
+The final CLI image uses Alpine's Node 24 package and copies only the bundled
+executable and license notices from the build inputs. No npm, npx or workspace
+dependencies are installed or inherited in the final image. The image build also
+checks the bundle's source map for Picomatch. On Linux AMD64 and ARM64 it checks
+the launch path and runs `--version` and `--help`
+without network access as the same non-root user as the console. Inspect each
+published platform's SBOM separately from the workspace dependency audit.
+
 Build production images from the **repository root** (not `dashboard/`) so
 source-of-truth license notices can be included:
 
@@ -214,6 +279,12 @@ MAGICSTICK_RUN_NGINX_CONTAINER_TESTS=1 python3 -m unittest -v tests.test_nginx_r
 
 The tests check HTTP responses, exactly one worker, no cgroup OOM events and no
 container restarts; they need Docker and no appliance access.
+The dashboard nginx retains four on-demand 16 KiB large-header buffers. Each
+individual field must fit one buffer; the synthetic header tests verify both
+accepted and rejected sizes without storing credentials.
+They test header parsing, not authentication, and retain the existing 128 MiB
+non-root runtime budget. Host-only cookie migration and OIDC/logout checks remain
+separate identity acceptance gates.
 
 The API Dockerfile has one final runtime containing the BSL-licensed
 `magicstick_core` package, license texts and third-party notices.

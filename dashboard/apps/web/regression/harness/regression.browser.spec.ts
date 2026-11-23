@@ -4,6 +4,36 @@ import {diagnosticSelections} from '../core/diagnostic-selection.ts';
 import {reportCountsFixture} from '../fixtures/regression-results.ts';
 
 for(const viewport of ['desktop','mobile'] as const)
+test(`HAR-10 HW-06 UX-02 ${viewport} GPU request failure observations remain separate from cleanup and survive refresh`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  const counts={Passed:2,Failed:1,Blocked:0},observations=[
+    'GPU verification OLlama/all: GPU_CONFIGURATION_CHANGED; request attempted; HTTP 409',
+    'Server observed generations: inventory 2; current 3',
+    'Observation 1 waiting/amd: expected generation 2; current 2; controller 1; inventory unknown; identity matches; intent matches; Ready false'];
+  let writes=0;
+  await fixturePage(page,{'/api/regression':(request:Request)=>{
+    if(request.method()!=='GET')writes++;
+    return {registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+      executionLocation:'appliance-kubernetes',externalRunnerRequired:[],runs:[{id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',
+        createdAt:'2026-11-11T12:00:00Z',sourceRevision:'b'.repeat(40),phase:'Failed',phases:[3],testMode:'full',
+        message:'GPU verification was rejected.',credentialsCleaned:true,reportAvailable:true,progress:{percent:100},
+        result:{counts,executionCounts:counts,recoveryRequired:false,omittedCases:0,phases:[],cases:[{
+          id:'HW-06',outcome:'Failed',layer:'A',variant:'p3-validation-all',reason:'API',stage:'gpu-validation',durationMs:10,
+          message:'GPU verification was rejected.',action:'Inspect the fixed request observations.',gpuValidationDiagnostics:observations}]}}]};
+  }});
+  await page.goto(origin+'/#/system/status/regression');
+  for(const refresh of [false,true]) {
+    if(refresh)await page.reload();
+    await page.getByText('Failures and blocked checks (1)',{exact:true}).click();
+    await page.getByText('GPU verification observations',{exact:true}).click();
+    for(const line of observations)await expect(page.getByText(line,{exact:true})).toBeVisible();
+    await expect(page.getByText('Cleanup observations',{exact:true})).toHaveCount(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  expect(writes).toBe(0);await page.screenshot({path:info.outputPath(`gpu-verification-report-${viewport}.png`),fullPage:true});
+});
+
+for(const viewport of ['desktop','mobile'] as const)
 test(`HAR-07 HAR-10 UX-02 ${viewport} all-check totals include runner errors while scenario details stay separate`,async({page},info)=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   const result=reportCountsFixture(),original=structuredClone(result),writes:string[]=[];

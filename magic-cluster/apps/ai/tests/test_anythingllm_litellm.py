@@ -31,6 +31,17 @@ class AnythingLLMLiteLLMDeploymentTests(unittest.TestCase):
         self.assertEqual(self.bootstrap['image'], self.runtime['image'])
         self.assertIn('@sha256:', self.runtime['image'])
 
+    def test_disabling_keep_data_service_does_not_prune_documents_preferences_or_vectors(self):
+        # Module disable removes its generated Flux Kustomization with prune
+        # enabled. Both storage roots must opt out; retaining only the document
+        # volume would still discard its matching Qdrant vector index.
+        for filename in (BASE / 'pvc.yaml', BASE.parent / 'qdrant/base/pvc.yaml'):
+            with self.subTest(volume=filename.name, parent=filename.parent):
+                volume = yaml.safe_load(filename.read_text())
+                self.assertEqual(volume['kind'], 'PersistentVolumeClaim')
+                self.assertEqual(volume['metadata']['annotations']
+                                 ['kustomize.toolkit.fluxcd.io/prune'], 'disabled')
+
     def test_runtime_connection_secrets_do_not_override_editable_model_preferences(self):
         self.assertTrue(all('configMapRef' not in source for source in self.runtime['envFrom']))
         variables = {variable['name']: variable for variable in self.runtime['env']}

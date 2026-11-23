@@ -8,9 +8,21 @@ export const sessionSchema = z.object({
   roles: z.array(z.string()).default([]),
   identityManagementAvailable: z.boolean().default(false),
   identityManagementMode: z.string().default('external'),
+  /** True for the automatic session of the physical appliance console. */
+  localConsole: z.boolean().optional(),
 }).passthrough();
 
 export type Session = z.infer<typeof sessionSchema>;
+
+/** Access granted to the attached appliance console without a login; `off` requires a user sign-in. */
+export type ConsoleAccessLevel = 'off' | 'viewer' | 'operator' | 'admin';
+export const CONSOLE_ACCESS_LEVELS: readonly ConsoleAccessLevel[] = ['off', 'viewer', 'operator', 'admin'];
+export interface ConsoleAccess {
+  /** False until the appliance has provisioned the local console identity. */
+  available: boolean;
+  accessLevel: ConsoleAccessLevel;
+  accessLevels?: ConsoleAccessLevel[];
+}
 
 export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
 export type RegressionPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -24,7 +36,7 @@ export interface RegressionStartRequest {
   requestId: string; acknowledgeDisruption: true; phases?: readonly RegressionPhase[]; testMode?: RegressionTestMode;
   diagnosticSelection?: string;
 }
-export interface RegressionDiagnosticSelection {id:string;title:string;caseIds:string[];phase?:2|3|4}
+export interface RegressionDiagnosticSelection {id:string;title:string;caseIds:string[];phase?:2|3|4|5}
 export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
 export interface RegressionCleanup {
   state: 'unknown' | 'required' | 'running' | 'verified' | 'blocked';
@@ -53,7 +65,7 @@ export interface RegressionResult {
     blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts}>;
   cases: Array<{id: string; description?: string; outcome: RegressionOutcome; layer: string; variant: string; reason: string; message: string; action: string; durationMs: number;
     phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker;
-    causeReason?:string;causeStage?:string;diagnostics?:string[]}>;
+    causeReason?:string;causeStage?:string;diagnostics?:string[];gpuValidationDiagnostics?:string[]}>;
 }
 export interface RegressionRun {
   diagnosticSelection?: string;
@@ -66,7 +78,7 @@ export interface RegressionRun {
   operation?: 'tests' | 'recover-lock';
 }
 export interface RegressionStatus {
-  diagnosticSelections?: Array<RegressionDiagnosticSelection & {phase:2|3|4}>;
+  diagnosticSelections?: Array<RegressionDiagnosticSelection & {phase:2|3|4|5}>;
   registered: boolean; applianceUid: string; runtimeAvailable: boolean; sourceRevision: string; message: string;
   recoveryAvailable?: boolean;
   cleanup?: {available: boolean; message: string; revision?: string; runId?: string; released?: boolean};
@@ -723,6 +735,8 @@ export interface MemoryEstimate {
   minimumMi: number;
   recommendedMi: number;
   maximumMi?: number | null;
+  /** Hard per-card ceiling. Automatic NVIDIA placement cannot pool cards. */
+  physicalMaximumMi?: number | null;
   gpuCount?: number;
   gpuParallelism?: 'tensor' | 'pipeline' | 'spread' | 'replicated';
   memoryBudgetScope?: 'per-device';
@@ -846,6 +860,8 @@ export interface HardwareGpuDevice {
   validationAvailable: boolean;
   validationReason?: string;
   validationContext?: string;
+  /** Generation of the vendor ModuleActivation used for this physical inventory. */
+  activationGeneration?: number;
   validation?: Record<string, GpuEngineValidation>;
 }
 

@@ -333,7 +333,9 @@ class NvidiaCardApiTests(unittest.TestCase):
     def test_selection_validation_and_persistence_never_become_cuda_environment_overrides(self):
         local = {**self.model()["spec"]["local"], "url": "hf://fixture/small"}
         catalog = {"targets": {"nvidia-gpu": {"kind": "gpu"}}}
-        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state, "compute_target_catalog": lambda: catalog}):
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state, "compute_target_catalog": lambda: catalog,
+                "compute_memory_summary": lambda *_: {"devices": [{"gpuDevice": local["gpuDevice"],
+                    "totalMi": 49152, "unreservedMi": 49152}]}}):
             resource = self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": local})
             self.assertEqual(resource["spec"]["local"]["gpuDevice"], local["gpuDevice"])
             self.assertNotIn("env", resource["spec"]["local"])

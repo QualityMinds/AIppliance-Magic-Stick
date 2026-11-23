@@ -1,2 +1,6 @@
 PyJWT[crypto]==2.15.0
 cryptography==50.0.1
+grpcio==1.76.0
+protobuf==6.33.6
+xds-protos==1.76.0
+typing-extensions==4.16.0
