@@ -19,6 +19,19 @@ not duplicate Kubernetes access, Keycloak administration, model discovery, or
 reconciliation logic in a client. The CLI and TUI reuse the same contracts, API
 client, and core rules without importing React.
 
+The TUI keeps feature parity with the browser. `apps/cli/src/tui.ts` is the
+runtime (input, overlays, refresh); `tui-dialogs.ts` provides dialogs that are
+rebuilt from their own draft state on every render, a scrollable viewer and
+typed confirmations; `tui-state.ts` mirrors the browser's pages, sections and
+subtabs. Each page area is one module (`tui-models.ts`, `tui-services.ts`,
+`tui-mesh.ts`, `tui-settings.ts`, `tui-host-settings.ts`, `tui-hardware.ts`,
+`tui-status.ts`, …) with a pure page builder and an action handler that declares
+the role each action needs. `tui-pages.ts` decides which page-specific data
+(`snapshot.ts` extras such as host management, GPU sharing, mesh, federation,
+regression runs and the release catalog) is loaded while a page is open. When a
+browser page gains an option, add it to the matching TUI module in the same
+change.
+
 Normal dashboard-source pushes to `main` and `develop` build and automatically
 promote a coordinated Web/API/CLI image set after required CI succeeds. The
 Deployments still use immutable digests, and feature-branch/manual builds remain

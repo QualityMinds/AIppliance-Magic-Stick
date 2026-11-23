@@ -197,6 +197,23 @@ describe('runCli', () => {
     } finally { vi.unstubAllEnvs(); }
   });
 
+  it('saves and opens files on USB sticks only on the console, where the host hands over its transfer folder', async () => {
+    const launch = quit();
+    const consoleRuntime = runtime({session: vi.fn(async () => ({subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'}))} as Partial<MagicStickApi>);
+    consoleRuntime.sessionKind = () => 'user';
+    vi.stubEnv('MAGICSTICK_CONSOLE_TRANSFER_DIR', '/var/lib/magicstick-transfer');
+    try {
+      await runCli(['console'], io().supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+      expect(launch).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({transferDirectory: '/var/lib/magicstick-transfer'}));
+      // A workstation terminal keeps saving to local paths.
+      await runCli(['tui'], io().supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+      expect(launch).toHaveBeenLastCalledWith(expect.anything(), expect.not.objectContaining({transferDirectory: expect.anything()}));
+      vi.stubEnv('MAGICSTICK_CONSOLE_TRANSFER_DIR', '');
+      await runCli(['console'], io().supplied, {createRuntime: async () => consoleRuntime, runTui: launch});
+      expect(launch).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({transferDirectory: undefined}));
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it('does not replace a network failure with a new console login', async () => {
     const output = io();
     const consoleRuntime = runtime({session: vi.fn(async () => { throw new Error('network unavailable'); })} as Partial<MagicStickApi>);

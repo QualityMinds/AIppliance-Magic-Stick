@@ -633,6 +633,8 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
         refreshSeconds: integerOption(parsed, 'refresh', 15),
         // Set by the host launcher when its mouse helper feeds this terminal: the monitor shows no pointer itself.
         pointer: process.env.MAGICSTICK_CONSOLE_POINTER === '1',
+        // Set by the host launcher: the folder shared with the host's USB-stick helper.
+        transferDirectory: process.env.MAGICSTICK_CONSOLE_TRANSFER_DIR || undefined,
       });
       if (outcome !== 'switch-user' && outcome !== 'restart-session') break;
       switchUser = outcome === 'switch-user';

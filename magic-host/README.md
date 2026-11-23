@@ -286,6 +286,18 @@ TUI behind `/usr/local/sbin/magicstick-console-mouse`, which reads
 `dashboard_console_mouse_enabled: false` the TUI starts directly and is operated
 with the keyboard.
 
+USB sticks let the monitor save downloads and import files such as a signed
+license. Nothing is mounted when a stick is inserted: when a signed-in console
+user saves or opens a file, the TUI writes a request into
+`/var/lib/magicstick/console-transfer/requests`, and
+`magicstick-console-usb.path` runs `/usr/local/sbin/magicstick-console-usb` as
+root. It mounts USB sticks formatted as FAT32 or exFAT below
+`/var/lib/magicstick/console-transfer/usb` with `nosuid,nodev,noexec` for the
+console runtime user only, unmounts one on request, and answers in `status/`.
+Disks with mounted system filesystems, active swap or an EFI system partition are
+never offered. The console runtime sees these mounts through mount propagation.
+`dashboard_console_usb_enabled: false` switches the helper off.
+
 Before the first-run console is shown, the `kubernetes-oidc` role waits for the
 Flux-managed identity CA, installs only its public certificate on the host,
 restarts K3s with the Keycloak issuer/client/group claim contract, and publishes

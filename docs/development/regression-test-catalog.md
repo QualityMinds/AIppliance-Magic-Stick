@@ -682,6 +682,54 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+### 2026-11-23 — terminal dashboard at feature parity with the browser
+
+The TUI gains every remaining browser page, dialog and option (model edit,
+local model form, logs and runtime removal; module parameters, instance and
+sharing dialogs; Mesh; Kubernetes search and kubeconfig download; Users search
+and paging; license request and texts; Settings Domains, Federated SSO, Network
+and Updates; Hardware host preparation, GPU sharing, shared memory and engine
+validation; System Status Flux, routes, model cache and regression tests;
+Computer power), all through existing API routes. No API, authorization,
+reconciliation or workload path changed, so there are no case ID, variant,
+selection-profile or API (C) changes; the browser's own coverage is unchanged
+(its 442 web tests pass). UX-04 stays the owning case for the shared CLI/TUI
+contract, with unit (U) coverage in `dashboard/apps/cli/src`: per-area suites
+`tui-models.test.ts` (17), `tui-services.test.ts` (6), `tui-access.test.ts`
+(7), `tui-identity.test.ts` (7), `tui-mesh.test.ts` (6), `tui-settings.test.ts`
+(5), `tui-host-settings.test.ts` (11), `tui-status.test.ts` (15) and
+`tui-hardware.test.ts` (10) pin rendered states per role, disabled reasons, the
+request payloads against the browser's (including the shared core model
+payloads, host-operation requests with fresh request IDs and expected
+revisions), typed confirmations (computer name, alias, username,
+`DISPOSABLE TEST SERVER`) and that nothing is sent before confirmation;
+`tui-actions.test.ts`, `tui-console.test.ts` (AUTH-12) and `license-tui.test.ts`
+drive the rewritten dialogs, and `demo.test.ts` checks that the offline preview
+renders every new section from synthetic data without network access and
+allows only read-only actions; `tui-polling.test.ts` checks that a page's own
+data polls quickly without reloading the session or user lists.
+
+USB sticks on the appliance monitor (host role `dashboard-console`, no API
+change): `tui-files.test.ts` (U) covers local saving without overwriting and
+with private permissions, the request/answer protocol against a fake host,
+saving a flushed new file to a stick, refusing existing names and path tricks,
+listing only matching files within the size limit for import, safe removal and
+an unanswered request; `commands.test.ts` checks that only the console command
+uses the transfer folder. Host role (C): `test_console_usb.py` checks that only
+FAT32/exFAT USB filesystems on otherwise unused disks are offered (never a
+system disk, LVM root, active swap, EFI system partition, NTFS or SATA disk),
+the private `nosuid,nodev,noexec` mount options, idempotent scans, eject only of
+the helper's own mounts, a busy stick, detaching unplugged sticks and ignoring
+requests from other users or malformed ones; `test_role.py` checks the folder
+ownership, the path-unit trigger, the Pod's `HostToContainer` mount and the
+launcher hand-over. Not covered: a real stick on the appliance (kernel FAT/exFAT
+mounts, mount propagation into the running K3s Pod, the systemd path unit and
+unplugging), which needs a manual check on the test appliance. Not covered, and not claimed: these TUI flows
+against a live appliance (host operations, network trials, mesh, regression
+runs and model creation were exercised only against fixtures), rendering on the
+physical appliance console, and OSC 52 copying there (the Linux console has
+none).
+
 ### 2026-11-12 — mouse on the attached appliance monitor
 
 Host helper `magic-host/roles/dashboard-console/files/console-mouse.py` plus a

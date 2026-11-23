@@ -16,6 +16,8 @@ CONSOLE_SECRET_FILE={{ (dashboard_console_client_secret_directory ~ '/client-sec
 MOUSE_ENABLED={{ dashboard_console_mouse_enabled | bool | string | lower | quote }}
 MOUSE_HELPER={{ dashboard_console_mouse_helper | quote }}
 MOUSE_DEVICE={{ dashboard_console_mouse_device | quote }}
+USB_ENABLED={{ dashboard_console_usb_enabled | bool | string | lower | quote }}
+TRANSFER_DIR={{ dashboard_console_transfer_mount_path | quote }}
 
 mdns_domain() {
   local value
@@ -76,6 +78,11 @@ while true; do
   draw_waiting 'Verbinde die interaktive TUI ...'
   # With a mouse helper and device present, the TUI session runs behind the helper,
   # which adds mouse reports to the keyboard input. Otherwise it runs directly.
+  # Downloads and imports use USB sticks only when the host helper is switched on.
+  transfer=""
+  if [[ "$USB_ENABLED" == "true" ]]; then
+    transfer="$TRANSFER_DIR"
+  fi
   mouse=()
   pointer=0
   if [[ "$MOUSE_ENABLED" == "true" && -x "$MOUSE_HELPER" && -r "$MOUSE_DEVICE" ]]; then
@@ -86,6 +93,7 @@ while true; do
     env \
       TERM=linux \
       MAGICSTICK_CONSOLE_POINTER="$pointer" \
+      MAGICSTICK_CONSOLE_TRANSFER_DIR="$transfer" \
       MAGICSTICK_CONFIG_HOME=/var/lib/magicstick-console \
       MAGICSTICK_API_URL="$API_URL" \
       MAGICSTICK_ISSUER="$issuer" \

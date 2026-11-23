@@ -8,6 +8,26 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Bring the terminal dashboard (TUI) to feature parity with the browser
+  dashboard: model editing, the complete local model form (search, presets,
+  hardware and NVIDIA cards, memory budgets, CPU offloading, advanced and
+  Realtime settings) and runtime logs; module parameters and the full instance
+  and sharing dialogs; Mesh; Kubernetes Access search and kubeconfig download;
+  Users search and paging; license request and software license texts; Settings
+  (Domains, Federated SSO, Network, Updates); Hardware (host preparation, GPU
+  sharing, shared GPU memory, engine validation); System Status (Flux, routes,
+  model cache, regression tests); and Computer power. All actions use the
+  existing API and the browser's confirmations, including typed computer names.
+  Downloads are saved as new local files and copies use the terminal clipboard.
+
+- Save downloads to and import files from a USB stick at the appliance's own
+  monitor. The host mounts FAT32/exFAT sticks only when a signed-in console user
+  asks, for the console only and without running programs from them; it never
+  offers a disk with mounted system filesystems, swap or the EFI partition, and
+  **Safely remove** unmounts the stick. Existing installations receive it with
+  the updated host role and console image; `dashboard_console_usb_enabled: false`
+  switches it off.
+
 - Fix network trials and rollback on systems where systemd-networkd runs
   unprivileged. Netplan's generated profiles remain readable by the network
   backend; saved network settings and credentials remain private.

@@ -73,12 +73,24 @@ decides at each start whether to use the mouse helper. If text can no longer be 
 selecting. The layout needs a terminal at least 120 columns wide; narrower
 terminals cut off the right edge.
 
-TUI dialogs appear over the page. Forms use Tab or Enter to advance, arrow
-keys to change a choice, Ctrl+S to submit, Ctrl+U to clear the active value,
-and Escape to cancel. Password fields are masked. New API-key values are
-displayed only in the completion dialog and can be copied with `c`; Kubernetes
-kubeconfigs are copied with **Copy kubeconfig** on the user's row. Clipboard
-transfer uses OSC 52 and therefore depends on terminal support.
+TUI dialogs appear over the page. Up/Down or Tab move between fields, Enter
+moves on or presses a button, Left/Right change a choice or step a number,
+Space opens a choice list or toggles a checkbox, Ctrl+S submits, Ctrl+U clears
+the active value, and Escape goes back. Password fields are masked. New API-key
+values are displayed only in the completion dialog and can be copied with `c`;
+kubeconfigs are copied with **Copy to Clipboard** on the user's row. Clipboard
+transfer uses OSC 52 and therefore depends on terminal support; the appliance's
+own monitor has none.
+
+On the attached monitor, save and import dialogs use a USB stick. If **Scan for
+USB sticks** finds none, check that the stick is formatted as FAT32 or exFAT
+(NTFS and Linux filesystems are not offered) and plugged directly into the
+appliance. If the dialog reports that the appliance did not answer, check on the
+host that `magicstick-console-usb.path` is active and that
+`/var/lib/magicstick/console-transfer` exists; `journalctl -u
+magicstick-console-usb.service` shows each request and its result. A stick
+that is still in use cannot be removed safely; close the save dialog and try
+**Safely remove** again.
 
 The seven-line borderless banner puts the **AIppliance** / **Magic Stick**
 branding on the rounded USB spacecraft itself. There is no caption row.
