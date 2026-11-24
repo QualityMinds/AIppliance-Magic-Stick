@@ -47,11 +47,21 @@ Check the changed user flow under the intended role. Retain existing workloads
 unless their restart/change is part of the rollout. UI-only rollout does not
 require GPU probes, model downloads or a computer restart.
 
-If CI fails, the image is missing, the target is ambiguous or the appliance is
-offline, stop at the last verified stage and report the concrete gap. Diagnose
-within scope rather than retrying destructive actions or bypassing gates. An
-offline appliance may reconcile when it returns only after the required promoted
-manifests are on its tracked branch; that expectation is not live verification.
+Failed CI blocks regular rollout, promotion to `main` and release qualification.
+It does not automatically block a manual PR demo on a designated non-production
+appliance. For that exception, require explicit approval covering the exact PR
+revision, target, known failed or skipped checks, and demo window. Record the
+findings, the last verified good revision, and the rollback plan before starting.
+Use the normal appliance update path with verified, immutable images. Report the
+deployment as a demo exception, not as green CI or release acceptance. The
+exception does not change required checks or branch protection on `main`, qualify
+a release, or authorize a rollout to other appliances.
+
+In all cases, stop if the image is missing or unverified, the target is ambiguous,
+the appliance is offline, or the normal update path refuses the change. Diagnose
+within scope rather than overriding device safeguards. An offline appliance may
+reconcile later if it already tracks the promoted revision; that is not live
+verification.
 
 ## Completion report
 
